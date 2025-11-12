@@ -18,7 +18,7 @@ app.use(express.urlencoded({ extended: true }));
 require('./config/database');
 app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/projectfreelancer.route'));
 
-app.use('/accountant', require('../src/modules/auth/routes/accountant/accountant.routes'));
+app.use('/accountant', require('./modules/auth/routes/accountant/Accountant.routes'));
 
 
 app.use('/freelancer/projects/get', require('../src/modules/auth/routes/freelancer/routesfreelancer'));
