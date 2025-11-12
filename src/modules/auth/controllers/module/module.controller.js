@@ -316,7 +316,7 @@ exports.restoreModule = asyncHandler(async (req, res) => {
 
 // GET ALL (excludes deleted)
 exports.getAllModules = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 10, isActive } = req.query;
+  const { page = 1, limit = 50, isActive } = req.query;
   const filter = { isDeleted: false };
   if (isActive !== undefined) filter.isActive = isActive === 'true';
 

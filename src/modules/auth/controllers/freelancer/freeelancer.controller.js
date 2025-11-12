@@ -1,7 +1,8 @@
 // controllers/freelancer/freelancer.controller.js
-
 const winston = require('winston');
 const Freelancer = require('../../models/Freelancer/freelancer.model');
+const Category = require('../../models/Freelancer/categoryfreelancer.model');
+const Subcategory = require('../../models/Freelancer/subcategoryfreelancer.model');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const { APIError } = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
@@ -9,652 +10,439 @@ const bcrypt = require('bcryptjs');
 const { createToken } = require('../../../../middleware/auth');
 const { Role } = require('../../models/role/role.model');
 
-// Configure Winston logger
 const logger = winston.createLogger({
   level: 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.json()
-  ),
+  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
   transports: [
     new winston.transports.File({ filename: 'logs/freelancer.log' }),
     new winston.transports.Console()
   ]
 });
 
-// Freelancer Login
-exports.freelancerLogin = asyncHandler(async (req, res, next) => {
-  try {
-    const { email, password } = req.body;
+// === LOGIN ===
+exports.freelancerLogin = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
+  const freelancer = await Freelancer.findOne({ email }).select('+password').populate('role');
 
-    // Find freelancer and populate role
-    const freelancer = await Freelancer.findOne({ email })
-      .select('+password')
-      .populate({
-        path: 'role',
-        model: Role,
-      });
+  if (!freelancer || !(await bcrypt.compare(password, freelancer.password))) {
+    throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
+  }
+
+  const token = createToken(freelancer);
+  const response = freelancer.toObject();
+  delete response.password;
+
+  res.status(StatusCodes.OK).json({ success: true, token, freelancer: response });
+});
+
+// === CREATE ===
+// controllers/freelancer/freelancer.controller.js
+// controllers/freelancer/freelancer.controller.js
+exports.createFreelancer = asyncHandler(async (req, res) => {
+  const data = req.body;
+
+  const existing = await Freelancer.findOne({
+    $or: [{ email: data.email }, { mobile: data.mobile }]
+  });
+  if (existing) throw new APIError('Email or mobile already exists', StatusCodes.CONFLICT);
+
+  if (!data.is_mobile_verified) throw new APIError('Mobile must be verified', StatusCodes.BAD_REQUEST);
+
+  const role = await Role.findOne({ name: 'Freelancer' });
+  if (!role) throw new APIError('Role not found', StatusCodes.NOT_FOUND);
+  
+  // Convert ObjectId to string
+  data.role = role._id; // Convert to string
+  data.status_info = { status: 0 };
+  data.password = await bcrypt.hash(data.password, 10);
+
+  // No document handling here
+  data.documents = []; // Initialize empty
+
+  const freelancer = await Freelancer.create(data);
+  
+  // Populate will still work if you reference the role properly
+  await freelancer.populate('role services_offered.category services_offered.subcategory');
+
+  logger.info(`Freelancer registered (pending): ${freelancer._id}`);
+  res.status(StatusCodes.CREATED).json({
+    success: true,
+    message: "Registration successful. Complete your profile after login.",
+    freelancer: {
+      _id: freelancer._id,
+      email: freelancer.email,
+      name: freelancer.name,
+      status: freelancer.status_info.status,
+      role: freelancer.role // This will now be a string
+    }
+  });
+});
+
+// === GET ALL ===
+exports.getAllFreelancers = asyncHandler(async (req, res) => {
+  const { page = 1, limit = 10, status, search, city, id } = req.query;
+  const query = { is_deleted: false };
+
+  // If an ID is provided, return a single freelancer
+  if (id) {
+    const freelancer = await Freelancer.findOne({ _id: id, is_deleted: false })
+      .select('-password')
+      .populate('role services_offered.category services_offered.subcategory')
+      .lean();
 
     if (!freelancer) {
-      throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
-    }
-
-    // Compare hashed password
-    const isMatch = await bcrypt.compare(password, freelancer.password);
-    if (!isMatch) {
-      throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
-    }
-
-    // Generate token
-    const token = createToken(freelancer);
-
-    // Convert to object & remove password
-    const freelancerResponse = freelancer.toObject();
-    delete freelancerResponse.password;
-
-    res.status(StatusCodes.OK).json({
-      success: true,
-      message: 'Login successful',
-      token,
-      freelancer: freelancerResponse,
-    });
-  } catch (error) {
-    if (!error.message) error.message = 'Unidentified error';
-    next(error);
-  }
-});
-
-// Create Freelancer
-exports.createFreelancer = asyncHandler(async (req, res, next) => {
-  const freelancerData = req.body;
-
-  // Validate required fields
-  if (!freelancerData.email) {
-    throw new APIError('Email is required', StatusCodes.BAD_REQUEST);
-  }
-
-  // Check duplicate freelancer
-  const existingFreelancer = await Freelancer.findOne({
-    $or: [
-      { email: freelancerData.email.toLowerCase().trim() },
-      { mobile: freelancerData.mobile }
-    ]
-  });
-
-  if (existingFreelancer) {
-    if (existingFreelancer.email === freelancerData.email.toLowerCase().trim()) {
-      logger.warn(`Freelancer creation failed: Duplicate email - ${freelancerData.email}`);
-      throw new APIError('Freelancer email already exists', StatusCodes.CONFLICT);
-    }
-    if (existingFreelancer.mobile === freelancerData.mobile) {
-      logger.warn(`Freelancer creation failed: Duplicate mobile - ${freelancerData.mobile}`);
-      throw new APIError('Freelancer mobile number already exists', StatusCodes.CONFLICT);
-    }
-  }
-
-  // Mobile verification check
-  if (!freelancerData.is_mobile_verified) {
-    throw new APIError('Mobile must be verified', StatusCodes.BAD_REQUEST);
-  }
-
-  const freelancerRole = await Role.findOne({ name: 'Freelancer' });
-  if (!freelancerRole) {
-    throw new APIError('Freelancer role not available', StatusCodes.NOT_FOUND);
-  }
-  freelancerData.role = freelancerRole._id;
-
-  // Ensure status_info exists
-  freelancerData.status_info = freelancerData.status_info || {};
-  freelancerData.status_info.status = 0; // 0 = pending
-
-  // Hash password
-  freelancerData.password = await bcrypt.hash(freelancerData.password, 10);
-
-  // Parse servicesOffered if sent as string
-  if (freelancerData.servicesOffered) {
-    let parsedServices = freelancerData.servicesOffered;
-    if (typeof parsedServices === 'string') {
-      try {
-        parsedServices = JSON.parse(parsedServices);
-        freelancerData.servicesOffered = parsedServices;
-      } catch (error) {
-        throw new APIError('Invalid servicesOffered format', StatusCodes.BAD_REQUEST);
-      }
-    }
-
-    // Validate servicesOffered structure
-    if (!Array.isArray(freelancerData.servicesOffered) ||
-        freelancerData.servicesOffered.length === 0) {
-      throw new APIError('At least one service is required', StatusCodes.BAD_REQUEST);
-    }
-
-    for (const service of freelancerData.servicesOffered) {
-      if (!service.title || typeof service.title !== 'string') {
-        throw new APIError('Each service must have a valid title', StatusCodes.BAD_REQUEST);
-      }
-    }
-  }
-
-  // Handle uploaded documents
-  freelancerData.documents = {};
-
-  if (req.files) {
-    const fileHandlers = {
-      resume: () => {
-        freelancerData.documents.resume = {
-          type: 'resume',
-          path: req.files.resume[0].path,
-          verified: false,
-          uploaded_at: new Date()
-        };
-      },
-      portfolio: () => {
-        freelancerData.documents.portfolio = {
-          type: 'portfolio',
-          path: req.files.portfolio[0].path,
-          verified: false,
-          uploaded_at: new Date()
-        };
-      },
-      identityProof: () => {
-        freelancerData.documents.identity_proof = {
-          type: 'identity_proof',
-          path: req.files.identityProof[0].path,
-          verified: false,
-          uploaded_at: new Date()
-        };
-      },
-      addressProof: () => {
-        freelancerData.documents.address_proof = {
-          type: 'address_proof',
-          path: req.files.addressProof[0].path,
-          verified: false,
-          uploaded_at: new Date()
-        };
-      }
-    };
-
-    // Handle certificates as array
-    if (req.files.certificates) {
-      freelancerData.documents.certificates = req.files.certificates.map(file => ({
-        type: 'certificate',
-        path: file.path,
-        verified: false,
-        uploaded_at: new Date()
-      }));
-    }
-
-    Object.keys(req.files).forEach(fileType => {
-      if (fileHandlers[fileType]) {
-        fileHandlers[fileType]();
-      }
-    });
-  }
-
-  // Validate at least one document is provided
-  const hasDocuments = Object.keys(freelancerData.documents).some(key => {
-    const doc = freelancerData.documents[key];
-    if (key === 'certificates') {
-      return Array.isArray(doc) && doc.length > 0;
-    }
-    return doc !== undefined;
-  });
-
-  if (!hasDocuments) {
-    throw new APIError('At least one document is required', StatusCodes.BAD_REQUEST);
-  }
-
-  try {
-    // Create freelancer
-    const freelancer = await Freelancer.create(freelancerData);
-
-    // Log creation in change history
-    freelancer.meta.change_history = freelancer.meta.change_history || [];
-    freelancer.meta.change_history.push({
-      updated_by: req.user?._id || null, // If created by admin, req.user may be available
-      updated_at: new Date(),
-      changes: ['Freelancer created']
-    });
-    await freelancer.save();
-
-    logger.info(`Freelancer created successfully: ${freelancer._id}`);
-
-    res.status(StatusCodes.CREATED).json({
-      success: true,
-      message: 'Freelancer created successfully',
-      data: {
-        freelancer: {
-          id: freelancer._id,
-          email: freelancer.email,
-          full_name: freelancer.full_name,
-          servicesOffered: freelancer.servicesOffered,
-          status: freelancer.status_info.status
-        }
-      }
-    });
-  } catch (error) {
-    logger.error(`Freelancer creation failed: ${error.message}`);
-
-    if (error.name === 'ValidationError') {
-      const errors = Object.values(error.errors).map(err => err.message);
-      throw new APIError(`Validation failed: ${errors.join(', ')}`, StatusCodes.BAD_REQUEST);
-    }
-
-    if (error.code === 11000) {
-      const field = Object.keys(error.keyValue)[0];
-      throw new APIError(`${field} already exists`, StatusCodes.CONFLICT);
-    }
-
-    throw new APIError('Server error while creating freelancer', StatusCodes.INTERNAL_SERVER_ERROR);
-  }
-});
-
-// Get All Freelancers
-exports.getAllFreelancers = asyncHandler(async (req, res, next) => {
-  const { page = 1, limit = 10, status, freelancerId } = req.query;
-
-  if (freelancerId) {
-    try {
-      const freelancer = await Freelancer.findById(freelancerId)
-        .select('-password')
-        .lean();
-
-      if (!freelancer) {
-        return res.status(StatusCodes.NOT_FOUND).json({
-          success: false,
-          message: 'Freelancer not found'
-        });
-      }
-
-      logger.info(`Retrieved freelancer with ID: ${freelancerId}`);
-      return res.status(StatusCodes.OK).json({
-        success: true,
-        freelancer
+      return res.status(StatusCodes.NOT_FOUND).json({
+        success: false,
+        message: 'Freelancer not found',
       });
-    } catch (error) {
-      if (error.name === 'CastError') {
-        return res.status(StatusCodes.BAD_REQUEST).json({
-          success: false,
-          message: 'Invalid freelancer ID format'
-        });
-      }
-      next(error);
     }
+
+    return res.status(StatusCodes.OK).json({
+      success: true,
+      freelancer,
+    });
   }
 
-  const query = status ? { 'status_info.status': parseInt(status) } : {};
+  // Otherwise, fetch all freelancers with filters
+  if (status) query['status_info.status'] = parseInt(status);
+  if (search)
+    query.$or = [
+      { 'name.first_name': new RegExp(search, 'i') },
+      { 'name.last_name': new RegExp(search, 'i') },
+      { email: new RegExp(search, 'i') },
+    ];
+  if (city) query['location.city'] = new RegExp(city, 'i');
 
   const freelancers = await Freelancer.find(query)
     .select('-password')
+    .populate('role services_offered.category services_offered.subcategory')
     .skip((page - 1) * limit)
     .limit(Number(limit))
     .lean();
 
   const total = await Freelancer.countDocuments(query);
 
-  logger.info(`Retrieved ${freelancers.length} freelancers`);
   res.status(StatusCodes.OK).json({
     success: true,
-    pagination: {
-      page: Number(page),
-      limit: Number(limit),
-      total
-    },
+    pagination: { page: Number(page), limit: Number(limit), total },
     freelancers,
   });
 });
 
-// Get Freelancer Profile
-exports.getFreelancerProfile = asyncHandler(async (req, res, next) => {
-  try {
-    console.log("✅ Freelancer ID from req.user:", req.user?.id); // 👈 Debug log
 
-    const freelancer = await Freelancer.findById(req.user.id).populate('role').lean();
-    if (!freelancer) {
-      throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
-    }
+exports.getFreelancerProfile = asyncHandler(async (req, res) => {
+  const freelancer = await Freelancer.findById(req.user.id)
+    .populate('role services_offered.category services_offered.subcategory')
+    .select('-password');
 
-    delete freelancer.password;
+  if (!freelancer) throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
 
-    res.status(StatusCodes.OK).json({
-      success: true,
-      freelancer,
-    });
-  } catch (error) {
-    if (!error.message) error.message = 'Unidentified error';
-    next(error);
-  }
-});
+  // ================================
+  // 🔹 Section-Wise Scoring Logic
+  // ================================
 
-// Change Password
-exports.changePassword = asyncHandler(async (req, res, next) => {
-  try {
-    const { currentPassword, newPassword, confirmPassword } = req.body;
+  const sections = {
+    basic: 0,
+    professional: 0,
+    location: 0,
+    services: 0,
+    portfolio: 0,
+    payment: 0,
+    documents: 0,
+    meta: 0,
+  };
 
-    if (newPassword !== confirmPassword) {
-      throw new APIError('New passwords do not match', StatusCodes.BAD_REQUEST);
-    }
+  // -------- BASIC INFO --------
+  let basicFields = 5;
+  let basicScore = 0;
+  if (freelancer.name?.first_name) basicScore++;
+  if (freelancer.name?.last_name) basicScore++;
+  if (freelancer.email) basicScore++;
+  if (freelancer.mobile && freelancer.is_mobile_verified) basicScore++;
+  if (freelancer.profile_image) basicScore++;
+  sections.basic = Math.round((basicScore / basicFields) * 100);
 
-    const freelancer = await Freelancer.findById(req.user.id).select('+password');
+  // -------- PROFESSIONAL INFO --------
+  let profFields = 5;
+  let profScore = 0;
+  if (freelancer.professional?.experience_years) profScore++;
+  if (freelancer.professional?.bio) profScore++;
+  if ((freelancer.professional?.skills?.length ?? 0) > 0) profScore++;
+  if (freelancer.professional?.working_radius) profScore++;
+  if (freelancer.professional?.availability) profScore++;
+  sections.professional = Math.round((profScore / profFields) * 100);
 
-    if (!freelancer) {
-      throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
-    }
+  // -------- LOCATION --------
+  let locFields = 4;
+  let locScore = 0;
+  if (freelancer.location?.city) locScore++;
+  if (freelancer.location?.state) locScore++;
+  if (freelancer.location?.country) locScore++;
+  if (freelancer.location?.pincode) locScore++;
+  sections.location = Math.round((locScore / locFields) * 100);
 
-    const isMatch = await bcrypt.compare(currentPassword, freelancer.password);
-    if (!isMatch) {
-      throw new APIError('Current password is incorrect', StatusCodes.UNAUTHORIZED);
-    }
+  // -------- SERVICES OFFERED --------
+  if ((freelancer.services_offered?.length ?? 0) > 0) {
+    // check if each has proper details
+    const valid = freelancer.services_offered.filter(
+      (s) => s.category && s.subcategory && s.description
+    );
+    sections.services = Math.round((valid.length / freelancer.services_offered.length) * 100);
+  } else sections.services = 0;
 
-    freelancer.password = await bcrypt.hash(newPassword, 10);
+  // -------- PORTFOLIO --------
+  if ((freelancer.portfolio?.length ?? 0) > 0) {
+    const valid = freelancer.portfolio.filter(
+      (p) => p.title && p.category && p.subcategory && (p.images?.length ?? 0) > 0
+    );
+    sections.portfolio = Math.round((valid.length / freelancer.portfolio.length) * 100);
+  } else sections.portfolio = 0;
 
-    freelancer.meta.updated_at = Date.now();
-    freelancer.meta.change_history = freelancer.meta.change_history || [];
-    freelancer.meta.change_history.push({
-      updated_by: req.user._id,
-      updated_at: new Date(),
-      changes: ['Password changed']
-    });
+  // -------- PAYMENT INFO --------
+  let payFields = 3;
+  let payScore = 0;
+  if (freelancer.payment?.preferred_method) payScore++;
+  if (freelancer.payment?.advance_percentage) payScore++;
+  if (freelancer.payment?.gst_number) payScore++;
+  sections.payment = Math.round((payScore / payFields) * 100);
 
-    await freelancer.save();
+  // -------- DOCUMENTS --------
+  if ((freelancer.documents?.length ?? 0) > 0) {
+    const verifiedDocs = freelancer.documents.filter((d) => d.verified);
+    sections.documents = Math.round((verifiedDocs.length / freelancer.documents.length) * 100);
+  } else sections.documents = 0;
 
-    logger.info(`Password changed for freelancer: ${freelancer._id}`);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      message: 'Password changed successfully'
-    });
-  } catch (error) {
-    if (!error.message) error.message = 'Unidentified error';
-    next(error);
-  }
-});
+  // -------- META / AGREEMENT --------
+  let metaFields = 2;
+  let metaScore = 0;
+  if (freelancer.meta?.agreed_to_terms) metaScore++;
+  if (freelancer.meta?.portal_access) metaScore++;
+  sections.meta = Math.round((metaScore / metaFields) * 100);
 
-// Update Document
-exports.updateDocument = asyncHandler(async (req, res, next) => {
-  try {
-    const { documentId } = req.params;
+  // ================================
+  // 🔹 Total Profile Completion
+  // ================================
+  const totalSections = Object.keys(sections).length;
+  const totalScore =
+    Object.values(sections).reduce((sum, val) => sum + val, 0) / totalSections;
+  const completionPercentage = Math.round(totalScore);
 
-    if (!req.file) {
-      throw new APIError('File is required for update', StatusCodes.BAD_REQUEST);
-    }
-
-    const freelancer = await Freelancer.findById(req.user.id);
-
-    if (!freelancer) {
-      throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
-    }
-
-    let document = null;
-    let documentField = null;
-
-    for (const [type, docField] of Object.entries(freelancer.documents.toObject())) {
-      if (docField && docField._id?.toString() === documentId) {
-        document = freelancer.documents[type];
-        documentField = type;
-        break;
-      }
-    }
-
-    if (!document) {
-      throw new APIError('Document not found', StatusCodes.NOT_FOUND);
-    }
-
-    if (document.verified) {
-      throw new APIError('Cannot update verified document', StatusCodes.FORBIDDEN);
-    }
-
-    document.path = req.file.path;
-    document.uploaded_at = new Date();
-
-    freelancer.meta.updated_at = new Date();
-    freelancer.meta.change_history = freelancer.meta.change_history || [];
-    freelancer.meta.change_history.push({
-      updated_by: req.user._id,
-      updated_at: new Date(),
-      changes: [`Document ${documentField} path updated`]
-    });
-
-    await freelancer.save();
-
-    logger.info(`Document ${documentId} path updated for freelancer: ${freelancer._id}`);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      message: 'Document path updated successfully',
-      freelancer: {
-        id: freelancer._id,
-        documents: freelancer.documents
-      }
-    });
-  } catch (error) {
-    if (!error.message) error.message = 'Unidentified error';
-    if (error instanceof multer.MulterError) {
-      return next(new APIError('File upload error: ' + error.message, StatusCodes.BAD_REQUEST));
-    } else if (error.message.includes('Only images')) {
-      return next(new APIError(error.message, StatusCodes.BAD_REQUEST));
-    }
-    next(error);
-  }
-});
-
-// Update Freelancer
-exports.updateFreelancer = asyncHandler(async (req, res, next) => {
-  if (!req.user) {
-    logger.warn('Unauthorized freelancer update attempt');
-    throw new APIError('Unauthorized: User not found', StatusCodes.UNAUTHORIZED);
-  }
-
-  const freelancer = await Freelancer.findById(req.params.id);
-  if (!freelancer) {
-    logger.warn(`Freelancer not found for update: ${req.params.id}`);
-    throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
-  }
-
-  const updatedData = req.body;
-  if (updatedData.email && updatedData.email !== freelancer.email) {
-    const existingFreelancer = await Freelancer.findOne({ email: updatedData.email });
-    if (existingFreelancer) {
-      logger.warn(`Update failed: Email already in use - ${updatedData.email}`);
-      throw new APIError('Email already in use', StatusCodes.CONFLICT);
-    }
-  }
-
-  Object.assign(freelancer, updatedData);
-  freelancer.meta.updated_at = Date.now();
-  freelancer.meta.change_history = freelancer.meta.change_history || [];
-  freelancer.meta.change_history.push({
-    updated_by: req.user._id,
-    updated_at: new Date(),
-    changes: Object.keys(updatedData).map(key => `${key} updated`)
-  });
-
-  const updatedFreelancer = await freelancer.save();
-
-  logger.info(`Freelancer updated successfully: ${freelancer._id}`);
-  res.status(StatusCodes.OK).json({
+  // ================================
+  // 🔹 Response
+  // ================================
+  res.json({
     success: true,
-    message: 'Freelancer updated successfully',
-    freelancer: {
-      id: updatedFreelancer._id,
-      email: updatedFreelancer.email,
-      full_name: updatedFreelancer.full_name,
-      servicesOffered: updatedFreelancer.servicesOffered
-    }
+    freelancer,
+    profileProgress: {
+      completionPercentage,
+      sections,
+      remaining: 100 - completionPercentage,
+      summary:
+        completionPercentage < 100
+          ? `Your profile is ${completionPercentage}% complete. Please complete the missing sections.`
+          : 'Profile is 100% complete!',
+    },
   });
 });
 
-// Delete Freelancer
-exports.deleteFreelancer = asyncHandler(async (req, res, next) => {
-  if (!req.user) {
-    logger.warn('Unauthorized freelancer deletion attempt');
-    throw new APIError('Unauthorized: User not found', StatusCodes.UNAUTHORIZED);
+// === UPDATE PROFILE (Freelancer himself) ===
+exports.updateFreelancerProfile = asyncHandler(async (req, res) => {
+  const freelancerId = req.user.id; // logged-in freelancer
+  const data = req.body;
+
+  const freelancer = await Freelancer.findById(freelancerId);
+  if (!freelancer) throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
+
+  // ---- BASIC ----
+  if (data.name) {
+    freelancer.name.first_name = data.name.first_name?.trim() || freelancer.name.first_name;
+    freelancer.name.last_name = data.name.last_name?.trim() || freelancer.name.last_name;
+  }
+  if (data.mobile) freelancer.mobile = data.mobile.trim();
+  if (data.profile_image) freelancer.profile_image = data.profile_image; // path from upload
+  if (data.languages) freelancer.languages = data.languages;
+
+  // ---- PROFESSIONAL ----
+  if (data.professional) {
+    freelancer.professional.experience_years = Number(data.professional.experience_years) || freelancer.professional.experience_years;
+    freelancer.professional.bio = data.professional.bio?.trim() || freelancer.professional.bio;
+    freelancer.professional.skills = data.professional.skills || freelancer.professional.skills;
+    freelancer.professional.working_radius = data.professional.working_radius?.trim() || freelancer.professional.working_radius;
+    freelancer.professional.availability = data.professional.availability || freelancer.professional.availability;
   }
 
-  const freelancer = await Freelancer.findById(req.params.id);
-  if (!freelancer) {
-    logger.warn(`Freelancer not found for deletion: ${req.params.id}`);
-    throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
+  // ---- LOCATION ----
+  if (data.location) {
+    freelancer.location.city = data.location.city?.trim() || freelancer.location.city;
+    freelancer.location.state = data.location.state?.trim() || freelancer.location.state;
+    freelancer.location.country = data.location.country?.trim() || freelancer.location.country;
+    freelancer.location.pincode = data.location.pincode?.trim() || freelancer.location.pincode;
   }
 
-  freelancer.meta.updated_at = new Date();
+  // ---- PAYMENT ----
+  if (data.payment) {
+    freelancer.payment.preferred_method = data.payment.preferred_method?.trim() || freelancer.payment.preferred_method;
+    freelancer.payment.advance_percentage = Number(data.payment.advance_percentage) || freelancer.payment.advance_percentage;
+    freelancer.payment.gst_number = data.payment.gst_number?.trim() || freelancer.payment.gst_number;
+  }
+
+  // ---- SERVICES OFFERED ----
+  if (Array.isArray(data.services_offered)) {
+    freelancer.services_offered = data.services_offered.map(s => ({
+      category: s.category,
+      subcategory: s.subcategory,
+      description: s.description?.trim(),
+      price_range: s.price_range?.trim(),
+      unit: s.unit?.trim(),
+      images: s.images || [],
+      is_active: s.is_active ?? true,
+    }));
+  }
+
+  // ---- PORTFOLIO ----
+  if (Array.isArray(data.portfolio)) {
+    freelancer.portfolio = data.portfolio.map(p => ({
+      title: p.title?.trim(),
+      category: p.category,
+      subcategory: p.subcategory,
+      description: p.description?.trim(),
+      images: p.images || [],
+      area: p.area?.trim(),
+      duration: p.duration?.trim(),
+      client_name: p.client_name?.trim(),
+      completed_at: p.completed_at ? new Date(p.completed_at) : undefined,
+      featured: p.featured ?? false,
+    }));
+  }
+
+  // ---- GALLERY ----
+  if (Array.isArray(data.gallery)) {
+    freelancer.gallery = data.gallery;
+  }
+
+  // ---- META ----
+  if (data.meta?.agreed_to_terms !== undefined) {
+    freelancer.meta.agreed_to_terms = Boolean(data.meta.agreed_to_terms);
+  }
+
+  // ---- CHANGE HISTORY ----
   freelancer.meta.change_history = freelancer.meta.change_history || [];
   freelancer.meta.change_history.push({
     updated_by: req.user._id,
+    changes: ['Profile updated by freelancer'],
     updated_at: new Date(),
-    changes: ['Freelancer deleted']
   });
 
   await freelancer.save();
-  await freelancer.deleteOne();
+  await freelancer.populate('role services_offered.category services_offered.subcategory');
 
-  logger.info(`Freelancer deleted successfully: ${freelancer._id}`);
-  res.status(StatusCodes.OK).json({
-    success: true,
-    message: 'Freelancer deleted successfully'
-  });
+  res.json({ success: true, message: 'Profile updated', freelancer });
 });
 
-// Update Freelancer Status
-exports.updateFreelancerStatus = asyncHandler(async (req, res, next) => {
-  const { status, rejection_reason } = req.body;
+// === UPLOAD / RE-UPLOAD DOCUMENT ===
+exports.updateDocument = asyncHandler(async (req, res) => {
+  const { documentId } = req.params;
+  if (!req.file) throw new APIError('File is required', StatusCodes.BAD_REQUEST);
 
-  const freelancer = await Freelancer.findById(req.params.id);
-  if (!freelancer) {
-    logger.warn(`Freelancer not found for status update: ${req.params.id}`);
-    throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
-  }
+  const freelancer = await Freelancer.findById(req.user.id);
+  if (!freelancer) throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
 
-  freelancer.status_info.status = parseInt(status);
-  freelancer.status_info.rejection_reason = rejection_reason || freelancer.status_info.rejection_reason;
-  if (status === 1) {
-    freelancer.status_info.approved_at = Date.now();
-    freelancer.status_info.approved_by = req.user._id;
-  }
+  const doc = freelancer.documents.id(documentId);
+  if (!doc) throw new APIError('Document not found', StatusCodes.NOT_FOUND);
+  if (doc.verified) throw new APIError('Verified document cannot be changed', StatusCodes.FORBIDDEN);
 
-  freelancer.meta.updated_at = new Date();
+  doc.path = req.file.path;
+  doc.uploaded_at = new Date();
+
+  // change history
   freelancer.meta.change_history = freelancer.meta.change_history || [];
   freelancer.meta.change_history.push({
     updated_by: req.user._id,
+    changes: [`Document ${doc.type} re-uploaded`],
     updated_at: new Date(),
-    changes: [`Status updated to ${status}`]
   });
 
   await freelancer.save();
 
-  logger.info(`Freelancer status updated: ${freelancer._id}, status: ${status}`);
-  res.status(StatusCodes.OK).json({
+  res.json({
     success: true,
-    message: 'Freelancer status updated',
-    freelancer: {
-      id: freelancer._id,
-      status_info: freelancer.status_info
-    }
+    message: 'Document updated',
+    document: doc,
   });
 });
 
-// Update Document Verification
+// === ADMIN: UPDATE DOCUMENT VERIFICATION ===
 exports.updateDocumentVerification = asyncHandler(async (req, res) => {
   const { freelancerId, documentId, verified, reason, suggestion } = req.body;
 
   const freelancer = await Freelancer.findById(freelancerId);
-  if (!freelancer) {
-    throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
-  }
+  if (!freelancer) throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
 
-  let document = null;
-  let documentField = null;
+  const doc = freelancer.documents.id(documentId);
+  if (!doc) throw new APIError('Document not found', StatusCodes.NOT_FOUND);
 
-  for (const [type, docField] of Object.entries(freelancer.documents.toObject())) {
-    if (docField && docField._id?.toString() === documentId) {
-      document = freelancer.documents[type];
-      documentField = type;
-      break;
-    }
-  }
+  doc.verified = Boolean(verified);
+  doc.reason = verified ? null : (reason || 'Invalid document');
+  doc.suggestion = verified ? null : (suggestion || 'Please re-upload correct file');
 
-  if (!document) {
-    throw new APIError(
-      'Document not found or not uploaded properly. Please re-upload.',
-      StatusCodes.BAD_REQUEST
-    );
-  }
-
-  if (verified) {
-    document.verified = true;
-    document.reason = null;
-    document.suggestion = null;
-  } else {
-    document.verified = false;
-    document.reason = reason || 'Document not valid';
-    document.suggestion = suggestion || 'Please re-upload with correct details';
-  }
-
-  freelancer.meta.updated_at = new Date();
   freelancer.meta.change_history = freelancer.meta.change_history || [];
   freelancer.meta.change_history.push({
-    updated_by: req.user?._id,
+    updated_by: req.user._id,
+    changes: [`Document ${doc.type} ${verified ? 'APPROVED' : 'REJECTED'}`],
     updated_at: new Date(),
-    changes: [
-      `Document ${documentField} verification set to ${verified ? 'APPROVED' : 'REJECTED'}`
-    ]
   });
 
   await freelancer.save();
 
-  logger.info(`Document verification updated for freelancer: ${freelancer._id}, document: ${documentField}`);
-  res.status(StatusCodes.OK).json({
+  res.json({
     success: true,
-    message: verified
-      ? 'Document approved successfully'
-      : 'Document rejected, please re-upload',
-    freelancer: {
-      id: freelancer._id,
-      documents: freelancer.documents
-    }
+    message: verified ? 'Document approved' : 'Document rejected',
+    document: doc,
   });
 });
+// === UPDATE STATUS ===
+exports.updateFreelancerStatus = asyncHandler(async (req, res) => {
+  const { status, rejection_reason } = req.body;
+  const freelancer = await Freelancer.findById(req.params.id);
+  if (!freelancer) throw new APIError('Not found', StatusCodes.NOT_FOUND);
 
-// Get Change History
-exports.getChangeHistory = asyncHandler(async (req, res, next) => {
-  try {
-    const { freelancerId } = req.params;
-    const { page = 1, limit = 10 } = req.query;
-
-    const freelancer = await Freelancer.findById(freelancerId)
-      .select('meta.change_history')
-      .lean();
-
-    if (!freelancer) {
-      logger.warn(`Freelancer not found for change history: ${freelancerId}`);
-      throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
-    }
-
-    const changeHistory = freelancer.meta.change_history || [];
-    const total = changeHistory.length;
-
-    // Paginate the change history
-    const startIndex = (page - 1) * limit;
-    const paginatedHistory = changeHistory.slice(startIndex, startIndex + Number(limit));
-
-    logger.info(`Retrieved change history for freelancer: ${freelancerId}, page: ${page}, limit: ${limit}`);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      message: 'Change history retrieved successfully',
-      pagination: {
-        page: Number(page),
-        limit: Number(limit),
-        total
-      },
-      change_history: paginatedHistory
-    });
-  } catch (error) {
-    if (error.name === 'CastError') {
-      logger.warn(`Invalid freelancer ID format: ${freelancerId}`);
-      return res.status(StatusCodes.BAD_REQUEST).json({
-        success: false,
-        message: 'Invalid freelancer ID format'
-      });
-    }
-    if (!error.message) error.message = 'Unidentified error';
-    next(error);
+  freelancer.status_info.status = status;
+  if (status == 1) {
+    freelancer.status_info.approved_at = new Date();
+    freelancer.status_info.approved_by = req.user._id;
+  } else if (status == 2) {
+    freelancer.status_info.rejection_reason = rejection_reason;
   }
+
+  // ✅ Safe check for change_history
+  if (!freelancer.meta.change_history) {
+    freelancer.meta.change_history = [];
+  }
+
+  freelancer.meta.change_history.push({
+    updated_by: req.user._id,
+    changes: [`Status → ${status}`],
+    updated_at: new Date()
+  });
+
+  await freelancer.save();
+
+  res.json({ success: true, status_info: freelancer.status_info });
+});
+
+
+// === SOFT DELETE ===
+exports.deleteFreelancer = asyncHandler(async (req, res) => {
+  const freelancer = await Freelancer.findById(req.params.id);
+  if (!freelancer) throw new APIError('Not found', StatusCodes.NOT_FOUND);
+
+  freelancer.is_deleted = true;
+  freelancer.deleted_at = new Date();
+  freelancer.meta.change_history.push({
+    updated_by: req.user._id,
+    changes: ['Soft deleted']
+  });
+  await freelancer.save();
+
+  res.json({ success: true, message: 'Deleted' });
 });

@@ -16,12 +16,17 @@ app.use(express.urlencoded({ extended: true }));
 
 // Database connection
 require('./config/database');
+app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/projectfreelancer.route'));
+
+app.use('/accountant', require('../src/modules/auth/routes/accountant/accountant.routes'));
+
+
+app.use('/freelancer/projects/get', require('../src/modules/auth/routes/freelancer/routesfreelancer'));
 
 // Routes
 app.use('/platform', require('../src/modules/auth/routes/role/platform.routes'));
 app.use('/customer', require('../src/modules/auth/routes/customer.routes'));
 app.use('/ecommerce/v1', require('../src/modules/ecommerce/B2C/routes/cartOrderWishlist.route'));
-
 app.use('/roles', require('../src/modules/auth/routes/role/role.routes'));
 app.use('/permission', require('../src/modules/auth/routes/permission/permission.routes'));
 app.use('/permission-action', require('../src/modules/auth/routes/permission/action.routes'));
@@ -34,7 +39,16 @@ app.use('/vendor/b2c', require('../src/modules/auth/routes/vendor/vendorb2c.rout
 app.use('/vendor/b2b', require('../src/modules/auth/routes/vendor/vendorb2b.routes'));
 app.use('/business', require('../src/modules/auth/routes/freelancer/freelancerbusiness.routes'));
 
+
+// landscapping freelacer
+app.use('/freelancer/category', require('../src/modules/auth/routes/freelancer/freelancercategory.routes'));
+app.use('/freelancer/subcategory', require('../src/modules/auth/routes/freelancer/freelancersubcategory.routes'));
+
 app.use('/freelancer', require('../src/modules/auth/routes/freelancer/freelancer.routes'));
+
+
+app.use('/freelancer/projects/invoice', require('../src/modules/auth/routes/freelancer/invoice.route'));
+
 app.use('/attributes', require('../src/modules/ecommerce/B2C/routes/attribute.routes'));
 app.use('/materials', require('../src/modules/ecommerce/B2C/routes/material.routes'));
 app.use('/brands', require('../src/modules/ecommerce/B2C/routes/brand.routes'));

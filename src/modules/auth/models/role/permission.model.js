@@ -28,11 +28,11 @@ const PermissionSchema = new mongoose.Schema({
     default: null
   },
   isActive: { type: Boolean, default: true },
-  isDeleted: { type: Boolean, default: false },     // Soft delete
+  isDeleted: { type: Boolean, default: false },  // Soft delete
   deletedAt: { type: Date }
 }, { timestamps: true });
 
-// Unique: one permission per (role + module + subModule)
+// Unique combination: (role + module + subModule)
 PermissionSchema.index(
   { roleId: 1, moduleId: 1, subModuleId: 1 },
   { unique: true, sparse: true }

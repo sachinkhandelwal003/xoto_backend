@@ -1,9 +1,11 @@
-// routes/module.routes.js
+// modules/auth/routes/module.routes.js
 const express = require('express');
 const router = express.Router();
-const { protect, authorize } = require('../../../../middleware/auth');
+
+const { protectMulti, authorize } = require('../../../../middleware/auth');
 const { checkPermission } = require('../../../../middleware/permission');
-const moduleController = require('../../controllers/module/module.controller');
+const controller = require('../../controllers/module/module.controller');
+
 const {
   validateCreateModule,
   validateUpdateModule,
@@ -16,133 +18,130 @@ const {
   validateReorderSubModules
 } = require('../../validations/authvalidation/module.validation');
 
-/* -------------------------------------------------------------
-   MODULE LEVEL
-------------------------------------------------------------- */
-// Create (single or bulk)
+// ===================================================================
+// ALL ROUTES UNDER "Module" MODULE → "All Modules" SUBMODULE
+// ===================================================================
+
+router.get(
+  '/',
+  // checkPermission('Module', 'view', 'All Modules'),
+  validateGetAllModules,
+  controller.getAllModules
+);
+// 🔹 Protect all routes, allow only authorized roles (SuperAdmin, Admin)
+router.use(
+  protectMulti,
+  authorize({
+    roles: ['SuperAdmin', 'Admin'],
+  }),
+  checkPermission('Module', 'view', 'All Modules') // base permission check
+);
+
+// ===================================================================
+// MODULE LEVEL
+// ===================================================================
+
+// CREATE MODULE
 router.post(
   '/',
-  protect,
-  authorize({ minLevel: 10 }),
-  checkPermission('Modules', 'create'),
+  checkPermission('Module', 'create', 'All Modules'),
   validateCreateModule,
-  moduleController.createModule
+  controller.createModule
 );
 
-// Update
+// UPDATE MODULE
 router.put(
   '/:moduleId',
-  protect,
-  authorize({ minLevel: 10 }),
-  checkPermission('Modules', 'update'),
+  checkPermission('Module', 'update', 'All Modules'),
   validateUpdateModule,
-  moduleController.updateModule
+  controller.updateModule
 );
 
-// Reorder
+// REORDER MODULES
 router.put(
   '/reorder',
-  protect,
-  authorize({ minLevel: 10 }),
-  checkPermission('Modules', 'update'),
+  checkPermission('Module', 'update', 'All Modules'),
   validateReorderModules,
-  moduleController.reorderModules
+  controller.reorderModules
 );
 
-// Soft-delete
+// DELETE MODULE (soft delete)
 router.delete(
   '/:moduleId',
-  protect,
-  authorize({ minLevel: 10 }),
-  checkPermission('Modules', 'delete'),
+  checkPermission('Module', 'delete', 'All Modules'),
   validateDeleteModule,
-  moduleController.deleteModule
+  controller.deleteModule
 );
 
-// Restore module
-router.post(
+// RESTORE MODULE
+router.patch(
   '/:moduleId/restore',
-  protect,
-  authorize({ minLevel: 10 }),
-  checkPermission('Modules', 'update'),
-  validateGetModule,                     // re-uses ID validation
-  moduleController.restoreModule
+  checkPermission('Module', 'update', 'All Modules'),
+  validateGetModule,
+  controller.restoreModule
 );
 
-// Get single
+// GET SINGLE MODULE
 router.get(
   '/:moduleId',
-  protect,
-  authorize({ minLevel: 5 }),
-  checkPermission('Modules', 'read'),
+  checkPermission('Module', 'view', 'All Modules'),
   validateGetModule,
-  moduleController.getModule
+  controller.getModule
 );
 
-// Get all (paginated)
+// GET ALL MODULES
 router.get(
   '/',
-  protect,
-  authorize({ minLevel: 5 }),
-  checkPermission('Modules', 'read'),
+  checkPermission('Module', 'view', 'All Modules'),
   validateGetAllModules,
-  moduleController.getAllModules
+  controller.getAllModules
 );
 
-// Get menu (public-ish – only auth)
-router.get('/menu', protect, moduleController.getMenu);
+// GET MENU (UI navigation)
+router.get('/menu', controller.getMenu);
 
-/* -------------------------------------------------------------
-   SUB-MODULE LEVEL
-------------------------------------------------------------- */
-// Create sub-module(s)
+// ===================================================================
+// SUB-MODULE LEVEL
+// ===================================================================
+
+// CREATE SUB-MODULE
 router.post(
   '/:moduleId/sub-modules',
-  protect,
-  authorize({ minLevel: 10 }),
-  checkPermission('Modules', 'create'),
+  checkPermission('Module', 'create', 'All Modules'),
   validateCreateSubModule,
-  moduleController.createSubModule
+  controller.createSubModule
 );
 
-// Update sub-module
+// UPDATE SUB-MODULE
 router.put(
   '/:moduleId/sub-modules/:subModuleId',
-  protect,
-  authorize({ minLevel: 10 }),
-  checkPermission('Modules', 'update'),
+  checkPermission('Module', 'update', 'All Modules'),
   validateUpdateSubModule,
-  moduleController.updateSubModule
+  controller.updateSubModule
 );
 
-// Soft-delete sub-module
+// DELETE SUB-MODULE (soft delete)
 router.delete(
   '/:moduleId/sub-modules/:subModuleId',
-  protect,
-  authorize({ minLevel: 10 }),
-  checkPermission('Modules', 'delete'),
-  validateUpdateSubModule,               // re-uses ID checks
-  moduleController.deleteSubModule
-);
-
-// Restore sub-module
-router.post(
-  '/:moduleId/sub-modules/:subModuleId/restore',
-  protect,
-  authorize({ minLevel: 10 }),
-  checkPermission('Modules', 'update'),
+  checkPermission('Module', 'delete', 'All Modules'),
   validateUpdateSubModule,
-  moduleController.restoreSubModule
+  controller.deleteSubModule
 );
 
-// Reorder sub-modules
+// RESTORE SUB-MODULE
+router.patch(
+  '/:moduleId/sub-modules/:subModuleId/restore',
+  checkPermission('Module', 'update', 'All Modules'),
+  validateUpdateSubModule,
+  controller.restoreSubModule
+);
+
+// REORDER SUB-MODULES
 router.put(
   '/:moduleId/sub-modules/reorder',
-  protect,
-  authorize({ minLevel: 10 }),
-  checkPermission('Modules', 'update'),
+  checkPermission('Module', 'update', 'All Modules'),
   validateReorderSubModules,
-  moduleController.reorderSubModules
+  controller.reorderSubModules
 );
 
 module.exports = router;

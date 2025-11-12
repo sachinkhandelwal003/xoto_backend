@@ -1,102 +1,44 @@
-// routes/freelancer/freelancer.route.js
-
+// routes/freelancer.route.js
 const express = require('express');
 const router = express.Router();
-const freelancerController = require('../../controllers/freelancer/freeelancer.controller');
-const { protect, authorize, protectFreelancer } = require('../../../../middleware/auth'); // Assuming protectFreelancer is defined similarly
+const controller = require('../../controllers/freelancer/freeelancer.controller');
+const { protect, protectFreelancer ,protectMulti } = require('../../../../middleware/auth');
 const { checkPermission } = require('../../../../middleware/permission');
 const upload = require('../../../../middleware/multer');
 const {
   validateCreateFreelancer,
-  validateFreelancerId,
-  validateUpdateFreelancer,
+  validateFreelancerLogin,
   validateGetAllFreelancers,
   validateUpdateFreelancerStatus,
-  validateUpdateDocumentVerification,
-  validateFreelancerLogin,
-  validateChangePassword,
-  validateUpdateDocument
+  validateFreelancerId
 } = require('../../validations/freelancer/freelancer.validation');
 
-// Configure multer with file type and size restrictions
-const uploadSingleFile = upload.single('file');
+const docUpload = upload.fields([
+  { name: 'resume', maxCount: 1 },
+  { name: 'portfolio', maxCount: 1 },
+  { name: 'certificates', maxCount: 10 },
+  { name: 'identityProof', maxCount: 1 },
+  { name: 'addressProof', maxCount: 1 }
+]);
 
-router.post('/login', validateFreelancerLogin, freelancerController.freelancerLogin);
+// PUBLIC
+router.post('/login', validateFreelancerLogin, controller.freelancerLogin);
 
-router.get('/profile', protectFreelancer, freelancerController.getFreelancerProfile);
-
-router.put(
-  '/change-password',
-  protectFreelancer,
-  validateChangePassword,
-  freelancerController.changePassword
-);
-
-router.put(
+// FREELANCER
+router.get('/profile', protectMulti, controller.getFreelancerProfile);
+router.post('/', validateCreateFreelancer, controller.createFreelancer);
+router.get('/', validateGetAllFreelancers, controller.getAllFreelancers);
+router.put('/profile', docUpload, controller.updateFreelancerProfile);router.put(
   '/document/:documentId',
-  protectFreelancer,
-  uploadSingleFile,
-  validateUpdateDocument,
-  freelancerController.updateDocument
+  upload.single('file'), // single file
+  controller.updateDocument
 );
+// ADMIN → ALL FREELANCERS SUBMODULE
+router.use(protect, checkPermission('Freelancers', 'view', 'All Freelancers'));
 
-router.get(
-  '/',
-  protect,
-  authorize({ minLevel: 5 }),
-  checkPermission('Freelancers', 'read'),
-  validateGetAllFreelancers,
-  freelancerController.getAllFreelancers
-);
+router.put('/document/verification/check', controller.updateDocumentVerification);
+router.put('/:id/status', checkPermission('Freelancers', 'update', 'All Freelancers'), validateFreelancerId, validateUpdateFreelancerStatus, controller.updateFreelancerStatus);
+router.delete('/:id', checkPermission('Freelancers', 'delete', 'All Freelancers'), validateFreelancerId, controller.deleteFreelancer);
 
-router.post(
-  '/',
-  upload.fields([
-    { name: 'resume', maxCount: 1 },
-    { name: 'portfolio', maxCount: 1 },
-    { name: 'certificates', maxCount: 10 }, // Allowing multiple certificates
-    { name: 'identityProof', maxCount: 1 },
-    { name: 'addressProof', maxCount: 1 }
-  ]),
-  validateCreateFreelancer,
-  freelancerController.createFreelancer
-);
-
-router.put(
-  '/:id',
-  protect,
-  authorize({ minLevel: 5 }),
-  checkPermission('Freelancers', 'update'),
-  validateFreelancerId,
-  validateUpdateFreelancer,
-  freelancerController.updateFreelancer
-);
-
-router.delete(
-  '/:id',
-  protect,
-  authorize({ minLevel: 5 }),
-  checkPermission('Freelancers', 'delete'),
-  validateFreelancerId,
-  freelancerController.deleteFreelancer
-);
-
-router.put(
-  '/:id/status',
-  protect,
-  authorize({ minLevel: 5 }),
-  checkPermission('Freelancers', 'update'),
-  validateUpdateFreelancerStatus,
-  freelancerController.updateFreelancerStatus
-);
-
-router.put(
-  '/document/verification/check',
-  protect,
-  authorize({ minLevel: 5 }),
-  checkPermission('Freelancers', 'update'),
-  validateUpdateDocumentVerification,
-  freelancerController.updateDocumentVerification
-);
 
 module.exports = router;

@@ -1,113 +1,138 @@
-  const mongoose = require('mongoose');
+// models/freelancer.js
+const mongoose = require('mongoose');
 
-  const service_schema = new mongoose.Schema({
-    title: { type: String, required: [true, 'Service title is required'], trim: true },
-    priceRange: { type: String, trim: true }
-  });
+// ----- Document Sub-schema -----
+const document_schema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ['resume', 'portfolio', 'identityProof', 'addressProof', 'certificate'],
+    required: true
+  },
+  path: { type: String, required: true },
+  verified: { type: Boolean, default: false },
+  uploaded_at: { type: Date, default: Date.now }
+});
 
-  const location_schema = new mongoose.Schema({
-    city: { type: String, trim: true },
-    state: { type: String, trim: true },
-    country: { type: String, trim: true },
-    pincode: { type: String, trim: true }
-  });
+// ----- Sub-schemas (all snake_case) -----
+const service_schema = new mongoose.Schema({
+  category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category_freelancer', required: true },
+  subcategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Subcategory_freelancer', required: true },
+  description: { type: String, trim: true },
+  price_range: { type: String, trim: true },
+  unit: { type: String, trim: true },
+  images: [{ type: String, trim: true }],
+  is_active: { type: Boolean, default: true }
+});
 
-  const contact_schema = new mongoose.Schema({
-    name: { type: String, trim: true },
-    designation: { type: String, trim: true },
-    email: { type: String, trim: true, lowercase: true },
-    mobile: { type: String, trim: true },
-    whatsapp: { type: String, trim: true }
-  });
 
-  const contacts_schema = new mongoose.Schema({
-    primary_contact: { type: contact_schema },
-    support_contact: { type: contact_schema }
-  });
+const portfolio_schema = new mongoose.Schema({
+  title: { type: String, required: true, trim: true },
+  category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category_freelancer', required: true },
+  subcategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Subcategory_freelancer', required: true },
+  description: { type: String, trim: true },
+  images: [{ type: String, trim: true }],
+  area: { type: String, trim: true },
+  duration: { type: String, trim: true },
+  client_name: { type: String, trim: true },
+  completed_at: { type: Date },
+  featured: { type: Boolean, default: false }
+});
 
-  const document_schema = new mongoose.Schema({
-    type: { type: String, trim: true }, // e.g., Resume, Portfolio, Certificate
-    path: { type: String, trim: true },
-    verified: { type: Boolean, default: false },
-    reason: { type: String, trim: true }, // why rejected
-    suggestion: { type: String, trim: true }, // what to do next
-    uploaded_at: { type: Date, default: Date.now }
-  });
+const location_schema = new mongoose.Schema({
+  city: { type: String, trim: true },
+  state: { type: String, trim: true },
+  country: { type: String, trim: true },
+  pincode: { type: String, trim: true }
+});
 
-  const documents_schema = new mongoose.Schema({
-    resume: { type: document_schema },
-    portfolio: { type: document_schema },
-    certificates: [{ type: document_schema }],
-    identity_proof: { type: document_schema },
-    address_proof: { type: document_schema }
-  });
+const professional_schema = new mongoose.Schema({
+  experience_years: { type: Number, min: 0 },
+  bio: { type: String, trim: true },
+  skills: [{ type: String, trim: true }],
+  working_radius: { type: String, trim: true },
+  availability: { type: String, enum: ['Part-time', 'Full-time', 'Project-based'], trim: true }
+});
 
-  const review_schema = new mongoose.Schema({
-    reviewId: { type: String, required: true, trim: true },
-    user: { type: String, trim: true },
-    rating: { type: Number, min: 0, max: 5 },
-    comment: { type: String, trim: true },
-    createdAt: { type: Date, default: Date.now }
-  });
+const payment_schema = new mongoose.Schema({
+  preferred_method: { type: String,  trim: true },
+  advance_percentage: { type: Number, min: 0, max: 100 },
+  gst_number: { type: String, trim: true }
+});
 
-  const performance_schema = new mongoose.Schema({
-    ratings: { type: Number, min: 0, max: 5 },
-    reviewsCount: { type: Number, min: 0 }
-  });
+const status_info_schema = new mongoose.Schema({
+  status: { type: Number, default: 0 }, // 0=Pending, 1=Approved, 2=Rejected
+  approved_at: { type: Date },
+  approved_by: { type: String, trim: true }
+});
 
-  const common_schema = new mongoose.Schema({
-    gallery: [{ type: String, trim: true }], // Paths to uploaded images
-    reviews: [{ type: review_schema }],
-    socialLinks: {
-      linkedin: { type: String, trim: true },
-      instagram: { type: String, trim: true },
-      twitter: { type: String, trim: true },
-      facebook: { type: String, trim: true },
-      youtube: { type: String, trim: true }
+const meta_schema = new mongoose.Schema({
+  agreed_to_terms: { type: Boolean, default: false },
+  portal_access: { type: Boolean, default: false },
+  created_at: { type: Date, default: Date.now },
+  updated_at: { type: Date, default: Date.now },
+  change_history: [
+    {
+      updated_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      changes: [{ type: String }],
+      updated_at: { type: Date, default: Date.now }
     }
-  });
+  ]
+});
 
-  const status_info_schema = new mongoose.Schema({
-    status: { type: Number, default: 0 }, // 0 = Pending, 1 = Approved, 2 = Rejected
-    approved_at: { type: Date },
-    approved_by: { type: String, trim: true }
-  });
+// ----- Main Freelancer Schema -----
+const freelancer_schema = new mongoose.Schema({
+  email: { type: String, unique: true, required: true, lowercase: true, trim: true },
+  password: { type: String, required: true },
 
-  const change_history_schema = new mongoose.Schema({
-    updated_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    updated_at: { type: Date, default: Date.now },
-    changes: [{ type: String, trim: true }]
-  });
+  name: {
+    first_name: { type: String, required: true, trim: true },
+    last_name:  { type: String, required: true, trim: true }
+  },
 
-  const meta_schema = new mongoose.Schema({
-    agreed_to_terms: { type: Boolean, default: false },
-    portal_access: { type: Boolean, default: false },
-    created_at: { type: Date, default: Date.now },
-    updated_at: { type: Date, default: Date.now },
-    change_history: [{ type: change_history_schema }]
-  });
+  mobile: { type: String, trim: true },
+  is_mobile_verified: { type: Boolean, default: false },
+  profile_image: { type: String, trim: true },
 
-  const freelancer_schema = new mongoose.Schema({
-    email: { type: String, unique: true, required: [true, 'Email is required'], lowercase: true, trim: true },
-    password: { type: String, required: [true, 'Password is required'] },
-    full_name: { type: String, trim: true },
-    role: { type: mongoose.Schema.Types.ObjectId, ref: 'Role' },
-    mobile: { type: String, trim: true },
-    is_mobile_verified: { type: Boolean, default: false },
-    servicesOffered: [{ type: service_schema }],
-    availability: { type: String, trim: true }, // e.g., Part-time, Full-time
-    location: { type: location_schema },
-    languages: [{ type: String, trim: true }],
-    contacts: { type: contacts_schema },
-    documents: { type: documents_schema },
-    performance: { type: performance_schema },
-    common: { type: common_schema },
-    status_info: { type: status_info_schema },
-    meta: { type: meta_schema, required: true }
-  });
+  professional: { type: professional_schema, required: true },
+  location: { type: location_schema },
+  languages: [{ type: String, trim: true }],
 
-  // Add indexes for performance
-  freelancer_schema.index({ mobile: 1 });
-  freelancer_schema.index({ 'status_info.status': 1 });
+  services_offered: [{ type: service_schema }],
+  portfolio: [{ type: portfolio_schema }],
+  gallery: [{ type: String, trim: true }],
 
-  module.exports = mongoose.model('Freelancer', freelancer_schema);
+  payment: { type: payment_schema },
+  status_info: { type: status_info_schema },
+  meta: { type: meta_schema, required: true },
+
+  documents: [document_schema], // ← ADDED
+
+  role: { type: mongoose.Schema.Types.ObjectId, ref: 'Role' },
+ isActive: {
+    type: Boolean,
+    default: true
+  },  is_deleted: { type: Boolean, default: false },
+  deleted_at: { type: Date }
+}, { timestamps: true });
+
+// ----- Indexes -----
+freelancer_schema.index({ mobile: 1 });
+freelancer_schema.index({ 'status_info.status': 1 });
+freelancer_schema.index({ 'professional.skills': 1 });
+freelancer_schema.index({ 'services_offered.category': 1 });
+freelancer_schema.index({ 'services_offered.subcategory': 1 });
+freelancer_schema.index({ 'location.city': 1 });
+freelancer_schema.index({ is_deleted: 1 });
+
+// Update meta.updated_at
+freelancer_schema.pre('save', function (next) {
+  this.meta.updated_at = Date.now();
+  next();
+});
+
+// Soft-delete middleware
+freelancer_schema.pre(['find', 'findOne', 'findOneAndUpdate', 'countDocuments'], function () {
+  this.where({ is_deleted: false });
+});
+
+module.exports = mongoose.model('Freelancer', freelancer_schema);

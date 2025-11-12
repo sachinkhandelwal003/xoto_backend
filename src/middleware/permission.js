@@ -1,5 +1,4 @@
 // middleware/permission.middleware.js
-
 const { APIError } = require('../utils/errorHandler');
 const { StatusCodes } = require('../utils/constants/statusCodes');
 const { Permission } = require('../modules/auth/models/role/permission.model');
@@ -7,56 +6,79 @@ const { Module } = require('../modules/auth/models/role/module.model');
 
 const moduleCache = new Map();
 
+// ------------------------------------------------------
+// 🔹 Helper: Cache + fetch module from DB
+// ------------------------------------------------------
 async function getModule(moduleName) {
   if (moduleCache.has(moduleName)) return moduleCache.get(moduleName);
 
   const module = await Module.findOne({ name: moduleName, isActive: true, isDeleted: false });
   if (module) {
     moduleCache.set(moduleName, module);
-    setTimeout(() => moduleCache.delete(moduleName), 5 * 60 * 1000);
+    setTimeout(() => moduleCache.delete(moduleName), 5 * 60 * 1000); // cache 5 min
   }
   return module;
 }
 
-// MAIN: checkPermission(module, action, [subModule])
+// ------------------------------------------------------
+// 🔹 MAIN: checkPermission(module, action, [subModule])
+// ------------------------------------------------------
 exports.checkPermission = (moduleName, actionName, subModuleName = null) => {
   return async (req, res, next) => {
     try {
-      if (req.user.role.isSuperAdmin) return next();
+      if (req.user.role.isSuperAdmin) return next(); // full access
 
       const module = await getModule(moduleName);
-      if (!module) throw new APIError(`Module ${moduleName} not found`, StatusCodes.NOT_FOUND);
+      if (!module)
+        throw new APIError(`Module "${moduleName}" not found`, StatusCodes.NOT_FOUND);
 
+      // find submodule if provided
       let subModuleId = null;
       if (subModuleName) {
         const sub = module.subModules.find(
           s => s.name === subModuleName && s.isActive && !s.isDeleted
         );
-        if (!sub) throw new APIError(`SubModule ${subModuleName} not found`, StatusCodes.NOT_FOUND);
+        if (!sub)
+          throw new APIError(
+            `SubModule "${subModuleName}" not found`,
+            StatusCodes.NOT_FOUND
+          );
         subModuleId = sub._id;
       }
 
+      // find permission in DB
       const permission = await Permission.findOne({
         roleId: req.user.role._id,
         moduleId: module._id,
         subModuleId,
-        isActive: true
+        isActive: true,
       });
 
       if (!permission) {
-        throw new APIError(`Access denied to ${moduleName}${subModuleName ? ` → ${subModuleName}` : ''}`, StatusCodes.FORBIDDEN);
+        throw new APIError(
+          `Access denied to ${moduleName}${subModuleName ? ` → ${subModuleName}` : ''}`,
+          StatusCodes.FORBIDDEN
+        );
       }
 
+      // map action to permission field
       const actionMap = {
-        view: 'canView', add: 'canAdd', create: 'canAdd',
-        edit: 'canEdit', update: 'canEdit',
-        delete: 'canDelete', remove: 'canDelete',
-        viewall: 'canViewAll'
+        view: 'canView',
+        add: 'canAdd',
+        create: 'canAdd',
+        edit: 'canEdit',
+        update: 'canEdit',
+        delete: 'canDelete',
+        remove: 'canDelete',
+        viewall: 'canViewAll',
       };
 
       const field = actionMap[actionName.toLowerCase()];
       if (!field || !permission[field]) {
-        throw new APIError(`No ${actionName} permission on ${moduleName}`, StatusCodes.FORBIDDEN);
+        throw new APIError(
+          `No ${actionName} permission on ${moduleName}`,
+          StatusCodes.FORBIDDEN
+        );
       }
 
       next();
@@ -66,7 +88,9 @@ exports.checkPermission = (moduleName, actionName, subModuleName = null) => {
   };
 };
 
-// getUserPermissions – fixed
+// ------------------------------------------------------
+// 🔹 Helper: Get all permissions for a role
+// ------------------------------------------------------
 exports.getUserPermissions = async (roleId) => {
   const permissions = await Permission.find({ roleId, isActive: true }).populate('moduleId');
   const map = {};
@@ -82,7 +106,7 @@ exports.getUserPermissions = async (roleId) => {
         canAdd: p.canAdd,
         canEdit: p.canEdit,
         canDelete: p.canDelete,
-        canViewAll: p.canViewAll
+        canViewAll: p.canViewAll,
       };
     }
   });
