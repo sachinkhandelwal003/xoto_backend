@@ -64,10 +64,10 @@ app.use((err, req, res, next) => {
 const startServer = async () => {
   try {
     await connectDB();
-    app.listen(PORT, () => {
-      console.log(`✅ Server running on port ${PORT}`);
-      console.log(`✅ MongoDB connected: ${process.env.MONGO_URI}`);
-    });
+   app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`MongoDB connected: ${process.env.MONGO_URI}`);
+});
   } catch (err) {
     console.error("❌ Failed to start server:", err);
     process.exit(1);
