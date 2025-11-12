@@ -15,11 +15,11 @@ const app = express();
 
 // ✅ CORS: only allow frontend
 app.use(cors({
-  origin: "http://localhost:5173", // your Vite/React frontend
+  origin: "http://localhost:5173",
   credentials: true,
 }));
 
-// ✅ Helmet (disable CORP so Chrome won’t block images)
+// ✅ Helmet
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
@@ -30,7 +30,7 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ Serve static uploads with headers
+// ✅ Serve static uploads
 app.use(
   "/uploads",
   express.static(path.join(__dirname, "uploads"), {
