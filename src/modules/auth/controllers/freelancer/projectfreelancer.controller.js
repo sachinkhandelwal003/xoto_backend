@@ -349,7 +349,7 @@ exports.getProjects = asyncHandler(async (req, res) => {
 /* 2. ADD MILESTONE – FULLY COMPATIBLE WITH MODEL */
 exports.addMilestone = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { title, description, start_date, end_date, due_date, amount } = req.body;
+  const { title, description, start_date, end_date, amount } = req.body;
 
   // REQUIRED FIELDS
   if (!title || !start_date || !end_date || !amount) {
@@ -374,11 +374,7 @@ exports.addMilestone = asyncHandler(async (req, res) => {
     throw new APIError(`Milestone must be within project dates`, StatusCodes.BAD_REQUEST);
   }
 
-  let d = e;
-  if (due_date && due_date.trim() !== '') {
-    d = new Date(due_date);
-    if (isNaN(d.getTime())) throw new APIError('Invalid due_date', StatusCodes.BAD_REQUEST);
-  }
+ 
 
   // ← PHOTOS (optional)
   const photos = req.files ? req.files.map(f => f.path) : [];
@@ -388,7 +384,7 @@ exports.addMilestone = asyncHandler(async (req, res) => {
     description: description || '',
     start_date: s,
     end_date: e,
-    due_date: d,
+    due_date,
     amount: amountNum,
     progress: 0,
     status: 'pending',

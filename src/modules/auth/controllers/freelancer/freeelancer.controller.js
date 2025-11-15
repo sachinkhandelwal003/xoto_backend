@@ -22,17 +22,40 @@ const logger = winston.createLogger({
 // === LOGIN ===
 exports.freelancerLogin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
-  const freelancer = await Freelancer.findOne({ email }).select('+password').populate('role');
 
-  if (!freelancer || !(await bcrypt.compare(password, freelancer.password))) {
-    throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
+  // Find freelancer and include password
+  const freelancer = await Freelancer.findOne({ email })
+    .select('+password')
+    .populate('role');
+
+  if (!freelancer) {
+    return res.status(StatusCodes.UNAUTHORIZED).json({
+      success: false,
+      message: 'Invalid credentials',
+    });
   }
 
-  const token = createToken(freelancer);
-  const response = freelancer.toObject();
-  delete response.password;
+  // Compare password
+  const isMatch = await bcrypt.compare(password, freelancer.password);
+  if (!isMatch) {
+    return res.status(StatusCodes.UNAUTHORIZED).json({
+      success: false,
+      message: 'Invalid credentials',
+    });
+  }
 
-  res.status(StatusCodes.OK).json({ success: true, token, freelancer: response });
+  // Create token
+  const token = createToken(freelancer);
+
+  // Prepare response (without password)
+  const freelancerData = freelancer.toObject();
+  delete freelancerData.password;
+
+  res.status(StatusCodes.OK).json({
+    success: true,
+    token,
+    freelancer: freelancerData,
+  });
 });
 
 // === CREATE ===
@@ -80,12 +103,12 @@ exports.createFreelancer = asyncHandler(async (req, res) => {
 
 // === GET ALL ===
 exports.getAllFreelancers = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 10, status, search, city, id } = req.query;
+  const { page = 1, limit = 10, status, search, city, freelancerId } = req.query;
   const query = { is_deleted: false };
 
   // If an ID is provided, return a single freelancer
-  if (id) {
-    const freelancer = await Freelancer.findOne({ _id: id, is_deleted: false })
+  if (freelancerId) {
+    const freelancer = await Freelancer.findOne({ _id:freelancerId, is_deleted: false })
       .select('-password')
       .populate('role services_offered.category services_offered.subcategory')
       .lean();
