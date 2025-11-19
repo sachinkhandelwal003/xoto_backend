@@ -103,12 +103,17 @@ exports.createFreelancer = asyncHandler(async (req, res) => {
 
 // === GET ALL ===
 exports.getAllFreelancers = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 10, status, search, city, freelancerId } = req.query;
+  const { page = 1, limit, status, search, city, freelancerId } = req.query;
   const query = { is_deleted: false };
 
-  // If an ID is provided, return a single freelancer
+  // ------------------------------------------------------
+  // 1️⃣ RETURN SINGLE FREELANCER IF ID IS PROVIDED
+  // ------------------------------------------------------
   if (freelancerId) {
-    const freelancer = await Freelancer.findOne({ _id:freelancerId, is_deleted: false })
+    const freelancer = await Freelancer.findOne({
+      _id: freelancerId,
+      is_deleted: false
+    })
       .select('-password')
       .populate('role services_offered.category services_offered.subcategory')
       .lean();
@@ -126,31 +131,65 @@ exports.getAllFreelancers = asyncHandler(async (req, res) => {
     });
   }
 
-  // Otherwise, fetch all freelancers with filters
+  // ------------------------------------------------------
+  // 2️⃣ APPLY FILTERS
+  // ------------------------------------------------------
   if (status) query['status_info.status'] = parseInt(status);
-  if (search)
+
+  if (search) {
     query.$or = [
       { 'name.first_name': new RegExp(search, 'i') },
       { 'name.last_name': new RegExp(search, 'i') },
       { email: new RegExp(search, 'i') },
     ];
+  }
+
   if (city) query['location.city'] = new RegExp(city, 'i');
 
-  const freelancers = await Freelancer.find(query)
+
+  // ------------------------------------------------------
+  // 3️⃣ BASE QUERY
+  // ------------------------------------------------------
+  let freelancersQuery = Freelancer.find(query)
     .select('-password')
     .populate('role services_offered.category services_offered.subcategory')
-    .skip((page - 1) * limit)
-    .limit(Number(limit))
-    .lean();
+    .sort({ createdAt: -1 });
 
-  const total = await Freelancer.countDocuments(query);
+  let pagination = null;
+
+  // ------------------------------------------------------
+  // 4️⃣ APPLY PAGINATION ONLY IF LIMIT IS PROVIDED
+  // ------------------------------------------------------
+  if (limit) {
+    const limitNum = Number(limit);
+    const pageNum = Number(page);
+
+    freelancersQuery = freelancersQuery
+      .skip((pageNum - 1) * limitNum)
+      .limit(limitNum);
+
+    const total = await Freelancer.countDocuments(query);
+
+    pagination = {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages: Math.ceil(total / limitNum),
+    };
+  }
+
+  // ------------------------------------------------------
+  // 5️⃣ FETCH DATA
+  // ------------------------------------------------------
+  const freelancers = await freelancersQuery;
 
   res.status(StatusCodes.OK).json({
     success: true,
-    pagination: { page: Number(page), limit: Number(limit), total },
     freelancers,
+    pagination, // null when pagination not applied
   });
 });
+
 
 
 exports.getFreelancerProfile = asyncHandler(async (req, res) => {
