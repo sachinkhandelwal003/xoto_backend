@@ -23,7 +23,7 @@ const estimateSchema = new mongoose.Schema({
       'superadmin_approved',
       'customer_accepted',
       'customer_rejected',
-      'cancelled'
+      'cancelled','deal'
     ],
     default: 'pending'
   },
@@ -32,7 +32,8 @@ const estimateSchema = new mongoose.Schema({
   assigned_supervisor: { type: mongoose.Schema.Types.ObjectId, ref: 'Allusers' },
   assigned_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Allusers' },
   assigned_at: Date,
-
+deal_converted_at: Date,
+deal_converted_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   // 🔵 Separate SUPERVISOR PROGRESS
  supervisor_progress: {
     type: String,
@@ -60,7 +61,7 @@ const estimateSchema = new mongoose.Schema({
   // 🔵 CUSTOMER PROGRESS
  customer_progress: {
     type: String,
-    enum: ['none', 'sent_to_customer', 'customer_responded'],
+    enum: ['none', 'sent_to_customer', 'customer_responded', 'deal_created'],
     default: 'none'
   },
 customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },

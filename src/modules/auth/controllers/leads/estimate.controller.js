@@ -1,7 +1,7 @@
 const Estimate = require('../../models/leads/estimate.model');
 const Quotation = require('../../models/leads/quotation.model');
 const Customer = require('../../models/user/customer.model');
-
+const Project = require('../../models/Freelancer/projectfreelancer.model');
 const asyncHandler = require('../../../../utils/asyncHandler');
 const { APIError } = require('../../../../utils/errorHandler');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
@@ -596,5 +596,75 @@ exports.getCustomerQuotation = asyncHandler(async (req, res) => {
     estimate_id: estimate._id,
     category: estimate.category?.name || null,
     final_quotation: estimate.final_quotation
+  });
+});
+
+
+// controllers/estimate/estimate.controller.js
+
+exports.convertToDeal = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const estimate = await Estimate.findById(id)
+    .populate('final_quotation')
+    .populate('customer', 'name email mobile')
+    .populate('category')
+    .populate('subcategories');
+
+  if (!estimate) throw new APIError('Estimate not found', StatusCodes.NOT_FOUND);
+  if (estimate.status !== 'customer_accepted') throw new APIError('Only accepted estimates can be converted', StatusCodes.BAD_REQUEST);
+  if (estimate.status === 'deal' || estimate.project_reference) throw new APIError('Deal already created', StatusCodes.BAD_REQUEST);
+
+  const finalQuotation = estimate.final_quotation;
+
+  const project = await Project.create({
+    title: finalQuotation?.title || finalQuotation?.scope_of_work?.substring(0, 100) || estimate.description.substring(0, 100) || 'Landscaping Project',
+    client_name: estimate.customer?.name || estimate.customer_name,
+    client_company: estimate.client_company || '',
+    address: estimate.address || '',
+    city: estimate.city || '',
+    gps_coordinates: estimate.gps_coordinates || {},
+
+    start_date: new Date(),
+    end_date: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+
+    budget: finalQuotation?.grand_total || finalQuotation?.total_amount || 0,
+    overview: estimate.description || '',
+    scope_details: finalQuotation?.scope_of_work || estimate.description || '',
+
+    category: estimate.category,
+    subcategory: estimate.subcategories.map(s => s._id), // ← ALL SUBCATEGORIES
+
+    customer: estimate.customer,
+    estimate_reference: estimate._id,
+
+    freelancer: null,
+    accountant: null,
+    milestones: [],
+    status: 'pending'
+  });
+
+  estimate.status = 'deal';
+  estimate.customer_progress = 'deal_created';
+  estimate.project_reference = project._id;
+  estimate.deal_converted_at = new Date();
+  estimate.deal_converted_by = req.user._id;
+  await estimate.save();
+
+  res.status(StatusCodes.CREATED).json({
+    success: true,
+    message: 'Deal created successfully! Project is pending freelancer assignment.',
+    data: {
+      Code: project.Code,
+      project_title: project.title,
+      status: project.status,
+      budget: project.budget,
+      client: project.client_name,
+      subcategories: estimate.subcategories.map(s => s.name || s._id),
+      scope_of_work: project.scope_details,
+      overview: project.overview,
+      milestones: 0,
+      freelancer_assigned: false
+    }
   });
 });

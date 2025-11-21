@@ -211,7 +211,7 @@ exports.createProject = asyncHandler(async (req, res) => {
     message: 'Landscaping project created successfully',
     project: {
       _id: project._id,
-      project_id: project.project_id,
+      Code: project.Code,
       title: project.title,
       client_name: project.client_name,
       project_type: project.project_type,
@@ -224,7 +224,6 @@ exports.createProject = asyncHandler(async (req, res) => {
 /* GET MILESTONES OF A PROJECT – SECURE & RICH DATA */
 exports.getMilestones = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const user = req.user;
 
   // 1. VALIDATE PROJECT ID
   if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -233,16 +232,14 @@ exports.getMilestones = asyncHandler(async (req, res) => {
 
   // 2. FETCH PROJECT
   const project = await Project.findOne({ _id: id, is_deleted: false })
-    .select('milestones start_date end_date title status freelancer customer')
-    .populate('freelancer', 'name email')
+    .select('milestones start_date end_date title status freelancers customer')
+    .populate('freelancers', 'name email')   //  ✅ FIXED
     .populate('customer', 'name email')
     .lean();
 
   if (!project) {
     throw new APIError('Project not found', StatusCodes.NOT_FOUND);
   }
-
-
 
   // 4. FILTER & ENRICH MILESTONES
   const activeMilestones = project.milestones
@@ -269,7 +266,8 @@ exports.getMilestones = asyncHandler(async (req, res) => {
     project: {
       _id: project._id,
       title: project.title,
-      status: project.status
+      status: project.status,
+      freelancers: project.freelancers   // ✅ ADD THIS
     },
     milestones: activeMilestones,
     summary: {
@@ -281,29 +279,23 @@ exports.getMilestones = asyncHandler(async (req, res) => {
     }
   });
 });
+
 exports.getProjects = asyncHandler(async (req, res) => {
-  const { id, page = 1, limit = 10, status, search, freelancer } = req.query;
+  const { id, page = 1, limit, status, search, freelancer } = req.query;
   const user = req.user;
 
   // === SINGLE PROJECT BY ID ===
   if (id) {
     const project = await Project.findOne({ _id: id, is_deleted: false })
       .populate('customer', 'name email')
-      .populate('freelancer', 'name email mobile')
+            .populate('accountant', 'name email')
+      .populate('freelancers', 'name email mobile')  // (if array exists)
       .populate('category', 'name')
       .populate('subcategory', 'name')
       .select('-__v')
       .lean();
 
     if (!project) throw new APIError('Project not found', StatusCodes.NOT_FOUND);
-
-    // Access control
-    const canAccess =
-      ['SuperAdmin', 'Admin'].includes(user.role) ||
-      project.customer.toString() === user._id.toString() ||
-      (project.freelancer && project.freelancer.toString() === user._id.toString());
-
-    if (!canAccess) throw new APIError('Access denied', StatusCodes.FORBIDDEN);
 
     return res.json({ success: true, project });
   }
@@ -317,34 +309,49 @@ exports.getProjects = asyncHandler(async (req, res) => {
   } else if (user.role === 'Customer') {
     query.customer = user._id;
   }
-  // SuperAdmin/Admin: no filter → see all
 
-  // Optional filters
   if (status) query.status = status;
   if (search) query.title = { $regex: search.trim(), $options: 'i' };
+
   if (freelancer && ['SuperAdmin', 'Admin'].includes(user.role)) {
     query.freelancer = freelancer;
   }
 
+  // Pagination rules
+  const skip = limit ? (page - 1) * Number(limit) : 0;
+
+  let dbQuery = Project.find(query)
+    .populate('customer', 'name email')
+    .populate('freelancers', 'name email mobile')   // (if array exists)
+                .populate('accountant', 'name email')
+    .populate('category', 'name')
+    .populate('subcategory', 'name')
+    .sort({ createdAt: -1 });
+
+  if (limit) {
+    dbQuery = dbQuery.skip(skip).limit(Number(limit));
+  }
+
   const [projects, total] = await Promise.all([
-    Project.find(query)
-      .populate('customer', 'name email')
-      .populate('freelancer', 'name email mobile')
-      .populate('category', 'name')
-      .populate('subcategory', 'name')
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(+limit)
-      .lean(),
+    dbQuery.lean(),
     Project.countDocuments(query)
   ]);
 
   res.json({
     success: true,
-    pagination: { page: +page, limit: +limit, total, totalPages: Math.ceil(total / limit) },
+    pagination: limit
+      ? {
+          page: Number(page),
+          limit: Number(limit),
+          total,
+          totalPages: Math.ceil(total / limit)
+        }
+      : null,
     projects
   });
 });
+
+
 /* 2. ADD MILESTONE (Anytime) */
 /* 2. ADD MILESTONE – FULLY COMPATIBLE WITH MODEL */
 exports.addMilestone = asyncHandler(async (req, res) => {
@@ -361,25 +368,36 @@ exports.addMilestone = asyncHandler(async (req, res) => {
     throw new APIError('Amount must be a positive number', StatusCodes.BAD_REQUEST);
   }
 
+  // FIND PROJECT
   const project = await Project.findOne({ _id: id, is_deleted: false });
   if (!project) throw new APIError('Project not found', StatusCodes.NOT_FOUND);
 
   const s = new Date(start_date);
   const e = new Date(end_date);
+
+  // DATE VALIDATION
   if (isNaN(s.getTime()) || isNaN(e.getTime()) || s >= e) {
     throw new APIError('Invalid or illogical dates', StatusCodes.BAD_REQUEST);
   }
 
+  // MUST BE WITHIN PROJECT DATES
   if (s < new Date(project.start_date) || e > new Date(project.end_date)) {
     throw new APIError(`Milestone must be within project dates`, StatusCodes.BAD_REQUEST);
   }
 
- 
+  // AUTO DUE DATE
+  const due_date = e;
 
-  // ← PHOTOS (optional)
+  // AUTO MILESTONE NUMBER
+  const milestone_number =
+    project.milestones.filter(m => !m.is_deleted).length + 1;
+
+  // PHOTOS
   const photos = req.files ? req.files.map(f => f.path) : [];
 
+  // ADD MILESTONE
   project.milestones.push({
+    milestone_number,              // ← HERE
     title,
     description: description || '',
     start_date: s,
@@ -388,7 +406,7 @@ exports.addMilestone = asyncHandler(async (req, res) => {
     amount: amountNum,
     progress: 0,
     status: 'pending',
-    photos,                     // ← SAVE PHOTOS
+    photos,
     notes: ''
   });
 
@@ -398,43 +416,65 @@ exports.addMilestone = asyncHandler(async (req, res) => {
 
   res.status(StatusCodes.CREATED).json({
     success: true,
-    milestone: {
-      _id: added._id,
-      title: added.title,
-      description: added.description,
-      start_date: added.start_date,
-      end_date: added.end_date,
-      due_date: added.due_date,
-      amount: added.amount,
-      progress: added.progress,
-      status: added.status,
-      photos: added.photos,     // ← RETURN URLs
-      createdAt: added.createdAt
-    }
+    milestone: added
   });
 });
 
 
-/* 3. ASSIGN FREELANCER */
-exports.assignFreelancer = asyncHandler(async (req, res) => {
-  
-  const { id } = req.params;
-  const { freelancerId } = req.body;
 
-  if (!mongoose.Types.ObjectId.isValid(freelancerId)) {
-    throw new APIError('Invalid freelancer ID', StatusCodes.BAD_REQUEST);
+exports.assignFreelancer = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { freelancers } = req.body;
+
+  // freelancers must be an array
+  if (!Array.isArray(freelancers) || freelancers.length === 0) {
+    throw new APIError('freelancers must be a non-empty array', StatusCodes.BAD_REQUEST);
+  }
+
+  // Validate each ObjectId
+  for (const fid of freelancers) {
+    if (!mongoose.Types.ObjectId.isValid(fid)) {
+      throw new APIError(`Invalid freelancer ID: ${fid}`, StatusCodes.BAD_REQUEST);
+    }
   }
 
   const project = await Project.findOne({ _id: id, is_deleted: false });
-  if (!project) throw new APIError('Not found', StatusCodes.NOT_FOUND);
-  if (project.freelancer) throw new APIError('Already assigned', StatusCodes.CONFLICT);
+  if (!project) throw new APIError('Project not found', StatusCodes.NOT_FOUND);
 
-  project.freelancer = freelancerId;
-  project.status = 'assigned';
+  // Initialize array if missing
+  if (!Array.isArray(project.freelancers)) {
+    project.freelancers = [];
+  }
+
+  // Add freelancers without duplicates
+  let added = [];
+  freelancers.forEach(fid => {
+    if (!project.freelancers.includes(fid)) {
+      project.freelancers.push(fid);
+      added.push(fid);
+    }
+  });
+
+  if (added.length === 0) {
+    throw new APIError('All freelancers already assigned', StatusCodes.CONFLICT);
+  }
+
+  // Update project status
+  if (project.freelancers.length > 0) {
+    project.status = 'assigned';
+  }
+
   await project.save();
 
-  res.json({ success: true, message: 'Assigned', project });
+  res.json({
+    success: true,
+    message: 'Freelancers assigned successfully',
+    newly_added: added,
+    all_assigned: project.freelancers
+  });
 });
+
+
 exports.moveProjectToAccountant = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { accountantId } = req.body;
@@ -522,54 +562,12 @@ exports.addDailyUpdate = asyncHandler(async (req, res) => {
 /* SUPERADMIN: APPROVE + SET PROGRESS */
 exports.approveDailyUpdate = asyncHandler(async (req, res) => {
   const { id, milestoneId, dailyId } = req.params;
-  const { approved_progress } = req.body; // REQUIRED
-
-
+  const { approved_progress } = req.body;
 
   if (approved_progress == null || approved_progress < 0 || approved_progress > 100) {
-    throw new APIError('approved_progress (0-100) is required', StatusCodes.BAD_REQUEST);
+    throw new APIError('approved_progress (0–100) is required', StatusCodes.BAD_REQUEST);
   }
 
-  const project = await Project.findOne({ _id: id, 'milestones._id': milestoneId });
-  if (!project) throw new APIError('Not found', StatusCodes.NOT_FOUND);
-
-  const milestone = project.milestones.id(milestoneId);
-  const daily = milestone.daily_updates.id(dailyId);
-  if (!daily) throw new APIError('Daily update not found', StatusCodes.NOT_FOUND);
-  if (daily.approval_status !== 'pending') throw new APIError('Already processed', StatusCodes.BAD_REQUEST);
-
-  daily.approval_status = 'approved';
-  daily.approved_at = new Date();
-  daily.approved_progress = +approved_progress;
-
-  // RECALCULATE MILESTONE PROGRESS FROM LATEST APPROVED
-  const approvedUpdates = milestone.daily_updates
-    .filter(d => d.approval_status === 'approved')
-    .sort((a, b) => b.date - a.date); // latest first
-
-  // In approveDailyUpdate — CORRECT LINE:
-milestone.progress = approvedUpdates.length > 0
-  ? Math.min(approvedUpdates[0].approved_progress, 100)
-  : 0;
-  await project.save();
-
-  res.json({
-    success: true,
-    message: 'Daily update approved',
-    milestone: {
-      _id: milestone._id,
-      progress: milestone.progress,
-      status: milestone.status
-    }
-  });
-});
-/* NEW: SUPERADMIN REJECT/CHALLENGE DAILY UPDATE */
-/* SUPERADMIN: REJECT DAILY UPDATE – CORRECT PROGRESS LOGIC */
-exports.rejectDailyUpdate = asyncHandler(async (req, res) => {
-  const { id, milestoneId, dailyId } = req.params;
-  const { reason } = req.body; // Optional
-
- 
   const project = await Project.findOne({
     _id: id,
     is_deleted: false,
@@ -579,44 +577,94 @@ exports.rejectDailyUpdate = asyncHandler(async (req, res) => {
   if (!project) throw new APIError('Project or milestone not found', StatusCodes.NOT_FOUND);
 
   const milestone = project.milestones.id(milestoneId);
-  const dailyUpdate = milestone.daily_updates.id(dailyId);
+  const daily = milestone.daily_updates.id(dailyId);
 
-  if (!dailyUpdate) throw new APIError('Daily update not found', StatusCodes.NOT_FOUND);
-  if (dailyUpdate.approval_status !== 'pending') {
+  if (!daily) throw new APIError('Daily update not found', StatusCodes.NOT_FOUND);
+  if (daily.approval_status !== 'pending') {
     throw new APIError('Daily update already processed', StatusCodes.BAD_REQUEST);
   }
 
-  // REJECT
-  dailyUpdate.approval_status = 'rejected';
-  dailyUpdate.rejected_at = new Date();
-  if (reason) dailyUpdate.rejection_reason = reason;
+  // APPROVE DAILY UPDATE
+  daily.approval_status = 'approved';
+  daily.approved_progress = approved_progress;
+  daily.approved_at = new Date();
 
-  // RECALCULATE PROGRESS FROM LATEST APPROVED
+  // RECALCULATE PROGRESS (latest approved update)
   const approvedUpdates = milestone.daily_updates
-    .filter(u => u.approval_status === 'approved')
-    .sort((a, b) => b.date - a.date); // latest first
+    .filter(d => d.approval_status === 'approved')
+    .sort((a, b) => b.date - a.date);
 
-  milestone.progress = approvedUpdates.length > 0
-    ? Math.min(approvedUpdates[0].approved_progress, 100) // USE approved_progress
+  milestone.progress = approvedUpdates.length
+    ? Math.min(approvedUpdates[0].approved_progress, 100)
     : 0;
 
   await project.save();
 
   res.json({
     success: true,
-    message: 'Daily update rejected',
+    message: "Daily update approved successfully",
+    milestone: {
+      _id: milestone._id,
+      progress: milestone.progress,
+      status: milestone.status
+    }
+  });
+});
+
+/* NEW: SUPERADMIN REJECT/CHALLENGE DAILY UPDATE */
+/* SUPERADMIN: REJECT DAILY UPDATE – CORRECT PROGRESS LOGIC */
+exports.rejectDailyUpdate = asyncHandler(async (req, res) => {
+  const { id, milestoneId, dailyId } = req.params;
+  const { reason } = req.body;
+
+  const project = await Project.findOne({
+    _id: id,
+    is_deleted: false,
+    'milestones._id': milestoneId
+  });
+
+  if (!project) throw new APIError('Project or milestone not found', StatusCodes.NOT_FOUND);
+
+  const milestone = project.milestones.id(milestoneId);
+  const daily = milestone.daily_updates.id(dailyId);
+
+  if (!daily) throw new APIError('Daily update not found', StatusCodes.NOT_FOUND);
+  if (daily.approval_status !== 'pending') {
+    throw new APIError('Daily update already processed', StatusCodes.BAD_REQUEST);
+  }
+
+  // REJECT
+  daily.approval_status = 'rejected';
+  daily.rejected_at = new Date();
+  if (reason) daily.rejection_reason = reason;
+
+  // RECALCULATE PROGRESS FROM LATEST APPROVED
+  const approvedUpdates = milestone.daily_updates
+    .filter(u => u.approval_status === 'approved')
+    .sort((a, b) => b.date - a.date);
+
+  milestone.progress = approvedUpdates.length
+    ? Math.min(approvedUpdates[0].approved_progress, 100)
+    : 0;
+
+  await project.save();
+
+  res.json({
+    success: true,
+    message: "Daily update rejected",
     milestone: {
       _id: milestone._id,
       progress: milestone.progress,
       status: milestone.status
     },
     rejected_update: {
-      _id: dailyUpdate._id,
-      rejection_reason: dailyUpdate.rejection_reason,
-      rejected_at: dailyUpdate.rejected_at
+      _id: daily._id,
+      rejection_reason: daily.rejection_reason,
+      rejected_at: daily.rejected_at
     }
   });
 });
+
 /* 8. FREELANCER – REQUEST PAYMENT RELEASE */
 /* 8. FREELANCER – REQUEST PAYMENT RELEASE - FIXED */
 exports.requestRelease = asyncHandler(async (req, res) => {
@@ -626,31 +674,30 @@ exports.requestRelease = asyncHandler(async (req, res) => {
   const project = await Project.findOne({
     _id: id,
     is_deleted: false,
-    freelancer: freelancerId,
-    'milestones._id': milestoneId,
+    freelancers: freelancerId, // FIXED ARRAY MATCH
+    'milestones._id': milestoneId
   });
 
   if (!project) throw new APIError('Access denied', StatusCodes.FORBIDDEN);
 
   const milestone = project.milestones.id(milestoneId);
 
-  // FIXED: Check if progress is 100 and status allows release
   if (milestone.progress !== 100) {
-    throw new APIError('Milestone must be 100% complete to request payment', StatusCodes.BAD_REQUEST);
+    throw new APIError("Milestone must be 100% complete to request payment", StatusCodes.BAD_REQUEST);
   }
 
-  // FIXED: Allow release from in_progress or submitted status
-  if (!['in_progress', 'submitted', 'pending'].includes(milestone.status)) {
-    throw new APIError(`Cannot request payment for milestone with status: ${milestone.status}`, StatusCodes.BAD_REQUEST);
+  if (!['pending', 'in_progress', 'submitted'].includes(milestone.status)) {
+    throw new APIError(`Cannot request payment in status '${milestone.status}'`, StatusCodes.BAD_REQUEST);
   }
 
   milestone.status = 'release_requested';
-  milestone.release_requested_at = new Date(); // FIXED: Use correct field name
+  milestone.release_requested_at = new Date();
+
   await project.save();
 
-  res.json({ 
-    success: true, 
-    message: 'Payment release requested successfully', 
+  res.json({
+    success: true,
+    message: "Payment release requested",
     milestone: {
       _id: milestone._id,
       title: milestone.title,
@@ -659,6 +706,104 @@ exports.requestRelease = asyncHandler(async (req, res) => {
     }
   });
 });
+
+
+
+
+exports.approveMilestone = asyncHandler(async (req, res) => {
+  const { id, milestoneId } = req.params;
+
+  const project = await Project.findOne({ _id: id, is_deleted: false });
+  if (!project) throw new APIError("Project not found", StatusCodes.NOT_FOUND);
+
+  const milestone = project.milestones.id(milestoneId);
+  if (!milestone) throw new APIError("Milestone not found", StatusCodes.NOT_FOUND);
+
+  if (milestone.status !== "release_requested") {
+    throw new APIError(`Cannot approve milestone in status '${milestone.status}'`,
+      StatusCodes.BAD_REQUEST);
+  }
+
+  milestone.status = "approved";
+  milestone.approved_at = new Date();
+  milestone.progress = 100;      // FIXED ✔
+
+  // Recalculate project progress
+  const total = project.milestones.filter(m => !m.is_deleted).length;
+  const done = project.milestones.filter(m => m.status === 'approved' && !m.is_deleted).length;
+
+  project.overall_progress = total ? Math.round((done / total) * 100) : 0;
+
+  await project.save();
+
+  res.json({
+    success: true,
+    message: "Milestone approved",
+    milestone,
+    project_progress: project.overall_progress
+  });
+});
+
+exports.getDailyUpdates = asyncHandler(async (req, res) => {
+  const { id, milestoneId } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(milestoneId)) {
+    throw new APIError("Invalid ID", StatusCodes.BAD_REQUEST);
+  }
+
+  const project = await Project.findOne({
+    _id: id,
+    is_deleted: false,
+  })
+    .select("milestones freelancers customer title status")
+    .populate("freelancers", "name email")   // ✅ FIXED
+    .populate("customer", "name email")
+    .lean();
+
+  if (!project) throw new APIError("Project not found", StatusCodes.NOT_FOUND);
+
+  const milestone = project.milestones.find(m => m._id.toString() === milestoneId);
+  if (!milestone) throw new APIError("Milestone not found", StatusCodes.NOT_FOUND);
+
+  await Project.populate(project, {
+    path: "milestones.daily_updates.updated_by",
+    select: "name email avatar"
+  });
+
+  const enriched = milestone.daily_updates
+    .map(d => ({
+      _id: d._id,
+      date: d.date,
+      work_done: d.work_done,
+      photos: (d.photos || []).map(p => p.replace(/\\/g, "/")),
+      approved_progress: d.approved_progress,
+      approval_status: d.approval_status,
+      approved_at: d.approved_at,
+      rejected_at: d.rejected_at,
+      rejection_reason: d.rejection_reason,
+      updated_by: d.updated_by,
+      createdAt: d.createdAt
+    }))
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  res.json({
+    success: true,
+    milestone: {
+      _id: milestone._id,
+      title: milestone.title,
+      progress: milestone.progress,
+      status: milestone.status,
+    },
+    daily_updates: enriched,
+    summary: {
+      total: enriched.length,
+      approved: enriched.filter(d => d.approval_status === "approved").length,
+      rejected: enriched.filter(d => d.approval_status === "rejected").length,
+      pending: enriched.filter(d => d.approval_status === "pending").length,
+    },
+  });
+});
+
 
 /* 5. SUPERADMIN: VIEW FULL PROJECT + LOGS */
 exports.getProjectAdmin = asyncHandler(async (req, res) => {
@@ -690,142 +835,15 @@ exports.getProjectAdmin = asyncHandler(async (req, res) => {
     })))
   });
 });
-
-
-exports.approveMilestone = asyncHandler(async (req, res) => {
-  const { id, milestoneId } = req.params;
-
-  // Find project first
-  const project = await Project.findOne({ _id: id, is_deleted: false });
-  if (!project) {
-    throw new APIError('Project not found', StatusCodes.NOT_FOUND);
-  }
-
-  // Find milestone within the project
-  const milestone = project.milestones.id(milestoneId);
-  if (!milestone) {
-    throw new APIError('Milestone not found', StatusCodes.NOT_FOUND);
-  }
-
-  // Check milestone status
-  if (milestone.status !== 'release_requested') {
-    throw new APIError(
-      `Milestone cannot be approved because it is currently '${milestone.status}'`,
-      StatusCodes.BAD_REQUEST
-    );
-  }
-
-  // Approve milestone
-  milestone.status = 'approved';
-  milestone.approved_at = new Date();
-
-  // Optionally: update project overall progress
-  const totalMilestones = project.milestones.filter((m) => !m.is_deleted).length;
-  const approvedMilestones = project.milestones.filter(
-    (m) => m.status === 'approved' && !m.is_deleted
-  ).length;
-
-  project.overall_progress = totalMilestones
-    ? Math.round((approvedMilestones / totalMilestones) * 100)
-    : 0;
-
-  await project.save();
-
-  res.status(StatusCodes.OK).json({
-    success: true,
-    message: 'Milestone approved successfully',
-    milestone,
-    project_progress: project.overall_progress,
-  });
-});
-
 // src/controllers/freelancer/project.controller.js
 /* GET DAILY UPDATES OF A MILESTONE – SECURE & RICH */
 /* GET DAILY UPDATES – FIXED FOR .lean() */
-exports.getDailyUpdates = asyncHandler(async (req, res) => {
-  const { id, milestoneId } = req.params;
-  const user = req.user;
 
-  // 1️⃣ VALIDATE IDs
-  if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(milestoneId)) {
-    throw new APIError("Invalid ID", StatusCodes.BAD_REQUEST);
-  }
-
-  // 2️⃣ FETCH PROJECT
-  const project = await Project.findOne({
-    _id: id,
-    is_deleted: false,
-  })
-    .select("milestones freelancer customer title status")
-    .populate("freelancer", "name email")
-    .populate("customer", "name email")
-    .lean();
-
-  if (!project) {
-    throw new APIError("Project not found", StatusCodes.NOT_FOUND);
-  }
-
-  // 3️⃣ FIND MILESTONE
-  const milestone = project.milestones.find((m) => m._id.toString() === milestoneId);
-
-  if (!milestone) {
-    throw new APIError("Milestone not found", StatusCodes.NOT_FOUND);
-  }
-
-  // 4️⃣ POPULATE updated_by (on full project doc)
-  await Project.populate(project, {
-    path: "milestones.daily_updates.updated_by",
-    select: "name email avatar",
-  });
-
-  // 5️⃣ ENRICH DAILY UPDATES (✅ added photos)
-  const enrichedUpdates = milestone.daily_updates
-    .map((d) => ({
-      _id: d._id,
-      date: d.date,
-      work_done: d.work_done,
-      photos: (d.photos || []).map((p) => p.replace(/\\/g, "/")), // ✅ FIXED HERE
-      approved_progress: d.approved_progress,
-      approval_status: d.approval_status,
-      approved_at: d.approved_at,
-      rejected_at: d.rejected_at,
-      rejection_reason: d.rejection_reason,
-      updated_by: {
-        _id: d.updated_by?._id,
-        name: d.updated_by?.name,
-        email: d.updated_by?.email,
-        avatar: d.updated_by?.avatar,
-      },
-      createdAt: d.createdAt,
-    }))
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
-
-  // 6️⃣ RESPONSE
-  res.json({
-    success: true,
-    milestone: {
-      _id: milestone._id,
-      title: milestone.title,
-      progress: milestone.progress,
-      status: milestone.status,
-    },
-    daily_updates: enrichedUpdates,
-    summary: {
-      total: enrichedUpdates.length,
-      approved: enrichedUpdates.filter((d) => d.approval_status === "approved").length,
-      rejected: enrichedUpdates.filter((d) => d.approval_status === "rejected").length,
-      pending: enrichedUpdates.filter((d) => d.approval_status === "pending").length,
-    },
-  });
-});
 
 /* 7. FREELANCER: MY PROJECTS */
 // ✅ Get my projects (freelancer) with pagination and logging
 /* 7. FREELANCER: MY PROJECTS - IMPROVED */
 exports.getMyProjects = asyncHandler(async (req, res) => {
-  /* --------------------------------------------------------------
-     1. LOG THE USER OBJECT (helps you see what protectMulti attached)
-     -------------------------------------------------------------- */
   console.log('req.user in getMyProjects:', {
     _id: req.user?._id,
     id: req.user?.id,
@@ -833,52 +851,41 @@ exports.getMyProjects = asyncHandler(async (req, res) => {
     model: req.user?.constructor?.modelName,
   });
 
-  /* --------------------------------------------------------------
-     2. SAFELY EXTRACT THE USER ID
-        • protectMulti always puts the Mongo _id on req.user._id
-        • fallback to req.user.id (some old tokens)
-     -------------------------------------------------------------- */
   const userId = req.user?._id || req.user?.id;
 
   if (!userId) {
-    console.error('No user ID in request');
     return res.status(StatusCodes.UNAUTHORIZED).json({
       success: false,
       message: 'User ID not found – invalid token',
     });
   }
 
-  /* --------------------------------------------------------------
-     3. READ QUERY PARAMS (pagination + optional status filter)
-     -------------------------------------------------------------- */
   const { page = 1, limit = 10, status } = req.query;
   const skip = (page - 1) * limit;
 
-  /* --------------------------------------------------------------
-     4. BUILD THE MONGO QUERY
-        • `freelancer` field must contain the freelancer’s ObjectId
-        • `is_deleted` is false (soft-delete)
-        • optional status filter (ignore "all")
-     -------------------------------------------------------------- */
+  /* ---------------------------------------------------------------------
+     🔥 FIXED QUERY FOR FREELANCERS
+     Project field is `freelancers: []` (an array), not `freelancer`
+     So we must search if freelancerId is inside array using $in
+  --------------------------------------------------------------------- */
   const query = {
-    freelancer: userId,
+    freelancers: { $in: [userId] },
     is_deleted: false,
   };
 
-  if (status && status !== 'all') {
+  // Optional status filter
+  if (status && status !== "all") {
     query.status = status;
   }
 
-  /* --------------------------------------------------------------
-     5. FETCH DATA + TOTAL COUNT IN PARALLEL
-     -------------------------------------------------------------- */
+  // Fetch projects + total count
   const [projects, total] = await Promise.all([
     Project.find(query)
-      .populate('customer', 'name email')
-      .populate('category', 'name')
-      .populate('subcategory', 'name')
+      .populate("customer", "name email")
+      .populate("category", "name")
+      .populate("subcategory", "name")
       .select(
-        'title description status budget deadline milestones overall_progress createdAt'
+        "title description status budget deadline start_date end_date milestones overall_progress createdAt"
       )
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -888,17 +895,18 @@ exports.getMyProjects = asyncHandler(async (req, res) => {
     Project.countDocuments(query),
   ]);
 
-  console.log(`Found ${projects.length} projects (page ${page})`);
+  console.log(`Found ${projects.length} projects for freelancer`);
 
-  /* --------------------------------------------------------------
-     6. ENRICH EACH PROJECT WITH MILESTONE STATS
-     -------------------------------------------------------------- */
+  /* ---------------------------------------------------------------------
+     ⏳ MILESTONE STATS PER PROJECT
+  --------------------------------------------------------------------- */
   const projectsWithStats = projects.map((project) => {
     const activeMilestones = (project.milestones || []).filter(
       (m) => !m.is_deleted
     );
+
     const completedMilestones = activeMilestones.filter(
-      (m) => m.status === 'approved'
+      (m) => m.status === "approved"
     );
 
     const progress =
@@ -916,9 +924,9 @@ exports.getMyProjects = asyncHandler(async (req, res) => {
     };
   });
 
-  /* --------------------------------------------------------------
-     7. SEND RESPONSE
-     -------------------------------------------------------------- */
+  /* ---------------------------------------------------------------------
+     📤 SEND RESPONSE
+  --------------------------------------------------------------------- */
   res.status(StatusCodes.OK).json({
     success: true,
     pagination: {
@@ -930,6 +938,7 @@ exports.getMyProjects = asyncHandler(async (req, res) => {
     projects: projectsWithStats,
   });
 });
+
 
 exports.getMyProjectsAccountant = asyncHandler(async (req, res) => {
   /* --------------------------------------------------------------

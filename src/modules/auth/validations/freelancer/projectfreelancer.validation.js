@@ -298,10 +298,22 @@ const milestoneValidator = [
   ];
 
   exports.validateAssignFreelancer = [
-    param('id').custom(value => isValidObjectId(value, 'Project ID')),
-    body('freelancerId').custom(value => isValidObjectId(value, 'Freelancer ID')),
-    validate
-  ];
+
+  // Validate project ID
+  param('id').custom(value => isValidObjectId(value, 'Project ID')),
+
+  // freelancers must be an array
+  body('freelancers')
+    .isArray({ min: 1 })
+    .withMessage('freelancers must be a non-empty array'),
+
+  // validate each freelancerId inside array
+  body('freelancers.*')
+    .custom(value => isValidObjectId(value, 'Freelancer ID')),
+
+  validate
+];
+
 
   exports.validateProjectId = [param('id').custom(value => isValidObjectId(value, 'Project ID')), validate];
   exports.validateMilestone = [

@@ -185,10 +185,7 @@ exports.login = asyncHandler(async (req, res) => {
   if (!user.isActive) {
     throw new APIError('Account is deactivated', StatusCodes.FORBIDDEN);
   }
-  if (user.status !== 'Verified') {
-    throw new APIError('Account not verified', StatusCodes.FORBIDDEN);
-  }
-
+ 
   // Generate token
   const token = createToken(user);
 

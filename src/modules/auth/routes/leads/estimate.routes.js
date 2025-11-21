@@ -103,6 +103,12 @@ router.put(
   validator.validateCustomerResponse,
   controller.customerResponse
 );
+router.post(
+  '/:id/convert-to-deal',
+  protectMulti,
+  authorize({ roles: ['superadmin', 'admin'] }),
+  controller.convertToDeal
+);
 
 
 module.exports = router;
