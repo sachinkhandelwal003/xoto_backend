@@ -164,36 +164,42 @@ exports.getAllUsers = asyncHandler(async (req, res) => {stat
 exports.login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
-  // Check if user exists
-  const user = await User.findOne({ email }).select('+password').populate({
-    path: 'role',
-    model: Role
-  });
+  // Find user with password & role populated
+  const user = await User.findOne({ email })
+    .select('+password')
+    .populate({
+      path: 'role',
+      select: 'code name isSuperAdmin level',
+    });
 
-  if (!user || !(await bcrypt.compare(password, user.password))) {
-    throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
+  if (!user) {
+    throw new APIError('Invalid email or password', StatusCodes.UNAUTHORIZED);
   }
 
-  // Check if user is active
-  if (!user.isActive || user.status === 0) {
-    throw new APIError('Account is inactive', StatusCodes.FORBIDDEN);
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) {
+    throw new APIError('Invalid email or password', StatusCodes.UNAUTHORIZED);
   }
 
-  // Create token
+  // Check account status
+  if (!user.isActive) {
+    throw new APIError('Account is deactivated', StatusCodes.FORBIDDEN);
+  }
+ 
+  // Generate token
   const token = createToken(user);
 
-  // Remove password from output
-  const userResponse = user.toObject();
-  delete userResponse.password;
+  // Remove sensitive fields
+  const userObj = user.toObject();
+  delete userObj.password;
 
   res.status(StatusCodes.OK).json({
     success: true,
     message: 'Login successful',
     token,
-    user: userResponse
+    user: userObj,
   });
 });
-
 // Get current logged-in user
 exports.getMe = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user.id).populate({

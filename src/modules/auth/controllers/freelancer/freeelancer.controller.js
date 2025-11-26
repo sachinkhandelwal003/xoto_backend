@@ -22,17 +22,40 @@ const logger = winston.createLogger({
 // === LOGIN ===
 exports.freelancerLogin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
-  const freelancer = await Freelancer.findOne({ email }).select('+password').populate('role');
 
-  if (!freelancer || !(await bcrypt.compare(password, freelancer.password))) {
-    throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
+  // Find freelancer and include password
+  const freelancer = await Freelancer.findOne({ email })
+    .select('+password')
+    .populate('role');
+
+  if (!freelancer) {
+    return res.status(StatusCodes.UNAUTHORIZED).json({
+      success: false,
+      message: 'Invalid credentials',
+    });
   }
 
-  const token = createToken(freelancer);
-  const response = freelancer.toObject();
-  delete response.password;
+  // Compare password
+  const isMatch = await bcrypt.compare(password, freelancer.password);
+  if (!isMatch) {
+    return res.status(StatusCodes.UNAUTHORIZED).json({
+      success: false,
+      message: 'Invalid credentials',
+    });
+  }
 
-  res.status(StatusCodes.OK).json({ success: true, token, freelancer: response });
+  // Create token
+  const token = createToken(freelancer);
+
+  // Prepare response (without password)
+  const freelancerData = freelancer.toObject();
+  delete freelancerData.password;
+
+  res.status(StatusCodes.OK).json({
+    success: true,
+    token,
+    freelancer: freelancerData,
+  });
 });
 
 // === CREATE ===
@@ -80,12 +103,17 @@ exports.createFreelancer = asyncHandler(async (req, res) => {
 
 // === GET ALL ===
 exports.getAllFreelancers = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 10, status, search, city, id } = req.query;
+  const { page = 1, limit, status, search, city, freelancerId } = req.query;
   const query = { is_deleted: false };
 
-  // If an ID is provided, return a single freelancer
-  if (id) {
-    const freelancer = await Freelancer.findOne({ _id: id, is_deleted: false })
+  // ------------------------------------------------------
+  // 1️⃣ RETURN SINGLE FREELANCER IF ID IS PROVIDED
+  // ------------------------------------------------------
+  if (freelancerId) {
+    const freelancer = await Freelancer.findOne({
+      _id: freelancerId,
+      is_deleted: false
+    })
       .select('-password')
       .populate('role services_offered.category services_offered.subcategory')
       .lean();
@@ -103,31 +131,65 @@ exports.getAllFreelancers = asyncHandler(async (req, res) => {
     });
   }
 
-  // Otherwise, fetch all freelancers with filters
+  // ------------------------------------------------------
+  // 2️⃣ APPLY FILTERS
+  // ------------------------------------------------------
   if (status) query['status_info.status'] = parseInt(status);
-  if (search)
+
+  if (search) {
     query.$or = [
       { 'name.first_name': new RegExp(search, 'i') },
       { 'name.last_name': new RegExp(search, 'i') },
       { email: new RegExp(search, 'i') },
     ];
+  }
+
   if (city) query['location.city'] = new RegExp(city, 'i');
 
-  const freelancers = await Freelancer.find(query)
+
+  // ------------------------------------------------------
+  // 3️⃣ BASE QUERY
+  // ------------------------------------------------------
+  let freelancersQuery = Freelancer.find(query)
     .select('-password')
     .populate('role services_offered.category services_offered.subcategory')
-    .skip((page - 1) * limit)
-    .limit(Number(limit))
-    .lean();
+    .sort({ createdAt: -1 });
 
-  const total = await Freelancer.countDocuments(query);
+  let pagination = null;
+
+  // ------------------------------------------------------
+  // 4️⃣ APPLY PAGINATION ONLY IF LIMIT IS PROVIDED
+  // ------------------------------------------------------
+  if (limit) {
+    const limitNum = Number(limit);
+    const pageNum = Number(page);
+
+    freelancersQuery = freelancersQuery
+      .skip((pageNum - 1) * limitNum)
+      .limit(limitNum);
+
+    const total = await Freelancer.countDocuments(query);
+
+    pagination = {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages: Math.ceil(total / limitNum),
+    };
+  }
+
+  // ------------------------------------------------------
+  // 5️⃣ FETCH DATA
+  // ------------------------------------------------------
+  const freelancers = await freelancersQuery;
 
   res.status(StatusCodes.OK).json({
     success: true,
-    pagination: { page: Number(page), limit: Number(limit), total },
     freelancers,
+    pagination, // null when pagination not applied
   });
 });
+
 
 
 exports.getFreelancerProfile = asyncHandler(async (req, res) => {

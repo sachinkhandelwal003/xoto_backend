@@ -49,35 +49,67 @@ exports.createSubcategory = asyncHandler(async (req, res) => {
 
 // GET ALL SUBCATEGORIES (with filters)
 exports.getAllSubcategories = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 10, category, search, active } = req.query;
+  const { page = 1, limit, category, search, active, is_deleted } = req.query;
 
-  const query = { is_deleted: false };
-  if (category) query.category = category;
-  if (active !== undefined) query.is_active = active === 'true';
-  if (search) {
-    query.name = { $regex: search, $options: 'i' };
+  // ---------- QUERY ----------
+  const query = {};
+
+  // soft delete filter
+  if (is_deleted !== undefined) {
+    query.is_deleted = is_deleted === 'true';
   }
 
-  const subcategories = await Subcategory.find(query)
+  // filter by category
+  if (category) {
+    query.category = category;
+  }
+
+  // active / inactive
+  if (active !== undefined) {
+    query.is_active = active === 'true';
+  }
+
+  // search by name
+  if (search) {
+    query.name = new RegExp(search, 'i');
+  }
+
+  // ---------- BASE QUERY ----------
+  let subQuery = Subcategory.find(query)
     .select('-__v')
-    .populate('category')
-    .sort({ createdAt: -1 })
-    .skip((page - 1) * limit)
-    .limit(Number(limit))
-    .lean();
+    .populate('category', 'name')
+    .sort({ createdAt: -1 });
 
-  const total = await Subcategory.countDocuments(query);
+  // ---------- PAGINATION (optional) ----------
+  let pagination = null;
+  if (limit) {
+    const limitNum = parseInt(limit);
+    const pageNum = parseInt(page);
 
+    subQuery = subQuery
+      .skip((pageNum - 1) * limitNum)
+      .limit(limitNum);
+
+    const total = await Subcategory.countDocuments(query);
+
+    pagination = {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages: Math.ceil(total / limitNum),
+    };
+  }
+
+  const subcategories = await subQuery.lean();
+
+  // ---------- RESPONSE ----------
   res.status(StatusCodes.OK).json({
     success: true,
-    pagination: {
-      page: Number(page),
-      limit: Number(limit),
-      total
-    },
-    subcategories
+    data: subcategories,
+    pagination,
   });
 });
+
 
 // GET SINGLE SUBCATEGORY
 exports.getSubcategory = asyncHandler(async (req, res) => {

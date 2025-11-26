@@ -16,16 +16,18 @@ app.use(express.urlencoded({ extended: true }));
 
 // Database connection
 require('./config/database');
+app.use('/estimates', require('./modules/auth/routes/leads/estimate.routes'));
+
 app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/projectfreelancer.route'));
 
 app.use('/accountant', require('./modules/auth/routes/accountant/Accountant.routes'));
+app.use('/users', require('./modules/auth/routes/user/user.routes'));
 
 
 app.use('/freelancer/projects/get', require('../src/modules/auth/routes/freelancer/routesfreelancer'));
 
 // Routes
 app.use('/platform', require('../src/modules/auth/routes/role/platform.routes'));
-app.use('/customer', require('../src/modules/auth/routes/customer.routes'));
 app.use('/ecommerce/v1', require('../src/modules/ecommerce/B2C/routes/cartOrderWishlist.route'));
 app.use('/roles', require('../src/modules/auth/routes/role/role.routes'));
 app.use('/permission', require('../src/modules/auth/routes/permission/permission.routes'));

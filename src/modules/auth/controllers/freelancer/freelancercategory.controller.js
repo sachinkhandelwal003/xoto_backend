@@ -45,70 +45,60 @@ exports.createCategory = asyncHandler(async (req, res) => {
 // GET ALL OR SINGLE CATEGORY
 // ✅ GET ALL OR SINGLE CATEGORY
 exports.getAllCategories = asyncHandler(async (req, res) => {
-  const {
-    id,
-    page = 1,
-    limit = 10,
-    search,
-    active,
-    is_deleted,
-  } = req.query;
+  const { page = 1, limit, search, active, is_deleted } = req.query;
 
-  // ---------- 1. SINGLE CATEGORY ----------
-  if (id) {
-    const category = await Category.findOne({
-      _id: id,
-      is_deleted: false,               // never return a soft-deleted doc when id is used
-    }).select('-__v');
-
-    if (!category) {
-      throw new APIError('Category not found', StatusCodes.NOT_FOUND);
-    }
-
-    return res.status(StatusCodes.OK).json({
-      success: true,
-      category,
-    });
-  }
-
-  // ---------- 2. LIST (active / trash) ----------
+  // ------- QUERY BUILDER -------
   const query = {};
 
-  // is_deleted flag decides active vs trash view
-  query.is_deleted = is_deleted === 'true';
+  // deleted filter (true = trash, false = active)
+  if (is_deleted !== undefined) {
+    query.is_deleted = is_deleted === 'true';
+  }
 
-  // optional status filter (active / inactive)
-  if (active !== undefined && active !== '') {
+  // active / inactive
+  if (active !== undefined) {
     query.is_active = active === 'true';
   }
 
-  // optional fuzzy name search
+  // search by category name
   if (search) {
-    query.name = { $regex: search.trim(), $options: 'i' };
+    query.name = new RegExp(search, 'i');
   }
 
-  // parallel DB calls
-  const [categories, total] = await Promise.all([
-    Category.find(query)
-      .select('-__v')
-      .sort({ createdAt: -1 })
-      .skip((Number(page) - 1) * Number(limit))
-      .limit(Number(limit))
-      .lean(),
+  // ------- BASE QUERY -------
+  let categoryQuery = Category.find(query)
+    .select('-__v')
+    .sort({ createdAt: -1 });
 
-    Category.countDocuments(query),
-  ]);
+  // ---------- PAGINATION (optional) ----------
+  let pagination = null;
+  if (limit) {
+    const limitNum = parseInt(limit);
+    const pageNum = parseInt(page);
 
-  return res.status(StatusCodes.OK).json({
-    success: true,
-    pagination: {
-      page: Number(page),
-      limit: Number(limit),
+    categoryQuery = categoryQuery
+      .skip((pageNum - 1) * limitNum)
+      .limit(limitNum);
+
+    const total = await Category.countDocuments(query);
+
+    pagination = {
+      page: pageNum,
+      limit: limitNum,
       total,
-    },
-    categories,
+      totalPages: Math.ceil(total / limitNum),
+    };
+  }
+
+  const categories = await categoryQuery.lean();
+
+  res.status(200).json({
+    success: true,
+    data: categories,
+    pagination,
   });
 });
+
 
 
 // GET SINGLE CATEGORY

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const cartOrderWishlistController = require('../controllers/products/cartOrderWishlist.controller');
-const { protect, authorize,protectCustomer } = require('../../../../middleware/auth');
+const { protect, authorize } = require('../../../../middleware/auth');
 const {
   validateCreateOrUpdateCart,
   validateRemoveCartItem,
@@ -17,21 +17,18 @@ const {
 // Customer Routes
 router.post(
   '/cart',
-  protectCustomer,
   validateCreateOrUpdateCart,
   cartOrderWishlistController.createOrUpdateCart
 );
 
 router.delete(
   '/cart/:product_id/:product_type',
-protectCustomer,
   validateRemoveCartItem,
   cartOrderWishlistController.removeCartItem
 );
 
 router.get(
   '/cart',
-  protectCustomer,
   cartOrderWishlistController.getCart
 );
 

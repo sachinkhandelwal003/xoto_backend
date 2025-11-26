@@ -5,6 +5,7 @@ const morgan = require('morgan');
 const createError = require('http-errors');
 const cors = require('cors');
 const connectDB = require('./src/config/database');
+const path = require('path');
 
 
 const app = express();
@@ -38,7 +39,7 @@ app.get('/api/', (req, res) => {
 // 2. MAIN API ROUTES
 app.use('/api/', require('./src/app'));
 
-// === 404 HANDLER (MUST BE AFTER ALL ROUTES) ===
+// === 404 HANDLER (MUST BE AFTER ALL ROUTES) ===// === 404 HANDLER (MUST BE AFTER ALL ROUTES) ===
 app.use((req, res, next) => {
   next(createError.NotFound());
 });

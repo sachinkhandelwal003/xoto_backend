@@ -1,30 +1,36 @@
-const jwt = require('jsonwebtoken');
-const { APIError } = require('../utils/errorHandler');
-const { StatusCodes } = require('../utils/constants/statusCodes');
-const User = require('../modules/auth/models/User');
-const { Role } = require('../modules/auth/models/role/role.model');
-const Vendorb2b = require('../modules/auth/models/Vendor/B2bvendor.model');
-const Vendorb2c = require('../modules/auth/models/Vendor/B2cvendor.model');
-const Business = require('../modules/auth/models/Freelancer/freelancerbusiness.model');
-const Freelancer = require('../modules/auth/models/Freelancer/freelancer.model');
-const Customer = require('../modules/auth/models/Customer/customer.model');
-const Accountant = require('../modules/auth/models/accountant/Accountant.model');
+const jwt = require("jsonwebtoken");
+const { APIError } = require("../utils/errorHandler");
+const { StatusCodes } = require("../utils/constants/statusCodes");
 
-const { getUserPermissions } = require('./permission');
+const User = require("../modules/auth/models/User");
+const { Role } = require("../modules/auth/models/role/role.model");
+
+const Vendorb2b = require("../modules/auth/models/Vendor/B2bvendor.model");
+const Vendorb2c = require("../modules/auth/models/Vendor/B2cvendor.model");
+
+const Business = require("../modules/auth/models/Freelancer/freelancerbusiness.model");
+const Freelancer = require("../modules/auth/models/Freelancer/freelancer.model");
+
+const AllUsers = require("../modules/auth/models/user/user.model");
+const Customer = require("../modules/auth/models/user/customer.model");
+
+const { getUserPermissions } = require("./permission");
 
 
+/* ============================================================
+   CREATE TOKEN
+============================================================ */
 exports.createToken = (user, type) => {
-  // Auto detect type from Mongoose model name if not provided
   const detectedType =
     type ||
     (user.constructor?.modelName
-      ? user.constructor.modelName.toLowerCase()
-      : 'user');
+      ? user.constructor.modelName.toLowerCase() // Example: Allusers -> allusers
+      : "user");
 
   const payload = {
     id: user._id,
     email: user.email,
-    type: detectedType, // 'user', 'vendorb2c', 'freelancer', etc.
+    type: detectedType,
     role: {
       id: user.role?._id || null,
       code: user.role?.code,
@@ -34,114 +40,121 @@ exports.createToken = (user, type) => {
   };
 
   return jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE || '30d',
+    expiresIn: process.env.JWT_EXPIRE || "30d",
   });
 };
 
 
 
+/* ============================================================
+   BASIC PROTECTOR FOR SINGLE MODEL
+============================================================ */
 const protectBase = (Model, name) => async (req, res, next) => {
   try {
-    const token = req.headers.authorization?.startsWith('Bearer')
-      ? req.headers.authorization.split(' ')[1]
+    const token = req.headers.authorization?.startsWith("Bearer")
+      ? req.headers.authorization.split(" ")[1]
       : null;
 
-    if (!token) throw new APIError('No token provided', StatusCodes.UNAUTHORIZED);
+    if (!token)
+      throw new APIError("No token provided", StatusCodes.UNAUTHORIZED);
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const entity = await Model.findById(decoded.id).populate('role');
+    const entity = await Model.findById(decoded.id).populate(
+      "role",
+      "name code level isSuperAdmin"
+    );
 
-    if (!entity) throw new APIError(`${name} not found`, StatusCodes.UNAUTHORIZED);
-    if ('isActive' in entity && entity.isActive === false)
+    if (!entity)
+      throw new APIError(`${name} not found`, StatusCodes.UNAUTHORIZED);
+
+    if (entity.isActive === false)
       throw new APIError(`${name} account inactive`, StatusCodes.UNAUTHORIZED);
-
-    // Default role to prevent authorize crashes
-    entity.role = entity.role || { code: 'guest', name: 'Guest', level: 0 };
-
-    // Attach permissions
-    if (entity.role?._id) {
-      try {
-        entity.permissions = await getUserPermissions(entity.role._id);
-      } catch {
-        entity.permissions = [];
-      }
-    }
 
     req.user = entity;
     next();
   } catch (error) {
-    if (error.name === 'JsonWebTokenError')
-      return next(new APIError('Invalid token', StatusCodes.UNAUTHORIZED));
-    if (error.name === 'TokenExpiredError')
-      return next(new APIError('Token expired', StatusCodes.UNAUTHORIZED));
+    if (error.name === "JsonWebTokenError")
+      return next(new APIError("Invalid token", StatusCodes.UNAUTHORIZED));
+
+    if (error.name === "TokenExpiredError")
+      return next(new APIError("Token expired", StatusCodes.UNAUTHORIZED));
 
     next(error);
   }
 };
 
 
-exports.protect = protectBase(User, 'User');
-exports.protectFreelancer = protectBase(Freelancer, 'Freelancer');
-exports.protectFreelancer = protectBase(Accountant, 'Accountant');
-exports.protectBusiness = protectBase(Business, 'Business');
-exports.protectVendorb2b = protectBase(Vendorb2b, 'Vendor B2B');
-exports.protectVendorb2c = protectBase(Vendorb2c, 'Vendor B2C');
-exports.protectCustomer = protectBase(Customer, 'Customer');
+/* ============================================================
+   EXPORT SIMPLE PROTECTORS
+============================================================ */
+exports.protect = protectBase(User, "User");
+exports.protectFreelancer = protectBase(Freelancer, "Freelancer");
+exports.protectAccountant = protectBase(AllUsers, "Accountant");
+exports.protectSupervisor = protectBase(AllUsers, "Supervisor");
+exports.protectBusiness = protectBase(Business, "Business");
+exports.protectVendorb2b = protectBase(Vendorb2b, "Vendor B2B");
+exports.protectVendorb2c = protectBase(Vendorb2c, "Vendor B2C");
+exports.protectCustomer = protectBase(Customer, "Customer");
 
-// Protect multiple user types from a single middleware
+
+
+/* ============================================================
+   MULTI-USER PROTECTOR (MAIN FIXED VERSION)
+============================================================ */
 exports.protectMulti = async (req, res, next) => {
   try {
-    const token = req.headers.authorization?.startsWith('Bearer')
-      ? req.headers.authorization.split(' ')[1]
+    const token = req.headers.authorization?.startsWith("Bearer")
+      ? req.headers.authorization.split(" ")[1]
       : null;
 
     if (!token)
-      throw new APIError('No token provided', StatusCodes.UNAUTHORIZED);
+      throw new APIError("No token provided", StatusCodes.UNAUTHORIZED);
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const type = decoded.type?.toLowerCase().replace(/\s/g, '');
+    const type = decoded.type?.toLowerCase().replace(/\s/g, "");
+
     const entityMap = {
       user: User,
+      allusers: AllUsers,
+      accountant: AllUsers,
+      supervisor: AllUsers,
       freelancer: Freelancer,
-            accountant: Accountant,
       business: Business,
       vendorb2b: Vendorb2b,
       vendorb2c: Vendorb2c,
-      customer: Customer,
+      customer: Customer   // ⭐ ADDED HERE
     };
 
     const Model = entityMap[type];
     if (!Model)
-      throw new APIError(`Invalid token type: ${decoded.type}`, StatusCodes.UNAUTHORIZED);
+      throw new APIError(
+        `Invalid token type: ${decoded.type}`,
+        StatusCodes.UNAUTHORIZED
+      );
 
-    let entity = await Model.findById(decoded.id).populate('role');
+    let entity = await Model.findById(decoded.id).populate(
+      "role",
+      "name code level isSuperAdmin"
+    );
 
     if (!entity)
-      throw new APIError('Unauthorized - Entity not found', StatusCodes.UNAUTHORIZED);
+      throw new APIError(
+        "Unauthorized - Entity not found",
+        StatusCodes.UNAUTHORIZED
+      );
 
-    // Handle role fallback
     if (!entity.role) {
-      // If decoded token has role info, use that
-      if (decoded.role) {
-        entity.role = decoded.role;
-      } else {
-        // Default guest role
-        entity.role = { code: 'guest', name: 'Guest', level: 0, isSuperAdmin: false };
-      }
-    } else if (entity.role._id && !entity.role.code) {
-      // If role is ObjectId but not populated fully, populate from DB
-      const roleFromDb = await Role.findById(entity.role._id);
-      entity.role = roleFromDb || { code: 'guest', name: 'Guest', level: 0, isSuperAdmin: false };
+      entity.role = decoded.role || {
+        code: "guest",
+        name: "Guest",
+        level: 0,
+        isSuperAdmin: false,
+      };
     }
 
-    // Check if account is active
-    if ('isActive' in entity && entity.isActive === false)
-      throw new APIError('Unauthorized - Account inactive', StatusCodes.UNAUTHORIZED);
-
-    // Attach permissions if role is valid
-    if (entity.role?._id) {
+    if (entity.role._id) {
       try {
         entity.permissions = await getUserPermissions(entity.role._id);
       } catch {
@@ -152,10 +165,11 @@ exports.protectMulti = async (req, res, next) => {
     req.user = entity;
     next();
   } catch (error) {
-    if (error.name === 'JsonWebTokenError')
-      return next(new APIError('Invalid token', StatusCodes.UNAUTHORIZED));
-    if (error.name === 'TokenExpiredError')
-      return next(new APIError('Token expired', StatusCodes.UNAUTHORIZED));
+    if (error.name === "JsonWebTokenError")
+      return next(new APIError("Invalid token", StatusCodes.UNAUTHORIZED));
+
+    if (error.name === "TokenExpiredError")
+      return next(new APIError("Token expired", StatusCodes.UNAUTHORIZED));
 
     next(error);
   }
@@ -164,20 +178,31 @@ exports.protectMulti = async (req, res, next) => {
 
 
 
-// Role-based authorization middleware
+/* ============================================================
+   ROLE-BASED AUTHORIZATION
+============================================================ */
 exports.authorize = ({ roles = [], minLevel } = {}) => {
   return (req, res, next) => {
     try {
-      // ✅ Use default role to avoid null reference
-      const role = req.user?.role || { code: 'guest', name: 'Guest', level: 0, isSuperAdmin: false };
+      const role =
+        req.user?.role || {
+          code: "guest",
+          name: "Guest",
+          level: 0,
+          isSuperAdmin: false,
+        };
 
       if (role.isSuperAdmin) return next();
 
       if (minLevel && role.level < minLevel)
-        throw new APIError('Insufficient role level', StatusCodes.FORBIDDEN);
+        throw new APIError("Insufficient role level", StatusCodes.FORBIDDEN);
 
-      if (roles.length && !roles.includes(role.code) && !roles.includes(role.name))
-        throw new APIError('Role not allowed', StatusCodes.FORBIDDEN);
+      if (
+        roles.length &&
+        !roles.includes(role.code) &&
+        !roles.includes(role.name)
+      )
+        throw new APIError("Role not allowed", StatusCodes.FORBIDDEN);
 
       next();
     } catch (error) {

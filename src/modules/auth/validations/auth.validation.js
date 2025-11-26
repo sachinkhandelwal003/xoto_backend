@@ -9,11 +9,10 @@ const validate = (req, res, next) => {
   if (!errors.isEmpty()) {
     return res.status(StatusCodes.BAD_REQUEST).json({
       success: false,
-      statusCode: StatusCodes.BAD_REQUEST,
       errors: errors.array().map(err => ({
         field: err.path,
-        message: err.msg
-      }))
+        message: err.msg,
+      })),
     });
   }
   next();
@@ -82,16 +81,14 @@ exports.validateLogin = [
   body('email')
     .trim()
     .notEmpty().withMessage('Email is required')
-    .bail()
     .isEmail().withMessage('Invalid email format')
-    .bail()
     .normalizeEmail(),
 
   body('password')
     .trim()
     .notEmpty().withMessage('Password is required'),
 
-  validate
+  validate,
 ];
 
 exports.validateGetAllUsers = [

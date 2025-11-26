@@ -1,43 +1,81 @@
-# Dependencies
+# -----------------------------------------
+# Node & Dependencies
+# -----------------------------------------
 node_modules/
-
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# Logs
-logs
-*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-lerna-debug.log*
 
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
+# PM2 logs
+.pids
+logs/
+*.log
 
-# Coverage directory for tests
-coverage/
-.nyc_output/
+# -----------------------------------------
+# Environment Files (IMPORTANT)
+# -----------------------------------------
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+.env.*
+!.env.example
 
-# Optional npm cache directory
-.npm
-
-# Optional eslint cache
-.eslintcache
-
-# Optional REPL history
-.node_repl_history
-
-# Build outputs
+# -----------------------------------------
+# Build / Cache
+# -----------------------------------------
 dist/
 build/
+.cache/
+.temp/
+.tmp/
+coverage/
+.babelcache.json
 
-# IDE files
-.vscode/
-.idea/
+# -----------------------------------------
+# OS / IDE / Editor Files
+# -----------------------------------------
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# VSCode
+.vscode/
+.history/
+.idea/
+
+# JetBrains
+*.iml
+*.ipr
+*.iws
+
+# -----------------------------------------
+# Uploads / Temp Storage
+# -----------------------------------------
+uploads/
+temp/
+tmp/
+
+# -----------------------------------------
+# Logs / Debug
+# -----------------------------------------
+*.log
+*.gz
+
+# -----------------------------------------
+# TypeScript
+# -----------------------------------------
+*.tsbuildinfo
+
+# -----------------------------------------
+# Misc
+# -----------------------------------------
+package-lock.json
+yarn.lock
+pnpm-lock.yaml

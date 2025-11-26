@@ -28,7 +28,8 @@ router.post('/login', validateFreelancerLogin, controller.freelancerLogin);
 router.get('/profile', protectMulti, controller.getFreelancerProfile);
 router.post('/', validateCreateFreelancer, controller.createFreelancer);
 router.get('/', validateGetAllFreelancers, controller.getAllFreelancers);
-router.put('/profile', docUpload, controller.updateFreelancerProfile);router.put(
+router.put('/profile', docUpload, controller.updateFreelancerProfile);
+router.put(
   '/document/:documentId',
   upload.single('file'), // single file
   controller.updateDocument
