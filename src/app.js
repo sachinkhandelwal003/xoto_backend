@@ -25,12 +25,9 @@ app.use('/users', require('./modules/auth/routes/user/user.routes'));
 
 
 app.use('/freelancer/projects/get', require('../src/modules/auth/routes/freelancer/routesfreelancer'));
-<<<<<<< HEAD
 app.use('/freelancer/category', require('../src/modules/auth/routes/freelancer/freelancercategory.routes'));
 app.use('/freelancer/subcategory', require('../src/modules/auth/routes/freelancer/freelancersubcategory.routes'));
-=======
 
->>>>>>> 641e0b0e23032eefaf0ab20001ec33287120380a
 // Routes
 app.use('/platform', require('../src/modules/auth/routes/role/platform.routes'));
 app.use('/ecommerce/v1', require('../src/modules/ecommerce/B2C/routes/cartOrderWishlist.route'));
@@ -48,12 +45,6 @@ app.use('/business', require('../src/modules/auth/routes/freelancer/freelancerbu
 
 
 // landscapping freelacer
-<<<<<<< HEAD
-
-=======
-app.use('/freelancer/category', require('../src/modules/auth/routes/freelancer/freelancercategory.routes'));
-app.use('/freelancer/subcategory', require('../src/modules/auth/routes/freelancer/freelancersubcategory.routes'));
->>>>>>> 641e0b0e23032eefaf0ab20001ec33287120380a
 
 app.use('/freelancer', require('../src/modules/auth/routes/freelancer/freelancer.routes'));
 
