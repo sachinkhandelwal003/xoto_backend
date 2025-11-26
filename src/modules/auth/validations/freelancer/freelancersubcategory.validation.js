@@ -48,6 +48,14 @@ exports.validateCreateSubcategory = [
     .trim()
     .isLength({ max: 500 }).withMessage('Description too long'),
 
+<<<<<<< HEAD
+=======
+  body('icon')
+    .optional()
+    .trim()
+    .isURL().withMessage('Invalid icon URL'),
+
+>>>>>>> 641e0b0e23032eefaf0ab20001ec33287120380a
   validate
 ];
 
