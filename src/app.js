@@ -25,6 +25,8 @@ app.use('/users', require('./modules/auth/routes/user/user.routes'));
 
 
 app.use('/freelancer/projects/get', require('../src/modules/auth/routes/freelancer/routesfreelancer'));
+app.use('/freelancer/category', require('../src/modules/auth/routes/freelancer/freelancercategory.routes'));
+app.use('/freelancer/subcategory', require('../src/modules/auth/routes/freelancer/freelancersubcategory.routes'));
 
 // Routes
 app.use('/platform', require('../src/modules/auth/routes/role/platform.routes'));
@@ -43,8 +45,6 @@ app.use('/business', require('../src/modules/auth/routes/freelancer/freelancerbu
 
 
 // landscapping freelacer
-app.use('/freelancer/category', require('../src/modules/auth/routes/freelancer/freelancercategory.routes'));
-app.use('/freelancer/subcategory', require('../src/modules/auth/routes/freelancer/freelancersubcategory.routes'));
 
 app.use('/freelancer', require('../src/modules/auth/routes/freelancer/freelancer.routes'));
 
