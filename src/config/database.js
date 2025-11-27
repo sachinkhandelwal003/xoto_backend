@@ -1,9 +1,10 @@
+
 const mongoose = require('mongoose');
 const logger = require('./logger');
 
 const connectDB = async () => {
   try {
-    await mongoose.connect(process.env.MONGO_URI, {
+    await mongoose.connect(process.env.MONGODB_URI, {
       autoIndex: false, // ✅ add this here
       // You can also add other options if needed:
       // useNewUrlParser: true,

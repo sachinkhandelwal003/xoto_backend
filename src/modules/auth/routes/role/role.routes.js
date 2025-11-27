@@ -13,7 +13,11 @@ const {
   validatePermanentDeleteRole,
   validateRestoreRole
 } = require('../../validations/authvalidation/role.validation');
-
+router.post(
+  '/',
+  validateCreateRole,
+  controller.createRole
+);
 
 router.get(
   '/',
@@ -34,12 +38,6 @@ router.use(
 );
 
 // CREATE ROLE
-router.post(
-  '/',
-  checkPermission('Role', 'create'),
-  validateCreateRole,
-  controller.createRole
-);
 
 // UPDATE ROLE
 router.put(
