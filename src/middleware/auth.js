@@ -24,25 +24,32 @@ exports.createToken = (user, type) => {
   const detectedType =
     type ||
     (user.constructor?.modelName
-      ? user.constructor.modelName.toLowerCase() // Example: Allusers -> allusers
+      ? user.constructor.modelName.toLowerCase()
       : "user");
 
   const payload = {
     id: user._id,
     email: user.email,
     type: detectedType,
+
     role: {
       id: user.role?._id || null,
       code: user.role?.code,
       name: user.role?.name,
       isSuperAdmin: user.role?.isSuperAdmin || false,
-    },
+    }
   };
+
+  // ⭐ Only freelancers get status added to the token
+  if (detectedType === "freelancer") {
+    payload.status = user.status_info?.status ?? 0;
+  }
 
   return jwt.sign(payload, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRE || "30d",
   });
 };
+
 
 
 

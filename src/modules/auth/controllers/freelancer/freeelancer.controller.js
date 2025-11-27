@@ -85,8 +85,13 @@ exports.createFreelancer = asyncHandler(async (req, res) => {
   const freelancer = await Freelancer.create(data);
   
   // Populate will still work if you reference the role properly
-  await freelancer.populate('role services_offered.category services_offered.subcategory');
+// controllers/freelancer/freelancer.controller.js
 
+await freelancer.populate([
+  'role',
+  'services_offered.category',
+  'services_offered.subcategories' // ← Updated path
+]);
   logger.info(`Freelancer registered (pending): ${freelancer._id}`);
   res.status(StatusCodes.CREATED).json({
     success: true,
@@ -101,6 +106,7 @@ exports.createFreelancer = asyncHandler(async (req, res) => {
   });
 });
 
+
 // === GET ALL ===
 exports.getAllFreelancers = asyncHandler(async (req, res) => {
   const { page = 1, limit, status, search, city, freelancerId } = req.query;
@@ -112,16 +118,16 @@ exports.getAllFreelancers = asyncHandler(async (req, res) => {
   if (freelancerId) {
     const freelancer = await Freelancer.findOne({
       _id: freelancerId,
-      is_deleted: false
+      is_deleted: false,
     })
-      .select('-password')
-      .populate('role services_offered.category services_offered.subcategory')
+      .select("-password")
+      .populate("role services_offered.category services_offered.subcategories")
       .lean();
 
     if (!freelancer) {
       return res.status(StatusCodes.NOT_FOUND).json({
         success: false,
-        message: 'Freelancer not found',
+        message: "Freelancer not found",
       });
     }
 
@@ -134,25 +140,26 @@ exports.getAllFreelancers = asyncHandler(async (req, res) => {
   // ------------------------------------------------------
   // 2️⃣ APPLY FILTERS
   // ------------------------------------------------------
-  if (status) query['status_info.status'] = parseInt(status);
+  if (status) query["status_info.status"] = parseInt(status);
 
   if (search) {
     query.$or = [
-      { 'name.first_name': new RegExp(search, 'i') },
-      { 'name.last_name': new RegExp(search, 'i') },
-      { email: new RegExp(search, 'i') },
+      { "name.first_name": new RegExp(search, "i") },
+      { "name.last_name": new RegExp(search, "i") },
+      { email: new RegExp(search, "i") },
     ];
   }
 
-  if (city) query['location.city'] = new RegExp(city, 'i');
-
+  if (city) {
+    query["location.city"] = new RegExp(city, "i");
+  }
 
   // ------------------------------------------------------
   // 3️⃣ BASE QUERY
   // ------------------------------------------------------
   let freelancersQuery = Freelancer.find(query)
-    .select('-password')
-    .populate('role services_offered.category services_offered.subcategory')
+    .select("-password")
+    .populate("role services_offered.category services_offered.subcategories")
     .sort({ createdAt: -1 });
 
   let pagination = null;
@@ -192,17 +199,20 @@ exports.getAllFreelancers = asyncHandler(async (req, res) => {
 
 
 
+
+// === GET FREELANCER PROFILE (LOGGED-IN USER) ===
 exports.getFreelancerProfile = asyncHandler(async (req, res) => {
   const freelancer = await Freelancer.findById(req.user.id)
-    .populate('role services_offered.category services_offered.subcategory')
-    .select('-password');
+    .populate("role services_offered.category services_offered.subcategories portfolio.category portfolio.subcategory")
+    .select("-password");
 
-  if (!freelancer) throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
+  if (!freelancer) {
+    throw new APIError("Freelancer not found", StatusCodes.NOT_FOUND);
+  }
 
   // ================================
   // 🔹 Section-Wise Scoring Logic
   // ================================
-
   const sections = {
     basic: 0,
     professional: 0,
@@ -245,9 +255,12 @@ exports.getFreelancerProfile = asyncHandler(async (req, res) => {
 
   // -------- SERVICES OFFERED --------
   if ((freelancer.services_offered?.length ?? 0) > 0) {
-    // check if each has proper details
     const valid = freelancer.services_offered.filter(
-      (s) => s.category && s.subcategory && s.description
+      (s) =>
+        s.category &&
+        s.subcategories &&
+        s.subcategories.length > 0 &&
+        s.description
     );
     sections.services = Math.round((valid.length / freelancer.services_offered.length) * 100);
   } else sections.services = 0;
@@ -255,7 +268,11 @@ exports.getFreelancerProfile = asyncHandler(async (req, res) => {
   // -------- PORTFOLIO --------
   if ((freelancer.portfolio?.length ?? 0) > 0) {
     const valid = freelancer.portfolio.filter(
-      (p) => p.title && p.category && p.subcategory && (p.images?.length ?? 0) > 0
+      (p) =>
+        p.title &&
+        p.category &&
+        p.subcategory &&
+        (p.images?.length ?? 0) > 0
     );
     sections.portfolio = Math.round((valid.length / freelancer.portfolio.length) * 100);
   } else sections.portfolio = 0;
@@ -274,7 +291,7 @@ exports.getFreelancerProfile = asyncHandler(async (req, res) => {
     sections.documents = Math.round((verifiedDocs.length / freelancer.documents.length) * 100);
   } else sections.documents = 0;
 
-  // -------- META / AGREEMENT --------
+  // -------- META --------
   let metaFields = 2;
   let metaScore = 0;
   if (freelancer.meta?.agreed_to_terms) metaScore++;
@@ -287,10 +304,11 @@ exports.getFreelancerProfile = asyncHandler(async (req, res) => {
   const totalSections = Object.keys(sections).length;
   const totalScore =
     Object.values(sections).reduce((sum, val) => sum + val, 0) / totalSections;
+
   const completionPercentage = Math.round(totalScore);
 
   // ================================
-  // 🔹 Response
+  // 🔹 RESPONSE
   // ================================
   res.json({
     success: true,
@@ -302,7 +320,7 @@ exports.getFreelancerProfile = asyncHandler(async (req, res) => {
       summary:
         completionPercentage < 100
           ? `Your profile is ${completionPercentage}% complete. Please complete the missing sections.`
-          : 'Profile is 100% complete!',
+          : "Profile is 100% complete!",
     },
   });
 });

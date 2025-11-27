@@ -9,13 +9,30 @@ const consultant_schema = new mongoose.Schema({
       type: String
     }
   },
-  mobile_number: {
-    type: String
+  mobile: {
+  country_code: {
+    type: String,
+    required: true,
+    trim: true,
+    default: '+91',
   },
+  number: {
+    type: String,
+    required: true,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        return /^\d{8,15}$/.test(v);
+      },
+    }
+  }
+},
   email: {
     type: String,
     lowercase: true
   },
+    status: { type: Number, default: 0, enum: ["submit","contacted"] }, // 0=Pending, 1=Approved, 2=Rejected
+
   message: {
     type: String
   },

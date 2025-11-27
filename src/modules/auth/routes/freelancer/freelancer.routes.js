@@ -25,7 +25,7 @@ const docUpload = upload.fields([
 router.post('/login', validateFreelancerLogin, controller.freelancerLogin);
 
 // FREELANCER
-router.get('/profile', protectMulti, controller.getFreelancerProfile);
+router.get('/profile', protectFreelancer, controller.getFreelancerProfile);
 router.post('/', validateCreateFreelancer, controller.createFreelancer);
 router.get('/', validateGetAllFreelancers, controller.getAllFreelancers);
 router.put('/profile', docUpload, controller.updateFreelancerProfile);

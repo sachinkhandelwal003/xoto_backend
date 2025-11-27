@@ -5,8 +5,23 @@ const estimateSchema = new mongoose.Schema({
 
   customer_name: { type: String, required: true, trim: true },
   customer_email: { type: String, required: true, lowercase: true, trim: true },
-  customer_mobile: { type: String, required: true, match: /^[6-9]\d{9}$/ },
-
+ customer_mobile: {
+  country_code: {
+    type: String,
+    required: true,
+    trim: true,
+    default: '+91',
+  },
+  number: {
+    type: String,
+    required: true,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        return /^\d{8,15}$/.test(v);
+      }    }
+  }
+},
   category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category_freelancer', required: true },
   subcategories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Subcategory_freelancer' }],
 

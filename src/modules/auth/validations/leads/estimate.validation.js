@@ -35,19 +35,25 @@ const isValidObjectId = (value, fieldName = 'ID') => {
 // ------------------------------------------------------------
 exports.validateSubmitEstimate = [
   body('customer_name')
-    .trim().notEmpty().withMessage('Customer name is required'),
+    .trim()
+    .notEmpty().withMessage('Customer name is required').bail(),
 
   body('customer_email')
-    .trim().notEmpty().withMessage('Email is required')
+    .trim()
+    .notEmpty().withMessage('Email is required').bail()
     .isEmail().withMessage('Invalid email format'),
 
-  body('customer_mobile')
-    .notEmpty().withMessage('Mobile number is required')
-    .matches(/^[6-9]\d{9}$/).withMessage('Invalid Indian mobile number'),
+  body('customer_mobile.country_code')
+    .notEmpty().withMessage('Country code is required').bail()
+    .matches(/^\+\d{1,4}$/).withMessage('Invalid country code (e.g. +91, +1, +44)'),
+
+  body('customer_mobile.number')
+    .notEmpty().withMessage('Mobile number is required').bail()
+    .matches(/^\d{8,15}$/).withMessage('Mobile number must contain 8-15 digits only'),
 
   body('category')
-    .notEmpty().withMessage('Category is required')
-    .custom(isValidObjectId)
+    .notEmpty().withMessage('Category is required').bail()
+    .custom(isValidObjectId).bail()
     .custom(async id => {
       const exists = await Category.findById(id);
       if (!exists) throw new Error('Category not found');
@@ -55,10 +61,12 @@ exports.validateSubmitEstimate = [
     }),
 
   body('subcategories')
-    .optional().isArray().withMessage('Subcategories must be an array')
+    .optional()
+    .isArray().withMessage('Subcategories must be an array').bail()
     .custom(async arr => {
       for (const id of arr) {
-        if (!mongoose.Types.ObjectId.isValid(id)) throw new Error('Invalid subcategory ID');
+        if (!mongoose.Types.ObjectId.isValid(id))
+          throw new Error('Invalid subcategory ID');
         const exists = await Subcategory.findById(id);
         if (!exists) throw new Error(`Subcategory not found: ${id}`);
       }
@@ -66,10 +74,11 @@ exports.validateSubmitEstimate = [
     }),
 
   body('description')
-    .notEmpty().withMessage('Description is required'),
+    .notEmpty().withMessage('Description is required').bail(),
 
   validate,
 ];
+
 
 // ------------------------------------------------------------
 // SUPERADMIN — ASSIGN TO SUPERVISOR

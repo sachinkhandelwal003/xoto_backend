@@ -9,14 +9,12 @@ const Freelancer = require("../../models/Freelancer/freelancer.model");
 const mongoose = require('mongoose');
 const { Role } = require('../../models/role/role.model');
 
-// ------------------------------------------------------------
-// CUSTOMER: SUBMIT ESTIMATE
-// ------------------------------------------------------------
 exports.submitEstimate = asyncHandler(async (req, res) => {
   const { customer_name, customer_email, customer_mobile } = req.body;
 
-  if (!customer_name || !customer_email || !customer_mobile) {
-    throw new APIError("Customer details are required", StatusCodes.BAD_REQUEST);
+  // ✅ Validation for mobile object structure
+  if (!customer_name || !customer_email || !customer_mobile || !customer_mobile.country_code || !customer_mobile.number) {
+    throw new APIError("Customer details including mobile with country code are required", StatusCodes.BAD_REQUEST);
   }
 
   // ---------------------------------------
@@ -39,22 +37,30 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
   // 3️⃣ CREATE CUSTOMER IF NOT EXISTS
   // ---------------------------------------
   if (!customer) {
+    // ✅ Convert mobile object to string for Customer model
+    // Assuming Customer model expects: mobile: String
+    const mobileString = `${customer_mobile.country_code}${customer_mobile.number}`;
+    
     customer = await Customer.create({
       name: customer_name,
       email: customer_email.toLowerCase(),
-      mobile: customer_mobile,
-      role: customerRole._id,  // 🔥 AUTO ASSIGN CUSTOMER ROLE
+      mobile: mobileString, // ✅ Converted to string for Customer model
+      role: customerRole._id,
       isActive: true
-      // ❗ No password needed
     });
   }
 
   // ---------------------------------------
-  // 4️⃣ CREATE ESTIMATE
+  // 4️⃣ CREATE ESTIMATE - Use the original mobile object
   // ---------------------------------------
   const estimate = await Estimate.create({
-    ...req.body,
-    customer: customer._id  // 🔥 Link customer
+    customer_name,
+    customer_email: customer_email.toLowerCase(),
+    customer_mobile, // ✅ Keep the object structure for Estimate model
+    category: req.body.category,
+    subcategories: req.body.subcategories,
+    description: req.body.description,
+    customer: customer._id
   });
 
   await estimate.populate("category subcategories");
@@ -69,7 +75,6 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
     estimate
   });
 });
-
 exports.getQuotations = asyncHandler(async (req, res) => {
   const { estimate_id } = req.query;
 
