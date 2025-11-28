@@ -39,12 +39,12 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
   if (!customer) {
     // ✅ Convert mobile object to string for Customer model
     // Assuming Customer model expects: mobile: String
-    const mobileString = `${customer_mobile.country_code}${customer_mobile.number}`;
+    // const mobileString = `${customer_mobile.country_code}${customer_mobile.number}`;
     
     customer = await Customer.create({
       name: customer_name,
       email: customer_email.toLowerCase(),
-      mobile: mobileString, // ✅ Converted to string for Customer model
+      mobile: customer_mobile.number, // ✅ Converted to string for Customer model
       role: customerRole._id,
       isActive: true
     });

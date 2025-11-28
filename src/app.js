@@ -22,6 +22,7 @@ app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/p
 
 app.use('/accountant', require('./modules/auth/routes/accountant/Accountant.routes'));
 app.use('/users', require('./modules/auth/routes/user/user.routes'));
+app.use('/consult', require('./modules/auth/routes/consult/consult.routes'));
 
 
 app.use('/freelancer/projects/get', require('../src/modules/auth/routes/freelancer/routesfreelancer'));
