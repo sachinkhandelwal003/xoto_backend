@@ -17,6 +17,7 @@ app.use(express.urlencoded({ extended: true }));
 // Database connection
 require('./config/database');
 app.use('/estimates', require('./modules/auth/routes/leads/estimate.routes'));
+app.use('/ai', require('./modules/auth/routes/ai/gardenAI.routes'));
 
 app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/projectfreelancer.route'));
 

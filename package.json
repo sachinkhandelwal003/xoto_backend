@@ -10,6 +10,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "antd": "^6.0.1",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
@@ -19,9 +20,11 @@
     "http-errors": "^2.0.0",
     "joi": "^18.0.0",
     "jsonwebtoken": "^9.0.2",
+    "lucide-react": "^0.555.0",
     "mongoose": "^8.18.0",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
+    "openai": "^6.9.1",
     "twilio": "^5.8.2",
     "winston": "^3.17.0"
   },
