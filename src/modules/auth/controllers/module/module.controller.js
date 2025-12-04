@@ -315,22 +315,41 @@ exports.restoreModule = asyncHandler(async (req, res) => {
 });
 
 // GET ALL (excludes deleted)
+// GET ALL (excludes deleted)
 exports.getAllModules = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 50, isActive } = req.query;
+  let { page, limit, isActive } = req.query;
+
   const filter = { isDeleted: false };
-  if (isActive !== undefined) filter.isActive = isActive === 'true';
+  if (isActive !== undefined) filter.isActive = isActive === "true";
 
-  const modules = await Module.find(filter)
-    .sort({ position: 1 })
-    .skip((page - 1) * limit)
-    .limit(+limit);
+  // If LIMIT is not provided → return ALL
+  const usePagination = !!limit;
 
-  const total = await Module.countDocuments(filter);
+  let modules;
+  let total;
+
+  if (usePagination) {
+    page = Number(page) || 1;
+    limit = Number(limit);
+
+    total = await Module.countDocuments(filter);
+
+    modules = await Module.find(filter)
+      .sort({ position: 1 })
+      .skip((page - 1) * limit)
+      .limit(limit);
+  } else {
+    // No limit → return ALL without pagination
+    modules = await Module.find(filter).sort({ position: 1 });
+    total = modules.length;
+  }
 
   res.json({
     success: true,
     data: modules,
-    pagination: { page: +page, limit: +limit, total }
+    pagination: usePagination
+      ? { page, limit, total }
+      : null
   });
 });
 
