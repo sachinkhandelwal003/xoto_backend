@@ -2,7 +2,11 @@
 const mongoose = require('mongoose');
 
 const estimateSchema = new mongoose.Schema({
-
+  service_type: {
+    type: String,
+    required: true,
+    enum: ['landscape', 'interior'],
+  },
   customer_name: { type: String, required: true, trim: true },
   customer_email: { type: String, required: true, lowercase: true, trim: true },
  customer_mobile: {
@@ -22,8 +26,15 @@ const estimateSchema = new mongoose.Schema({
       }    }
   }
 },
-  category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category_freelancer', required: true },
-  subcategories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Subcategory_freelancer' }],
+   subcategory: { type: mongoose.Schema.Types.ObjectId, ref: 'EstimateMasterSubcategory' },
+
+  type: { type: mongoose.Schema.Types.ObjectId, ref: 'EstimateMasterType', required: true },
+
+  package: { type: mongoose.Schema.Types.ObjectId, ref: 'LandscapingPackage' },
+
+  area_length: { type: Number },
+  area_width: { type: Number },
+  area_sqft: { type: Number, required: true },
 
   description: { type: String, required: true },
   attachments: [{ type: String }],

@@ -5,11 +5,11 @@ const controller = require('../../controllers/packages/packages.controller');
 const { validateCreatePackage, validateUpdatePackage } = require('../../validations/packages/packages.validation');
 const { protectMulti, authorize } = require('../../../../middleware/auth');
 const { checkPermission } = require('../../../../middleware/permission');
+router.get('/', controller.getAllPackages);
 
 router.use(protectMulti, authorize({ roles: ['SuperAdmin', 'Admin'] }));
 
 router.post('/', validateCreatePackage, controller.createPackage);
-router.get('/', controller.getAllPackages);
 router.get('/:id', controller.getPackageById);
 router.put('/:id', validateUpdatePackage, controller.updatePackage);
 

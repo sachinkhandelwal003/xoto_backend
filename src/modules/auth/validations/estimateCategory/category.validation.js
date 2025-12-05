@@ -1,4 +1,5 @@
-const { body, param } = require('express-validator');
+// validations/category.validation.js
+const { body, param, query } = require('express-validator');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 
 const validate = (req, res, next) => {
@@ -12,28 +13,12 @@ const validate = (req, res, next) => {
   next();
 };
 
+// Category Validations
 exports.validateCreateCategory = [
   body('name').isIn(['Interior', 'Landscaping']).withMessage('Invalid category name'),
-  body('description').optional().isString().trim(),
+  body('description').optional().isString().trim().isLength({ max: 500 }),
   validate,
 ];
-
-exports.validateCreateSubcategory = [
-  param('categoryId').isMongoId().withMessage('Invalid category ID'),
-  body('label').trim().isLength({ min: 3 }).withMessage('Label required (min 3 chars)'),
-  body('description').optional().isString(),
-  validate,
-];
-
-exports.validateCreateType = [
-  param('categoryId').isMongoId(),
-  param('subcategoryId').isMongoId(),
-  body('label').trim().isLength({ min: 3 }),
-  body('description').optional().isString(),
-  validate,
-];
-
-// Add this to your existing validation file
 
 exports.validateBulkCreate = [
   body('categories').isArray({ min: 1 }).withMessage('categories array is required'),
@@ -45,20 +30,40 @@ exports.validateBulkCreate = [
     .optional()
     .isString()
     .trim()
-    .isLength({ min: 3 })
-    .withMessage('Subcategory label required'),
+    .isLength({ min: 3, max: 100 }),
   body('categories.*.subcategories.*.types').optional().isArray(),
   body('categories.*.subcategories.*.types.*.label')
     .optional()
     .isString()
     .trim()
-    .isLength({ min: 2 }),
+    .isLength({ min: 2, max: 100 }),
   validate,
 ];
-module.exports = {
-  validateCreateCategory: exports.validateCreateCategory,
-  validateCreateSubcategory: exports.validateCreateSubcategory,
-  validateCreateType: exports.validateCreateType,
-    validateBulkCreate: exports.validateBulkCreate,
 
-};
+// Subcategory Validations
+exports.validateCreateSubcategory = [
+  param('categoryId').isMongoId().withMessage('Invalid category ID'),
+  body('label').trim().isLength({ min: 3, max: 100 }).withMessage('Label required (3-100 chars)'),
+  body('description').optional().isString().trim().isLength({ max: 500 }),
+  body('order').optional().isInt({ min: 0 }),
+  validate,
+];
+
+// Type Validations
+exports.validateCreateType = [
+  param('categoryId').isMongoId().withMessage('Invalid category ID'),
+  param('subcategoryId').isMongoId().withMessage('Invalid subcategory ID'),
+  body('label').trim().isLength({ min: 2, max: 100 }).withMessage('Label required (2-100 chars)'),
+  body('description').optional().isString().trim().isLength({ max: 500 }),
+  body('order').optional().isInt({ min: 0 }),
+  validate,
+];
+
+// Query Validations
+exports.validateQuery = [
+  query('page').optional().isInt({ min: 1 }),
+  query('limit').optional().isInt({ min: 1, max: 100 }),
+  query('active').optional().isIn(['true', 'false']),
+  query('populate').optional().isIn(['true', 'false']),
+  validate,
+];

@@ -1,23 +1,7 @@
-const mongoose = require('mongoose');
+// models/estimateCategory/index.js
+const mongoose = require("mongoose");
 
-const TypeSchema = new mongoose.Schema(
-  {
-    label: { type: String, required: true, trim: true },
-    description: { type: String, trim: true },
-    isActive: { type: Boolean, default: true },
-  },
-  { timestamps: true }
-);
-
-const SubcategorySchema = new mongoose.Schema(
-  {
-    label: { type: String, required: true, trim: true },
-    description: { type: String, trim: true },
-    isActive: { type: Boolean, default: true },
-    types: [TypeSchema],
-  },
-  { timestamps: true }
-);
+/* ------------------------- CATEGORY SCHEMA ------------------------- */
 
 const CategorySchema = new mongoose.Schema(
   {
@@ -25,7 +9,7 @@ const CategorySchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      enum: ['Interior', 'Landscaping'],
+      enum: ["Interior", "Landscaping"],
       trim: true,
     },
     slug: {
@@ -36,17 +20,106 @@ const CategorySchema = new mongoose.Schema(
     },
     description: { type: String, trim: true },
     isActive: { type: Boolean, default: true },
-    subcategories: [SubcategorySchema],
   },
   { timestamps: true }
 );
 
-// Auto generate slug
-CategorySchema.pre('save', function (next) {
-  if (this.isModified('name') || !this.slug) {
-    this.slug = this.name.toLowerCase().replace(/\s+/g, '-');
+// Auto-generate slug
+CategorySchema.pre("save", function (next) {
+  if (this.isModified("name") || !this.slug) {
+    this.slug = this.name.toLowerCase().replace(/\s+/g, "-");
   }
   next();
 });
 
-module.exports = mongoose.model('EstimateMasterCategory', CategorySchema);
+// Virtual for subcategories
+CategorySchema.virtual("subcategories", {
+  ref: "Subcategory",
+  localField: "_id",
+  foreignField: "category",
+  justOne: false,
+});
+
+
+/* ------------------------- SUBCATEGORY SCHEMA ------------------------- */
+
+const SubcategorySchema = new mongoose.Schema(
+  {
+    label: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    description: { type: String, trim: true },
+    category: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      required: true,
+      index: true,
+    },
+    isActive: { type: Boolean, default: true },
+    order: { type: Number, default: 0 },
+  },
+  { timestamps: true }
+);
+
+// Indexes
+SubcategorySchema.index({ label: 1, category: 1 }, { unique: true });
+SubcategorySchema.index({ isActive: 1 });
+SubcategorySchema.index({ order: 1 });
+
+// Virtual for types
+SubcategorySchema.virtual("types", {
+  ref: "Type",
+  localField: "_id",
+  foreignField: "subcategory",
+  justOne: false,
+});
+
+
+/* ------------------------- TYPE SCHEMA ------------------------- */
+
+const TypeSchema = new mongoose.Schema(
+  {
+    label: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    description: { type: String, trim: true },
+    subcategory: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Subcategory",
+      required: true,
+      index: true,
+    },
+    category: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      required: true,
+      index: true,
+    },
+    isActive: { type: Boolean, default: true },
+    order: { type: Number, default: 0 },
+  },
+  { timestamps: true }
+);
+
+// Indexes
+TypeSchema.index({ label: 1, subcategory: 1 }, { unique: true });
+TypeSchema.index({ category: 1 });
+TypeSchema.index({ isActive: 1 });
+TypeSchema.index({ order: 1 });
+
+
+/* ------------------------- EXPORT MODELS ------------------------- */
+
+const Category = mongoose.models.Category || mongoose.model("EstimateMasterCategory", CategorySchema);
+const Subcategory = mongoose.models.Subcategory || mongoose.model("EstimateMasterSubcategory", SubcategorySchema);
+const Type = mongoose.models.Type || mongoose.model("EstimateMasterType", TypeSchema);
+
+module.exports = {
+  Category,
+  Subcategory,
+  Type,
+};

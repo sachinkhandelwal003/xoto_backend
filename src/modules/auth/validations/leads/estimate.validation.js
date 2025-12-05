@@ -3,8 +3,8 @@ const { body, param, validationResult } = require('express-validator');
 const mongoose = require('mongoose');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 
-const Category = require('../../models/Freelancer/categoryfreelancer.model');
-const Subcategory = require('../../models/Freelancer/subcategoryfreelancer.model');
+const { Category, Subcategory, Type } = require("../../models/estimateCategory/category.model"); 
+const LandscapingPackage =require("../../models/packages/packages.model")
 
 // ---------------------- COMMON HELPERS ----------------------
 
@@ -34,49 +34,84 @@ const isValidObjectId = (value, fieldName = 'ID') => {
 // CUSTOMER — SUBMIT ESTIMATE
 // ------------------------------------------------------------
 exports.validateSubmitEstimate = [
+  // Customer name
   body('customer_name')
     .trim()
-    .notEmpty().withMessage('Customer name is required').bail(),
+    .notEmpty().withMessage('Customer name is required'),
 
+  // Email
   body('customer_email')
     .trim()
-    .notEmpty().withMessage('Email is required').bail()
+    .notEmpty().withMessage('Customer email is required')
     .isEmail().withMessage('Invalid email format'),
 
+  // Mobile country code
   body('customer_mobile.country_code')
-    .notEmpty().withMessage('Country code is required').bail()
-    .matches(/^\+\d{1,4}$/).withMessage('Invalid country code (e.g. +91, +1, +44)'),
+    .notEmpty().withMessage('Country code is required')
+    .matches(/^\+\d{1,4}$/).withMessage('Invalid country code (e.g. +91, +1, +44)'),  
 
+  // Mobile number
   body('customer_mobile.number')
-    .notEmpty().withMessage('Mobile number is required').bail()
+    .notEmpty().withMessage('Mobile number is required')
     .matches(/^\d{8,15}$/).withMessage('Mobile number must contain 8-15 digits only'),
 
-  body('category')
-    .notEmpty().withMessage('Category is required').bail()
-    .custom(isValidObjectId).bail()
+  // Service Type (landscape / interior)
+  body('service_type')
+    .notEmpty().withMessage('service_type is required')
+    .isIn(['landscape', 'interior']).withMessage('service_type must be landscape or interior'),
+
+  // Type → EstimateMasterType
+  body('type')
+    .notEmpty().withMessage('Type (EstimateMasterType) is required')
     .custom(async id => {
-      const exists = await Category.findById(id);
-      if (!exists) throw new Error('Category not found');
+      if (!mongoose.Types.ObjectId.isValid(id))
+        throw new Error('Invalid type ID');
+      const exists = await Type.findById(id);
+      if (!exists) throw new Error('Type not found');
       return true;
     }),
 
-  body('subcategories')
+  // Subcategory → EstimateMasterSubcategory (optional)
+  body('subcategory')
     .optional()
-    .isArray().withMessage('Subcategories must be an array').bail()
-    .custom(async arr => {
-      for (const id of arr) {
-        if (!mongoose.Types.ObjectId.isValid(id))
-          throw new Error('Invalid subcategory ID');
-        const exists = await Subcategory.findById(id);
-        if (!exists) throw new Error(`Subcategory not found: ${id}`);
-      }
+    .custom(async id => {
+      if (!mongoose.Types.ObjectId.isValid(id))
+        throw new Error('Invalid subcategory ID');
+      const exists = await Subcategory.findById(id);
+      if (!exists) throw new Error('Subcategory not found');
       return true;
     }),
 
-  body('description')
-    .notEmpty().withMessage('Description is required').bail(),
+  // Package (optional)
+  body('package')
+    .optional()
+    .custom(async id => {
+      if (!mongoose.Types.ObjectId.isValid(id))
+        throw new Error('Invalid package ID');
+      const exists = await LandscapingPackage.findById(id);
+      if (!exists) throw new Error('Package not found');
+      return true;
+    }),
 
-  validate,
+  // Area fields
+  body('area_sqft')
+    .notEmpty().withMessage('area_sqft is required')
+    .isNumeric().withMessage('area_sqft must be a number'),
+
+  body('area_length')
+    .optional()
+    .isNumeric().withMessage('area_length must be a number'),
+
+  body('area_width')
+    .optional()
+    .isNumeric().withMessage('area_width must be a number'),
+
+  // Description
+  body('description')
+    .notEmpty().withMessage('Description is required')
+    .isString().withMessage('Description must be a string'),
+
+  validate
 ];
 
 

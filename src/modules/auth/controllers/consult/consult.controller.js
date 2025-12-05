@@ -14,12 +14,65 @@ const logger = winston.createLogger({
   ]
 });
 
-// CREATE CONSULTANT
+// getAllConsultants - updated to support filtering by type
+exports.getAllConsultants = asyncHandler(async (req, res) => {
+  const { page = 1, limit, search, status, type, active, is_deleted } = req.query;
+
+  const query = {};
+
+  if (is_deleted !== undefined) query.is_deleted = is_deleted === 'true';
+  if (active !== undefined) query.is_active = active === 'true';
+  if (status) query.status = status;
+  if (type) query.type = type; // New filter
+
+  if (search) {
+    query.$or = [
+      { 'name.first_name': new RegExp(search, 'i') },
+      { 'name.last_name': new RegExp(search, 'i') },
+      { email: new RegExp(search, 'i') },
+      { 'mobile.number': new RegExp(search, 'i') }
+    ];
+  }
+
+  let consultantQuery = Consultant.find(query)
+    .select('-__v')
+    .sort({ createdAt: -1 });
+
+  let pagination = null;
+  if (limit) {
+    const limitNum = parseInt(limit);
+    const pageNum = parseInt(page);
+    consultantQuery = consultantQuery.skip((pageNum - 1) * limitNum).limit(limitNum);
+    const total = await Consultant.countDocuments(query);
+    pagination = {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages: Math.ceil(total / limitNum),
+    };
+  }
+
+  const consultants = await consultantQuery.lean();
+
+  const consultantsWithFullName = consultants.map(c => ({
+    ...c,
+    full_name: `${c.name.first_name} ${c.name.last_name}`
+  }));
+
+  res.status(200).json({
+    success: true,
+    data: consultantsWithFullName,
+    pagination,
+  });
+});
+
+// createConsultant - now includes type
 exports.createConsultant = asyncHandler(async (req, res) => {
   const {
     name,
     mobile,
     email,
+    type,
     status = 'submitted',
     message,
     follow_up_date,
@@ -36,6 +89,7 @@ exports.createConsultant = asyncHandler(async (req, res) => {
       number: mobile.number.trim()
     },
     email: email.toLowerCase().trim(),
+    type, // New field
     status,
     message: message?.trim(),
     follow_up_date,
@@ -43,83 +97,11 @@ exports.createConsultant = asyncHandler(async (req, res) => {
     is_active: true
   });
 
-  logger.info(`Consultant created: ${consultant._id} | ${consultant.full_name}`);
+  logger.info(`Consultant created: ${consultant._id} | ${consultant.full_name} | Type: ${consultant.type}`);
   res.status(StatusCodes.CREATED).json({
     success: true,
     message: 'Consultant created successfully',
     consultant
-  });
-});
-
-// GET ALL CONSULTANTS
-exports.getAllConsultants = asyncHandler(async (req, res) => {
-  const { page = 1, limit, search, status, active, is_deleted } = req.query;
-
-  // ------- QUERY BUILDER -------
-  const query = {};
-
-  // deleted filter (true = trash, false = active)
-  if (is_deleted !== undefined) {
-    query.is_deleted = is_deleted === 'true';
-  }
-
-  // active / inactive
-  if (active !== undefined) {
-    query.is_active = active === 'true';
-  }
-
-  // status filter
-  if (status) {
-    query.status = status;
-  }
-
-  // search by name, email, or mobile
-  if (search) {
-    query.$or = [
-      { 'name.first_name': new RegExp(search, 'i') },
-      { 'name.last_name': new RegExp(search, 'i') },
-      { email: new RegExp(search, 'i') },
-      { 'mobile.number': new RegExp(search, 'i') }
-    ];
-  }
-
-  // ------- BASE QUERY -------
-  let consultantQuery = Consultant.find(query)
-    .select('-__v')
-    .sort({ createdAt: -1 });
-
-  // ---------- PAGINATION (optional) ----------
-  let pagination = null;
-  if (limit) {
-    const limitNum = parseInt(limit);
-    const pageNum = parseInt(page);
-
-    consultantQuery = consultantQuery
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum);
-
-    const total = await Consultant.countDocuments(query);
-
-    pagination = {
-      page: pageNum,
-      limit: limitNum,
-      total,
-      totalPages: Math.ceil(total / limitNum),
-    };
-  }
-
-  const consultants = await consultantQuery.lean();
-
-  // Add virtual full_name to each consultant
-  const consultantsWithFullName = consultants.map(consultant => ({
-    ...consultant,
-    full_name: `${consultant.name.first_name} ${consultant.name.last_name}`
-  }));
-
-  res.status(200).json({
-    success: true,
-    data: consultantsWithFullName,
-    pagination,
   });
 });
 

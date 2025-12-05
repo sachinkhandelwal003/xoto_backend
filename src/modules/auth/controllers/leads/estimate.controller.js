@@ -10,71 +10,87 @@ const mongoose = require('mongoose');
 const { Role } = require('../../models/role/role.model');
 
 exports.submitEstimate = asyncHandler(async (req, res) => {
-  const { customer_name, customer_email, customer_mobile } = req.body;
+  const {
+    service_type,         // landscape / interior
+    customer_name,
+    customer_email,
+    customer_mobile,
+    type,                 // EstimateMasterType
+    subcategory,          // EstimateMasterSubcategory
+    package: pkg,
+    area_length,
+    area_width,
+    area_sqft,
+    description
+  } = req.body;
 
-  // ✅ Validation for mobile object structure
-  if (!customer_name || !customer_email || !customer_mobile || !customer_mobile.country_code || !customer_mobile.number) {
-    throw new APIError("Customer details including mobile with country code are required", StatusCodes.BAD_REQUEST);
+  // ------------------------
+  // VALIDATION
+  // ------------------------
+  if (!service_type || !['landscape', 'interior'].includes(service_type)) {
+    throw new APIError("Valid service_type is required: 'landscape' or 'interior'", 400);
   }
 
-  // ---------------------------------------
-  // 1️⃣ GET CUSTOMER ROLE
-  // ---------------------------------------
+  if (!customer_name || !customer_email || !customer_mobile?.number) {
+    throw new APIError("Customer details are required", 400);
+  }
+
+  if (!type) throw new APIError("Type (EstimateMasterType) is required", 400);
+
+  if (!area_sqft) throw new APIError("area_sqft is required", 400);
+
+  // GET CUSTOMER ROLE
   const customerRole = await Role.findOne({ name: "Customer" });
-  if (!customerRole) {
-    throw new APIError("Customer Role not found", StatusCodes.NOT_FOUND);
-  }
 
-  // ---------------------------------------
-  // 2️⃣ FIND EXISTING CUSTOMER
-  // ---------------------------------------
   let customer = await Customer.findOne({
     email: customer_email.toLowerCase(),
     is_deleted: false
   });
 
-  // ---------------------------------------
-  // 3️⃣ CREATE CUSTOMER IF NOT EXISTS
-  // ---------------------------------------
   if (!customer) {
-    // ✅ Convert mobile object to string for Customer model
-    // Assuming Customer model expects: mobile: String
-    // const mobileString = `${customer_mobile.country_code}${customer_mobile.number}`;
-    
     customer = await Customer.create({
       name: customer_name,
       email: customer_email.toLowerCase(),
-      mobile: customer_mobile.number, // ✅ Converted to string for Customer model
+      mobile: customer_mobile.number,
       role: customerRole._id,
       isActive: true
     });
   }
 
-  // ---------------------------------------
-  // 4️⃣ CREATE ESTIMATE - Use the original mobile object
-  // ---------------------------------------
+  // ------------------------
+  // CREATE ESTIMATE
+  // ------------------------
   const estimate = await Estimate.create({
+    service_type,
     customer_name,
-    customer_email: customer_email.toLowerCase(),
-    customer_mobile, // ✅ Keep the object structure for Estimate model
-    category: req.body.category,
-    subcategories: req.body.subcategories,
-    description: req.body.description,
+    customer_email,
+    customer_mobile,
+    type,
+    subcategory,
+    package: pkg,
+    area_length,
+    area_width,
+    area_sqft,
+    description,
     customer: customer._id
   });
 
-  await estimate.populate("category subcategories");
+  await estimate.populate([
+    { path: "type" },
+    { path: "subcategory" },
+    { path: "package" },
+    { path: "customer", select: "name email mobile" }
+  ]);
 
-  // ---------------------------------------
-  // 5️⃣ SEND RESPONSE
-  // ---------------------------------------
-  res.status(StatusCodes.CREATED).json({
+  return res.status(201).json({
     success: true,
     message: "Estimate submitted successfully",
     customer,
     estimate
   });
 });
+
+
 exports.getQuotations = asyncHandler(async (req, res) => {
   const { estimate_id } = req.query;
 
@@ -124,21 +140,17 @@ exports.getEstimates = asyncHandler(async (req, res) => {
   if (id) {
     const estimate = await Estimate.findById(id)
       .populate([
-        { path: "category" },
-        { path: "subcategories" },
+        { path: "type" },                             // EstimateMasterType
+        { path: "subcategory" },                      // EstimateMasterSubcategory
+        { path: "package" },                          // LandscapingPackage
         {
           path: "assigned_supervisor",
           select: "name email mobile role"
         },
-        { path: "final_quotation" },
-
-        // SENT FREELANCERS
         {
           path: "sent_to_freelancers",
           select: "name email mobile skills"
         },
-
-        // QUOTATIONS FROM FREELANCERS
         {
           path: "freelancer_quotations.freelancer",
           select: "name email mobile"
@@ -146,8 +158,7 @@ exports.getEstimates = asyncHandler(async (req, res) => {
         {
           path: "freelancer_quotations.quotation"
         },
-
-        // CUSTOMER DETAILS
+        { path: "final_quotation" },
         {
           path: "customer",
           select: "name email mobile"
@@ -170,18 +181,10 @@ exports.getEstimates = asyncHandler(async (req, res) => {
   const query = {};
 
   if (status) query.status = status;
-
-  if (supervisor_progress)
-    query.supervisor_progress = supervisor_progress;
-
-  if (customer_progress)
-    query.customer_progress = customer_progress;
-
-  if (supervisor)
-    query.assigned_supervisor = supervisor;
-
-  if (customer_email)
-    query.customer_email = new RegExp(customer_email, "i");
+  if (supervisor_progress) query.supervisor_progress = supervisor_progress;
+  if (customer_progress) query.customer_progress = customer_progress;
+  if (supervisor) query.assigned_supervisor = supervisor;
+  if (customer_email) query.customer_email = new RegExp(customer_email, "i");
 
   if (customer_id) {
     if (!mongoose.Types.ObjectId.isValid(customer_id))
@@ -199,8 +202,8 @@ exports.getEstimates = asyncHandler(async (req, res) => {
     }
 
     query.$or = [
-      { sent_to_freelancers: freelancer_id }, // request sent to freelancer
-      { "freelancer_quotations.freelancer": freelancer_id } // freelancer submitted quote
+      { sent_to_freelancers: freelancer_id },
+      { "freelancer_quotations.freelancer": freelancer_id }
     ];
   }
 
@@ -209,13 +212,13 @@ exports.getEstimates = asyncHandler(async (req, res) => {
   --------------------------------------------------------- */
   let estimatesQuery = Estimate.find(query)
     .populate([
-      { path: "category" },
-      { path: "subcategories" },
+      { path: "type" },
+      { path: "subcategory" },
+      { path: "package" },
       {
         path: "assigned_supervisor",
         select: "name email mobile role"
       },
-      { path: "final_quotation" },
       {
         path: "sent_to_freelancers",
         select: "name email mobile skills"
@@ -227,6 +230,7 @@ exports.getEstimates = asyncHandler(async (req, res) => {
       {
         path: "freelancer_quotations.quotation"
       },
+      { path: "final_quotation" },
       {
         path: "customer",
         select: "name email mobile"
@@ -553,10 +557,8 @@ exports.getCustomerEstimates = asyncHandler(async (req, res) => {
  
 
   const estimates = await Estimate.find({ customer: req.user.id })
-    .select("-assigned_supervisor -assigned_by -sent_to_freelancers -freelancer_quotations")
     .populate([
-      { path: "category", select: "name" },
-      { path: "subcategories", select: "name" },
+     
       { path: "final_quotation" }
     ])
     .sort({ createdAt: -1 });
@@ -606,39 +608,67 @@ exports.getCustomerQuotation = asyncHandler(async (req, res) => {
 
 
 // controllers/estimate/estimate.controller.js
-
 exports.convertToDeal = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
+  // ------------------------------
+  // 1️⃣ Find Estimate (with NEW model populate paths)
+  // ------------------------------
   const estimate = await Estimate.findById(id)
-    .populate('final_quotation')
-    .populate('customer', 'name email mobile')
-    .populate('category')
-    .populate('subcategories');
+    .populate({ path: "final_quotation" })
+    .populate({ path: "customer", select: "name email mobile" })
+    .populate({ path: "subcategory" })   // EstimateMasterSubcategory
+    .populate({ path: "type" })          // EstimateMasterType
+    .populate({ path: "package" });      // LandscapingPackage
 
-  if (!estimate) throw new APIError('Estimate not found', StatusCodes.NOT_FOUND);
-  if (estimate.status !== 'customer_accepted') throw new APIError('Only accepted estimates can be converted', StatusCodes.BAD_REQUEST);
-  if (estimate.status === 'deal' || estimate.project_reference) throw new APIError('Deal already created', StatusCodes.BAD_REQUEST);
+  if (!estimate) {
+    throw new APIError("Estimate not found", StatusCodes.NOT_FOUND);
+  }
+
+  if (estimate.status !== "customer_accepted") {
+    throw new APIError(
+      "Only customer-accepted estimates can be converted to deal",
+      StatusCodes.BAD_REQUEST
+    );
+  }
+
+  if (estimate.project_reference) {
+    throw new APIError(
+      "Deal was already created for this estimate",
+      StatusCodes.BAD_REQUEST
+    );
+  }
 
   const finalQuotation = estimate.final_quotation;
 
+  // ------------------------------
+  // 2️⃣ Create Project based on updated fields
+  // ------------------------------
   const project = await Project.create({
-    title: finalQuotation?.title || finalQuotation?.scope_of_work?.substring(0, 100) || estimate.description.substring(0, 100) || 'Landscaping Project',
+    title:
+      finalQuotation?.title ||
+      finalQuotation?.scope_of_work?.substring(0, 100) ||
+      estimate.description.substring(0, 100) ||
+      "New Project",
+
     client_name: estimate.customer?.name || estimate.customer_name,
-    client_company: estimate.client_company || '',
-    address: estimate.address || '',
-    city: estimate.city || '',
+    client_company: estimate.client_company || "",
+    address: estimate.address || "",
+    city: estimate.city || "",
     gps_coordinates: estimate.gps_coordinates || {},
 
     start_date: new Date(),
     end_date: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
 
-    budget: finalQuotation?.grand_total || finalQuotation?.total_amount || 0,
-    overview: estimate.description || '',
-    scope_details: finalQuotation?.scope_of_work || estimate.description || '',
+    budget: finalQuotation?.grand_total || 0,
+    overview: estimate.description,
+    scope_details: finalQuotation?.scope_of_work || estimate.description,
 
-    category: estimate.category,
-    subcategory: estimate.subcategories.map(s => s._id), // ← ALL SUBCATEGORIES
+    // 🔥 NEW MODEL MAPPING
+    subcategory: estimate.type?._id,                  // EstimateMasterType
+    category: estimate.subcategory?._id,    // EstimateMasterSubcategory
+    // Relationships
+
 
     customer: estimate.customer,
     estimate_reference: estimate._id,
@@ -646,30 +676,40 @@ exports.convertToDeal = asyncHandler(async (req, res) => {
     freelancer: null,
     accountant: null,
     milestones: [],
-    status: 'pending'
+    status: "pending"
   });
 
-  estimate.status = 'deal';
-  estimate.customer_progress = 'deal_created';
+  // ------------------------------
+  // 3️⃣ Mark Estimate as Deal Created
+  // ------------------------------
+  estimate.status = "deal";
+  estimate.customer_progress = "deal_created";
   estimate.project_reference = project._id;
   estimate.deal_converted_at = new Date();
   estimate.deal_converted_by = req.user._id;
+
   await estimate.save();
 
+  // ------------------------------
+  // 4️⃣ Response
+  // ------------------------------
   res.status(StatusCodes.CREATED).json({
     success: true,
-    message: 'Deal created successfully! Project is pending freelancer assignment.',
+    message: "Deal created successfully! Project is pending freelancer assignment.",
     data: {
-      Code: project.Code,
-      project_title: project.title,
+      project_id: project._id,
+      title: project.title,
       status: project.status,
       budget: project.budget,
+      service_type: estimate.service_type,
       client: project.client_name,
-      subcategories: estimate.subcategories.map(s => s.name || s._id),
+      type: estimate.type?.label,
+      subcategory: estimate.subcategory?.label,
+      package: estimate.package?.name,
       scope_of_work: project.scope_details,
-      overview: project.overview,
       milestones: 0,
       freelancer_assigned: false
     }
   });
 });
+
