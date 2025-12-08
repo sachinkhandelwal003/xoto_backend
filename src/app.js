@@ -27,6 +27,7 @@ app.use('/accountant', require('./modules/auth/routes/accountant/Accountant.rout
 app.use('/users', require('./modules/auth/routes/user/user.routes'));
 app.use('/consult', require('./modules/auth/routes/consult/consult.routes'));
 app.use('/enquiry', require('./modules/auth/routes/consult/enquiry.routes'));
+app.use('/property/lead', require('./modules/auth/routes/consult/propertyLead.route'));
 
 
 app.use('/freelancer/projects/get', require('../src/modules/auth/routes/freelancer/routesfreelancer'));
