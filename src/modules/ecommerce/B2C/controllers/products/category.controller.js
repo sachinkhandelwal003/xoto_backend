@@ -110,9 +110,9 @@ exports.createCategory = asyncHandler(async (req, res, next) => {
 
 exports.getAllCategories = asyncHandler(async (req, res, next) => {
   const { 
-    page = 1, 
-    limit = 10, 
-    search = '', 
+    page,
+    limit,
+    search = '',
     includeDeleted = 'false',
     status,
     highlighted,
@@ -120,7 +120,12 @@ exports.getAllCategories = asyncHandler(async (req, res, next) => {
     showInMenu
   } = req.query;
 
-  const filter = { status: includeDeleted === 'true' ? { $in: [0, 1] } : 1 };
+  // -------------------------------
+  // 1. Build Filters
+  // -------------------------------
+  const filter = { 
+    status: includeDeleted === 'true' ? { $in: [0, 1] } : 1 
+  };
 
   if (status !== undefined && status !== '') {
     filter.status = Number(status);
@@ -138,33 +143,66 @@ exports.getAllCategories = asyncHandler(async (req, res, next) => {
     filter.showInFilterMenu = showInMenu === 'true';
   }
 
-  const skip = (Number(page) - 1) * Number(limit);
+  // -------------------------------
+  // 2. No Pagination Case
+  // -------------------------------
+  const noPagination =
+    !limit || limit === 'null' || limit === 'undefined' || Number(limit) <= 0;
+
+  if (noPagination) {
+    const categories = await Category.find(filter)
+      .populate('parent', 'name slug')
+      .sort({ name: 1, createdAt: -1 })
+      .lean();
+
+    const activeCategories = await Category.find({ status: 1 })
+      .populate('parent', 'name slug')
+      .lean();
+
+    return res.status(StatusCodes.OK).json({
+      success: true,
+      pagination: null,          // ⚠️ NO PAGINATION
+      categories,
+      hierarchy: buildCategoryHierarchy(activeCategories)
+    });
+  }
+
+  // -------------------------------
+  // 3. Pagination Case
+  // -------------------------------
+  const pageNum = Number(page) || 1;
+  const limitNum = Number(limit);
+
+  const skip = (pageNum - 1) * limitNum;
+
   const categories = await Category.find(filter)
     .populate('parent', 'name slug')
-    .sort({ name: 1, createdAt: -1 }) // CHANGED: sort by name instead of sortOrder
+    .sort({ name: 1, createdAt: -1 })
     .skip(skip)
-    .limit(Number(limit))
+    .limit(limitNum)
     .lean();
 
   const total = await Category.countDocuments(filter);
+
   const activeCategories = await Category.find({ status: 1 })
     .populate('parent', 'name slug')
     .lean();
 
   res.status(StatusCodes.OK).json({
     success: true,
-    pagination: { 
-      page: Number(page), 
-      limit: Number(limit), 
-      total, 
-      totalPages: Math.ceil(total / Number(limit)),
-      hasNext: skip + Number(limit) < total,
-      hasPrev: Number(page) > 1
+    pagination: {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages: Math.ceil(total / limitNum),
+      hasNext: skip + limitNum < total,
+      hasPrev: pageNum > 1
     },
     categories,
     hierarchy: buildCategoryHierarchy(activeCategories),
   });
 });
+
 
 exports.getCategoryById = asyncHandler(async (req, res, next) => {
   const category = await Category.findById(req.params.id)

@@ -3,6 +3,7 @@ const VendorB2C = require('../../models/Vendor/B2cvendor.model');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const { APIError } = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
+const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const { createToken } = require('../../../../middleware/auth');
 const { Role } = require('../../models/role/role.model');
@@ -64,130 +65,202 @@ exports.vendorLogin = asyncHandler(async (req, res, next) => {
 
 
 exports.createVendor = asyncHandler(async (req, res) => {
-  const vendorData = req.body;
-  // ✅ Step 1: Confirm passwords match
-  if (vendorData.password !== vendorData.confirmPassword) {
+  const {
+    first_name,
+    last_name,
+    email,
+    mobile, // { country_code, number }
+    password,
+    confirmPassword,
+    store_details,
+    registration,
+    meta
+  } = req.body;
+
+  // 1. Password match
+  if (password !== confirmPassword) {
     throw new APIError('Passwords do not match', StatusCodes.BAD_REQUEST);
   }
 
-  // ✅ Step 2: Remove confirmPassword from object (never store it)
-  delete vendorData.confirmPassword;
-
-  // Role assignment
-  const vendorRole = await Role.findOne({ name: 'Vendor-B2C' });
-  if (!vendorRole) throw new APIError('Vendor role not available', StatusCodes.NOT_FOUND);
-  vendorData.role = vendorRole._id;
-
-  // Default status
-  vendorData.status_info = { status: 0 }; // pending
-
-  // Password hash
-  vendorData.password = await bcrypt.hash(vendorData.password, 10);
-
-  // Convert categories if needed
-  if (vendorData.store_details?.categories?.length) {
-    vendorData.store_details.categories = vendorData.store_details.categories.map(c => new mongoose.Types.ObjectId(c));
+  // 2. Check if email or mobile already exists
+  const existing = await VendorB2C.findOne({
+    $or: [
+      { email: email.toLowerCase() },
+      { 'mobile.number': mobile.number }
+    ]
+  });
+  if (existing) {
+    throw new APIError('Email or Mobile already registered', StatusCodes.CONFLICT);
   }
 
-  // Logo
-  if (req.files?.logo) {
+  // 3. Find Vendor Role
+  const vendorRole = await Role.findOne({ name: 'Vendor-B2C' });
+  if (!vendorRole) {
+    throw new APIError('Vendor role not found', StatusCodes.INTERNAL_SERVER_ERROR);
+  }
+
+  // 4. Build vendor data
+  const vendorData = {
+    name: {
+      first_name: first_name.trim(),
+      last_name: last_name.trim()
+    },
+    email: email.toLowerCase(),
+    password: await bcrypt.hash(password, 12),
+    mobile: {
+      country_code: mobile.country_code || '+91',
+      number: mobile.number
+    },
+    role: vendorRole._id,
+    status_info: { status: 0 }, // pending
+    store_details: {
+      store_name: store_details.store_name,
+      store_description: store_details.store_description || '',
+      store_type: store_details.store_type,
+      store_address: store_details.store_address,
+      city: store_details.city,
+      country: store_details.country || 'India',
+      pincode: store_details.pincode,
+      categories: store_details.categories.map(id => new mongoose.Types.ObjectId(id)),
+      website: store_details.website || '',
+      social_links: store_details.social_links || {}
+    },
+    registration: {
+      pan_number: registration?.pan_number?.toUpperCase(),
+      gstin: registration?.gstin?.toUpperCase() || ''
+    },
+    meta: {
+      agreed_to_terms: meta?.agreed_to_terms === true || meta?.agreed_to_terms === 'true',
+      change_history: [{
+        updated_by: req.user?._id || null,
+        changes: ['Vendor account created']
+      }]
+    }
+  };
+
+  // 5. Handle Logo
+  if (req.files?.logo?.[0]) {
     vendorData.store_details.logo = req.files.logo[0].path;
   }
 
-  // Documents
-  vendorData.documents = {};
-  const docMap = {
-    identityProof: 'identity_proof',
-    addressProof: 'address_proof',
-    gstCertificate: 'gst_certificate'
-  };
-  Object.keys(req.files || {}).forEach(k => {
-    if (docMap[k]) {
-      vendorData.documents[docMap[k]] = {
-        type: docMap[k],
-        path: req.files[k][0].path,
-        verified: false,
-        uploaded_at: new Date()
-      };
-    }
-  });
+// 6. Handle Documents (identity & address proof mandatory)
+vendorData.documents = {
+  identity_proof: {
+    path: req.files?.identityProof?.[0]?.path,
+    verified: false
+  },
+  address_proof: {
+    path: req.files?.addressProof?.[0]?.path,
+    verified: false
+  },
+  gst_certificate: req.files?.gstCertificate?.[0]
+    ? { path: req.files.gstCertificate[0].path, verified: false }
+    : undefined
+};
 
-  // Create vendor
+
+  // 7. Create Vendor
   const vendor = await VendorB2C.create(vendorData);
-  vendor.meta.change_history = [{
-    updated_by: req.user?._id || null,
-    updated_at: new Date(),
-    changes: ['Vendor created']
-  }];
-  await vendor.save();
 
-  const populated = await VendorB2C.findById(vendor._id)
+  // 8. Populate categories for response
+  const populatedVendor = await VendorB2C.findById(vendor._id)
     .populate('store_details.categories', 'name slug')
-    .select('email full_name store_details status_info.status');
+    .select(`
+      name email mobile store_details.store_name store_details.logo
+      store_details.city store_details.pincode status_info.status
+    `);
 
-  logger.info(`Vendor created: ${vendor._id}`);
+  logger.info(`New Vendor Registered: ${vendor._id} - ${email}`);
 
   res.status(StatusCodes.CREATED).json({
     success: true,
-    message: 'Vendor created successfully',
-    data: populated
+    message: 'Vendor registered successfully! Awaiting admin approval.',
+    data: populatedVendor
   });
 });
 
 // Get All Vendors
+// Get All Vendors
 exports.getAllVendors = asyncHandler(async (req, res, next) => {
-  const { page = 1, limit = 10, status, vendorId } = req.query;
+  const { page, limit, status, vendorId } = req.query;
 
+  // 1️⃣ Get single vendor
   if (vendorId) {
     try {
       const vendor = await VendorB2C.findById(vendorId)
         .select('-password')
+        .populate('store_details.categories', 'name slug icon')  // 🟣 POPULATE
         .lean();
 
       if (!vendor) {
         return res.status(StatusCodes.NOT_FOUND).json({
           success: false,
-          message: 'Vendor not found'
+          message: "Vendor not found"
         });
       }
 
-      logger.info(`Retrieved vendor with ID: ${vendorId}`);
       return res.status(StatusCodes.OK).json({
         success: true,
         vendor
       });
+
     } catch (error) {
-      if (error.name === 'CastError') {
+      if (error.name === "CastError") {
         return res.status(StatusCodes.BAD_REQUEST).json({
           success: false,
-          message: 'Invalid vendor ID format'
+          message: "Invalid vendor ID format"
         });
       }
-      next(error);
+      return next(error);
     }
   }
 
-  const query = status ? { 'status_info.status': parseInt(status) } : {};
+  // 2️⃣ Build query
+  const query = {};
+  if (status !== undefined) {
+    query["status_info.status"] = Number(status);
+  }
+
+  // 3️⃣ No pagination → return all vendors
+  if (!page || !limit) {
+    const vendors = await VendorB2C.find(query)
+      .select('-password')
+      .populate('store_details.categories', 'name slug icon') // 🟣 POPULATE
+      .lean();
+
+    return res.status(StatusCodes.OK).json({
+      success: true,
+      pagination: null,
+      vendors
+    });
+  }
+
+  // 4️⃣ Pagination mode
+  const pageNum = Number(page);
+  const limitNum = Number(limit);
 
   const vendors = await VendorB2C.find(query)
     .select('-password')
-    .skip((page - 1) * limit)
-    .limit(Number(limit))
+    .populate('store_details.categories', 'name slug icon')  // 🟣 POPULATE
+    .skip((pageNum - 1) * limitNum)
+    .limit(limitNum)
     .lean();
 
   const total = await VendorB2C.countDocuments(query);
 
-  logger.info(`Retrieved ${vendors.length} vendors`);
   res.status(StatusCodes.OK).json({
     success: true,
     pagination: {
-      page: Number(page),
-      limit: Number(limit),
-      total
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages: Math.ceil(total / limitNum)
     },
-    vendors,
+    vendors
   });
 });
+
+
 
 // Get Vendor Profile
 exports.getVendorProfile = asyncHandler(async (req, res, next) => {

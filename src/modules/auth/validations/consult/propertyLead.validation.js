@@ -22,23 +22,22 @@ const isValidId = (val, field) => {
 
 // CREATE (Public)
 exports.validateCreatePropertyLead = [
-  body('type').notEmpty().isIn(['buy', 'sell', 'schedule_visit']),
+  body('type').isIn(['buy','sell','rent','schedule_visit','partner','investor','developer']).withMessage('Invalid lead type'),
 
-  body('name.first_name').trim().notEmpty(),
-  body('name.last_name').trim().notEmpty(),
-  body('mobile.number').trim().notEmpty().matches(/^\d{8,15}$/),
-  body('email').trim().isEmail(),
+  // Always required
+  body('name.first_name').trim().notEmpty().withMessage('First name required'),
+  body('name.last_name').trim().notEmpty().withMessage('Last name required'),
+  body('email').isEmail().withMessage('Valid email required'),
+  body('mobile.number').matches(/^\d{8,15}$/).withMessage('Valid mobile number required'),
 
-  body('preferred_contact').optional().isIn(['call', 'whatsapp', 'email']),
-
-  // Conditional based on type
-  body('desired_bedrooms').if(body('type').equals('buy')).notEmpty(),
-  body('listing_type').if(body('type').equals('sell')).notEmpty(),
-  body('city').if(body('type').equals('sell')).notEmpty(),
-  // Add others as needed...
+  // Conditional validations
 
   body('occupation').if(body('type').equals('schedule_visit')).notEmpty(),
   body('location').if(body('type').equals('schedule_visit')).notEmpty(),
+
+  body('company').if(body('type').isIn(['partner','investor','developer'])).notEmpty(),
+  body('stakeholder_type').if(body('type').equals('partner')).notEmpty(),
+  body('message').if(body('type').isIn(['partner','investor','developer'])).notEmpty(),
 
   validate
 ];
@@ -56,7 +55,7 @@ exports.validateGetPropertyLeads = [
   query('limit').optional().isInt({ min: 1, max: 100 }),
   query('search').optional().trim(),
   query('status').optional().isIn(['submit', 'contacted']),
-  query('type').optional().isIn(['buy', 'sell', 'schedule_visit']),
+  query('type').optional().isIn(['buy', 'sell', 'schedule_visit','rent', 'partner']),
   validate
 ];
 

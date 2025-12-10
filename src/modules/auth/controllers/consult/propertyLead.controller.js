@@ -6,20 +6,24 @@ const asyncHandler = require('../../../../utils/asyncHandler');
 
 // Create
 exports.createPropertyLead = asyncHandler(async (req, res) => {
-  const data = req.body;
-  data.mobile = { country_code: data.mobile?.country_code || '+91', number: data.mobile.number };
+  let data = req.body;
 
-  // Basic validation based on type - more in validator
-  if (data.type === 'buy' && !data.desired_bedrooms) {
-    throw new APIError('Desired bedrooms required for buy', StatusCodes.BAD_REQUEST);
+  // Normalize mobile
+  data.mobile = {
+    country_code: data.mobile?.country_code || data.mobile?.countryCode || '+91',
+    number: (data.mobile?.number || data.mobile?.phone || '').toString().replace(/\D/g, '').slice(-15)
+  };
+
+  // Auto-set preferred_contact defaults per type
+  if (!data.preferred_contact) {
+    data.preferred_contact = ['buy','rent','schedule_visit','partner'].includes(data.type) ? 'whatsapp' : 'call';
   }
-  // Similar for others...
 
   const lead = await PropertyLead.create(data);
 
   res.status(StatusCodes.CREATED).json({
     success: true,
-    message: 'Lead submitted successfully',
+    message: 'Lead captured successfully!',
     data: lead
   });
 });

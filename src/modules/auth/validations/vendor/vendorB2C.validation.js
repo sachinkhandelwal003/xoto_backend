@@ -48,37 +48,53 @@ exports.validateVerifyOtp = [
   validate
 ];
 
-// Create vendor validation
-exports.validateCreateVendor = [
-  // Name
-  body('first_name').trim().notEmpty().withMessage('First name is required'),
-  body('last_name').trim().notEmpty().withMessage('Last name is required'),
 
-  // Email
+exports.validateCreateVendor = [
+
+  // ===============================
+  // NAME
+  // ===============================
+  body('first_name')
+    .trim()
+    .notEmpty().withMessage('First name is required').bail(),
+
+  body('last_name')
+    .trim()
+    .notEmpty().withMessage('Last name is required').bail(),
+
+  // ===============================
+  // EMAIL
+  // ===============================
   body('email')
     .trim()
-    .isEmail().withMessage('Valid email is required')
+    .isEmail().withMessage('Valid email is required').bail()
     .normalizeEmail()
     .custom(async (email) => {
       const exists = await VendorB2C.findOne({ email });
       if (exists) throw new Error('Email already in use');
     }),
 
-  // Mobile
+  // ===============================
+  // MOBILE
+  // ===============================
   body('mobile.number')
-    .notEmpty().withMessage('Mobile number is required')
-    .isNumeric().withMessage('Mobile must be numeric')
-    .isLength({ min: 8, max: 15 }).withMessage('Invalid mobile length')
+    .notEmpty().withMessage('Mobile number is required').bail()
+    .isNumeric().withMessage('Mobile must be numeric').bail()
+    .isLength({ min: 8, max: 15 }).withMessage('Invalid mobile length').bail()
     .custom(async (number) => {
       const exists = await VendorB2C.findOne({ 'mobile.number': number });
       if (exists) throw new Error('Mobile already registered');
     }),
 
-  body('mobile.country_code').optional().isNumeric().withMessage('Invalid country code'),
+  body('mobile.country_code')
+    .optional()
+    .isNumeric().withMessage('Invalid country code'),
 
-  // Password
+  // ===============================
+  // PASSWORD
+  // ===============================
   body('password')
-    .isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+    .isLength({ min: 6 }).withMessage('Password must be at least 6 characters').bail(),
 
   body('confirmPassword')
     .custom((value, { req }) => {
@@ -86,65 +102,123 @@ exports.validateCreateVendor = [
       return true;
     }),
 
-  // Store Details
-  body('store_details.store_name').trim().notEmpty().withMessage('Store name is required'),
+  // ===============================
+  // STORE DETAILS
+  // ===============================
+  body('store_details.store_name')
+    .trim()
+    .notEmpty().withMessage('Store name is required').bail(),
+
   body('store_details.store_type')
     .isIn(['Individual / Sole Proprietor', 'Private Limited', 'Partnership'])
-    .withMessage('Invalid business type'),
-  body('store_details.store_address').trim().notEmpty(),
-  body('store_details.city').trim().notEmpty(),
-  body('store_details.pincode').trim().notEmpty(),
-  body('store_details.categories')
-    .isArray({ min: 1 }).withMessage('At least one category is required'),
+    .withMessage('Invalid business type').bail(),
 
-  // Registration
+  body('store_details.store_address')
+    .trim()
+    .notEmpty().withMessage('Store address is required').bail(),
+
+  body('store_details.city')
+    .trim()
+    .notEmpty().withMessage('City is required').bail(),
+
+  body('store_details.pincode')
+    .trim()
+    .notEmpty().withMessage('Pincode is required').bail(),
+
+  body('store_details.categories')
+    .isArray({ min: 1 })
+    .withMessage('At least one category is required').bail(),
+
+  // ===============================
+  // REGISTRATION
+  // ===============================
   body('registration.pan_number')
     .trim()
-    .notEmpty()
+    .notEmpty().withMessage('PAN is required').bail()
     .matches(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/)
-    .withMessage('Invalid PAN format'),
+    .withMessage('Invalid PAN format').bail(),
 
   body('registration.gstin')
     .optional()
     .matches(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/)
-    .withMessage('Invalid GSTIN format'),
+    .withMessage('Invalid GSTIN format').bail(),
 
-  // File Upload Validation
-  body('logo').custom((_, { req }) => {
-    if (req.files?.logo) {
-      const file = req.files.logo[0];
+  // ===============================
+  // LOGO FILE
+  // ===============================
+  body('logo')
+    .optional()
+    .custom((_, { req }) => {
+      if (!req.files?.logo) return true;
+
+      const f = req.files.logo[0];
       const allowed = ['image/jpeg', 'image/jpg', 'image/png'];
-      if (!allowed.includes(file.mimetype)) throw new Error('Logo must be JPG/PNG');
-      if (file.size > 2 * 1024 * 1024) throw new Error('Logo must be < 2MB');
-    }
-    return true;
-  }),
 
-  // Documents – identity & address proof mandatory
-  body('identityProof').custom((_, { req }) => {
-    if (!req.files?.identityProof) throw new Error('Identity Proof is required');
-    const f = req.files.identityProof[0];
-    const allowed = ['image/jpeg', 'image/png', 'application/pdf'];
-    if (!allowed.includes(f.mimetype)) throw new Error('Identity proof: only JPG, PNG, PDF');
-    if (f.size > 5 * 1024 * 1024) throw new Error('Identity proof too large');
-    return true;
-  }),
+      if (!allowed.includes(f.mimetype))
+        throw new Error('Logo must be JPG/PNG');
 
-  body('addressProof').custom((_, { req }) => {
-    if (!req.files?.addressProof) throw new Error('Address Proof is required');
-    const f = req.files.addressProof[0];
-    const allowed = ['image/jpeg', 'image/png', 'application/pdf'];
-    if (!allowed.includes(f.mimetype)) throw new Error('Address proof: only JPG, PNG, PDF');
-    if (f.size > 5 * 1024 * 1024) throw new Error('Address proof too large');
-    return true;
-  }),
+      if (f.size > 2 * 1024 * 1024)
+        throw new Error('Logo must be < 2MB');
 
-  // Terms
+      return true;
+    }),
+
+  // ===============================
+  // IDENTITY PROOF (OPTIONAL)
+  // ===============================
+  body('identityProof')
+    .optional()
+    .bail()
+    .custom((_, { req }) => {
+      if (!req.files?.identityProof) return true;
+
+      const f = req.files.identityProof[0];
+      const allowed = ['image/jpeg', 'image/png', 'application/pdf'];
+
+      if (!allowed.includes(f.mimetype))
+        throw new Error('Identity proof: only JPG, PNG, PDF allowed');
+
+      if (f.size > 5 * 1024 * 1024)
+        throw new Error('Identity proof too large');
+
+      return true;
+    }),
+
+  // ===============================
+  // ADDRESS PROOF (OPTIONAL)
+  // ===============================
+  body('addressProof')
+    .optional()
+    .bail()
+    .custom((_, { req }) => {
+      if (!req.files?.addressProof) return true;
+
+      const f = req.files.addressProof[0];
+      const allowed = ['image/jpeg', 'image/png', 'application/pdf'];
+
+      if (!allowed.includes(f.mimetype))
+        throw new Error('Address proof: only JPG, PNG, PDF allowed');
+
+      if (f.size > 5 * 1024 * 1024)
+        throw new Error('Address proof too large');
+
+      return true;
+    }),
+
+  // ===============================
+  // TERMS & CONDITIONS
+  // ===============================
   body('meta.agreed_to_terms')
-    .equals('true').withMessage('You must agree to terms & conditions'),
+    .custom((value) => {
+      if (value !== true && value !== 'true') {
+        throw new Error('You must agree to terms & conditions');
+      }
+      return true;
+    }),
 
-  validate // your custom validate middleware
+  validate
 ];
+
 
 // Vendor login validation
 exports.validateVendorLogin = [
