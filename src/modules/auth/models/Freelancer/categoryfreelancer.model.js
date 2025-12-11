@@ -32,8 +32,12 @@ category_schema.pre('save', function (next) {
 
 // Soft-delete queries
 category_schema.pre(['find', 'findOne', 'findOneAndUpdate', 'countDocuments'], function () {
-  this.where({ is_deleted: false });
+  // If query already filters is_deleted, do NOT override it
+  if (!('is_deleted' in this.getQuery())) {
+    this.where({ is_deleted: false });
+  }
 });
+
 
 category_schema.index({ slug: 1 });
 category_schema.index({ is_active: 1 });

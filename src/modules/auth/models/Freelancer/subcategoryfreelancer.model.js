@@ -1,21 +1,9 @@
-// models/subcategory.js
 const mongoose = require('mongoose');
 
 const subcategory_schema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: [true, 'Subcategory name is required'],
-    trim: true
-  },
-  slug: {
-    type: String,
-    trim: true
-  },
-  category: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Category_freelancer',
-    required: [true, 'Category is required']
-  },
+  name: { type: String, required: true, trim: true },
+  slug: { type: String, trim: true },
+  category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category_freelancer', required: true },
   description: { type: String, trim: true },
   icon: { type: String, trim: true },
   is_active: { type: Boolean, default: true },
@@ -36,9 +24,11 @@ subcategory_schema.pre('save', function (next) {
   next();
 });
 
-// Soft-delete middleware
+// Smart soft-delete filter
 subcategory_schema.pre(['find', 'findOne', 'findOneAndUpdate', 'countDocuments'], function () {
-  this.where({ is_deleted: false });
+  if (!('is_deleted' in this.getQuery())) {
+    this.where({ is_deleted: false });
+  }
 });
 
 subcategory_schema.index({ category: 1 });
