@@ -62,6 +62,169 @@ exports.vendorLogin = asyncHandler(async (req, res, next) => {
     next(error);
   }
 });
+exports.updateVendorProfile = asyncHandler(async (req, res) => {
+  const vendorId = req.user._id;
+
+  let vendor = await VendorB2C.findById(vendorId);
+  if (!vendor) {
+    throw new APIError("Vendor not found", StatusCodes.NOT_FOUND);
+  }
+
+  const data = req.body;
+
+  /** -----------------------------
+   *  UPDATE BASIC INFORMATION
+   * ----------------------------- */
+  if (data.first_name) vendor.name.first_name = data.first_name.trim();
+  if (data.last_name) vendor.name.last_name = data.last_name.trim();
+
+  /** -----------------------------
+   *  UPDATE STORE DETAILS
+   * ----------------------------- */
+  if (data.store_name) vendor.store_details.store_name = data.store_name;
+  if (data.store_description) vendor.store_details.store_description = data.store_description;
+  if (data.store_type) vendor.store_details.store_type = data.store_type;
+  if (data.store_address) vendor.store_details.store_address = data.store_address;
+  if (data.city) vendor.store_details.city = data.city;
+  if (data.state) vendor.store_details.state = data.state;
+  if (data.country) vendor.store_details.country = data.country;
+  if (data.pincode) vendor.store_details.pincode = data.pincode;
+  if (data.website) vendor.store_details.website = data.website;
+
+  if (data.categories) {
+    vendor.store_details.categories = data.categories.split(",").map(
+      id => new mongoose.Types.ObjectId(id)
+    );
+  }
+
+  vendor.store_details.social_links = {
+    ...vendor.store_details.social_links,
+    ...data.social_links
+  };
+
+  /** -----------------------------
+   *  UPDATE REGISTRATION
+   * ----------------------------- */
+  if (data.pan_number) vendor.registration.pan_number = data.pan_number.toUpperCase();
+  if (data.gstin) vendor.registration.gstin = data.gstin.toUpperCase();
+
+  /** -----------------------------
+   *  UPDATE CONTACTS
+   * ----------------------------- */
+  if (data.primary_contact_name) {
+    vendor.contacts.primary_contact = {
+      name: data.primary_contact_name,
+      designation: data.primary_contact_designation,
+      email: data.primary_contact_email,
+      mobile: data.primary_contact_mobile,
+      whatsapp: data.primary_contact_whatsapp
+    };
+  }
+
+  if (data.support_contact_name) {
+    vendor.contacts.support_contact = {
+      name: data.support_contact_name,
+      designation: data.support_contact_designation,
+      email: data.support_contact_email,
+      mobile: data.support_contact_mobile,
+      whatsapp: data.support_contact_whatsapp
+    };
+  }
+
+  /** -----------------------------
+   *  UPDATE BANK DETAILS
+   * ----------------------------- */
+  vendor.bank_details = {
+    ...vendor.bank_details,
+    ...data
+  };
+
+  /** -----------------------------
+   *  UPDATE OPERATIONS
+   * ----------------------------- */
+  if (data.delivery_modes) {
+    vendor.operations.delivery_modes = data.delivery_modes.split(",");
+  }
+
+  if (data.return_policy) vendor.operations.return_policy = data.return_policy;
+  if (data.avg_delivery_time_days) vendor.operations.avg_delivery_time_days = Number(data.avg_delivery_time_days);
+
+  /** -----------------------------
+   *  UPDATE DOCUMENTS
+   * ----------------------------- */
+  if (req.files?.logo?.[0]) vendor.store_details.logo = req.files.logo[0].path;
+
+  if (req.files?.identity_proof?.[0]) {
+    vendor.documents.identity_proof = {
+      path: req.files.identity_proof[0].path,
+      verified: false
+    };
+  }
+
+  if (req.files?.address_proof?.[0]) {
+    vendor.documents.address_proof = {
+      path: req.files.address_proof[0].path,
+      verified: false
+    };
+  }
+
+  if (req.files?.gst_certificate?.[0]) {
+    vendor.documents.gst_certificate = {
+      path: req.files.gst_certificate[0].path,
+      verified: false
+    };
+  }
+
+  if (req.files?.cancelled_cheque?.[0]) {
+    vendor.documents.cancelled_cheque = {
+      path: req.files.cancelled_cheque[0].path,
+      verified: false
+    };
+  }
+
+  if (req.files?.shop_act_license?.[0]) {
+    vendor.documents.shop_act_license = {
+      path: req.files.shop_act_license[0].path,
+      verified: false
+    };
+  }
+
+  /** -----------------------------
+   *  CHECK IF PROFILE IS COMPLETE
+   * ----------------------------- */
+
+  const isComplete =
+    vendor.store_details.store_name &&
+    vendor.store_details.store_address &&
+    vendor.store_details.categories?.length > 0 &&
+    vendor.documents.identity_proof?.path &&
+    vendor.documents.address_proof?.path &&
+    vendor.registration.pan_number &&
+    vendor.contacts.primary_contact &&
+    vendor.bank_details.bank_account_number;
+
+  if (isComplete) {
+    vendor.onboarding_status = "profile_submitted"; // Fully done
+  } else {
+    vendor.onboarding_status = "profile_incomplete"; // Still missing fields
+  }
+
+  /** -----------------------------
+   *  META
+   * ----------------------------- */
+  vendor.meta.updated_at = new Date();
+
+  await vendor.save();
+
+  res.status(StatusCodes.OK).json({
+    success: true,
+    message: "Profile updated successfully",
+    onboarding_status: vendor.onboarding_status,
+    data: vendor
+  });
+});
+
+
 
 
 exports.createVendor = asyncHandler(async (req, res) => {
@@ -129,6 +292,8 @@ exports.createVendor = asyncHandler(async (req, res) => {
       pan_number: registration?.pan_number?.toUpperCase(),
       gstin: registration?.gstin?.toUpperCase() || ''
     },
+    onboarding_status: 'profile_submitted',
+    status_info: { status: 0 }, // pending
     meta: {
       agreed_to_terms: meta?.agreed_to_terms === true || meta?.agreed_to_terms === 'true',
       change_history: [{
@@ -139,24 +304,6 @@ exports.createVendor = asyncHandler(async (req, res) => {
   };
 
   // 5. Handle Logo
-  if (req.files?.logo?.[0]) {
-    vendorData.store_details.logo = req.files.logo[0].path;
-  }
-
-// 6. Handle Documents (identity & address proof mandatory)
-vendorData.documents = {
-  identity_proof: {
-    path: req.files?.identityProof?.[0]?.path,
-    verified: false
-  },
-  address_proof: {
-    path: req.files?.addressProof?.[0]?.path,
-    verified: false
-  },
-  gst_certificate: req.files?.gstCertificate?.[0]
-    ? { path: req.files.gstCertificate[0].path, verified: false }
-    : undefined
-};
 
 
   // 7. Create Vendor
@@ -181,106 +328,176 @@ vendorData.documents = {
 
 // Get All Vendors
 // Get All Vendors
-exports.getAllVendors = asyncHandler(async (req, res, next) => {
-  const { page, limit, status, vendorId } = req.query;
+// controllers/vendor/b2cvendor.controller.js
 
-  // 1️⃣ Get single vendor
+exports.getAllVendors = asyncHandler(async (req, res) => {
+  const { page, limit, status, onboarding_status, vendorId } = req.query;
+
+  /**
+   * ---------------------------------------------------------
+   * 1. GET SINGLE VENDOR (FULL DETAIL)
+   * -----------------------------------------------------
+   */
   if (vendorId) {
-    try {
-      const vendor = await VendorB2C.findById(vendorId)
-        .select('-password')
-        .populate('store_details.categories', 'name slug icon')  // 🟣 POPULATE
-        .lean();
-
-      if (!vendor) {
-        return res.status(StatusCodes.NOT_FOUND).json({
-          success: false,
-          message: "Vendor not found"
-        });
-      }
-
-      return res.status(StatusCodes.OK).json({
-        success: true,
-        vendor
-      });
-
-    } catch (error) {
-      if (error.name === "CastError") {
-        return res.status(StatusCodes.BAD_REQUEST).json({
-          success: false,
-          message: "Invalid vendor ID format"
-        });
-      }
-      return next(error);
-    }
-  }
-
-  // 2️⃣ Build query
-  const query = {};
-  if (status !== undefined) {
-    query["status_info.status"] = Number(status);
-  }
-
-  // 3️⃣ No pagination → return all vendors
-  if (!page || !limit) {
-    const vendors = await VendorB2C.find(query)
-      .select('-password')
-      .populate('store_details.categories', 'name slug icon') // 🟣 POPULATE
+    const vendor = await VendorB2C.findById(vendorId)
+      .select("-password -meta.change_history")
+      .populate("store_details.categories", "name slug icon")
+      .populate("bank_details.preferred_currency", "code name symbol")
+      .populate("role", "name")
+      .populate("documents.identity_proof")
+      .populate("documents.address_proof")
+      .populate("documents.pan_card")
+      .populate("documents.gst_certificate")
+      .populate("documents.cancelled_cheque")
+      .populate("documents.shop_act_license")
       .lean();
+
+    if (!vendor) {
+      return res.status(StatusCodes.NOT_FOUND).json({
+        success: false,
+        message: "Vendor not found",
+      });
+    }
 
     return res.status(StatusCodes.OK).json({
       success: true,
-      pagination: null,
-      vendors
+      vendor,
     });
   }
 
-  // 4️⃣ Pagination mode
-  const pageNum = Number(page);
-  const limitNum = Number(limit);
+  /**
+   * ---------------------------------------------------------
+   * 2. BUILD FILTER QUERY
+   * ---------------------------------------------------------
+   */
+  const query = {};
 
-  const vendors = await VendorB2C.find(query)
-    .select('-password')
-    .populate('store_details.categories', 'name slug icon')  // 🟣 POPULATE
-    .skip((pageNum - 1) * limitNum)
-    .limit(limitNum)
+  if (status !== undefined) {
+    const statusArray = status
+      .split(",")
+      .map((s) => parseInt(s.trim()))
+      .filter((n) => [0, 1, 2].includes(n));
+
+    if (statusArray.length > 0) {
+      query["status_info.status"] = { $in: statusArray };
+    }
+  }
+
+  if (onboarding_status) {
+    const validStatuses = [
+      "registered",
+      "profile_incomplete",
+      "profile_submitted",
+      "under_review",
+      "approved",
+      "rejected",
+      "suspended",
+    ];
+
+    const statuses = onboarding_status
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => validStatuses.includes(s));
+
+    if (statuses.length > 0) {
+      query.onboarding_status = { $in: statuses };
+    }
+  }
+
+  /**
+   * ---------------------------------------------------------
+   * 3. PAGINATION CHECK
+   * ---------------------------------------------------------
+   */
+  const noPagination = !page && !limit;
+
+  let vendors;
+  let total;
+
+  /**
+   * ---------------------------------------------------------
+   * 4. COMMON QUERY (USED BY BOTH PAGINATED & NON-PAGINATED)
+   * ---------------------------------------------------------
+   */
+  const populateQuery = VendorB2C.find(query)
+    .select("-password -meta.change_history")
+    .populate("store_details.categories", "name slug icon")
+    .populate("bank_details.preferred_currency", "code name symbol")
+    .populate("role", "name")
+    .populate("documents.identity_proof")
+    .populate("documents.address_proof")
+    .populate("documents.pan_card")
+    .populate("documents.gst_certificate")
+    .populate("documents.cancelled_cheque")
+    .populate("documents.shop_act_license")
+    .sort({ createdAt: -1 })
     .lean();
 
-  const total = await VendorB2C.countDocuments(query);
+  /**
+   * ---------------------------------------------------------
+   * 5. FETCH ALL OR PAGINATED
+   * ---------------------------------------------------------
+   */
+  if (noPagination) {
+    vendors = await populateQuery;
+    total = vendors.length;
+  } else {
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
 
+    vendors = await populateQuery
+      .skip((pageNum - 1) * limitNum)
+      .limit(limitNum);
+
+    total = await VendorB2C.countDocuments(query);
+  }
+
+  /**
+   * ---------------------------------------------------------
+   * 6. RESPONSE
+   * ---------------------------------------------------------
+   */
   res.status(StatusCodes.OK).json({
     success: true,
-    pagination: {
-      page: pageNum,
-      limit: limitNum,
-      total,
-      totalPages: Math.ceil(total / limitNum)
-    },
-    vendors
+    count: vendors.length,
+    pagination: noPagination
+      ? null
+      : {
+          current_page: parseInt(page),
+          limit: parseInt(limit),
+          total_vendors: total,
+          total_pages: Math.ceil(total / limit),
+          has_next: parseInt(page) < Math.ceil(total / limit),
+          has_prev: parseInt(page) > 1,
+        },
+    vendors,
   });
 });
 
 
 
 // Get Vendor Profile
-exports.getVendorProfile = asyncHandler(async (req, res, next) => {
-  try {
-    const vendor = await VendorB2C.findById(req.user.id).populate('role').lean();
-    if (!vendor) {
-      throw new APIError('Vendor not found', StatusCodes.NOT_FOUND);
-    }
+// Get Vendor Profile
+exports.getVendorProfile = asyncHandler(async (req, res) => {
+  const vendor = await VendorB2C.findById(req.user.id)
+    .select('-password')
+      .populate("store_details.categories", "name slug icon")
+    .populate('bank_details.preferred_currency', 'code name symbol')
+    .populate('role', 'name')
+    .lean();
 
-    delete vendor.password;
-
-    res.status(StatusCodes.OK).json({
-      success: true,
-      vendor,
-    });
-  } catch (error) {
-    if (!error.message) error.message = 'Unidentified error';
-    next(error);
+  if (!vendor) {
+    throw new APIError('Vendor not found', StatusCodes.NOT_FOUND);
   }
+
+  res.status(StatusCodes.OK).json({
+    
+    success: true,
+    message: "Profile fetched successfully",
+    vendor
+  });
 });
+
 
 // Change Password
 exports.changePassword = asyncHandler(async (req, res, next) => {
@@ -470,8 +687,10 @@ exports.deleteVendor = asyncHandler(async (req, res, next) => {
 });
 
 // Update Vendor Status
+// Update Vendor Status (admin)
 exports.updateVendorStatus = asyncHandler(async (req, res, next) => {
-  const { status, rejection_reason } = req.body;
+  const { status, rejection_reason, onboarding_status } = req.body;
+  const allowedOnboarding = ['registered','profile_incomplete','profile_submitted','under_review','approved','rejected','suspended'];
 
   const vendor = await VendorB2C.findById(req.params.id);
   if (!vendor) {
@@ -479,95 +698,151 @@ exports.updateVendorStatus = asyncHandler(async (req, res, next) => {
     throw new APIError('Vendor not found', StatusCodes.NOT_FOUND);
   }
 
-  vendor.status_info.status = parseInt(status);
-  vendor.status_info.rejection_reason = rejection_reason || vendor.status_info.rejection_reason;
-  if (status === 1) {
-    vendor.status_info.approved_at = Date.now();
-    vendor.status_info.approved_by = req.user._id;
+  // Validate numeric status (0,1,2) if provided
+  if (status !== undefined) {
+    const s = parseInt(status);
+    if (![0,1,2].includes(s)) {
+      throw new APIError('Invalid status value. Allowed: 0,1,2', StatusCodes.BAD_REQUEST);
+    }
+    vendor.status_info.status = s;
   }
 
+  // Set rejection reason if present
+  if (rejection_reason) {
+    vendor.status_info.rejection_reason = rejection_reason;
+  }
+
+  // Handle explicit onboarding_status (admin may want to set it)
+  if (onboarding_status) {
+    if (!allowedOnboarding.includes(onboarding_status)) {
+      throw new APIError('Invalid onboarding_status value', StatusCodes.BAD_REQUEST);
+    }
+    vendor.onboarding_status = onboarding_status;
+  } else {
+    // If onboarding_status not supplied, derive from status when appropriate
+    if (status !== undefined) {
+      const s = parseInt(status);
+      if (s === 1) { // approved
+        vendor.status_info.approved_at = new Date();
+        vendor.status_info.approved_by = req.user._id;
+        vendor.onboarding_status = 'approved';
+      } else if (s === 2) { // rejected
+        vendor.status_info.rejected_at = new Date();
+        vendor.status_info.rejected_by = req.user._id;
+        vendor.onboarding_status = 'rejected';
+      }
+      // s===0 -> keep existing onboarding_status unless admin passed one
+    }
+  }
+
+  // meta + change history
   vendor.meta.updated_at = new Date();
   vendor.meta.change_history = vendor.meta.change_history || [];
   vendor.meta.change_history.push({
     updated_by: req.user._id,
     updated_at: new Date(),
-    changes: [`Status updated to ${status}`]
+    changes: [`Status updated to ${vendor.status_info.status}`, `Onboarding_status => ${vendor.onboarding_status}`]
   });
 
   await vendor.save();
 
-  logger.info(`Vendor status updated: ${vendor._id}, status: ${status}`);
+  logger.info(`Vendor status updated: ${vendor._id}, status: ${vendor.status_info.status}, onboarding_status: ${vendor.onboarding_status}`);
   res.status(StatusCodes.OK).json({
     success: true,
     message: 'Vendor status updated',
     vendor: {
       id: vendor._id,
+      onboarding_status: vendor.onboarding_status,
       status_info: vendor.status_info
     }
   });
 });
 
+
 // Update Document Verification
+// Update Document Verification (admin)
 exports.updateDocumentVerification = asyncHandler(async (req, res) => {
-  const { vendorId, documentId, verified, reason, suggestion } = req.body;
+  const { vendorId, documentField, verified, reason, suggestion } = req.body;
+  // documentField is name like: identity_proof, address_proof, gst_certificate, pan_card, cancelled_cheque, shop_act_license
+  const REQUIRED_DOCS = ['identity_proof', 'address_proof']; // adjust as per your policy
+
+  if (!vendorId || !documentField || typeof verified === 'undefined') {
+    throw new APIError('vendorId, documentField and verified are required', StatusCodes.BAD_REQUEST);
+  }
 
   const vendor = await VendorB2C.findById(vendorId);
   if (!vendor) {
     throw new APIError('Vendor not found', StatusCodes.NOT_FOUND);
   }
 
-  let document = null;
-  let documentField = null;
-
-  for (const [type, docField] of Object.entries(vendor.documents.toObject())) {
-    if (docField && docField._id?.toString() === documentId) {
-      document = vendor.documents[type];
-      documentField = type;
-      break;
-    }
+  // Ensure document field exists on model
+  if (!Object.prototype.hasOwnProperty.call(vendor.documents.toObject(), documentField)) {
+    throw new APIError('Invalid document field', StatusCodes.BAD_REQUEST);
   }
 
-  if (!document) {
-    throw new APIError(
-      'Document not found or not uploaded properly. Please re-upload.',
-      StatusCodes.BAD_REQUEST
-    );
+  const doc = vendor.documents[documentField];
+  if (!doc || !doc.path) {
+    throw new APIError('Document not uploaded', StatusCodes.BAD_REQUEST);
   }
 
-  if (verified) {
-    document.verified = true;
-    document.reason = null;
-    document.suggestion = null;
-  } else {
-    document.verified = false;
-    document.reason = reason || 'Document not valid';
-    document.suggestion = suggestion || 'Please re-upload with correct details';
-  }
+  // Update verification state
+  doc.verified = !!verified;
+  doc.verified_at = verified ? new Date() : null;
+  doc.verified_by = verified ? req.user._id : null;
+  doc.reason = verified ? null : (reason || doc.reason || 'Document not valid');
+  doc.suggestion = verified ? null : (suggestion || doc.suggestion || 'Please re-upload with correct details');
 
+  // Update meta & history
   vendor.meta.updated_at = new Date();
   vendor.meta.change_history = vendor.meta.change_history || [];
   vendor.meta.change_history.push({
-    updated_by: req.user?._id,
+    updated_by: req.user._id,
     updated_at: new Date(),
-    changes: [
-      `Document ${documentField} verification set to ${verified ? 'APPROVED' : 'REJECTED'}`
-    ]
+    changes: [`Document ${documentField} verification set to ${doc.verified ? 'APPROVED' : 'REJECTED'}`]
   });
+
+  // After updating this document, compute overall document verification status
+  const allRequiredPresent = REQUIRED_DOCS.every(f => vendor.documents[f] && vendor.documents[f].path);
+  const allRequiredVerified = allRequiredPresent && REQUIRED_DOCS.every(f => vendor.documents[f].verified === true);
+
+  // Determine onboarding status transitions:
+  // - If a required doc was rejected -> profile_incomplete
+  // - If all required docs are now verified AND vendor had already submitted profile -> move to 'under_review'
+  if (!doc.verified && REQUIRED_DOCS.includes(documentField)) {
+    vendor.onboarding_status = 'profile_incomplete';
+  } else if (allRequiredVerified) {
+    // If vendor already completed profile fields and had submitted, move to under_review
+    const hasProfileFields =
+      vendor.store_details?.store_name &&
+      vendor.store_details?.store_address &&
+      vendor.store_details?.categories?.length > 0 &&
+      vendor.registration?.pan_number &&
+      vendor.contacts?.primary_contact &&
+      vendor.bank_details?.bank_account_number;
+
+    if (hasProfileFields) {
+      // If vendor was profile_submitted -> proceed to under_review
+      if (vendor.onboarding_status === 'profile_submitted' || vendor.onboarding_status === 'profile_incomplete') {
+        vendor.onboarding_status = 'under_review';
+      }
+      // If admin wants to immediately approve after verifying docs, they can call updateVendorStatus separately with status=1
+    }
+  }
 
   await vendor.save();
 
-  logger.info(`Document verification updated for vendor: ${vendor._id}, document: ${documentField}`);
+  logger.info(`Document verification updated for vendor: ${vendor._id}, document: ${documentField}, verified: ${doc.verified}`);
   res.status(StatusCodes.OK).json({
     success: true,
-    message: verified
-      ? 'Document approved successfully'
-      : 'Document rejected, please re-upload',
+    message: doc.verified ? 'Document approved' : 'Document rejected',
     vendor: {
       id: vendor._id,
+      onboarding_status: vendor.onboarding_status,
       documents: vendor.documents
     }
   });
 });
+
 
 // Get Change History
 exports.getChangeHistory = asyncHandler(async (req, res, next) => {

@@ -101,7 +101,7 @@ exports.protectAccountant = protectBase(AllUsers, "Accountant");
 exports.protectSupervisor = protectBase(AllUsers, "Supervisor");
 exports.protectBusiness = protectBase(Business, "Business");
 exports.protectVendorb2b = protectBase(Vendorb2b, "Vendor B2B");
-exports.protectVendorb2c = protectBase(Vendorb2c, "Vendor B2C");
+exports.protectVendorb2c = protectBase(Vendorb2c, "Vendor-B2C");
 exports.protectCustomer = protectBase(Customer, "Customer");
 
 

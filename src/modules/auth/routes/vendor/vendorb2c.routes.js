@@ -49,14 +49,22 @@ router.get(
 
 router.post(
   '/',
-  upload.fields([
-    { name: 'identityProof', maxCount: 1 },
-    { name: 'addressProof', maxCount: 1 },
-    { name: 'gstCertificate', maxCount: 1 },
-    { name: 'logo', maxCount: 1 }
-  ]),
   validateCreateVendor,
   vendorController.createVendor
+);
+
+router.put(
+  '/profile/update',
+  protectVendorb2c,
+  upload.fields([
+    { name: "logo", maxCount: 1 },
+    { name: "identity_proof", maxCount: 1 },
+    { name: "address_proof", maxCount: 1 },
+    { name: "gst_certificate", maxCount: 1 },
+    { name: "cancelled_cheque", maxCount: 1 },
+    { name: "shop_act_license", maxCount: 1 }
+  ]),
+  vendorController.updateVendorProfile
 );
 
 router.put(

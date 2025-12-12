@@ -182,43 +182,66 @@ exports.getCurrency = asyncHandler(async (req, res) => {
 
 // Get all currencies with pagination and filtering
 exports.getAllCurrencies = asyncHandler(async (req, res) => {
-  const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 10;
-  const skip = (page - 1) * limit;
-  const { status, isDefault } = req.query;
+  const { page, limit, status, isDefault } = req.query;
 
   // Build filter
   const filter = {};
-  if (status !== undefined) {
-    filter.status = parseInt(status);
-  }
-  if (isDefault !== undefined) {
-    filter.isDefault = isDefault === 'true';
-  }
+  if (status !== undefined) filter.status = Number(status);
+  if (isDefault !== undefined) filter.isDefault = isDefault === "true";
 
-  // 👉 If isDefault=true, return a single currency object
+  /**
+   * ---------------------------------------------------
+   *  CASE 1 → Return only default currency (no pagination)
+   * ---------------------------------------------------
+   */
   if (filter.isDefault === true) {
     const defaultCurrency = await Currency.findOne(filter).sort({ createdAt: -1 });
 
     if (!defaultCurrency) {
       return res.status(StatusCodes.NOT_FOUND).json({
         success: false,
-        message: 'Default currency not found',
+        message: "Default currency not found",
       });
     }
 
     return res.status(StatusCodes.OK).json({
       success: true,
-      message: 'Default currency found',
-      currency: defaultCurrency, // ✅ single object
+      message: "Default currency found",
+      currency: defaultCurrency,
     });
   }
 
-  // 👉 Otherwise, normal paginated query
+  /**
+   * ---------------------------------------------------
+   *  CASE 2 → No pagination parameters → Return ALL data
+   * ---------------------------------------------------
+   */
+  const noPagination = !page && !limit;
+
+  if (noPagination) {
+    const allCurrencies = await Currency.find(filter).sort({ createdAt: -1 });
+
+    return res.status(StatusCodes.OK).json({
+      success: true,
+      count: allCurrencies.length,
+      message: `${allCurrencies.length} currencies found`,
+      currencies: allCurrencies, // full data, NO pagination
+    });
+  }
+
+  /**
+   * ---------------------------------------------------
+   *  CASE 3 → Pagination mode
+   * ---------------------------------------------------
+   */
+  const pageNumber = parseInt(page) || 1;
+  const limitNumber = parseInt(limit) || 10;
+  const skip = (pageNumber - 1) * limitNumber;
+
   const currencies = await Currency.find(filter)
     .sort({ createdAt: -1 })
     .skip(skip)
-    .limit(limit);
+    .limit(limitNumber);
 
   const total = await Currency.countDocuments(filter);
 
@@ -228,10 +251,10 @@ exports.getAllCurrencies = asyncHandler(async (req, res) => {
     message: `${currencies.length} currencies found`,
     pagination: {
       totalRecords: total,
-      currentPage: page,
-      totalPages: Math.ceil(total / limit),
-      perPage: limit,
+      currentPage: pageNumber,
+      totalPages: Math.ceil(total / limitNumber),
+      perPage: limitNumber,
     },
-    currencies, // array only when not filtering by isDefault=true
+    currencies, // array
   });
 });

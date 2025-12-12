@@ -345,33 +345,54 @@ exports.validateUpdateVendor = [
   validate
 ];
 
-// Update document verification validation
+// Update document verification validation (FIXED)
 exports.validateUpdateDocumentVerification = [
   body('vendorId')
-    .notEmpty().withMessage('Vendor ID is required').bail()
-    .custom((value) => isValidObjectId(value, 'Vendor ID')).bail(),
-  body('documentId')
-    .notEmpty().withMessage('Document ID is required').bail()
-    .custom((value) => isValidObjectId(value, 'Document ID')).bail(),
+    .notEmpty().withMessage('Vendor ID is required')
+    .bail()
+    .custom((value) => isValidObjectId(value, 'Vendor ID'))
+    .bail(),
+
+  body('documentField')
+    .notEmpty().withMessage('Document field is required')
+    .bail()
+    .isString().withMessage('Document field must be a string')
+    .bail()
+    .isIn([
+      'identity_proof',
+      'address_proof',
+      'pan_card',
+      'gst_certificate',
+      'cancelled_cheque',
+      'shop_act_license'
+    ])
+    .withMessage('Invalid document field'),
+
   body('verified')
-    .toBoolean()
-    .isBoolean().withMessage('Verified must be a boolean value').bail(),
+    .notEmpty().withMessage('Verified value is required')
+    .bail()
+    .isBoolean().withMessage('Verified must be true or false'),
+
   body('reason')
     .if((value, { req }) => req.body.verified === false)
-    .notEmpty().withMessage('Reason is required when document is rejected').bail()
-    .trim()
+    .notEmpty().withMessage('Reason is required when rejecting document')
     .isLength({ max: 500 }).withMessage('Reason must not exceed 500 characters'),
+
   body('suggestion')
     .if((value, { req }) => req.body.verified === false)
-    .notEmpty().withMessage('Suggestion is required when document is rejected').bail()
-    .trim()
+    .notEmpty().withMessage('Suggestion is required when rejecting document')
     .isLength({ max: 500 }).withMessage('Suggestion must not exceed 500 characters'),
+
   body('reason')
     .if((value, { req }) => req.body.verified === true)
-    .isEmpty().withMessage('Reason must be empty when document is verified'),
+    .custom((v) => !v)
+    .withMessage('Reason must be empty when document is approved'),
+
   body('suggestion')
     .if((value, { req }) => req.body.verified === true)
-    .isEmpty().withMessage('Suggestion must be empty when document is verified'),
+    .custom((v) => !v)
+    .withMessage('Suggestion must be empty when document is approved'),
+
   validate
 ];
 
