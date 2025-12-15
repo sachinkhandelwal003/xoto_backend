@@ -62,7 +62,9 @@ router.put(
     { name: "address_proof", maxCount: 1 },
     { name: "gst_certificate", maxCount: 1 },
     { name: "cancelled_cheque", maxCount: 1 },
-    { name: "shop_act_license", maxCount: 1 }
+    { name: "shop_act_license", maxCount: 1 },
+        { name: "pan_card", maxCount: 1 }
+
   ]),
   vendorController.updateVendorProfile
 );

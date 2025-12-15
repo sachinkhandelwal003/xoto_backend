@@ -32,20 +32,20 @@ exports.createProduct = asyncHandler(async (req, res) => {
   const tags = body.tags || [];
   const colorVariants = body.color_variants || [];
 
-  // Attach images per color
+  // Attach images per color variant
   colorVariants.forEach((variant, i) => {
     const files = req.files.filter(
       f => f.fieldname === `color_images_${i}`
     );
 
     variant.images = files.map((file, idx) => ({
-      url: file.path,
+      url: `uploads/${file.filename}`, // ✅ FIX HERE
       is_primary: idx === 0,
       verified: false
     }));
   });
 
-  // ✅ FIX: build pricing manually (form-data safe)
+  // Pricing (form-data safe)
   const pricing = {
     cost_price: Number(body['pricing.cost_price']),
     base_price: Number(body['pricing.base_price']),
@@ -74,6 +74,7 @@ exports.createProduct = asyncHandler(async (req, res) => {
     product
   });
 });
+
 
 
 exports.updateProductPricing = asyncHandler(async (req, res) => {
@@ -108,24 +109,88 @@ exports.updateProductPricing = asyncHandler(async (req, res) => {
 
 exports.getVendorProducts = asyncHandler(async (req, res) => {
   const {
-    page,
-    limit,
+    product_id,
     status,
-    verification_status, // 👈 added
+    verification_status,
     category_id,
     brand_id,
     search
   } = req.query;
 
-  // 🔐 Vendor from token only
+  // ✅ Safe pagination defaults
+  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  const limit = Math.min(parseInt(req.query.limit, 10) || 10, 100);
+
+  /* =========================
+     BASE QUERY (Vendor Only)
+  ========================= */
   const query = {
     vendor: req.user.id
   };
 
-  // Optional filters
+  /* =========================
+     SINGLE PRODUCT FETCH
+  ========================= */
+  if (product_id) {
+    if (!mongoose.Types.ObjectId.isValid(product_id)) {
+      throw new APIError('Invalid product_id', StatusCodes.BAD_REQUEST);
+    }
+
+    const product = await ProductB2C.findOne({
+      _id: product_id,
+      vendor: req.user.id // 🔐 vendor safety
+    })
+     .populate('category', 'name')
+.populate('brand', 'name')
+.populate('material', 'name')
+.populate('tags', 'name')
+.populate('attributes', 'name values')
+.populate('pricing.currency', 'code symbol')
+
+      .lean();
+
+    if (!product) {
+      throw new APIError('Product not found', StatusCodes.NOT_FOUND);
+    }
+
+    /* ===== INVENTORY FOR SINGLE PRODUCT ===== */
+    const inventory = await Inventory.aggregate([
+      { $match: { product: product._id } },
+      {
+        $group: {
+          _id: '$product',
+          total_quantity: { $sum: '$quantity' },
+          total_reserved: { $sum: '$reserved' },
+          total_available: {
+            $sum: { $subtract: ['$quantity', '$reserved'] }
+          }
+        }
+      }
+    ]);
+
+    product.stock = inventory[0]
+      ? {
+          total_quantity: inventory[0].total_quantity,
+          total_reserved: inventory[0].total_reserved,
+          total_available: inventory[0].total_available
+        }
+      : {
+          total_quantity: 0,
+          total_reserved: 0,
+          total_available: 0
+        };
+
+    return res.status(StatusCodes.OK).json({
+      success: true,
+      product
+    });
+  }
+
+  /* =========================
+     LIST FILTERS
+  ========================= */
   if (status) query.status = status;
 
-  // ✅ SAME AS getAllProducts
   if (verification_status) {
     query['verification_status.status'] = verification_status;
   }
@@ -140,41 +205,78 @@ exports.getVendorProducts = asyncHandler(async (req, res) => {
     ];
   }
 
-  let productsQuery = ProductB2C.find(query)
-    .populate('category', 'name')
-    .populate('brand', 'name')
-    .populate('pricing.currency', 'code symbol')
-    .sort({ createdAt: -1 });
+  /* =========================
+     FETCH PRODUCTS (LIST)
+  ========================= */
+  const products = await ProductB2C.find(query)
+   .populate('category', 'name')
+.populate('brand', 'name')
+.populate('material', 'name')
+.populate('tags', 'name')
+.populate('attributes', 'name values')
+.populate('pricing.currency', 'code symbol')
 
-  let pagination = null;
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .lean();
 
-  // ✅ Apply pagination ONLY if page or limit is provided
-  if (page || limit) {
-    const pageNum = Number(page) || 1;
-    const limitNum = Number(limit) || 10;
+  const total = await ProductB2C.countDocuments(query);
 
-    productsQuery = productsQuery
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum);
+  /* =========================
+     INVENTORY (LIST)
+  ========================= */
+  const productIds = products.map(p => p._id);
+  const stockMap = {};
 
-    const total = await ProductB2C.countDocuments(query);
+  if (productIds.length) {
+    const inventoryData = await Inventory.aggregate([
+      { $match: { product: { $in: productIds } } },
+      {
+        $group: {
+          _id: '$product',
+          total_quantity: { $sum: '$quantity' },
+          total_reserved: { $sum: '$reserved' },
+          total_available: {
+            $sum: { $subtract: ['$quantity', '$reserved'] }
+          }
+        }
+      }
+    ]);
 
-    pagination = {
-      totalRecords: total,
-      currentPage: pageNum,
-      totalPages: Math.ceil(total / limitNum),
-      perPage: limitNum
-    };
+    inventoryData.forEach(inv => {
+      stockMap[inv._id.toString()] = {
+        total_quantity: inv.total_quantity,
+        total_reserved: inv.total_reserved,
+        total_available: inv.total_available
+      };
+    });
   }
 
-  const products = await productsQuery.lean();
+  products.forEach(product => {
+    product.stock = stockMap[product._id.toString()] || {
+      total_quantity: 0,
+      total_reserved: 0,
+      total_available: 0
+    };
+  });
 
+  /* =========================
+     RESPONSE
+  ========================= */
   res.status(StatusCodes.OK).json({
     success: true,
-    pagination,
+    pagination: {
+      totalRecords: total,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      perPage: limit
+    },
     products
   });
 });
+
+
 
 
 
@@ -443,122 +545,117 @@ exports.getProductById = asyncHandler(async (req, res, next) => {
   });
 });
 
-// Update Product
-exports.updateProduct = asyncHandler(async (req, res, next) => {
+exports.updateProduct = asyncHandler(async (req, res) => {
   const product = await ProductB2C.findById(req.params.id);
   if (!product) {
-    logger.warn(`Product not found for update: ${req.params.id}`);
     throw new APIError('Product not found', StatusCodes.NOT_FOUND);
   }
 
-  // Check vendor access
-  if (req.user && req.user.role === 'Vendor-B2C' && !req.user.is_superadmin) {
-    if (product.vendor.toString() !== req.user.id) {
-      throw new APIError('Unauthorized: You can only update your own products', StatusCodes.FORBIDDEN);
-    }
-    if (product.verification_status.status === 'approved') {
-      throw new APIError('Cannot update approved product. Create a new version instead', StatusCodes.FORBIDDEN);
-    }
-  }
+  const body = req.body;
 
-  const updatedData = req.body;
+  /* =========================
+     BASIC FIELDS
+  ========================= */
+  if (body.name !== undefined) product.name = body.name;
+  if (body.description !== undefined) product.description = body.description;
+  if (body.short_description !== undefined) product.short_description = body.short_description;
+  if (body.category !== undefined) product.category = body.category;
+  if (body.brand !== undefined) product.brand = body.brand;
+  if (body.material !== undefined) product.material = body.material;
+  if (body.attributes !== undefined) product.attributes = body.attributes;
+  if (body.tags !== undefined) product.tags = body.tags;
 
-  // Parse color_variants if provided
-  let colorVariants = product.color_variants;
-  if (updatedData.color_variants) {
-    colorVariants = typeof updatedData.color_variants === 'string' ? JSON.parse(updatedData.color_variants) : updatedData.color_variants;
-    for (let i = 0; i < colorVariants.length; i++) {
-      const variant = colorVariants[i];
-      const colorImages = req.files.filter(file => file.fieldname === `color_images_${i}`);
-      if (colorImages.length > 0) {
-        if (colorImages.length > 5) {
-          throw new APIError(`Maximum 5 images allowed per color variant`, StatusCodes.BAD_REQUEST);
-        }
-        const images = colorImages.map((file, index) => ({
-          url: file.path,
-          position: index + 1,
-          alt_text: `${updatedData.name || product.name} ${index + 1}`,
-          is_primary: index === 0,
-          uploaded_at: new Date(),
-          verified: false,
-          reason: null,
-          suggestion: null
-        }));
-        variant.images = images;
-      }
-    }
-    updatedData.color_variants = colorVariants;
-  }
+  /* =========================
+     PRICING (same as create)
+  ========================= */
+  if (
+    body['pricing.cost_price'] !== undefined ||
+    body['pricing.base_price'] !== undefined ||
+    body['pricing.currency'] !== undefined
+  ) {
+    product.pricing = {
+      ...product.pricing,
+      cost_price: body['pricing.cost_price'] !== undefined
+        ? Number(body['pricing.cost_price'])
+        : product.pricing.cost_price,
 
-  // Handle 3D model update
-  const threeDFile = req.files.find(file => file.fieldname.startsWith('threeDModel_'));
-  if (threeDFile) {
-    const format = threeDFile.fieldname.split('_')[1] || 'glb';
-    product.three_d_model = {
-      url: threeDFile.path,
-      format,
-      alt_text: updatedData.three_d_alt || '',
-      uploaded_at: new Date(),
-      verified: false,
-      reason: null,
-      suggestion: null
+      base_price: body['pricing.base_price'] !== undefined
+        ? Number(body['pricing.base_price'])
+        : product.pricing.base_price,
+
+      currency: body['pricing.currency'] || product.pricing.currency,
     };
-  }
 
-  // Handle document updates
-  const documentFields = ['product_invoice', 'product_certificate', 'quality_report'];
-  documentFields.forEach(field => {
-    const docFile = req.files.find(file => file.fieldname === field);
-    if (docFile) {
-      if (!product.documents[field] || !product.documents[field].verified) {
-        product.documents[field] = {
-          type: field,
-          path: docFile.path,
-          verified: false,
-          uploaded_at: new Date(),
-          reason: null,
-          suggestion: null
-        };
-      }
+    // Vendor cannot approve discount
+    if (product.pricing.discount) {
+      product.pricing.discount.approved = false;
+      product.pricing.discount.approved_by = null;
     }
-  });
-
-  // Vendor cannot approve discount on update
-  if (updatedData.pricing?.discount) {
-    updatedData.pricing.discount.approved = false;
-    updatedData.pricing.discount.approved_by = null;
   }
 
-  Object.assign(product, updatedData);
+  /* =========================
+     COLOR VARIANTS + IMAGES
+     (SAME AS CREATE)
+  ========================= */
+  if (body.color_variants) {
+    const colorVariants =
+      typeof body.color_variants === 'string'
+        ? JSON.parse(body.color_variants)
+        : body.color_variants;
+
+    colorVariants.forEach((variant, i) => {
+      const files = req.files.filter(
+        f => f.fieldname === `color_images_${i}`
+      );
+
+      if (files.length > 0) {
+        if (files.length > 5) {
+          throw new APIError(
+            'Max 5 images per color variant',
+            StatusCodes.BAD_REQUEST
+          );
+        }
+
+        variant.images = files.map((file, idx) => ({
+          url: `uploads/${file.filename}`,
+          is_primary: idx === 0,
+          verified: false
+        }));
+      }
+    });
+
+    product.color_variants = colorVariants;
+  }
+
+  /* =========================
+     RESET VERIFICATION IF UPDATED
+  ========================= */
+  product.verification_status = {
+    status: 'pending',
+    verified_by: null,
+    verified_at: null,
+    rejection_reason: null,
+    suggestion: null
+  };
+
   product.updated_at = new Date();
 
-  // Recalculate in pre-save
-
-  // If status changed to pending_verification, reset verification_status
-  if (updatedData.status === 'pending_verification') {
-    product.verification_status = {
-      status: 'pending',
-      verified_by: null,
-      verified_at: null,
-      rejection_reason: null,
-      suggestion: null
-    };
-  }
-
+  /* =========================
+     SAVE (pre-save hooks run)
+  ========================= */
   const updatedProduct = await product.save();
 
-  logger.info(`Product updated successfully: ${product._id}`);
   res.status(StatusCodes.OK).json({
     success: true,
     message: 'Product updated successfully',
     product: {
       id: updatedProduct._id,
       name: updatedProduct.name,
-      status: updatedProduct.status,
       verification_status: updatedProduct.verification_status
     }
   });
 });
+
 
 // Delete Product
 exports.deleteProduct = asyncHandler(async (req, res, next) => {

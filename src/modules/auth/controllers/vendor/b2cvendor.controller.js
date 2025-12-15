@@ -160,6 +160,12 @@ exports.vendorLogin = asyncHandler(async (req, res, next) => {
         verified: false
       };
     }
+     if (req.files?.pan_card?.[0]) {
+      vendor.documents.pan_card = {
+        path: req.files.pan_card[0].path,
+        verified: false
+      };
+    }
 
     if (req.files?.address_proof?.[0]) {
       vendor.documents.address_proof = {

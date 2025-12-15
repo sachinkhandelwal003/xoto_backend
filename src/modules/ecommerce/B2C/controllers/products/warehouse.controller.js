@@ -18,37 +18,36 @@ const logger = winston.createLogger({
 });
 
 // Get all warehouses for a vendor
-exports.getWarehouses = asyncHandler(async (req, res, next) => {
-  const { vendor_id, page = 1, limit = 10, search, city, state } = req.query;
+// Get all warehouses
+exports.getWarehouses = asyncHandler(async (req, res) => {
+  const { page, limit, search, city, state } = req.query;
 
-  if (!vendor_id || !mongoose.Types.ObjectId.isValid(vendor_id)) {
-    throw new APIError('Valid vendor ID is required', StatusCodes.BAD_REQUEST);
-  }
+  // ✅ Vendor ID comes from token
+  const vendorIdToUse = req.user.id;
 
-  if (req.user.role === 'Vendor-B2C' && req.user.id !== vendor_id) {
-    throw new APIError('Unauthorized: You can only view your own warehouses', StatusCodes.FORBIDDEN);
-  }
+  const query = {
+    vendor: vendorIdToUse,
+    active: true
+  };
 
-  const query = { vendor: vendor_id, active: true };
   if (search) {
     query.$or = [
       { name: { $regex: search, $options: 'i' } },
       { code: { $regex: search, $options: 'i' } }
     ];
   }
+
   if (city) query.city = { $regex: city, $options: 'i' };
   if (state) query.state = { $regex: state, $options: 'i' };
 
   const warehouses = await Warehouse.find(query)
-    .select('name code address city state country contact_person phone email capacity_units active')
+    .select('name code address city state country contact_person mobile email capacity_units active')
     .sort({ created_at: -1 })
     .skip((Number(page) - 1) * Number(limit))
     .limit(Number(limit))
     .lean();
 
   const total = await Warehouse.countDocuments(query);
-
-  logger.info(`Retrieved ${warehouses.length} warehouses for vendor: ${vendor_id}`);
 
   res.status(StatusCodes.OK).json({
     success: true,
@@ -61,36 +60,53 @@ exports.getWarehouses = asyncHandler(async (req, res, next) => {
   });
 });
 
+
 // Create a new warehouse
 exports.createWarehouse = asyncHandler(async (req, res, next) => {
-  const { name, code, address, city, state, country, contact_person, phone, email, capacity_units } = req.body;
-
-  if (!name || !code) {
-    throw new APIError('Name and code are required', StatusCodes.BAD_REQUEST);
-  }
+  const {
+    name,
+    code,
+    address,
+    city,
+    state,
+    country,
+    contact_person,
+    phone,
+    email,
+    capacity_units,
+    mobile,
+    active
+  } = req.body;
 
  
 
-  const existingWarehouse = await Warehouse.findOne({ 
+  // Check for duplicates within the same vendor only
+  const existingWarehouse = await Warehouse.findOne({
+    vendor: req.user.id,
     $or: [
-      { vendor: req.user.id, name }, 
+      { name },
       { code }
-    ] 
+    ]
   });
-  
-  if (existingWarehouse) {
-    throw new APIError(
-      existingWarehouse.name === name ? 
-        `Warehouse with name "${name}" already exists for this vendor` : 
-        `Warehouse code "${code}" already exists`,
-      StatusCodes.CONFLICT
-    );
-  }
+
 
   const warehouse = await Warehouse.create({
-    ...req.body,
-    created_at: new Date(),
-    updated_at: new Date()
+    vendor: req.user.id,
+    name,
+    code,
+    address,
+    city,
+    state,
+    country,
+    contact_person,
+    phone,
+    email,
+    capacity_units,
+    mobile: {
+      country_code: mobile.country_code || '+91',
+      number: mobile.number
+    },
+    active: active !== undefined ? active : true
   });
 
   logger.info(`Warehouse created successfully: ${warehouse._id} for vendor: ${req.user.id}`);
@@ -108,6 +124,7 @@ exports.createWarehouse = asyncHandler(async (req, res, next) => {
       country: warehouse.country,
       contact_person: warehouse.contact_person,
       phone: warehouse.phone,
+      mobile: warehouse.mobile,
       email: warehouse.email,
       capacity_units: warehouse.capacity_units,
       active: warehouse.active

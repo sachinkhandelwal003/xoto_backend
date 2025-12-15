@@ -140,68 +140,95 @@ exports.validateCreateProduct = [
 ];
 
 
-
 exports.validateUpdateProduct = [
+  /* ===== PRODUCT ID ===== */
   param('id')
-    .custom(value => isValidObjectId(value, 'Product ID')),
-  
-  body('vendor')
-    .optional()
-    .custom(value => isValidObjectId(value, 'Vendor'))
-    .custom(async (value) => await checkReferenceExists(value, 'Vendor', 'VendorB2C')),
-  
-  body('category')
-    .optional()
-    .custom(value => isValidObjectId(value, 'Category'))
-    .custom(async (value) => await checkReferenceExists(value, 'Category', 'Category')),
-  
-  body('brand')
-    .optional()
-    .custom(value => isValidObjectId(value, 'Brand'))
-    .custom(async (value) => await checkReferenceExists(value, 'Brand', 'Brand')),
-  
-  body('material')
-    .optional()
-    .custom(value => isValidObjectId(value, 'Material'))
-    .custom(async (value) => await checkReferenceExists(value, 'Material', 'Material')),
+    .custom(value => isValidObjectId(value, 'Product ID'))
+    .bail(),
 
+  /* ===== BASIC FIELDS ===== */
   body('name')
     .optional()
     .trim()
-    .notEmpty().withMessage('Product name is required')
-    .isLength({ min: 3, max: 200 }).withMessage('Product name must be between 3 and 200 characters'),
+    .notEmpty()
+    .withMessage('Product name is required')
+    .isLength({ min: 3, max: 200 })
+    .withMessage('Product name must be between 3 and 200 characters'),
 
-  body('pricing.base_price')
-    .optional()
-    .isFloat({ min: 0 }).withMessage('Base price must be a positive number'),
+  body('description')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isString()
+    .withMessage('Description must be a string'),
 
-  body('pricing.cost_price')
-    .optional()
-    .isFloat({ min: 0 }).withMessage('Cost price must be a positive number'),
+  body('short_description')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isString()
+    .withMessage('Short description must be a string'),
 
-  body('pricing.sale_price')
+  /* ===== REFERENCES ===== */
+  body('category')
     .optional()
-    .isFloat({ min: 0 }).withMessage('Sale price must be a positive number'),
+    .custom(v => isValidObjectId(v, 'Category'))
+    .custom(v => checkReferenceExists(v, 'Category', 'Category')),
 
-  body('tags')
+  body('brand')
     .optional()
-    .isArray().withMessage('Tags must be an array')
-    .custom(async (tags) => {
-      if (tags && tags.length > 0) {
-        await Promise.all(tags.map(async (tagId) => {
-          isValidObjectId(tagId, 'Tag');
-          await checkReferenceExists(tagId, 'Tag', 'Tag');
-        }));
-      }
+    .custom(v => isValidObjectId(v, 'Brand'))
+    .custom(v => checkReferenceExists(v, 'Brand', 'Brand')),
+
+  body('material')
+    .optional()
+    .custom(v => isValidObjectId(v, 'Material'))
+    .custom(v => checkReferenceExists(v, 'Material', 'Material')),
+
+  /* ===== ATTRIBUTES & TAGS ===== */
+  body('attributes')
+    .optional()
+    .isArray()
+    .withMessage('Attributes must be an array')
+    .custom(async (attributes) => {
+      await Promise.all(
+        attributes.map(async (id) => {
+          isValidObjectId(id, 'Attribute');
+          await checkReferenceExists(id, 'Attribute', 'Attribute');
+        })
+      );
       return true;
     }),
 
-  body('status')
+  body('tags')
     .optional()
-    .isIn(['draft', 'pending_verification', 'active', 'rejected', 'inactive', 'archived'])
-    .withMessage('Invalid status value'),
+    .isArray()
+    .withMessage('Tags must be an array')
+    .custom(async (tags) => {
+      await Promise.all(
+        tags.map(async (id) => {
+          isValidObjectId(id, 'Tag');
+          await checkReferenceExists(id, 'Tag', 'Tag');
+        })
+      );
+      return true;
+    }),
 
-  // Color variants for update (optional, no image_alts)
+  /* ===== PRICING (VENDOR ONLY) ===== */
+  body('pricing.cost_price')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Cost price must be a non-negative number'),
+
+  body('pricing.base_price')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Base price must be a non-negative number'),
+
+  body('pricing.currency')
+    .optional()
+    .custom(v => isValidObjectId(v, 'Currency'))
+    .custom(v => checkReferenceExists(v, 'Currency', 'Currency')),
+
+  /* ===== COLOR VARIANTS ===== */
   body('color_variants')
     .optional()
     .custom((value) => {
@@ -209,20 +236,28 @@ exports.validateUpdateProduct = [
       try {
         variants = typeof value === 'string' ? JSON.parse(value) : value;
       } catch {
-        throw new Error('Invalid color_variants format');
+        throw new Error('Color variants must be valid JSON');
       }
-      if (Array.isArray(variants)) {
-        variants.forEach((v, i) => {
-          if (!v.color_name) {
-            throw new Error(`Color name required for variant ${i + 1}`);
-          }
-        });
+
+      if (!Array.isArray(variants)) {
+        throw new Error('Color variants must be an array');
       }
+
+      variants.forEach((v, i) => {
+        if (!v.color_name || !v.color_name.trim()) {
+          throw new Error(`Color name is required for variant ${i + 1}`);
+        }
+        if (v.images && v.images.length > 5) {
+          throw new Error(`Max 5 images allowed for color variant ${i + 1}`);
+        }
+      });
+
       return true;
     }),
 
   validate
 ];
+
 
 exports.validateProductVerification = [
   param('id')
