@@ -17,7 +17,7 @@ app.use(express.urlencoded({ extended: true }));
 // Database connection
 require('./config/database');
 app.use('/estimates', require('./modules/auth/routes/leads/estimate.routes'));
-app.use('/ai', require('./modules/auth/routes/ai/gardenAI.routes'));
+// app.use('/ai', require('./modules/auth/routes/ai/gardenAI.routes'));
 app.use('/packages', require('./modules/auth/routes/packages/packages.routes'));
 app.use('/estimate/master/category', require('./modules/auth/routes/estimateCategory/category.routes'));
 

@@ -138,10 +138,11 @@ exports.validateCreateVendor = [
     .matches(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/)
     .withMessage('Invalid PAN format').bail(),
 
-  body('registration.gstin')
-    .optional()
-    .matches(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/)
-    .withMessage('Invalid GSTIN format').bail(),
+ body('registration.gstin')
+  .optional({ checkFalsy: true }) // ✅ ignores "", null, undefined
+  .matches(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/)
+  .withMessage('Invalid GSTIN format')
+,
 
   // ===============================
   // LOGO FILE

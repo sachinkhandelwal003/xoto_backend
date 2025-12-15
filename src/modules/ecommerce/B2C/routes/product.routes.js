@@ -105,6 +105,14 @@ router.put(
   validateProductVerification,
   productController.verifyProductAndAssets
 );
+// Vendor-only product list
+  router.get(
+    '/vendor/my-products',
+    protectVendorb2c,          // 🔐 vendor auth
+    validateGetAllProducts,    // pagination & filters
+    productController.getVendorProducts
+  );
+
 
 router.put(
   '/:productId/verify-asset/:assetId',

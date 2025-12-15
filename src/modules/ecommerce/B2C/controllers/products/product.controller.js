@@ -25,185 +25,157 @@ const logger = winston.createLogger({
 });
 
 
+exports.createProduct = asyncHandler(async (req, res) => {
+  const body = req.body;
 
+  const attributes = body.attributes || [];
+  const tags = body.tags || [];
+  const colorVariants = body.color_variants || [];
 
-exports.createProduct = asyncHandler(async (req, res, next) => {
-  const productData = req.body;
+  // Attach images per color
+  colorVariants.forEach((variant, i) => {
+    const files = req.files.filter(
+      f => f.fieldname === `color_images_${i}`
+    );
 
-  logger.info('Incoming productData:', JSON.stringify(productData, null, 2));
-  logger.info('Incoming files:', JSON.stringify(req.files, null, 2));
-
-  // Vendor only provides base_price and cost_price
-  const pricing = {
-    base_price: Number(productData['pricing.base_price']) || 0,
-    cost_price: Number(productData['pricing.cost_price']) || 0,
-    currency: productData['pricing.currency'], // required
-    sale_price: 0,      // Admin/system handles this
-    discount: undefined, // Admin only
-    tax: undefined,      // Admin only
-    final_price: 0,      // Calculated in model pre-save hook
-    margin: 0            // Calculated in model pre-save hook
-  };
-
-  // Parse color variants
-  let colorVariants = [];
-  if (productData.color_variants) {
-    try {
-      colorVariants = typeof productData.color_variants === 'string'
-        ? JSON.parse(productData.color_variants)
-        : productData.color_variants;
-    } catch (error) {
-      logger.error(`Invalid color_variants format: ${error.message}`);
-      throw new APIError('Invalid color_variants format', StatusCodes.BAD_REQUEST);
-    }
-  }
-
-  // Process color variant images
-  for (let i = 0; i < colorVariants.length; i++) {
-    const variant = colorVariants[i];
-    const colorImages = req.files.filter(file => file.fieldname === `color_images_${i}`);
-    variant.images = colorImages.map((file, index) => ({
+    variant.images = files.map((file, idx) => ({
       url: file.path,
-      position: index + 1,
-      alt_text: `${productData.name} ${index + 1}`,
-      is_primary: index === 0,
-      uploaded_at: new Date(),
+      is_primary: idx === 0,
       verified: false
     }));
-  }
+  });
 
-  // Handle 3D model
-  let threeDModel = null;
-  const threeDFile = req.files.find(file => file.fieldname.startsWith('threeDModel_'));
-  if (threeDFile) {
-    const format = threeDFile.fieldname.split('_')[1] || 'glb';
-    threeDModel = {
-      url: threeDFile.path,
-      format,
-      alt_text: productData.three_d_alt || '',
-      uploaded_at: new Date(),
-      verified: false
+  // ✅ FIX: build pricing manually (form-data safe)
+  const pricing = {
+    cost_price: Number(body['pricing.cost_price']),
+    base_price: Number(body['pricing.base_price']),
+    currency: body['pricing.currency']
+  };
+
+  const product = await ProductB2C.create({
+    vendor: req.user.id,
+    name: body.name,
+    description: body.description,
+    short_description: body.short_description,
+    category: body.category,
+    brand: body.brand,
+    material: body.material,
+    attributes,
+    tags,
+    pricing,
+    color_variants: colorVariants,
+    status: 'pending_verification',
+    verification_status: { status: 'pending' }
+  });
+
+  res.status(201).json({
+    success: true,
+    message: 'Product submitted for verification',
+    product
+  });
+});
+
+
+exports.updateProductPricing = asyncHandler(async (req, res) => {
+  const product = await ProductB2C.findById(req.params.id);
+  if (!product) throw new APIError('Product not found', StatusCodes.NOT_FOUND);
+
+  product.pricing.mrp = req.body.mrp;
+  product.pricing.sale_price = req.body.sale_price;
+
+  if (req.body.discount) {
+    product.pricing.discount = {
+      ...req.body.discount,
+      approved: true,
+      approved_by: req.user.id
     };
   }
 
-  // Handle documents
-  const documents = {};
-  const documentFields = ['product_invoice', 'product_certificate', 'quality_report'];
-  documentFields.forEach(field => {
-    const docFile = req.files.find(file => file.fieldname === field);
-    if (docFile) {
-      documents[field] = {
-        type: field,
-        path: docFile.path,
-        verified: false,
-        uploaded_at: new Date()
-      };
-    }
-  });
+  if (req.body.tax) product.pricing.tax = req.body.tax;
 
-  // Prepare product data
-  const finalProductData = {
-    ...productData,
-    pricing,
-    color_variants: colorVariants,
-    three_d_model: threeDModel,
-    documents,
-    status: 'pending_verification',
-    verification_status: { status: 'pending' }
-  };
+  product.status = 'active';
 
-  try {
-    const product = await ProductB2C.create(finalProductData);
-
-    res.status(StatusCodes.CREATED).json({
-      success: true,
-      message: 'Product created by vendor and sent for verification',
-      data: {
-        product: {
-          id: product._id,
-          name: product.name,
-          pricing: product.pricing,
-          status: product.status
-        }
-      }
-    });
-  } catch (error) {
-    logger.error(`Product creation failed: ${error.message}`);
-    if (error.name === 'ValidationError') {
-      const errors = Object.values(error.errors).map(err => ({
-        field: err.path,
-        message: err.message
-      }));
-      throw new APIError('Validation failed', StatusCodes.BAD_REQUEST, errors);
-    }
-    if (error.code === 11000) {
-      const field = Object.keys(error.keyValue)[0];
-      throw new APIError(`${field} already exists`, StatusCodes.CONFLICT);
-    }
-    throw new APIError('Failed to create product', StatusCodes.INTERNAL_SERVER_ERROR);
-  }
-});
-
-// Update product sale_price, discount, and tax (without changing base_price)
-exports.updateProductPricing = asyncHandler(async (req, res, next) => {
-  const { id } = req.params;
-  const { sale_price, discount, tax } = req.body;
-
-  const product = await ProductB2C.findById(id);
-  if (!product) {
-    throw new APIError('Product not found', StatusCodes.NOT_FOUND);
-  }
-
-  // Only superadmin can update pricing, discount, and tax
-  if (!req.user.is_superadmin) {
-    throw new APIError('Only superadmin can update pricing', StatusCodes.FORBIDDEN);
-  }
-
-  // Update sale_price if provided
-  if (sale_price !== undefined) product.pricing.sale_price = sale_price;
-
-  // Update discount if provided
-  if (discount) {
-    if (discount.type) product.pricing.discount.type = discount.type;
-    if (discount.value !== undefined) product.pricing.discount.value = discount.value;
-    if (discount.valid_till) product.pricing.discount.valid_till = new Date(discount.valid_till);
-
-    // Auto-approve discount
-    product.pricing.discount.approved = true;
-    product.pricing.discount.approved_by = req.user.id;
-
-    // Validate discount
-    if (product.pricing.discount.type === 'percentage' &&
-        (product.pricing.discount.value < 0 || product.pricing.discount.value > 100)) {
-      throw new APIError('Discount percentage must be between 0 and 100', StatusCodes.BAD_REQUEST);
-    }
-    if (product.pricing.discount.type === 'fixed' &&
-        product.pricing.discount.value > product.pricing.base_price) {
-      throw new APIError('Fixed discount cannot exceed base price', StatusCodes.BAD_REQUEST);
-    }
-  }
-
-  // Update tax if provided
-  if (tax) {
-    if (tax.tax_id) product.pricing.tax.tax_id = tax.tax_id;
-    if (tax.rate !== undefined) {
-      if (tax.rate < 0 || tax.rate > 100) {
-        throw new APIError('Tax rate must be between 0 and 100', StatusCodes.BAD_REQUEST);
-      }
-      product.pricing.tax.rate = tax.rate;
-    }
-  }
-
-  // Save product (pre-save recalculates final_price based on sale_price, discount, and tax)
   await product.save();
 
-  logger.info(`Product pricing updated (sale_price, discount, tax): ${id}`);
-  res.status(StatusCodes.OK).json({
+  res.json({
     success: true,
-    message: 'Product sale_price, discount, and tax updated successfully',
+    message: 'Pricing updated and product activated',
     pricing: product.pricing
   });
 });
+
+// controllers/products/product.controller.js
+
+exports.getVendorProducts = asyncHandler(async (req, res) => {
+  const {
+    page,
+    limit,
+    status,
+    verification_status, // 👈 added
+    category_id,
+    brand_id,
+    search
+  } = req.query;
+
+  // 🔐 Vendor from token only
+  const query = {
+    vendor: req.user.id
+  };
+
+  // Optional filters
+  if (status) query.status = status;
+
+  // ✅ SAME AS getAllProducts
+  if (verification_status) {
+    query['verification_status.status'] = verification_status;
+  }
+
+  if (category_id) query.category = category_id;
+  if (brand_id) query.brand = brand_id;
+
+  if (search) {
+    query.$or = [
+      { name: { $regex: search, $options: 'i' } },
+      { short_description: { $regex: search, $options: 'i' } }
+    ];
+  }
+
+  let productsQuery = ProductB2C.find(query)
+    .populate('category', 'name')
+    .populate('brand', 'name')
+    .populate('pricing.currency', 'code symbol')
+    .sort({ createdAt: -1 });
+
+  let pagination = null;
+
+  // ✅ Apply pagination ONLY if page or limit is provided
+  if (page || limit) {
+    const pageNum = Number(page) || 1;
+    const limitNum = Number(limit) || 10;
+
+    productsQuery = productsQuery
+      .skip((pageNum - 1) * limitNum)
+      .limit(limitNum);
+
+    const total = await ProductB2C.countDocuments(query);
+
+    pagination = {
+      totalRecords: total,
+      currentPage: pageNum,
+      totalPages: Math.ceil(total / limitNum),
+      perPage: limitNum
+    };
+  }
+
+  const products = await productsQuery.lean();
+
+  res.status(StatusCodes.OK).json({
+    success: true,
+    pagination,
+    products
+  });
+});
+
 
 
 
@@ -614,146 +586,64 @@ exports.deleteProduct = asyncHandler(async (req, res, next) => {
     message: 'Product deleted successfully'
   });
 });
+  exports.verifyProductAndAssets = asyncHandler(async (req, res) => {
+    const { status, rejection_reason, suggestion } = req.body;
 
-exports.verifyProductAndAssets = asyncHandler(async (req, res, next) => {
-  const { status, rejection_reason, suggestion } = req.body;
-  const { id } = req.params;
-
-  if (!['approved', 'rejected'].includes(status)) {
-    throw new APIError('Status must be either approved or rejected', StatusCodes.BAD_REQUEST);
-  }
-
-  if (status === 'rejected' && (!rejection_reason || !rejection_reason.trim())) {
-    throw new APIError('Rejection reason is required when rejecting a product', StatusCodes.BAD_REQUEST);
-  }
-
-  const product = await ProductB2C.findById(id);
-  if (!product) {
-    logger.warn(`Product not found for verification: ${id}`);
-    throw new APIError('Product not found', StatusCodes.NOT_FOUND);
-  }
-
-  // Update product verification status
-  product.verification_status = {
-    status,
-    verified_by: req.user.id,
-    verified_at: new Date(),
-    ...(status === 'rejected' && { rejection_reason, suggestion }),
-  };
-
-  // Update product status
-  product.status = status === 'approved' ? 'active' : 'rejected';
-
-  // Update all assets (documents, images, 3D model)
-  const documentFields = ['product_invoice', 'product_certificate', 'quality_report'];
-  const assetErrors = [];
-
-  // Update documents
-  documentFields.forEach((field) => {
-    if (product.documents[field]) {
-      product.documents[field].verified = status === 'approved';
-      if (status === 'rejected') {
-        product.documents[field].reason = rejection_reason;
-        product.documents[field].suggestion = suggestion;
-      } else {
-        product.documents[field].reason = null;
-        product.documents[field].suggestion = null;
-      }
+    const product = await ProductB2C.findById(req.params.id);
+    if (!product) {
+      throw new APIError('Product not found', StatusCodes.NOT_FOUND);
     }
-  });
 
-  // Update color variant images
-  product.color_variants.forEach((variant) => {
-    variant.images.forEach((image) => {
-      image.verified = status === 'approved';
-      if (status === 'rejected') {
-        image.reason = rejection_reason;
-        image.suggestion = suggestion;
-      } else {
-        image.reason = null;
-        image.suggestion = null;
-      }
+    if (!['approved', 'rejected'].includes(status)) {
+      throw new APIError('Invalid status', StatusCodes.BAD_REQUEST);
+    }
+
+    product.verification_status = {
+      status,
+      verified_by: req.user.id,
+      verified_at: new Date(),
+      rejection_reason: status === 'rejected' ? rejection_reason : null,
+      suggestion: status === 'rejected' ? suggestion : null
+    };
+
+    // ❗ IMPORTANT
+    product.status = status === 'approved'
+      ? 'pending_verification'
+      : 'rejected';
+
+    await product.save();
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: `Product ${status}`,
+      product
     });
   });
 
-  // Update 3D model (if exists)
-  if (product.three_d_model) {
-    product.three_d_model.verified = status === 'approved';
-    if (status === 'rejected') {
-      product.three_d_model.reason = rejection_reason;
-      product.three_d_model.suggestion = suggestion;
-    } else {
-      product.three_d_model.reason = null;
-      product.three_d_model.suggestion = null;
-    }
-  }
-
-  // Save product with all updates
-  await product.save();
-
-  logger.info(`Product and assets verification updated: ${product._id}, status: ${status}`);
-  res.status(StatusCodes.OK).json({
-    success: true,
-    message: status === 'approved' ? 'Product and assets approved successfully' : 'Product and assets rejected',
-    product: {
-      id: product._id,
-      name: product.name,
-      status: product.status,
-      verification_status: product.verification_status,
-      documents: product.documents,
-      color_variants: product.color_variants,
-      three_d_model: product.three_d_model,
-    },
-  });
-});
 
 
-exports.updateAsset = asyncHandler(async (req, res, next) => {
+exports.updateAsset = asyncHandler(async (req, res) => {
   const { productId, assetId } = req.params;
-  const { type } = req.body; // Optional, for validation
 
   const product = await ProductB2C.findById(productId);
   if (!product) {
-    logger.warn(`Product not found for asset update: ${productId}`);
     throw new APIError('Product not found', StatusCodes.NOT_FOUND);
   }
 
-  let asset = null;
-  let assetField = null;
-  let assetTypeFound = null;
-  let variantIndex = -1;
-  let imageIndex = -1;
+  // Vendor ownership check
+  if (product.vendor.toString() !== req.user.id) {
+    throw new APIError('Unauthorized', StatusCodes.FORBIDDEN);
+  }
 
-  // Check documents
-  const documentFields = ['product_invoice', 'product_certificate', 'quality_report'];
-  for (const field of documentFields) {
-    if (product.documents[field] && product.documents[field]._id.toString() === assetId) {
-      asset = product.documents[field];
-      assetField = field;
-      assetTypeFound = 'document';
+  let asset = null;
+
+  // Find image inside color variants
+  for (const variant of product.color_variants) {
+    const img = variant.images.id(assetId);
+    if (img) {
+      asset = img;
       break;
     }
-  }
-
-  // Check color variant images
-  if (!asset) {
-    for (let vi = 0; vi < product.color_variants.length; vi++) {
-      const variant = product.color_variants[vi];
-      const ii = variant.images.findIndex(img => img._id.toString() === assetId);
-      if (ii !== -1) {
-        variantIndex = vi;
-        imageIndex = ii;
-        asset = variant.images[ii];
-        assetTypeFound = 'image';
-        break;
-      }
-    }
-  }
-
-  // Check 3D model
-  if (!asset && product.three_d_model && product.three_d_model._id.toString() === assetId) {
-    asset = product.three_d_model;
-    assetTypeFound = 'three_d_model';
   }
 
   if (!asset) {
@@ -761,52 +651,31 @@ exports.updateAsset = asyncHandler(async (req, res, next) => {
   }
 
   if (asset.verified) {
-    throw new APIError('Cannot update verified asset', StatusCodes.FORBIDDEN);
+    throw new APIError('Verified asset cannot be replaced', StatusCodes.FORBIDDEN);
   }
 
   if (!req.file) {
-    throw new APIError('File is required for update', StatusCodes.BAD_REQUEST);
+    throw new APIError('File is required', StatusCodes.BAD_REQUEST);
   }
 
-  // Validate type if provided
-  if (type && type !== assetTypeFound) {
-    throw new APIError('Provided type does not match asset type', StatusCodes.BAD_REQUEST);
-  }
-
-  // Update the asset file path or url
-  if (assetTypeFound === 'document') {
-    asset.path = req.file.path;
-  } else {
-    asset.url = req.file.path;
-  }
-
-  asset.uploaded_at = new Date();
+  asset.url = req.file.path;
   asset.verified = false;
   asset.reason = null;
   asset.suggestion = null;
-
-  product.updated_at = new Date();
+  asset.uploaded_at = new Date();
 
   await product.save();
 
-  logger.info(`Asset updated successfully: ${assetId} for product ${productId}`);
   res.status(StatusCodes.OK).json({
     success: true,
     message: 'Asset updated successfully',
-    asset: {
-      id: asset._id,
-      type: assetTypeFound,
-      path: asset.path || asset.url,
-      verified: asset.verified,
-      uploaded_at: asset.uploaded_at
-    }
+    asset
   });
 });
 
-// Update Asset Verification
-exports.updateAssetVerification = asyncHandler(async (req, res, next) => {
-  const { verified, reason, suggestion } = req.body;
+exports.updateAssetVerification = asyncHandler(async (req, res) => {
   const { productId, assetId } = req.params;
+  const { verified, reason, suggestion } = req.body;
 
   const product = await ProductB2C.findById(productId);
   if (!product) {
@@ -814,41 +683,13 @@ exports.updateAssetVerification = asyncHandler(async (req, res, next) => {
   }
 
   let asset = null;
-  let assetField = null;
-  let assetType = null;
-  let variantIndex = -1;
-  let imageIndex = -1;
 
-  // Check documents
-  const documentFields = ['product_invoice', 'product_certificate', 'quality_report'];
-  for (const field of documentFields) {
-    if (product.documents[field] && product.documents[field]._id.toString() === assetId) {
-      asset = product.documents[field];
-      assetField = field;
-      assetType = 'document';
+  for (const variant of product.color_variants) {
+    const img = variant.images.id(assetId);
+    if (img) {
+      asset = img;
       break;
     }
-  }
-
-  // Check color variant images
-  if (!asset) {
-    for (let vi = 0; vi < product.color_variants.length; vi++) {
-      const variant = product.color_variants[vi];
-      const ii = variant.images.findIndex(img => img._id.toString() === assetId);
-      if (ii !== -1) {
-        variantIndex = vi;
-        imageIndex = ii;
-        asset = variant.images[ii];
-        assetType = 'image';
-        break;
-      }
-    }
-  }
-
-  // Check 3D model
-  if (!asset && product.three_d_model && product.three_d_model._id.toString() === assetId) {
-    asset = product.three_d_model;
-    assetType = 'three_d_model';
   }
 
   if (!asset) {
@@ -856,51 +697,28 @@ exports.updateAssetVerification = asyncHandler(async (req, res, next) => {
   }
 
   asset.verified = verified;
-  if (verified) {
-    asset.reason = null;
-    asset.suggestion = null;
-  } else {
-    asset.reason = reason;
-    asset.suggestion = suggestion;
-  }
+  asset.reason = verified ? null : reason;
+  asset.suggestion = verified ? null : suggestion;
 
-  // Check if all assets are verified
-  const allDocumentsVerified = documentFields.every(field => 
-    !product.documents[field] || product.documents[field].verified
+  // ✅ Check if ALL images are verified
+  const allImagesVerified = product.color_variants.every(v =>
+    v.images.every(img => img.verified)
   );
-  let allImagesVerified = true;
-  product.color_variants.forEach(variant => {
-    if (!variant.images.every(img => img.verified)) {
-      allImagesVerified = false;
-    }
-  });
-  const threeDVerified = !product.three_d_model || product.three_d_model.verified;
 
-  if (allDocumentsVerified && allImagesVerified && threeDVerified && product.verification_status.status === 'pending') {
-    product.verification_status = {
-      status: 'approved',
-      verified_by: req.user.id,
-      verified_at: new Date()
-    };
+  if (allImagesVerified &&
+      product.verification_status.status === 'approved') {
     product.status = 'active';
   }
 
-  product.updated_at = new Date();
   await product.save();
 
-  logger.info(`Asset verification updated for product: ${product._id}, type: ${assetType}`);
   res.status(StatusCodes.OK).json({
     success: true,
-    message: verified ? 'Asset approved successfully' : 'Asset rejected',
-    product: {
-      id: product._id,
-      documents: product.documents,
-      color_variants: product.color_variants,
-      three_d_model: product.three_d_model,
-      verification_status: product.verification_status
-    }
+    message: verified ? 'Asset approved' : 'Asset rejected',
+    product_status: product.status
   });
 });
+
 exports.createInventory = asyncHandler(async (req, res, next) => {
   const { productId } = req.params;
   const { sku, quantity, low_stock_threshold = 5, warehouse, note } = req.body;

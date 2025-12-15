@@ -62,167 +62,167 @@ exports.vendorLogin = asyncHandler(async (req, res, next) => {
     next(error);
   }
 });
-exports.updateVendorProfile = asyncHandler(async (req, res) => {
-  const vendorId = req.user._id;
+  exports.updateVendorProfile = asyncHandler(async (req, res) => {
+    const vendorId = req.user._id;
 
-  let vendor = await VendorB2C.findById(vendorId);
-  if (!vendor) {
-    throw new APIError("Vendor not found", StatusCodes.NOT_FOUND);
-  }
+    let vendor = await VendorB2C.findById(vendorId);
+    if (!vendor) {
+      throw new APIError("Vendor not found", StatusCodes.NOT_FOUND);
+    }
 
-  const data = req.body;
+    const data = req.body;
 
-  /** -----------------------------
-   *  UPDATE BASIC INFORMATION
-   * ----------------------------- */
-  if (data.first_name) vendor.name.first_name = data.first_name.trim();
-  if (data.last_name) vendor.name.last_name = data.last_name.trim();
+    /** -----------------------------
+     *  UPDATE BASIC INFORMATION
+     * ----------------------------- */
+    if (data.first_name) vendor.name.first_name = data.first_name.trim();
+    if (data.last_name) vendor.name.last_name = data.last_name.trim();
 
-  /** -----------------------------
-   *  UPDATE STORE DETAILS
-   * ----------------------------- */
-  if (data.store_name) vendor.store_details.store_name = data.store_name;
-  if (data.store_description) vendor.store_details.store_description = data.store_description;
-  if (data.store_type) vendor.store_details.store_type = data.store_type;
-  if (data.store_address) vendor.store_details.store_address = data.store_address;
-  if (data.city) vendor.store_details.city = data.city;
-  if (data.state) vendor.store_details.state = data.state;
-  if (data.country) vendor.store_details.country = data.country;
-  if (data.pincode) vendor.store_details.pincode = data.pincode;
-  if (data.website) vendor.store_details.website = data.website;
+    /** -----------------------------
+     *  UPDATE STORE DETAILS
+     * ----------------------------- */
+    if (data.store_name) vendor.store_details.store_name = data.store_name;
+    if (data.store_description) vendor.store_details.store_description = data.store_description;
+    if (data.store_type) vendor.store_details.store_type = data.store_type;
+    if (data.store_address) vendor.store_details.store_address = data.store_address;
+    if (data.city) vendor.store_details.city = data.city;
+    if (data.state) vendor.store_details.state = data.state;
+    if (data.country) vendor.store_details.country = data.country;
+    if (data.pincode) vendor.store_details.pincode = data.pincode;
+    if (data.website) vendor.store_details.website = data.website;
 
-  if (data.categories) {
-    vendor.store_details.categories = data.categories.split(",").map(
-      id => new mongoose.Types.ObjectId(id)
-    );
-  }
+    if (data.categories) {
+      vendor.store_details.categories = data.categories.split(",").map(
+        id => new mongoose.Types.ObjectId(id)
+      );
+    }
 
-  vendor.store_details.social_links = {
-    ...vendor.store_details.social_links,
-    ...data.social_links
-  };
-
-  /** -----------------------------
-   *  UPDATE REGISTRATION
-   * ----------------------------- */
-  if (data.pan_number) vendor.registration.pan_number = data.pan_number.toUpperCase();
-  if (data.gstin) vendor.registration.gstin = data.gstin.toUpperCase();
-
-  /** -----------------------------
-   *  UPDATE CONTACTS
-   * ----------------------------- */
-  if (data.primary_contact_name) {
-    vendor.contacts.primary_contact = {
-      name: data.primary_contact_name,
-      designation: data.primary_contact_designation,
-      email: data.primary_contact_email,
-      mobile: data.primary_contact_mobile,
-      whatsapp: data.primary_contact_whatsapp
+    vendor.store_details.social_links = {
+      ...vendor.store_details.social_links,
+      ...data.social_links
     };
-  }
 
-  if (data.support_contact_name) {
-    vendor.contacts.support_contact = {
-      name: data.support_contact_name,
-      designation: data.support_contact_designation,
-      email: data.support_contact_email,
-      mobile: data.support_contact_mobile,
-      whatsapp: data.support_contact_whatsapp
+    /** -----------------------------
+     *  UPDATE REGISTRATION
+     * ----------------------------- */
+    if (data.pan_number) vendor.registration.pan_number = data.pan_number.toUpperCase();
+    if (data.gstin) vendor.registration.gstin = data.gstin.toUpperCase();
+
+    /** -----------------------------
+     *  UPDATE CONTACTS
+     * ----------------------------- */
+    if (data.primary_contact_name) {
+      vendor.contacts.primary_contact = {
+        name: data.primary_contact_name,
+        designation: data.primary_contact_designation,
+        email: data.primary_contact_email,
+        mobile: data.primary_contact_mobile,
+        whatsapp: data.primary_contact_whatsapp
+      };
+    }
+
+    if (data.support_contact_name) {
+      vendor.contacts.support_contact = {
+        name: data.support_contact_name,
+        designation: data.support_contact_designation,
+        email: data.support_contact_email,
+        mobile: data.support_contact_mobile,
+        whatsapp: data.support_contact_whatsapp
+      };
+    }
+
+    /** -----------------------------
+     *  UPDATE BANK DETAILS
+     * ----------------------------- */
+    vendor.bank_details = {
+      ...vendor.bank_details,
+      ...data
     };
-  }
 
-  /** -----------------------------
-   *  UPDATE BANK DETAILS
-   * ----------------------------- */
-  vendor.bank_details = {
-    ...vendor.bank_details,
-    ...data
-  };
+    /** -----------------------------
+     *  UPDATE OPERATIONS
+     * ----------------------------- */
+    if (data.delivery_modes) {
+      vendor.operations.delivery_modes = data.delivery_modes.split(",");
+    }
 
-  /** -----------------------------
-   *  UPDATE OPERATIONS
-   * ----------------------------- */
-  if (data.delivery_modes) {
-    vendor.operations.delivery_modes = data.delivery_modes.split(",");
-  }
+    if (data.return_policy) vendor.operations.return_policy = data.return_policy;
+    if (data.avg_delivery_time_days) vendor.operations.avg_delivery_time_days = Number(data.avg_delivery_time_days);
 
-  if (data.return_policy) vendor.operations.return_policy = data.return_policy;
-  if (data.avg_delivery_time_days) vendor.operations.avg_delivery_time_days = Number(data.avg_delivery_time_days);
+    /** -----------------------------
+     *  UPDATE DOCUMENTS
+     * ----------------------------- */
+    if (req.files?.logo?.[0]) vendor.store_details.logo = req.files.logo[0].path;
 
-  /** -----------------------------
-   *  UPDATE DOCUMENTS
-   * ----------------------------- */
-  if (req.files?.logo?.[0]) vendor.store_details.logo = req.files.logo[0].path;
+    if (req.files?.identity_proof?.[0]) {
+      vendor.documents.identity_proof = {
+        path: req.files.identity_proof[0].path,
+        verified: false
+      };
+    }
 
-  if (req.files?.identity_proof?.[0]) {
-    vendor.documents.identity_proof = {
-      path: req.files.identity_proof[0].path,
-      verified: false
-    };
-  }
+    if (req.files?.address_proof?.[0]) {
+      vendor.documents.address_proof = {
+        path: req.files.address_proof[0].path,
+        verified: false
+      };
+    }
 
-  if (req.files?.address_proof?.[0]) {
-    vendor.documents.address_proof = {
-      path: req.files.address_proof[0].path,
-      verified: false
-    };
-  }
+    if (req.files?.gst_certificate?.[0]) {
+      vendor.documents.gst_certificate = {
+        path: req.files.gst_certificate[0].path,
+        verified: false
+      };
+    }
 
-  if (req.files?.gst_certificate?.[0]) {
-    vendor.documents.gst_certificate = {
-      path: req.files.gst_certificate[0].path,
-      verified: false
-    };
-  }
+    if (req.files?.cancelled_cheque?.[0]) {
+      vendor.documents.cancelled_cheque = {
+        path: req.files.cancelled_cheque[0].path,
+        verified: false
+      };
+    }
 
-  if (req.files?.cancelled_cheque?.[0]) {
-    vendor.documents.cancelled_cheque = {
-      path: req.files.cancelled_cheque[0].path,
-      verified: false
-    };
-  }
+    if (req.files?.shop_act_license?.[0]) {
+      vendor.documents.shop_act_license = {
+        path: req.files.shop_act_license[0].path,
+        verified: false
+      };
+    }
 
-  if (req.files?.shop_act_license?.[0]) {
-    vendor.documents.shop_act_license = {
-      path: req.files.shop_act_license[0].path,
-      verified: false
-    };
-  }
+    /** -----------------------------
+     *  CHECK IF PROFILE IS COMPLETE
+     * ----------------------------- */
 
-  /** -----------------------------
-   *  CHECK IF PROFILE IS COMPLETE
-   * ----------------------------- */
+    const isComplete =
+      vendor.store_details.store_name &&
+      vendor.store_details.store_address &&
+      vendor.store_details.categories?.length > 0 &&
+      vendor.documents.identity_proof?.path &&
+      vendor.documents.address_proof?.path &&
+      vendor.registration.pan_number &&
+      vendor.contacts.primary_contact &&
+      vendor.bank_details.bank_account_number;
 
-  const isComplete =
-    vendor.store_details.store_name &&
-    vendor.store_details.store_address &&
-    vendor.store_details.categories?.length > 0 &&
-    vendor.documents.identity_proof?.path &&
-    vendor.documents.address_proof?.path &&
-    vendor.registration.pan_number &&
-    vendor.contacts.primary_contact &&
-    vendor.bank_details.bank_account_number;
+    if (isComplete) {
+      vendor.onboarding_status = "profile_submitted"; // Fully done
+    } else {
+      vendor.onboarding_status = "profile_incomplete"; // Still missing fields
+    }
 
-  if (isComplete) {
-    vendor.onboarding_status = "profile_submitted"; // Fully done
-  } else {
-    vendor.onboarding_status = "profile_incomplete"; // Still missing fields
-  }
+    /** -----------------------------
+     *  META
+     * ----------------------------- */
+    vendor.meta.updated_at = new Date();
 
-  /** -----------------------------
-   *  META
-   * ----------------------------- */
-  vendor.meta.updated_at = new Date();
+    await vendor.save();
 
-  await vendor.save();
-
-  res.status(StatusCodes.OK).json({
-    success: true,
-    message: "Profile updated successfully",
-    onboarding_status: vendor.onboarding_status,
-    data: vendor
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: "Profile updated successfully",
+      onboarding_status: vendor.onboarding_status,
+      data: vendor
+    });
   });
-});
 
 
 

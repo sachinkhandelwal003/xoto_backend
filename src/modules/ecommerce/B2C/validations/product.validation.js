@@ -36,191 +36,111 @@ const checkReferenceExists = async (value, fieldName, modelName) => {
   }
   return true;
 };
-
-
+  
 
 exports.validateCreateProduct = [
-  // Vendor
-  body('vendor')
-    .notEmpty().withMessage('Vendor is required')
-    .bail() // Stop further validation if empty
-    .custom(value => isValidObjectId(value, 'Vendor'))
-    .custom(async value => await checkReferenceExists(value, 'Vendor', 'VendorB2C')),
 
-  // Category
+  // Product Name
+  body('name')
+    .trim()
+    .notEmpty().withMessage('Product name is required')
+    .bail()
+    .isLength({ min: 3, max: 200 })
+    .withMessage('Product name must be between 3 and 200 characters'),
+
+  // Category (ONLY required + ObjectId)
   body('category')
     .notEmpty().withMessage('Category is required')
     .bail()
-    .custom(value => isValidObjectId(value, 'Category'))
-    .custom(async value => await checkReferenceExists(value, 'Category', 'Category')),
+    .custom(v => isValidObjectId(v, 'Category')),
 
   // Brand
   body('brand')
     .notEmpty().withMessage('Brand is required')
     .bail()
-    .custom(value => isValidObjectId(value, 'Brand'))
-    .custom(async value => await checkReferenceExists(value, 'Brand', 'Brand')),
+    .custom(v => isValidObjectId(v, 'Brand')),
 
   // Material
   body('material')
     .notEmpty().withMessage('Material is required')
     .bail()
-    .custom(value => isValidObjectId(value, 'Material'))
-    .custom(async value => await checkReferenceExists(value, 'Material', 'Material')),
+    .custom(v => isValidObjectId(v, 'Material')),
 
-  // Basic fields
-  body('name')
-    .trim()
-    .notEmpty().withMessage('Product name is required')
-    .bail()
-    .isLength({ min: 3, max: 200 }).withMessage('Product name must be between 3 and 200 characters')
-    .custom(async (name, { req }) => {
-      const existingProduct = await ProductB2C.findOne({
-        name,
-        vendor: req.body.vendor,
-      });
-      if (existingProduct) {
-        throw new Error('Product name already exists for this vendor');
-      }
-      return true;
-    }),
-
-  body('description')
-    .optional()
-    .trim()
-    .isLength({ max: 2000 }).withMessage('Description cannot exceed 2000 characters'),
-
-  body('short_description')
-    .optional()
-    .trim()
-    .isLength({ max: 200 }).withMessage('Short description cannot exceed 200 characters'),
-
-  body('product_code')
-    .optional()
-    .trim()
-    .isLength({ min: 3 }).withMessage('Product code must be at least 3 characters'),
-
-  body('care_maintenance').optional().trim(),
-  body('warranty').optional().trim(),
-  body('returns').optional().trim(),
-  body('quality_promise').optional().trim(),
-
-  // Pricing fields
-  body('pricing.base_price')
-    .notEmpty().withMessage('Base price is required')
-    .bail()
-    .isFloat({ min: 0 }).withMessage('Base price must be a positive number'),
-
+  // Pricing
   body('pricing.cost_price')
     .notEmpty().withMessage('Cost price is required')
     .bail()
-    .isFloat({ min: 0 }).withMessage('Cost price must be a positive number'),
+    .isFloat({ min: 0 })
+    .withMessage('Cost price must be a positive number'),
 
-  body('pricing.sale_price')
-    .optional()
-    .isFloat({ min: 0 }).withMessage('Sale price must be a positive number'),
+  body('pricing.base_price')
+    .notEmpty().withMessage('Base price is required')
+    .bail()
+    .isFloat({ min: 0 })
+    .withMessage('Base price must be a positive number'),
 
   body('pricing.currency')
     .notEmpty().withMessage('Currency is required')
     .bail()
-    .custom(value => isValidObjectId(value, 'Currency'))
-    .custom(async value => await checkReferenceExists(value, 'Currency', 'Currency')),
+    .custom(v => isValidObjectId(v, 'Currency')),
 
-  // Discount validation
-  body('pricing.discount.type')
-    .optional()
-    .isIn(['percentage', 'fixed']).withMessage('Discount type must be percentage or fixed'),
-
-  body('pricing.discount.value')
-    .optional()
-    .isFloat({ min: 0 }).withMessage('Discount value must be a positive number'),
-
-  body('pricing.discount.valid_till')
-    .optional()
-    .isDate().withMessage('Invalid discount valid till date'),
-
-  // Tax validation
-  body('pricing.tax.tax_id')
-    .optional()
-    .custom(value => isValidObjectId(value, 'Tax'))
-    .custom(async value => await checkReferenceExists(value, 'Tax', 'Tax')),
-
-  body('pricing.tax.rate')
-    .optional()
-    .isFloat({ min: 0, max: 100 }).withMessage('Tax rate must be between 0 and 100'),
-
-  // Shipping validation
-  body('shipping.weight').optional().trim(),
-  body('shipping.dimensions.length').optional().trim(),
-  body('shipping.dimensions.width').optional().trim(),
-  body('shipping.dimensions.height').optional().trim(),
-  body('shipping.free_shipping')
-    .optional()
-    .isBoolean().withMessage('Free shipping must be a boolean'),
-
-  // Tags validation
-  body('tags')
-    .optional()
-    .isArray().withMessage('Tags must be an array')
-    .custom(async tags => {
-      if (tags && tags.length > 0) {
-        await Promise.all(tags.map(async tagId => {
-          isValidObjectId(tagId, 'Tag');
-          await checkReferenceExists(tagId, 'Tag', 'Tag');
-        }));
-      }
-      return true;
-    }),
-
-  // Attributes validation
+  // Attributes (optional)
   body('attributes')
     .optional()
-    .isArray().withMessage('Attributes must be an array')
-    .custom(async attributes => {
-      if (attributes && attributes.length > 0) {
-        await Promise.all(attributes.map(async attrId => {
-          isValidObjectId(attrId, 'Attribute');
-          await checkReferenceExists(attrId, 'Attribute', 'Attribute');
-        }));
+    .customSanitizer(v => {
+      try {
+        return typeof v === 'string' ? JSON.parse(v) : v;
+      } catch {
+        throw new Error('Attributes must be a valid JSON array');
       }
-      return true;
-    }),
-
-  // Color variants validation
-  body('color_variants')
-    .customSanitizer(value => {
-      if (!value) return [];
-      return typeof value === 'string' ? JSON.parse(value) : value;
     })
-    .isArray({ min: 1 }).withMessage('At least one color variant is required')
-    .custom(variants => {
+    .bail()
+    .isArray()
+    .withMessage('Attributes must be an array'),
+
+  // Tags (optional)
+  body('tags')
+    .optional()
+    .customSanitizer(v => {
+      try {
+        return typeof v === 'string' ? JSON.parse(v) : v;
+      } catch {
+        throw new Error('Tags must be a valid JSON array');
+      }
+    })
+    .bail()
+    .isArray()
+    .withMessage('Tags must be an array'),
+
+  // Color Variants
+  body('color_variants')
+    .notEmpty().withMessage('Color variants are required')
+    .bail()
+    .customSanitizer(v => {
+      try {
+        return typeof v === 'string' ? JSON.parse(v) : v;
+      } catch {
+        throw new Error('Color variants must be a valid JSON array');
+      }
+    })
+    .bail()
+    .isArray({ min: 1 })
+    .withMessage('At least one color variant is required')
+    .bail()
+    .custom((variants) => {
       variants.forEach((v, i) => {
-        if (!v.color_name) {
-          throw new Error(`Color name required for variant ${i + 1}`);
+        if (!v.color_name || !v.color_name.trim()) {
+          throw new Error(`Color name is required for variant at index ${i}`);
         }
       });
       return true;
     }),
 
-  // SEO fields
-  body('seo.meta_title')
-    .optional()
-    .trim()
-    .isLength({ max: 60 }).withMessage('Meta title cannot exceed 60 characters'),
-
-  body('seo.meta_description')
-    .optional()
-    .trim()
-    .isLength({ max: 160 }).withMessage('Meta description cannot exceed 160 characters'),
-
-  body('seo.keywords')
-    .optional()
-    .isArray().withMessage('Keywords must be an array'),
-
-  body('three_d_alt').optional().trim(),
-
   validate
 ];
+
+
+
 exports.validateUpdateProduct = [
   param('id')
     .custom(value => isValidObjectId(value, 'Product ID')),
