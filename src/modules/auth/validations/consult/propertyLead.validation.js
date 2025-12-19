@@ -20,24 +20,46 @@ const isValidId = (val, field) => {
   return true;
 };
 
-// CREATE (Public)
 exports.validateCreatePropertyLead = [
-  body('type').isIn(['buy','sell','rent','schedule_visit','partner','investor','developer']).withMessage('Invalid lead type'),
+  body('type').isIn([
+    'buy',
+    'sell',
+    'rent',
+    'schedule_visit',
+    'partner',
+    'investor',
+    'developer',
+    'enquiry',
+    'consultation'
+  ]),
 
-  // Always required
-  body('name.first_name').trim().notEmpty().withMessage('First name required'),
-  body('name.last_name').trim().notEmpty().withMessage('Last name required'),
-  body('email').isEmail().withMessage('Valid email required'),
-  body('mobile.number').matches(/^\d{8,15}$/).withMessage('Valid mobile number required'),
+  body('name.first_name').notEmpty(),
+  body('name.last_name').notEmpty(),
+  body('email').isEmail(),
+  body('mobile.number').matches(/^\d{8,15}$/),
 
-  // Conditional validations
+  // Schedule visit
+  body('occupation')
+    .if(body('type').equals('schedule_visit'))
+    .notEmpty(),
 
-  body('occupation').if(body('type').equals('schedule_visit')).notEmpty(),
-  body('location').if(body('type').equals('schedule_visit')).notEmpty(),
+  body('location')
+    .if(body('type').equals('schedule_visit'))
+    .notEmpty(),
 
-  body('company').if(body('type').isIn(['partner','investor','developer'])).notEmpty(),
-  body('stakeholder_type').if(body('type').equals('partner')).notEmpty(),
-  body('message').if(body('type').isIn(['partner','investor','developer'])).notEmpty(),
+  // Partner / Investor / Developer
+  body('company')
+    .if(body('type').isIn(['partner', 'investor', 'developer']))
+    .notEmpty(),
+
+  body('message')
+    .if(body('type').isIn(['partner', 'investor', 'developer', 'enquiry', 'consultation']))
+    .notEmpty(),
+
+  // Consultation
+  body('consultant_type')
+    .if(body('type').equals('consultation'))
+    .isIn(['landscape', 'interior', 'architect', 'civil_engineer', 'other']),
 
   validate
 ];
@@ -50,12 +72,44 @@ exports.validateUpdatePropertyLead = [
 ];
 
 // GET ALL
+// GET ALL PROPERTY LEADS (ADMIN)
 exports.validateGetPropertyLeads = [
-  query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 }),
-  query('search').optional().trim(),
-  query('status').optional().isIn(['submit', 'contacted']),
-  query('type').optional().isIn(['buy', 'sell', 'schedule_visit','rent', 'partner']),
+  query('page')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Page must be >= 1'),
+
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage('Limit must be between 1 and 100'),
+
+  query('search')
+    .optional()
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('Search cannot be empty'),
+
+  query('status')
+    .optional()
+    .isIn(['submit', 'contacted', 'converted', 'dead'])
+    .withMessage('Invalid status'),
+
+  query('type')
+    .optional()
+    .isIn([
+      'buy',
+      'sell',
+      'rent',
+      'schedule_visit',
+      'partner',
+      'investor',
+      'developer',
+      'enquiry',
+      'consultation'
+    ])
+    .withMessage('Invalid lead type'),
+
   validate
 ];
 

@@ -608,18 +608,17 @@ exports.getCustomerQuotation = asyncHandler(async (req, res) => {
 
 
 // controllers/estimate/estimate.controller.js
+// controllers/estimate/estimate.controller.js
 exports.convertToDeal = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  // ------------------------------
-  // 1️⃣ Find Estimate (with NEW model populate paths)
-  // ------------------------------
+  // 1️⃣ Fetch estimate with all required relations
   const estimate = await Estimate.findById(id)
-    .populate({ path: "final_quotation" })
-    .populate({ path: "customer", select: "name email mobile" })
-    .populate({ path: "subcategory" })   // EstimateMasterSubcategory
-    .populate({ path: "type" })          // EstimateMasterType
-    .populate({ path: "package" });      // LandscapingPackage
+    .populate("final_quotation")
+    .populate("customer", "name email mobile")
+    .populate("subcategory")   // EstimateMasterSubcategory
+    .populate("type")          // EstimateMasterType
+    .populate("package");
 
   if (!estimate) {
     throw new APIError("Estimate not found", StatusCodes.NOT_FOUND);
@@ -634,54 +633,56 @@ exports.convertToDeal = asyncHandler(async (req, res) => {
 
   if (estimate.project_reference) {
     throw new APIError(
-      "Deal was already created for this estimate",
+      "Project already created for this estimate",
       StatusCodes.BAD_REQUEST
     );
   }
 
   const finalQuotation = estimate.final_quotation;
 
-  // ------------------------------
-  // 2️⃣ Create Project based on updated fields
-  // ------------------------------
+  // 2️⃣ Normalize client name
+  let clientName = estimate.customer_name;
+  if (estimate.customer?.name) {
+    clientName =
+      typeof estimate.customer.name === "string"
+        ? estimate.customer.name
+        : `${estimate.customer.name.first_name || ""} ${estimate.customer.name.last_name || ""}`.trim();
+  }
+
+  // 3️⃣ Create Project
   const project = await Project.create({
     title:
       finalQuotation?.title ||
       finalQuotation?.scope_of_work?.substring(0, 100) ||
-      estimate.description.substring(0, 100) ||
+      estimate.description?.substring(0, 100) ||
       "New Project",
 
-    client_name: estimate.customer?.name || estimate.customer_name,
-    client_company: estimate.client_company || "",
-    address: estimate.address || "",
-    city: estimate.city || "",
-    gps_coordinates: estimate.gps_coordinates || {},
+    client_name: clientName,
+    client_company: "",
+    address: "",
+    city: "",
 
     start_date: new Date(),
-    end_date: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+    end_date: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000), // +6 months
 
     budget: finalQuotation?.grand_total || 0,
     overview: estimate.description,
     scope_details: finalQuotation?.scope_of_work || estimate.description,
 
-    // 🔥 NEW MODEL MAPPING
-    subcategory: estimate.type?._id,                  // EstimateMasterType
-    category: estimate.subcategory?._id,    // EstimateMasterSubcategory
-    // Relationships
+    // ✅ CORRECT MAPPING
+    category: estimate.subcategory?._id,          // Category_freelancer
+    subcategory: estimate.type?._id ? [estimate.type._id] : [],
 
-
-    customer: estimate.customer,
+    customer: estimate.customer?._id,
     estimate_reference: estimate._id,
 
-    freelancer: null,
+    freelancers: [],
     accountant: null,
     milestones: [],
     status: "pending"
   });
 
-  // ------------------------------
-  // 3️⃣ Mark Estimate as Deal Created
-  // ------------------------------
+  // 4️⃣ Update Estimate status
   estimate.status = "deal";
   estimate.customer_progress = "deal_created";
   estimate.project_reference = project._id;
@@ -690,26 +691,26 @@ exports.convertToDeal = asyncHandler(async (req, res) => {
 
   await estimate.save();
 
-  // ------------------------------
-  // 4️⃣ Response
-  // ------------------------------
+  // 5️⃣ Response
   res.status(StatusCodes.CREATED).json({
     success: true,
-    message: "Deal created successfully! Project is pending freelancer assignment.",
+    message: "Deal converted successfully. Project created.",
     data: {
       project_id: project._id,
+      project_code: project.Code,
       title: project.title,
       status: project.status,
       budget: project.budget,
       service_type: estimate.service_type,
       client: project.client_name,
-      type: estimate.type?.label,
-      subcategory: estimate.subcategory?.label,
-      package: estimate.package?.name,
+      category: estimate.subcategory?.label,
+      subcategory: estimate.type?.label,
+      package: estimate.package?.name || null,
       scope_of_work: project.scope_details,
-      milestones: 0,
+      milestones: project.milestones.length,
       freelancer_assigned: false
     }
   });
 });
+
 

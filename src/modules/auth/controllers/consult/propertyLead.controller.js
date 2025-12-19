@@ -8,25 +8,47 @@ const asyncHandler = require('../../../../utils/asyncHandler');
 exports.createPropertyLead = asyncHandler(async (req, res) => {
   let data = req.body;
 
-  // Normalize mobile
+  /* -------------------------
+     Normalize mobile
+  -------------------------- */
   data.mobile = {
-    country_code: data.mobile?.country_code || data.mobile?.countryCode || '+91',
-    number: (data.mobile?.number || data.mobile?.phone || '').toString().replace(/\D/g, '').slice(-15)
+    country_code:
+      data.mobile?.country_code ||
+      data.mobile?.countryCode ||
+      '+91',
+    number: (data.mobile?.number || data.mobile?.phone || '')
+      .toString()
+      .replace(/\D/g, '')
+      .slice(-15)
   };
 
-  // Auto-set preferred_contact defaults per type
+  /* -------------------------
+     Preferred contact logic
+  -------------------------- */
   if (!data.preferred_contact) {
-    data.preferred_contact = ['buy','rent','schedule_visit','partner'].includes(data.type) ? 'whatsapp' : 'call';
+    if (['buy', 'rent', 'schedule_visit', 'partner'].includes(data.type)) {
+      data.preferred_contact = 'whatsapp';
+    } else {
+      data.preferred_contact = 'call';
+    }
+  }
+
+  /* -------------------------
+     Auto-map consultation
+  -------------------------- */
+  if (data.type === 'consultation') {
+    data.consultant_type = data.consultant_type || 'other';
   }
 
   const lead = await PropertyLead.create(data);
 
   res.status(StatusCodes.CREATED).json({
     success: true,
-    message: 'Lead captured successfully!',
+    message: 'Lead submitted successfully',
     data: lead
   });
 });
+
 
 // Get All
 exports.getAllPropertyLeads = asyncHandler(async (req, res) => {

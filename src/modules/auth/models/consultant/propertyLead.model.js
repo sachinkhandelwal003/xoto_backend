@@ -3,12 +3,23 @@ const mongoose = require('mongoose');
 
 
 const propertyLeadSchema = new mongoose.Schema({
-  type: {
-    type: String,
-    enum: ['buy', 'sell', 'rent', 'schedule_visit', 'partner', 'investor', 'developer'],
-    required: true,
-    index: true
-  },
+type: {
+  type: String,
+  enum: [
+    'buy',
+    'sell',
+    'rent',
+    'schedule_visit',
+    'partner',
+    'investor',
+    'developer',
+    'enquiry',
+    'consultation' 
+  ],
+  required: true,
+  index: true
+},
+
 
   // Core fields (always required)
   name: {
@@ -34,6 +45,13 @@ const propertyLeadSchema = new mongoose.Schema({
     trim: true,
     match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Invalid email format']
   },
+  // Consultation specific
+consultant_type: {
+  type: String,
+  enum: ['landscape', 'interior', 'architect', 'civil_engineer', 'other'],
+  trim: true
+},
+
   preferred_contact: {
     type: String,
     enum: ['call', 'whatsapp', 'email'],
