@@ -9,6 +9,7 @@ const {
   updateCategory,
   deleteCategory,
 } = require('../../controllers/estimateCategory/category.controller');
+const upload = require('../../../../middleware/multer');
 
 const {
   getSubcategories,
@@ -33,6 +34,10 @@ const {
   validateCreateType,
 } = require('../../validations/estimateCategory/category.validation');
 
+const uploadTypeImages = upload.fields([
+  { name: 'previewImage', maxCount: 1 },
+  { name: 'moodboardImages', maxCount: 20 }
+]);
 // Category Routes
 router.post('/', validateCreateCategory, createCategory);
 router.post('/bulk', validateBulkCreate, bulkCreateCategories);

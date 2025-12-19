@@ -249,7 +249,7 @@ const openai = new OpenAI({
 });
 
 const replicate = new Replicate({
-  auth: process.env.REPLICATE_API_TOKEN
+  auth: "r8_Fi3pq1v8PrCNCtVRU0mymQJ8GFcLo2C0gjnrY"
 });
 
 exports.generateGardenDesigns = async (req, res) => {
@@ -269,7 +269,6 @@ exports.generateGardenDesigns = async (req, res) => {
     // 2. GPT-5 Vision (FORCED FINAL TEXT)
     const visionResponse = await openai.responses.create({
       model: "gpt-5",
-      reasoning: { effort: "low" },
       input: [
         {
           role: "user",
@@ -289,10 +288,10 @@ Do not reason.
             }
           ]
         }
-      ]
-      // max_output_tokens: 120
+      ],
+      max_output_tokens: 120
     });
-    console.log("visioooooooooooooooooooooooooooooooo",visionResponse)
+    console.log("visioooooooooooooooooooooooooooooooo",vision)
 
     // ✅ SAFE extraction
     const originalGardenDesc =
@@ -334,25 +333,22 @@ Rules:
 `.trim();
 
     // 5. Generate images via Replicate
-const designs = await Promise.all(
-  [1, 2, 3].map(async (i) => {
-    const output = await replicate.run(
-      "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
-      {
-        input: {
-          prompt: `${basePrompt} Variation ${i}/3`,
-          width: 1024,
-          height: 1024,
-          num_outputs: 1
-        }
-      }
+    const designs = await Promise.all(
+      [1, 2, 3].map(async (i) => {
+        const output = await replicate.run(
+          "stability-ai/sdxl",
+          {
+            input: {
+              prompt: `${basePrompt} Variation ${i}/3`,
+              width: 1024,
+              height: 1024,
+              num_outputs: 1
+            }
+          }
+        );
+        return { url: output[0] };
+      })
     );
-
-    return { url: output[0] };
-  })
-);
-
-
 
     return res.json({
       success: true,
