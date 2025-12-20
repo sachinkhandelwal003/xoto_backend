@@ -20,6 +20,8 @@ const {
 router.post('/otp/send',validateSendOtp, otpController.sendOtp);
 router.post('/otp/verify',validateVerifyOtp, otpController.verifyOtp);
 
+router.get('/', protect, userController.getActivityHistory);
+
 /**
  * User Management Routes
  */

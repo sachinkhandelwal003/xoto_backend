@@ -84,7 +84,8 @@ const TypeSchema = new mongoose.Schema(
     label: {
       type: String,
       required: true,
-      trim: true,
+      trim: true,      lowercase: true   // 🔥 IMPORTANT
+
     },
     description: { type: String, trim: true },
     subcategory: {
@@ -105,11 +106,7 @@ const TypeSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Indexes
-TypeSchema.index({ label: 1, subcategory: 1 }, { unique: true });
-TypeSchema.index({ category: 1 });
-TypeSchema.index({ isActive: 1 });
-TypeSchema.index({ order: 1 });
+
 
 
 /* ------------------------- EXPORT MODELS ------------------------- */

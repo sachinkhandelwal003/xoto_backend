@@ -7,7 +7,6 @@ const cors = require('cors');
 const connectDB = require('./src/config/database');
 const path = require('path');
 
-
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -20,12 +19,26 @@ app.use(cors({
   credentials: true
 }));
 
+app.use(
+  helmet({
+    crossOriginResourcePolicy: {
+      policy: "cross-origin"
+    }
+  })
+);
 // === SECURITY & LOGGING ===
-app.use(helmet());
 app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-// 1. WELCOME ROUTE (MUST BE BEFORE /api/ routes)
+
+// === STATIC FILES (UPLOADS) ===
+app.use(
+  '/uploads',
+  express.static(path.join(__dirname, 'uploads'))
+);
+
+
+// 1. WELCOME ROUTE
 app.get('/api/', (req, res) => {
   res.json({
     message: 'Xoto API is LIVE!',
@@ -39,15 +52,14 @@ app.get('/api/', (req, res) => {
 // 2. MAIN API ROUTES
 app.use('/api/', require('./src/app'));
 
-// === 404 HANDLER (MUST BE AFTER ALL ROUTES) ===// === 404 HANDLER (MUST BE AFTER ALL ROUTES) ===
+// === 404 HANDLER ===
 app.use((req, res, next) => {
   next(createError.NotFound());
 });
 
-// === ERROR HANDLER (MUST BE LAST) ===
+// === ERROR HANDLER ===
 app.use((err, req, res, next) => {
-  res.status(err.status || 500);
-  res.json({
+  res.status(err.status || 500).json({
     error: {
       status: err.status || 500,
       message: err.message,
@@ -55,13 +67,13 @@ app.use((err, req, res, next) => {
   });
 });
 
-// === START SERVER AFTER DB CONNECTION ===
+// === START SERVER ===
 const startServer = async () => {
   try {
     await connectDB();
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on port ${PORT}`);
-      console.log(`MongoDB connected: ${process.env.MONGODB_URI}`);
+      console.log(`MongoDB connected`);
     });
   } catch (err) {
     console.error("Failed to start server:", err);
@@ -70,4 +82,3 @@ const startServer = async () => {
 };
 
 startServer();
-

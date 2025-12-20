@@ -1,6 +1,8 @@
 // validations/category.validation.js
 const { body, param, query } = require('express-validator');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
+const { Type } = require('../../models/estimateCategory/category.model');
+const mongoose = require('mongoose');
 
 const validate = (req, res, next) => {
   const errors = require('express-validator').validationResult(req);
@@ -51,14 +53,59 @@ exports.validateCreateSubcategory = [
 
 // Type Validations
 exports.validateCreateType = [
-  param('categoryId').isMongoId().withMessage('Invalid category ID'),
-  param('subcategoryId').isMongoId().withMessage('Invalid subcategory ID'),
-  body('label').trim().isLength({ min: 2, max: 100 }).withMessage('Label required (2-100 chars)'),
-  body('description').optional().isString().trim().isLength({ max: 500 }),
-  body('order').optional().isInt({ min: 0 }),
-  validate,
-];
+  // params
+  param('categoryId')
+    .isMongoId()
+    .withMessage('Invalid category ID'),
 
+  param('subcategoryId')
+    .isMongoId()
+    .withMessage('Invalid subcategory ID'),
+
+  // label
+  body('label')
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Label required (2-100 chars)')
+    .custom(async (value, { req }) => {
+      const { categoryId, subcategoryId } = req.params;
+
+      if (!mongoose.Types.ObjectId.isValid(categoryId) ||
+          !mongoose.Types.ObjectId.isValid(subcategoryId)) {
+        return true; // params validation will handle this
+      }
+
+      const label = value.trim();
+
+      const exists = await Type.findOne({
+        label: { $regex: `^${label}$`, $options: 'i' },
+        subcategory: subcategoryId,
+        category: categoryId
+      });
+
+      if (exists) {
+        throw new Error(`Type "${label}" already exists in this subcategory`);
+      }
+
+      return true;
+    }),
+
+  // description
+  body('description')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Description max 500 chars'),
+
+  // order
+  body('order')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Order must be >= 0'),
+
+  validate
+];
 // Query Validations
 exports.validateQuery = [
   query('page').optional().isInt({ min: 1 }),

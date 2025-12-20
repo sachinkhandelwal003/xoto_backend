@@ -5,7 +5,7 @@ const { Role } = require('../models/role/role.model');
 const asyncHandler = require('../../../utils/asyncHandler');
 const bcrypt = require('bcryptjs');
 const { createToken } = require('../../../middleware/auth');
-
+const ActivityLog = require('../models/history/ActivityLog.model');
 // Create a new user
 exports.createUser = asyncHandler(async (req, res) => {
   const { email, password, role: roleId, status } = req.body;
@@ -36,6 +36,58 @@ exports.createUser = asyncHandler(async (req, res) => {
     success: true,
     message: userWithRole.role.code === '0' ? 'SuperAdmin created successfully' : 'User created successfully',
     user: userResponse
+  });
+});
+
+
+
+exports.getActivityHistory = asyncHandler(async (req, res) => {
+  const {
+    module_id,
+    entity_type,
+    entity_id,
+    performed_by,
+    action_type,
+    page = 1,
+    limit = 20
+  } = req.query;
+
+  /* ===== BUILD QUERY ===== */
+  const query = {};
+
+  if (module_id) query.module_id = module_id;
+  if (entity_type) query.entity_type = entity_type;
+  if (entity_id) query.entity_id = entity_id;
+  if (performed_by) query.performed_by = performed_by;
+  if (action_type) query.action_type = action_type;
+
+  const skip = (Number(page) - 1) * Number(limit);
+
+  /* ===== FETCH DATA ===== */
+  const [logs, total] = await Promise.all([
+    ActivityLog.find(query)
+      .populate({
+        path: 'module_id',
+        select: 'name slug route icon'
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit))
+      .lean(),
+
+    ActivityLog.countDocuments(query)
+  ]);
+
+  /* ===== RESPONSE ===== */
+  res.status(StatusCodes.OK).json({
+    success: true,
+    data: logs,
+    pagination: {
+      page: Number(page),
+      limit: Number(limit),
+      total,
+      totalPages: Math.ceil(total / limit)
+    }
   });
 });
 
