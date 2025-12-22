@@ -370,9 +370,13 @@ exports.getGalleryByTypeId = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
 
   const gallery = await TypeGallery.findOne({ type: typeId }).populate('type');
-  if (!gallery) {
-    throw new APIError('Gallery not found', StatusCodes.NOT_FOUND);
-  }
+ if (!gallery) {
+  return res.status(StatusCodes.OK).json({
+    success: true,
+    gallery: null
+  });
+}
+
 
   res.status(StatusCodes.OK).json({
     success: true,

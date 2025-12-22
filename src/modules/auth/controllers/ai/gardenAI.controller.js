@@ -367,67 +367,66 @@ async function generatePropertyDesign({
     }
 
     const client = new OpenAI({
-    baseURL:"https://api.tokenfactory.nebius.com/v1/",
-    apiKey:"v1.CmMKHHN0YXRpY2tleS1lMDBrNmJkd3hnbTdhc2t6aGoSIXNlcnZpY2VhY2NvdW50LWUwMHltYWprZzZyangzM20zNzIMCO7pmMoGEOrZ9cYBOgsI6-ywlQcQgPK6XUACWgNlMDA.AAAAAAAAAAEDwyeh2utpPnuupCqY1M-7_t4VJVIpyXBKWjVTKJFHBRZAIbn9YTKQEPy0MGmTmymf4wOWtVIwHovpqBRN92kA"
-})
+      baseURL: "https://api.tokenfactory.nebius.com/v1/",
+      apiKey: "v1.CmMKHHN0YXRpY2tleS1lMDBrNmJkd3hnbTdhc2t6aGoSIXNlcnZpY2VhY2NvdW50LWUwMHltYWprZzZyangzM20zNzIMCO7pmMoGEOrZ9cYBOgsI6-ywlQcQgPK6XUACWgNlMDA.AAAAAAAAAAEDwyeh2utpPnuupCqY1M-7_t4VJVIpyXBKWjVTKJFHBRZAIbn9YTKQEPy0MGmTmymf4wOWtVIwHovpqBRN92kA"
+    })
 
     // 🔥 GOD-LEVEL PHOTOREALISTIC PROMPT
-//     const finalPrompt = `
-// You are generating a REAL PHOTOGRAPH of a property.
-// This must look like a real camera photo, not a render.
+    //     const finalPrompt = `
+    // You are generating a REAL PHOTOGRAPH of a property.
+    // This must look like a real camera photo, not a render.
 
-// BASE VISUAL FACTS (do not ignore):
-// ${baseDescription}
+    // BASE VISUAL FACTS (do not ignore):
+    // ${baseDescription}
 
-// STYLE:
-// ${styleName}
+    // STYLE:
+    // ${styleName}
 
-// ADDITIONAL ELEMENTS:
-// ${elements}
+    // ADDITIONAL ELEMENTS:
+    // ${elements}
 
-// USER DESCRIPTION / INTENT:
-// ${description}
+    // USER DESCRIPTION / INTENT:
+    // ${description}
 
-// REALISM RULES (MANDATORY):
-// - 100% photorealistic
-// - Looks like a DSLR or mirrorless camera photo
-// - Natural lighting, realistic shadows
-// - Real-world materials and textures
-// - Correct scale and proportions
-// - No exaggerated colors
-// - No cinematic effects
-// - No artificial glow
-// - No symmetry perfection
+    // REALISM RULES (MANDATORY):
+    // - 100% photorealistic
+    // - Looks like a DSLR or mirrorless camera photo
+    // - Natural lighting, realistic shadows
+    // - Real-world materials and textures
+    // - Correct scale and proportions
+    // - No exaggerated colors
+    // - No cinematic effects
+    // - No artificial glow
+    // - No symmetry perfection
 
-// STRICTLY FORBIDDEN:
-// - CGI
-// - 3D render
-// - Illustration
-// - Cartoon
-// - Animated style
-// - Unrealistic lighting
-// - Concept art
-// - Game graphics
-// - AI-looking visuals
+    // STRICTLY FORBIDDEN:
+    // - CGI
+    // - 3D render
+    // - Illustration
+    // - Cartoon
+    // - Animated style
+    // - Unrealistic lighting
+    // - Concept art
+    // - Game graphics
+    // - AI-looking visuals
 
-// CAMERA DETAILS:
-// - Wide-angle architectural photography
-// - Eye-level camera height
-// - Sharp focus
-// - High dynamic range
-// - Realistic depth of field
-// - Natural color grading
+    // CAMERA DETAILS:
+    // - Wide-angle architectural photography
+    // - Eye-level camera height
+    // - Sharp focus
+    // - High dynamic range
+    // - Realistic depth of field
+    // - Natural color grading
 
-// The final image must be indistinguishable from a real photograph.
-// `;
+    // The final image must be indistinguishable from a real photograph.
+    // `;
 
-const finalPrompt = `
+    const finalPrompt = `
 Photorealistic real-world property photograph.
 ${styleName} property with realistic architecture and materials.
 
-Recreate the same scene but replace the swimming pool in this with a green garden . 
-STRICTLY - replace the pool with green garden.
-The foreground should be landscaped garden or paved area instead of water.
+Recreate the same scene. 
+
 ${description}
 
 Visible details:
@@ -443,39 +442,39 @@ Not CGI, not render, not illustration.
 
 
 
-//     const response = await client.images.generate({
-//       model: "black-forest-labs/flux-dev",
-//       prompt: finalPrompt,
-//       response_format: "url",
-//       extra_body: {
-//         response_extension: "webp",
-//         width: 1024,
-//         height: 1024,
-//         num_inference_steps: 30,
-//         negative_prompt: `
-// cartoon, animation, anime, illustration, sketch,
-// 3d render, unreal engine, blender, cgi,
-// concept art, game graphics, fantasy,
-// oversaturated, unrealistic lighting, fake textures
-//         `,
-//         seed: -1,
-//       },
-//     });
+    //     const response = await client.images.generate({
+    //       model: "black-forest-labs/flux-dev",
+    //       prompt: finalPrompt,
+    //       response_format: "url",
+    //       extra_body: {
+    //         response_extension: "webp",
+    //         width: 1024,
+    //         height: 1024,
+    //         num_inference_steps: 30,
+    //         negative_prompt: `
+    // cartoon, animation, anime, illustration, sketch,
+    // 3d render, unreal engine, blender, cgi,
+    // concept art, game graphics, fantasy,
+    // oversaturated, unrealistic lighting, fake textures
+    //         `,
+    //         seed: -1,
+    //       },
+    //     });
 
-        const response = await client.images.generate({
-            model:"black-forest-labs/flux-dev",
-            response_format:"url",
-            extra_body:{
-                response_extension:"webp",
-                width:1024,
-                height:1024,
-                num_inference_steps:28,
-                negative_prompt:"",
-                seed:-1
-            },
-            prompt:finalPrompt
-        })
-        console.log("tresponseeeeeeeeeeeeeeeeeeeeeee",response)
+    const response = await client.images.generate({
+      model: "black-forest-labs/flux-dev",
+      response_format: "url",
+      extra_body: {
+        response_extension: "webp",
+        width: 1024,
+        height: 1024,
+        num_inference_steps: 28,
+        negative_prompt: "",
+        seed: -1
+      },
+      prompt: finalPrompt
+    })
+    console.log("tresponseeeeeeeeeeeeeeeeeeeeeee", response)
     return response;
   } catch (error) {
     console.error("Error generating property design:", error);
@@ -578,11 +577,22 @@ exports.generateGardenDesigns = async (req, res) => {
       mimeType,
       design,
       size: imageFile.size,
+      success: true,
       // base64: base64Image, // raw base64
       // dataUrl: image_url, // ready-to-use in <img src="">
     });
   } catch (error) {
-    console.log("errororororoorororor", error);
-    return error;
+    // console.log("errororororoorororor", error);
+    // return error;
+
+
+
+    console.error("❌ API ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Garden generation failed",
+      error: error.message || error.toString()
+    });
   }
 };

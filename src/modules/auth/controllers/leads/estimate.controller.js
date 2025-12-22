@@ -47,11 +47,18 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
     is_deleted: false
   });
 
+  // CREATE CUSTOMER IF NOT EXISTS
   if (!customer) {
     customer = await Customer.create({
-      name: customer_name,
+      name: {
+        first_name,
+        last_name
+      },
       email: customer_email.toLowerCase(),
-      mobile: customer_mobile.number,
+      mobile: {
+        country_code: customer_mobile.country_code || "+91",
+        number: customer_mobile.number
+      },
       role: customerRole._id,
       isActive: true
     });

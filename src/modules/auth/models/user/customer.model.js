@@ -2,7 +2,10 @@ const mongoose = require('mongoose');
 
 const customerSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true },
+    name: {
+      first_name: { type: String, required: true, trim: true, maxlength: 50 },
+      last_name: { type: String, required: true, trim: true, maxlength: 50 }
+    },
 
     email: {
       type: String,
@@ -13,45 +16,47 @@ const customerSchema = new mongoose.Schema(
       match: [
         /^[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}$/,
         "Please enter a valid email address"
-      ],
+      ]
     },
 
     mobile: {
-      type: String,
-      trim: true,
-      required: true,
+      country_code: { type: String, default: '+91', trim: true },
+      number: {
+        type: String,
+        required: true,
+        trim: true,
+        validate: {
+          validator: v => /^\d{8,15}$/.test(v),
+          message: 'Mobile number must be 8–15 digits only'
+        }
+      }
     },
 
     role: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Role',
-      required: true,
+      required: true
     },
 
     isActive: { type: Boolean, default: true },
-
     is_deleted: { type: Boolean, default: false },
     deleted_at: { type: Date }
   },
   { timestamps: true }
 );
 
-// -----------------------------------------------------
 // INDEXES
-// -----------------------------------------------------
 customerSchema.index({ email: 1 }, { unique: true });
-customerSchema.index({ mobile: 1, role: 1 });
+customerSchema.index({ "mobile.number": 1, role: 1 });
 customerSchema.index({ role: 1 });
 
-// -----------------------------------------------------
-// EMAIL UNIQUE CHECK (EXCEPT SOFT-DELETED USERS)
-// -----------------------------------------------------
+// UNIQUE EMAIL (IGNORE SOFT-DELETED)
 customerSchema.pre("save", async function (next) {
   if (this.isNew || this.isModified("email")) {
     const existing = await this.constructor.findOne({
       email: this.email,
       _id: { $ne: this._id },
-      is_deleted: false,
+      is_deleted: false
     });
 
     if (existing) {

@@ -18,46 +18,40 @@ const document_schema = new mongoose.Schema({
 
 const service_schema = new mongoose.Schema({
   category: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'Category_freelancer', 
-    required: true 
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'EstimateMasterSubcategory',
+    required: true
   },
-  subcategories: [{ 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'Subcategory_freelancer'
-  }], 
+
+  subcategories: [
+    {
+      type: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'EstimateMasterType',
+        required: true
+      },
+      price_range: { type: String, trim: true },
+      unit: { type: String, trim: true }, // per sq.ft, fixed, etc
+      is_active: { type: Boolean, default: true }
+    }
+  ],
+
   description: { type: String, trim: true },
-  price_range: { type: String, trim: true },   // e.g., "5000 - 15000"
-  unit: { type: String, trim: true },          // e.g., "per hour", "fixed", "per sq.ft"
   images: [{ type: String }],
   is_active: { type: Boolean, default: true }
 });
-
-const portfolio_schema = new mongoose.Schema({
-  title: { type: String, required: true, trim: true },
-  category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category_freelancer', required: true },
-  subcategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Subcategory_freelancer', required: true },
-  description: { type: String, trim: true },
-  images: [{ type: String }],
-  area: String,
-  duration: String,
-  client_name: String,
-  completed_at: Date,
-  featured: { type: Boolean, default: false }
-}, { _id: true });
-
+ 
 const location_schema = new mongoose.Schema({
   city: String,
   state: String,
   country: { type: String, default: 'UAE' },
-  pincode: String
+  po_box: { type: String, default: '',trim:true}
 }, { _id: false });
 
 const professional_schema = new mongoose.Schema({
   experience_years: { type: Number, min: 0 },
   bio: { type: String, trim: true, maxlength: 1000 },
   skills: [{ type: String, trim: true }],
-  working_radius: { type: String, trim: true }, // e.g., "50 km"
   availability: { 
     type: String, 
     enum: ['Part-time', 'Full-time', 'Project-based'],
@@ -67,8 +61,7 @@ const professional_schema = new mongoose.Schema({
 
 const payment_schema = new mongoose.Schema({
   preferred_method: String,
-  advance_percentage: { type: Number, min: 0, max: 100 },
-  gst_number: String,
+  vat_number: String,
   preferred_currency: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Currency'  }
@@ -88,11 +81,7 @@ const meta_schema = new mongoose.Schema({
   portal_access: { type: Boolean, default: false },
   created_at: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now },
-  change_history: [{
-    updated_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    changes: [String],
-    updated_at: { type: Date, default: Date.now }
-  }]
+ 
 }, { _id: false });
 
 const freelancer_schema = new mongoose.Schema({
@@ -138,8 +127,6 @@ const freelancer_schema = new mongoose.Schema({
   languages: [{ type: String, trim: true }],
 
   services_offered: [service_schema],
-  portfolio: [portfolio_schema],
-  gallery: [String],
 
   payment: payment_schema,
   documents: [document_schema],

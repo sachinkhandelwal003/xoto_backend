@@ -21,7 +21,7 @@ const docUpload = upload.fields([
   { name: 'certificate', maxCount: 10 },
   { name: 'portfolio', maxCount: 5 }
 ]);
-router.patch('/rate-card',  controller.addRateCard);
+// router.patch('/rate-card',  controller.addRateCard);
 
 // PUBLIC
 router.post('/login', validateFreelancerLogin, controller.freelancerLogin);
