@@ -1,34 +1,31 @@
 // models/estimate/Estimate.model.js
 const mongoose = require('mongoose');
 
+
+const ImageSchema = new mongoose.Schema(
+  {
+    id: String,
+    title: String,
+    url: String
+  },
+  { _id: false }
+);
+
 const estimateSchema = new mongoose.Schema({
   service_type: {
     type: String,
     required: true,
     enum: ['landscape', 'interior'],
   },
-  customer_name: { type: String, required: true, trim: true },
-  customer_email: { type: String, required: true, lowercase: true, trim: true },
- customer_mobile: {
-  country_code: {
-    type: String,
-    required: true,
-    trim: true,
-    default: '+91',
-  },
-  number: {
-    type: String,
-    required: true,
-    trim: true,
-    validate: {
-      validator: function(v) {
-        return /^\d{8,15}$/.test(v);
-      }    }
-  }
-},
-   subcategory: { type: mongoose.Schema.Types.ObjectId, ref: 'EstimateMasterSubcategory' },
+ 
+  subcategory: { type: mongoose.Schema.Types.ObjectId, ref: 'EstimateMasterSubcategory' },
 
   type: { type: mongoose.Schema.Types.ObjectId, ref: 'EstimateMasterType', required: true },
+
+  type_gallery_snapshot: {
+    previewImage: ImageSchema,
+    moodboardImages: [ImageSchema]
+  },
 
   package: { type: mongoose.Schema.Types.ObjectId, ref: 'LandscapingPackage' },
 
@@ -49,7 +46,7 @@ const estimateSchema = new mongoose.Schema({
       'superadmin_approved',
       'customer_accepted',
       'customer_rejected',
-      'cancelled','deal'
+      'cancelled', 'deal'
     ],
     default: 'pending'
   },
@@ -58,10 +55,10 @@ const estimateSchema = new mongoose.Schema({
   assigned_supervisor: { type: mongoose.Schema.Types.ObjectId, ref: 'Allusers' },
   assigned_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Allusers' },
   assigned_at: Date,
-deal_converted_at: Date,
-deal_converted_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  deal_converted_at: Date,
+  deal_converted_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   // 🔵 Separate SUPERVISOR PROGRESS
- supervisor_progress: {
+  supervisor_progress: {
     type: String,
     enum: ['none', 'request_sent', 'request_completed', 'final_quotation_created'],
     default: 'none'
@@ -85,12 +82,12 @@ deal_converted_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   final_quotation: { type: mongoose.Schema.Types.ObjectId, ref: 'Quotation' },
 
   // 🔵 CUSTOMER PROGRESS
- customer_progress: {
+  customer_progress: {
     type: String,
     enum: ['none', 'sent_to_customer', 'customer_responded', 'deal_created'],
     default: 'none'
   },
-customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
+  customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
 
   customer_response: {
     status: { type: String, enum: ['accepted', 'rejected', null], default: null },

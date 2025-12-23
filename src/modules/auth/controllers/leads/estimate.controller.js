@@ -8,66 +8,10 @@ const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const Freelancer = require("../../models/Freelancer/freelancer.model");
 const mongoose = require('mongoose');
 const { Role } = require('../../models/role/role.model');
+  const { TypeGallery } = require("../../models/estimateCategory/typeGallery.model");
 
 exports.submitEstimate = asyncHandler(async (req, res) => {
   const {
-    service_type,         // landscape / interior
-    customer_name,
-    customer_email,
-    customer_mobile,
-    type,                 // EstimateMasterType
-    subcategory,          // EstimateMasterSubcategory
-    package: pkg,
-    area_length,
-    area_width,
-    area_sqft,
-    description
-  } = req.body;
-
-  // ------------------------
-  // VALIDATION
-  // ------------------------
-  if (!service_type || !['landscape', 'interior'].includes(service_type)) {
-    throw new APIError("Valid service_type is required: 'landscape' or 'interior'", 400);
-  }
-
-  if (!customer_name || !customer_email || !customer_mobile?.number) {
-    throw new APIError("Customer details are required", 400);
-  }
-
-  if (!type) throw new APIError("Type (EstimateMasterType) is required", 400);
-
-  if (!area_sqft) throw new APIError("area_sqft is required", 400);
-
-  // GET CUSTOMER ROLE
-  const customerRole = await Role.findOne({ name: "Customer" });
-
-  let customer = await Customer.findOne({
-    email: customer_email.toLowerCase(),
-    is_deleted: false
-  });
-
-  // CREATE CUSTOMER IF NOT EXISTS
-  if (!customer) {
-    customer = await Customer.create({
-      name: {
-        first_name,
-        last_name
-      },
-      email: customer_email.toLowerCase(),
-      mobile: {
-        country_code: customer_mobile.country_code || "+91",
-        number: customer_mobile.number
-      },
-      role: customerRole._id,
-      isActive: true
-    });
-  }
-
-  // ------------------------
-  // CREATE ESTIMATE
-  // ------------------------
-  const estimate = await Estimate.create({
     service_type,
     customer_name,
     customer_email,
@@ -79,23 +23,85 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
     area_width,
     area_sqft,
     description,
-    customer: customer._id
+    location,
+    type_gallery_snapshot
+  } = req.body;
+
+  /* ---------- CUSTOMER ---------- */
+  const customerRole = await Role.findOne({ name: "Customer" });
+
+  let customer = await Customer.findOne({
+    email: customer_email.toLowerCase(),
+    is_deleted: false
   });
 
-  await estimate.populate([
-    { path: "type" },
-    { path: "subcategory" },
-    { path: "package" },
-    { path: "customer", select: "name email mobile" }
-  ]);
+  if (!customer) {
+    customer = await Customer.create({
+      name: customer_name,
+      email: customer_email.toLowerCase(),
+      mobile: {
+        country_code: customer_mobile.country_code || "+91",
+        number: customer_mobile.number
+      },
+      role: customerRole._id,
+      location
+    });
+  } else if (location) {
+    customer.location = location;
+    await customer.save();
+  }
 
-  return res.status(201).json({
+  /* ---------- FETCH TYPE GALLERY ---------- */
+  const typeGallery = await TypeGallery.findOne({
+    type,
+    isActive: true
+  }).lean();
+
+  if (!typeGallery) {
+    throw new APIError("Type gallery not found", 400);
+  }
+
+  /* ---------- FILTER MOODBOARD IMAGES ---------- */
+  let selectedMoodboards = [];
+
+  if (
+    type_gallery_snapshot?.moodboardImages &&
+    Array.isArray(type_gallery_snapshot.moodboardImages)
+  ) {
+    const requestedIds = type_gallery_snapshot.moodboardImages.map(img => img.id);
+
+    selectedMoodboards = typeGallery.moodboardImages.filter(img =>
+      requestedIds.includes(img.id)
+    );
+  }
+
+  /* ---------- CREATE ESTIMATE ---------- */
+  const estimate = await Estimate.create({
+    service_type,
+    type,
+    subcategory,
+    package: pkg,
+    area_length,
+    area_width,
+    area_sqft,
+    description,
+
+    customer: customer._id,
+
+    // ✅ FINAL SNAPSHOT
+    type_gallery_snapshot: {
+      previewImage: typeGallery.previewImage, // auto
+      moodboardImages: selectedMoodboards     // user-selected only
+    }
+  });
+
+  res.status(201).json({
     success: true,
     message: "Estimate submitted successfully",
-    customer,
-    estimate
+    estimate_id: estimate._id
   });
 });
+
 
 
 exports.getQuotations = asyncHandler(async (req, res) => {
@@ -167,8 +173,7 @@ exports.getEstimates = asyncHandler(async (req, res) => {
         },
         { path: "final_quotation" },
         {
-          path: "customer",
-          select: "name email mobile"
+          path: "customer"
         }
       ]);
 
@@ -239,8 +244,7 @@ exports.getEstimates = asyncHandler(async (req, res) => {
       },
       { path: "final_quotation" },
       {
-        path: "customer",
-        select: "name email mobile"
+        path: "customer"
       }
     ])
     .sort({ createdAt: -1 });
@@ -560,22 +564,102 @@ exports.customerResponse = asyncHandler(async (req, res) => {
 //   });
 // });
 exports.getCustomerEstimates = asyncHandler(async (req, res) => {
+  const {
+    id,
+    page = 1,
+    limit,
+    status,
+    customer_progress
+  } = req.query;
 
- 
+  /* ---------------------------------------------------------
+      🟦 GET SINGLE ESTIMATE (CUSTOMER-OWNED)
+  --------------------------------------------------------- */
+  if (id) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw new APIError("Invalid estimate ID", StatusCodes.BAD_REQUEST);
+    }
 
-  const estimates = await Estimate.find({ customer: req.user.id })
+    const estimate = await Estimate.findOne({
+      _id: id,
+      customer: req.user.id
+    }).populate([
+        {
+        path: "customer"},
+      { path: "type" },
+      { path: "subcategory" },
+      { path: "package" },
+      { path: "final_quotation" },
+    
+    ]);
+
+    if (!estimate) {
+      throw new APIError("Estimate not found", StatusCodes.NOT_FOUND);
+    }
+
+    return res.status(StatusCodes.OK).json({
+      success: true,
+      estimate
+    });
+  }
+
+  /* ---------------------------------------------------------
+      🟦 LIST FILTER LOGIC (CUSTOMER ONLY)
+  --------------------------------------------------------- */
+  const query = {
+    customer: req.user.id
+  };
+
+  if (status) query.status = status;
+  if (customer_progress) query.customer_progress = customer_progress;
+
+  /* ---------------------------------------------------------
+      🟦 MAIN QUERY
+  --------------------------------------------------------- */
+  let estimatesQuery = Estimate.find(query)
     .populate([
-     
+        {
+        path: "customer"},
+      { path: "type" },
+      { path: "subcategory" },
+      { path: "package" },
       { path: "final_quotation" }
     ])
     .sort({ createdAt: -1 });
 
-  res.json({
+  /* ---------------------------------------------------------
+      🟦 PAGINATION (OPTIONAL)
+  --------------------------------------------------------- */
+  let pagination = null;
+
+  if (limit) {
+    const limitNum = parseInt(limit);
+    const pageNum = parseInt(page);
+
+    estimatesQuery = estimatesQuery
+      .skip((pageNum - 1) * limitNum)
+      .limit(limitNum);
+
+    const total = await Estimate.countDocuments(query);
+
+    pagination = {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages: Math.ceil(total / limitNum)
+    };
+  }
+
+  const estimates = await estimatesQuery;
+
+  res.status(StatusCodes.OK).json({
     success: true,
     count: estimates.length,
-    data: estimates
+    data: estimates,
+    pagination
   });
 });
+
 // ------------------------------------------------------------
 // CUSTOMER: GET FINAL QUOTATION
 // ------------------------------------------------------------

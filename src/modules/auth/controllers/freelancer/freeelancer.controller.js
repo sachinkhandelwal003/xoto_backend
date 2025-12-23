@@ -2,9 +2,6 @@
 const winston = require('winston');
 const Freelancer = require('../../models/Freelancer/freelancer.model');
 const mongoose = require('mongoose');
-
-const Category = require('../../models/Freelancer/categoryfreelancer.model');
-const Subcategory = require('../../models/Freelancer/subcategoryfreelancer.model');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const { APIError } = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
@@ -141,7 +138,12 @@ exports.getAllFreelancers = asyncHandler(async (req, res) => {
     search,
     city,
     isActive,
-    freelancerId
+    freelancerId,
+
+    // 🔥 NEW SERVICE FILTERS
+    serviceCategory,
+    serviceType,
+    subcategory
   } = req.query;
 
   /* =====================================================
@@ -149,79 +151,98 @@ exports.getAllFreelancers = asyncHandler(async (req, res) => {
   ===================================================== */
   if (freelancerId) {
     if (!mongoose.Types.ObjectId.isValid(freelancerId)) {
-      return res.status(StatusCodes.BAD_REQUEST).json({
+      return res.status(400).json({
         success: false,
-        message: 'Invalid freelancer ID',
+        message: "Invalid freelancer ID"
       });
     }
 
     const freelancer = await Freelancer.findById(freelancerId)
-      .select('-password')
-      .populate('role', 'name')
-      .populate('services_offered.category', 'label ')
-      .populate('services_offered.subcategories.type', 'label ')
-      .populate('payment.preferred_currency', 'name code symbol')
-      .populate('status_info.approved_by status_info.rejected_by', 'name email')
+      .select("-password")
+      .populate("role", "name")
+      .populate("services_offered.category", "label")
+      .populate("services_offered.subcategories.type", "label")
+      .populate("payment.preferred_currency", "name code symbol")
+      .populate("status_info.approved_by status_info.rejected_by", "name email")
       .lean();
 
     if (!freelancer) {
-      return res.status(StatusCodes.NOT_FOUND).json({
+      return res.status(404).json({
         success: false,
-        message: 'Freelancer not found',
+        message: "Freelancer not found"
       });
     }
 
-    return res.status(StatusCodes.OK).json({
+    return res.status(200).json({
       success: true,
-      freelancer,
+      freelancer
     });
   }
 
   /* =====================================================
-     2️⃣ FILTERS
+     2️⃣ BASE FILTERS
   ===================================================== */
   const query = {};
 
   // Status: 0=Pending, 1=Approved, 2=Rejected
   if (status !== undefined) {
-    query['status_info.status'] = Number(status);
+    query["status_info.status"] = Number(status);
   }
 
   // Active / Inactive
   if (isActive !== undefined) {
-    query.isActive = isActive === 'true';
+    query.isActive = isActive === "true";
   }
 
-  // Search (name / email / mobile)
+  // Search
   if (search) {
     query.$or = [
-      { 'name.first_name': { $regex: search, $options: 'i' } },
-      { 'name.last_name': { $regex: search, $options: 'i' } },
-      { email: { $regex: search, $options: 'i' } },
-      { 'mobile.number': { $regex: search, $options: 'i' } },
+      { "name.first_name": { $regex: search, $options: "i" } },
+      { "name.last_name": { $regex: search, $options: "i" } },
+      { email: { $regex: search, $options: "i" } },
+      { "mobile.number": { $regex: search, $options: "i" } }
     ];
   }
 
-  // City filter
+  // City
   if (city) {
-    query['location.city'] = { $regex: city, $options: 'i' };
+    query["location.city"] = { $regex: city, $options: "i" };
   }
 
   /* =====================================================
-     3️⃣ BASE QUERY
+     3️⃣ 🔥 SERVICE-WISE FILTERING
+  ===================================================== */
+
+  // Category (Landscape / Interior)
+  if (serviceCategory && mongoose.Types.ObjectId.isValid(serviceCategory)) {
+    query["services_offered.category"] = serviceCategory;
+  }
+
+  // Type (EstimateMasterType)
+  if (serviceType && mongoose.Types.ObjectId.isValid(serviceType)) {
+    query["services_offered.subcategories.type"] = serviceType;
+  }
+
+  // Subcategory
+  if (subcategory && mongoose.Types.ObjectId.isValid(subcategory)) {
+    query["services_offered.subcategories.subcategory"] = subcategory;
+  }
+
+  /* =====================================================
+     4️⃣ QUERY + POPULATE
   ===================================================== */
   let freelancersQuery = Freelancer.find(query)
-    .select('-password')
-    .populate('role', 'name')
-    .populate('services_offered.category', 'label ')
-    .populate('services_offered.subcategories.type', 'label')
-    .populate('payment.preferred_currency', 'code symbol')
+    .select("-password")
+    .populate("role", "name")
+    .populate("services_offered.category", "label")
+    .populate("services_offered.subcategories.type", "label")
+    .populate("payment.preferred_currency", "code symbol")
     .sort({ createdAt: -1 });
 
   let pagination = null;
 
   /* =====================================================
-     4️⃣ PAGINATION (OPTIONAL)
+     5️⃣ PAGINATION
   ===================================================== */
   if (limit) {
     const pageNum = Math.max(Number(page), 1);
@@ -237,21 +258,22 @@ exports.getAllFreelancers = asyncHandler(async (req, res) => {
       page: pageNum,
       limit: limitNum,
       total,
-      totalPages: Math.ceil(total / limitNum),
+      totalPages: Math.ceil(total / limitNum)
     };
   }
 
   /* =====================================================
-     5️⃣ EXECUTE QUERY
+     6️⃣ EXECUTE
   ===================================================== */
   const freelancers = await freelancersQuery.lean();
 
-  res.status(StatusCodes.OK).json({
+  res.status(200).json({
     success: true,
     freelancers,
-    pagination, // null if limit not provided
+    pagination
   });
 });
+
 
 
 
