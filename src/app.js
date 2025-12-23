@@ -5,6 +5,8 @@ const helmet = require('helmet');
 const createError = require('http-errors');
 const logger = require('./config/logger');
 
+
+
 const app = express();
 
 // Middleware
@@ -16,6 +18,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Database connection
 require('./config/database');
+// app.use('/uploads',express.static(path.join(__dirname, '..', 'uploads')));
 app.use('/estimates', require('./modules/auth/routes/leads/estimate.routes'));
 app.use('/ai', require('./modules/auth/routes/ai/gardenAI.routes'));
 app.use('/packages', require('./modules/auth/routes/packages/packages.routes'));

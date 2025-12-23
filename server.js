@@ -36,6 +36,7 @@ app.get('/api/', (req, res) => {
   });
 });
 
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // 2. MAIN API ROUTES
 app.use('/api/', require('./src/app'));
 
