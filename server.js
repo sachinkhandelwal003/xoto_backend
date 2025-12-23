@@ -33,7 +33,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // === STATIC FILES (UPLOADS) ===
 app.use(
-  '/uploads',
+  '/api/uploads',
   express.static(path.join(__dirname, 'uploads'))
 );
 
