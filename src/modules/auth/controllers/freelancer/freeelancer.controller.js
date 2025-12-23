@@ -2,9 +2,6 @@
 const winston = require('winston');
 const Freelancer = require('../../models/Freelancer/freelancer.model');
 const mongoose = require('mongoose');
-
-const Category = require('../../models/Freelancer/categoryfreelancer.model');
-const Subcategory = require('../../models/Freelancer/subcategoryfreelancer.model');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const { APIError } = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
@@ -66,44 +63,68 @@ exports.freelancerLogin = asyncHandler(async (req, res) => {
 exports.createFreelancer = asyncHandler(async (req, res) => {
   const data = req.body;
 
+  // 🔒 Uniqueness check
   const existing = await Freelancer.findOne({
-    $or: [{ email: data.email }, { mobile: data.mobile }]
+    $or: [
+      { email: data.email },
+      {
+        'mobile.country_code': data.mobile?.country_code,
+        'mobile.number': data.mobile?.number
+      }
+    ]
   });
-  if (existing) throw new APIError('Email or mobile already exists', StatusCodes.CONFLICT);
+  if (existing) {
+    throw new APIError('Email or mobile already exists', StatusCodes.CONFLICT);
+  }
 
-  if (!data.is_mobile_verified) throw new APIError('Mobile must be verified', StatusCodes.BAD_REQUEST);
+  if (!data.is_mobile_verified) {
+    throw new APIError('Mobile must be verified', StatusCodes.BAD_REQUEST);
+  }
 
+  // 🎭 Role
   const role = await Role.findOne({ name: 'Freelancer' });
   if (!role) throw new APIError('Role not found', StatusCodes.NOT_FOUND);
-  
-  // Convert ObjectId to string
-  data.role = role._id; // Convert to string
+
+  data.role = role._id;
   data.status_info = { status: 0 };
   data.password = await bcrypt.hash(data.password, 10);
+  data.documents = [];
 
-  // No document handling here
-  data.documents = []; // Initialize empty
+  // 🧠 NORMALIZE SERVICES (IMPORTANT)
+  if (Array.isArray(data.services_offered)) {
+    data.services_offered = data.services_offered.map(service => ({
+      category: service.category,
+      description: service.description || '',
+      is_active: true,
 
+      subcategories: (service.subcategories || []).map(typeId => ({
+        type: typeId,
+        price_range: null, // to be added later
+        unit: null,
+        is_active: true
+      }))
+    }));
+  }
+
+  // 🚀 Create
   const freelancer = await Freelancer.create(data);
-  
-  // Populate will still work if you reference the role properly
-// controllers/freelancer/freelancer.controller.js
 
-await freelancer.populate([
-  'role',
-  'services_offered.category',
-  'services_offered.subcategories' // ← Updated path
-]);
-  logger.info(`Freelancer registered (pending): ${freelancer._id}`);
+  // 🔗 Populate (UPDATED PATHS)
+  await freelancer.populate([
+    { path: 'role' },
+    { path: 'services_offered.category' },
+    { path: 'services_offered.subcategories.type' }
+  ]);
+
   res.status(StatusCodes.CREATED).json({
     success: true,
-    message: "Registration successful. Complete your profile after login.",
+    message: 'Registration successful. Awaiting admin approval.',
     freelancer: {
       _id: freelancer._id,
       email: freelancer.email,
       name: freelancer.name,
       status: freelancer.status_info.status,
-      role: freelancer.role // This will now be a string
+      role: freelancer.role
     }
   });
 });
@@ -117,7 +138,12 @@ exports.getAllFreelancers = asyncHandler(async (req, res) => {
     search,
     city,
     isActive,
-    freelancerId
+    freelancerId,
+
+    // 🔥 NEW SERVICE FILTERS
+    serviceCategory,
+    serviceType,
+    subcategory
   } = req.query;
 
   /* =====================================================
@@ -125,81 +151,98 @@ exports.getAllFreelancers = asyncHandler(async (req, res) => {
   ===================================================== */
   if (freelancerId) {
     if (!mongoose.Types.ObjectId.isValid(freelancerId)) {
-      return res.status(StatusCodes.BAD_REQUEST).json({
+      return res.status(400).json({
         success: false,
-        message: 'Invalid freelancer ID',
+        message: "Invalid freelancer ID"
       });
     }
 
     const freelancer = await Freelancer.findById(freelancerId)
-      .select('-password')
-      .populate('role', 'name')
-      .populate('services_offered.category', 'name slug icon')
-      .populate('services_offered.subcategories', 'name slug')
-      .populate('portfolio.category', 'name slug')
-      .populate('portfolio.subcategory', 'name slug')
-      .populate('payment.preferred_currency', 'name code symbol')
-      .populate('status_info.approved_by status_info.rejected_by', 'name email')
+      .select("-password")
+      .populate("role", "name")
+      .populate("services_offered.category", "label")
+      .populate("services_offered.subcategories.type", "label")
+      .populate("payment.preferred_currency", "name code symbol")
+      .populate("status_info.approved_by status_info.rejected_by", "name email")
       .lean();
 
     if (!freelancer) {
-      return res.status(StatusCodes.NOT_FOUND).json({
+      return res.status(404).json({
         success: false,
-        message: 'Freelancer not found',
+        message: "Freelancer not found"
       });
     }
 
-    return res.status(StatusCodes.OK).json({
+    return res.status(200).json({
       success: true,
-      freelancer,
+      freelancer
     });
   }
 
   /* =====================================================
-     2️⃣ FILTERS
+     2️⃣ BASE FILTERS
   ===================================================== */
   const query = {};
 
   // Status: 0=Pending, 1=Approved, 2=Rejected
   if (status !== undefined) {
-    query['status_info.status'] = Number(status);
+    query["status_info.status"] = Number(status);
   }
 
-  // ✅ Active / Inactive
+  // Active / Inactive
   if (isActive !== undefined) {
-    query.isActive = isActive === 'true';
+    query.isActive = isActive === "true";
   }
 
-  // Search (name / email / mobile)
+  // Search
   if (search) {
     query.$or = [
-      { 'name.first_name': { $regex: search, $options: 'i' } },
-      { 'name.last_name': { $regex: search, $options: 'i' } },
-      { email: { $regex: search, $options: 'i' } },
-      { 'mobile.number': { $regex: search, $options: 'i' } },
+      { "name.first_name": { $regex: search, $options: "i" } },
+      { "name.last_name": { $regex: search, $options: "i" } },
+      { email: { $regex: search, $options: "i" } },
+      { "mobile.number": { $regex: search, $options: "i" } }
     ];
   }
 
   // City
   if (city) {
-    query['location.city'] = { $regex: city, $options: 'i' };
+    query["location.city"] = { $regex: city, $options: "i" };
   }
 
   /* =====================================================
-     3️⃣ BASE QUERY
+     3️⃣ 🔥 SERVICE-WISE FILTERING
+  ===================================================== */
+
+  // Category (Landscape / Interior)
+  if (serviceCategory && mongoose.Types.ObjectId.isValid(serviceCategory)) {
+    query["services_offered.category"] = serviceCategory;
+  }
+
+  // Type (EstimateMasterType)
+  if (serviceType && mongoose.Types.ObjectId.isValid(serviceType)) {
+    query["services_offered.subcategories.type"] = serviceType;
+  }
+
+  // Subcategory
+  if (subcategory && mongoose.Types.ObjectId.isValid(subcategory)) {
+    query["services_offered.subcategories.subcategory"] = subcategory;
+  }
+
+  /* =====================================================
+     4️⃣ QUERY + POPULATE
   ===================================================== */
   let freelancersQuery = Freelancer.find(query)
-    .select('-password')
-    .populate('role', 'name')
-    .populate('services_offered.category', 'name slug')
-    .populate('services_offered.subcategories', 'name slug')
-    .populate('payment.preferred_currency', 'code symbol')
+    .select("-password")
+    .populate("role", "name")
+    .populate("services_offered.category", "label")
+    .populate("services_offered.subcategories.type", "label")
+    .populate("payment.preferred_currency", "code symbol")
     .sort({ createdAt: -1 });
 
   let pagination = null;
 
   /* =====================================================
-     4️⃣ PAGINATION (OPTIONAL)
+     5️⃣ PAGINATION
   ===================================================== */
   if (limit) {
     const pageNum = Math.max(Number(page), 1);
@@ -215,21 +258,23 @@ exports.getAllFreelancers = asyncHandler(async (req, res) => {
       page: pageNum,
       limit: limitNum,
       total,
-      totalPages: Math.ceil(total / limitNum),
+      totalPages: Math.ceil(total / limitNum)
     };
   }
 
   /* =====================================================
-     5️⃣ EXECUTE QUERY
+     6️⃣ EXECUTE
   ===================================================== */
   const freelancers = await freelancersQuery.lean();
 
-  res.status(StatusCodes.OK).json({
+  res.status(200).json({
     success: true,
     freelancers,
-    pagination, // null if limit not provided
+    pagination
   });
 });
+
+
 
 
 // === GET FREELANCER PROFILE (LOGGED-IN USER) ===
@@ -237,32 +282,30 @@ exports.getFreelancerProfile = asyncHandler(async (req, res) => {
   const freelancer = await Freelancer.findById(req.user.id)
     .select('-password')
     .populate('role', 'name')
-    .populate('services_offered.category', 'name slug icon')
-    .populate('services_offered.subcategories', 'name slug')
-    .populate('portfolio.category', 'name slug')
-    .populate('portfolio.subcategory', 'name slug')
-     .populate('payment.preferred_currency', 'name code symbol')
+    .populate('services_offered.category', 'name  ')
+    .populate('services_offered.subcategories.type', 'label')
+    .populate('payment.preferred_currency', 'name code symbol')
     .lean();
 
   if (!freelancer) {
     throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
   }
 
-  // ================================
-  // 🔹 Section-Wise Scoring Logic
-  // ================================
+  /* ================================
+     SECTION SCORING
+  ================================= */
+
   const sections = {
     basic: 0,
     professional: 0,
     location: 0,
     services: 0,
-    portfolio: 0,
     payment: 0,
     documents: 0,
     meta: 0,
   };
 
-  // -------- BASIC INFO --------
+  /* -------- BASIC -------- */
   const basicFields = 5;
   let basicScore = 0;
 
@@ -274,67 +317,54 @@ exports.getFreelancerProfile = asyncHandler(async (req, res) => {
 
   sections.basic = Math.round((basicScore / basicFields) * 100);
 
-  // -------- PROFESSIONAL INFO --------
-  const profFields = 5;
+  /* -------- PROFESSIONAL -------- */
+  const profFields = 4;
   let profScore = 0;
 
   if (freelancer.professional?.experience_years >= 0) profScore++;
   if (freelancer.professional?.bio) profScore++;
   if ((freelancer.professional?.skills?.length ?? 0) > 0) profScore++;
-  if (freelancer.professional?.working_radius) profScore++;
   if (freelancer.professional?.availability) profScore++;
 
   sections.professional = Math.round((profScore / profFields) * 100);
 
-  // -------- LOCATION --------
-  const locFields = 4;
+  /* -------- LOCATION -------- */
+  const locFields = 3;
   let locScore = 0;
 
   if (freelancer.location?.city) locScore++;
   if (freelancer.location?.state) locScore++;
   if (freelancer.location?.country) locScore++;
-  if (freelancer.location?.pincode) locScore++;
 
   sections.location = Math.round((locScore / locFields) * 100);
 
-  // -------- SERVICES OFFERED --------
+  /* -------- SERVICES (UPDATED LOGIC) -------- */
   if ((freelancer.services_offered?.length ?? 0) > 0) {
-    const validServices = freelancer.services_offered.filter(
-      s =>
-        s.category &&
-        (s.subcategories?.length ?? 0) > 0 &&
-        s.description
-    );
+    const validServices = freelancer.services_offered.filter(service => {
+      if (!service.category || !service.description) return false;
+      if ((service.subcategories?.length ?? 0) === 0) return false;
+
+      // 🔑 Each type must have pricing
+      return service.subcategories.every(
+        t => t.type && t.price_range && t.unit
+      );
+    });
+
     sections.services = Math.round(
       (validServices.length / freelancer.services_offered.length) * 100
     );
   }
 
-  // -------- PORTFOLIO --------
-  if ((freelancer.portfolio?.length ?? 0) > 0) {
-    const validPortfolio = freelancer.portfolio.filter(
-      p =>
-        p.title &&
-        p.category &&
-        p.subcategory &&
-        (p.images?.length ?? 0) > 0
-    );
-    sections.portfolio = Math.round(
-      (validPortfolio.length / freelancer.portfolio.length) * 100
-    );
-  }
-
-  // -------- PAYMENT --------
-  const payFields = 3;
+  /* -------- PAYMENT -------- */
+  const payFields = 2;
   let payScore = 0;
 
   if (freelancer.payment?.preferred_method) payScore++;
-  if (freelancer.payment?.advance_percentage !== undefined) payScore++;
-  if (freelancer.payment?.gst_number) payScore++;
+  if (freelancer.payment?.preferred_currency) payScore++;
 
   sections.payment = Math.round((payScore / payFields) * 100);
 
-  // -------- DOCUMENTS --------
+  /* -------- DOCUMENTS -------- */
   if ((freelancer.documents?.length ?? 0) > 0) {
     const verifiedDocs = freelancer.documents.filter(d => d.verified);
     sections.documents = Math.round(
@@ -342,7 +372,7 @@ exports.getFreelancerProfile = asyncHandler(async (req, res) => {
     );
   }
 
-  // -------- META --------
+  /* -------- META -------- */
   const metaFields = 2;
   let metaScore = 0;
 
@@ -351,18 +381,19 @@ exports.getFreelancerProfile = asyncHandler(async (req, res) => {
 
   sections.meta = Math.round((metaScore / metaFields) * 100);
 
-  // ================================
-  // 🔹 TOTAL PROFILE COMPLETION
-  // ================================
-  const totalScore =
-    Object.values(sections).reduce((sum, val) => sum + val, 0) /
-    Object.keys(sections).length;
+  /* ================================
+     TOTAL COMPLETION
+  ================================= */
 
-  const completionPercentage = Math.round(totalScore);
+  const completionPercentage = Math.round(
+    Object.values(sections).reduce((a, b) => a + b, 0) /
+      Object.keys(sections).length
+  );
 
-  // ================================
-  // 🔹 RESPONSE
-  // ================================
+  /* ================================
+     RESPONSE
+  ================================= */
+
   res.status(StatusCodes.OK).json({
     success: true,
     message: 'Profile fetched successfully',
@@ -380,6 +411,7 @@ exports.getFreelancerProfile = asyncHandler(async (req, res) => {
 });
 
 
+
 // === UPDATE PROFILE (Freelancer himself) ===
 // controllers/freelancer.controller.js
 
@@ -387,207 +419,171 @@ exports.getFreelancerProfile = asyncHandler(async (req, res) => {
 
 exports.updateFreelancerProfile = asyncHandler(async (req, res) => {
   const freelancerId = req.user?.id || req.user?._id;
-
   if (!freelancerId) {
     throw new APIError('Unauthorized', StatusCodes.UNAUTHORIZED);
   }
 
-  // When using FormData, req.body contains text fields, req.files contains files
-  let data = req.body;
   const freelancer = await Freelancer.findById(freelancerId);
-
   if (!freelancer) {
     throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
   }
 
-  // --- HELPER: Parse JSON strings from FormData ---
-  // FormData turns nested objects/arrays into strings. We must parse them back.
-  const parseIfString = (field) => {
-      if (typeof field === 'string') {
-          try { return JSON.parse(field); } catch (e) { return field; }
-      }
-      return field;
+  let data = req.body;
+
+  /* ===========================
+     HELPERS
+  ============================ */
+  const parseIfString = (val) => {
+    if (typeof val === 'string') {
+      try { return JSON.parse(val); } catch { return val; }
+    }
+    return val;
   };
 
+  data.name = parseIfString(data.name);
   data.professional = parseIfString(data.professional);
   data.location = parseIfString(data.location);
   data.payment = parseIfString(data.payment);
+  data.languages = parseIfString(data.languages);
   data.services_offered = parseIfString(data.services_offered);
-  data.portfolio = parseIfString(data.portfolio);
-  data.languages = parseIfString(data.languages); // If languages sent as string array
-  // -----------------------------------------------
 
   /* ===========================
-       PROFILE IMAGE
+     PROFILE IMAGE
   ============================ */
   if (req.files?.profile_image?.[0]) {
     freelancer.profile_image = req.files.profile_image[0].path;
   }
 
   /* ===========================
-       BASIC INFO
+     BASIC INFO
   ============================ */
-  // Handle req.body.name[first_name] vs parsed object
   if (data.name) {
-      if(typeof data.name === 'string') data.name = JSON.parse(data.name); // Just in case
-      if (data.name.first_name) freelancer.name.first_name = data.name.first_name.trim();
-      if (data.name.last_name) freelancer.name.last_name = data.name.last_name.trim();
+    if (data.name.first_name) freelancer.name.first_name = data.name.first_name.trim();
+    if (data.name.last_name) freelancer.name.last_name = data.name.last_name.trim();
   }
-  
-  if (data.languages && Array.isArray(data.languages)) {
+
+  if (Array.isArray(data.languages)) {
     freelancer.languages = data.languages;
   }
 
   /* ===========================
-       PROFESSIONAL
+     PROFESSIONAL
   ============================ */
-  if (!freelancer.professional) freelancer.professional = {};
-
   if (data.professional) {
-    if (data.professional.experience_years !== undefined) freelancer.professional.experience_years = Number(data.professional.experience_years);
-    if (data.professional.bio !== undefined) freelancer.professional.bio = data.professional.bio.trim();
-    if (data.professional.working_radius !== undefined) freelancer.professional.working_radius = data.professional.working_radius.trim();
-    if (data.professional.availability !== undefined) freelancer.professional.availability = data.professional.availability;
-    
-    // Skills handling (Array)
-    if (data.professional.skills) {
-       freelancer.professional.skills = Array.isArray(data.professional.skills) 
-         ? data.professional.skills 
-         : []; 
-    }
+    freelancer.professional.experience_years =
+      data.professional.experience_years ?? freelancer.professional.experience_years;
+
+    if (data.professional.bio !== undefined)
+      freelancer.professional.bio = data.professional.bio.trim();
+
+    if (Array.isArray(data.professional.skills))
+      freelancer.professional.skills = data.professional.skills;
+
+    if (data.professional.availability)
+      freelancer.professional.availability = data.professional.availability;
   }
 
   /* ===========================
-       LOCATION
+     LOCATION
   ============================ */
-  if (!freelancer.location) freelancer.location = {};
   if (data.location) {
-    if (data.location.city !== undefined) freelancer.location.city = data.location.city.trim();
-    if (data.location.state !== undefined) freelancer.location.state = data.location.state.trim();
-    if (data.location.country !== undefined) freelancer.location.country = data.location.country.trim();
-    if (data.location.pincode !== undefined) freelancer.location.pincode = data.location.pincode.trim();
+    Object.assign(freelancer.location, {
+      city: data.location.city?.trim(),
+      state: data.location.state?.trim(),
+      country: data.location.country?.trim(),
+      po_box: data.location.po_box?.trim()
+    });
   }
 
   /* ===========================
-       PAYMENT & CURRENCY
+     PAYMENT
   ============================ */
-  if (!freelancer.payment) freelancer.payment = {};
   if (data.payment) {
-    if (data.payment.preferred_method !== undefined) freelancer.payment.preferred_method = data.payment.preferred_method.trim();
-    if (data.payment.advance_percentage !== undefined) freelancer.payment.advance_percentage = Number(data.payment.advance_percentage);
-    if (data.payment.gst_number !== undefined) freelancer.payment.gst_number = data.payment.gst_number.trim();
-    // Save Currency ID
-    if (data.payment.preferred_currency) {
+    if (data.payment.preferred_method)
+      freelancer.payment.preferred_method = data.payment.preferred_method.trim();
+
+    if (data.payment.vat_number !== undefined)
+      freelancer.payment.vat_number = data.payment.vat_number.trim();
+
+    if (data.payment.preferred_currency)
       freelancer.payment.preferred_currency = data.payment.preferred_currency;
-    }
   }
 
   /* ===========================
-       SERVICES OFFERED
+     SERVICES OFFERED (CRITICAL FIX)
   ============================ */
   if (Array.isArray(data.services_offered)) {
-    freelancer.services_offered = data.services_offered.map(s => ({
-      category: s.category,
-      subcategories: s.subcategories || [],
-      description: s.description?.trim(),
-      price_range: s.price_range?.trim(),
-      unit: s.unit?.trim(),
-      images: s.images || [],
-      is_active: s.is_active ?? true
+    freelancer.services_offered = data.services_offered.map(service => ({
+      category: service.category,
+      description: service.description?.trim(),
+      is_active: service.is_active ?? true,
+
+      subcategories: (service.subcategories || []).map(t => ({
+        type: t.type,
+        price_range: t.price_range?.trim() || null,
+        unit: t.unit?.trim() || null,
+        is_active: t.is_active ?? true
+      }))
     }));
   }
 
   /* ===========================
-       PORTFOLIO
-  ============================ */
-  if (Array.isArray(data.portfolio)) {
-    freelancer.portfolio = data.portfolio.map(p => ({
-      title: p.title?.trim(),
-      category: p.category,
-      subcategory: p.subcategory,
-      description: p.description?.trim(),
-      images: p.images || [],
-      area: p.area,
-      duration: p.duration,
-      client_name: p.client_name,
-      completed_at: p.completed_at,
-      featured: p.featured ?? false
-    }));
-  }
-
-  /* ===========================
-       DOCUMENT UPLOADS
+     DOCUMENT UPLOADS
   ============================ */
   if (req.files) {
-    const types = ['resume', 'identityProof', 'addressProof', 'certificate'];
+    const docTypes = ['resume', 'identityProof', 'addressProof', 'certificate'];
 
-    types.forEach(type => {
-      // Check if file exists in req.files[type]
-      if (req.files[type] && req.files[type].length > 0) {
-        const file = req.files[type][0]; // Take first file
-        
-        // Find index of existing doc type
-        const existingDocIndex = freelancer.documents.findIndex(d => d.type === type);
+    docTypes.forEach(type => {
+      if (req.files[type]?.[0]) {
+        const file = req.files[type][0];
+        const index = freelancer.documents.findIndex(d => d.type === type);
 
-        const newDocData = {
-           type,
-           path: file.path,
-           verified: false,
-           verified_at: null,
-           verified_by: null,
-           reason: null,
-           suggestion: null,
-           uploaded_at: new Date()
+        const doc = {
+          type,
+          path: file.path,
+          verified: false,
+          uploaded_at: new Date()
         };
 
-        if (existingDocIndex !== -1) {
-          // Update existing
-          // Preserve _id if needed, or let mongoose handle subdoc update
-          const oldId = freelancer.documents[existingDocIndex]._id;
-          freelancer.documents[existingDocIndex] = { ...newDocData, _id: oldId };
-        } else {
-          // Push new
-          freelancer.documents.push(newDocData);
-        }
+        if (index >= 0) freelancer.documents[index] = { ...freelancer.documents[index], ...doc };
+        else freelancer.documents.push(doc);
       }
     });
   }
 
   /* ===========================
-       ONBOARDING STATUS
+     ONBOARDING STATUS (UPDATED)
   ============================ */
-  const hasIdentity = freelancer.documents.some(d => d.type === 'identityProof');
-  const hasAddress = freelancer.documents.some(d => d.type === 'addressProof');
+  const hasRequiredDocs =
+    freelancer.documents.some(d => d.type === 'identityProof') &&
+    freelancer.documents.some(d => d.type === 'addressProof');
 
-  const hasCoreProfile =
-    freelancer.professional?.bio &&
+  const hasValidServices =
     freelancer.services_offered.length > 0 &&
-    freelancer.location?.city;
+    freelancer.services_offered.every(s =>
+      s.category &&
+      s.description &&
+      s.subcategories.length > 0 &&
+      s.subcategories.every(t => t.price_range && t.unit)
+    );
 
   freelancer.onboarding_status =
-    hasIdentity && hasAddress && hasCoreProfile
+    hasRequiredDocs && hasValidServices && freelancer.location?.city
       ? 'profile_submitted'
       : 'profile_incomplete';
 
   /* ===========================
-       META HISTORY
+     META HISTORY
   ============================ */
-  freelancer.meta.change_history.push({
-    updated_by: freelancerId,
-    changes: ['Profile updated via Web'],
-    updated_at: new Date()
-  });
+  
 
   await freelancer.save();
 
-  // Populate references for response
   await freelancer.populate([
+    { path: 'role', select: 'name' },
     { path: 'services_offered.category', select: 'name slug icon' },
-    { path: 'services_offered.subcategories', select: 'name slug' },
-    { path: 'portfolio.category', select: 'name slug' },
-    { path: 'portfolio.subcategory', select: 'name slug' },
-    { path: 'payment.preferred_currency', select: 'code name symbol' },
-    { path: 'role', select: 'name' }
+    { path: 'services_offered.subcategories.type', select: 'name slug' },
+    { path: 'payment.preferred_currency', select: 'code name symbol' }
   ]);
 
   res.status(StatusCodes.OK).json({
@@ -599,19 +595,17 @@ exports.updateFreelancerProfile = asyncHandler(async (req, res) => {
 });
 
 
-
 exports.addRateCard = asyncHandler(async (req, res) => {
   const freelancerId = req.user?.id || req.user?._id;
-
   if (!freelancerId) {
     throw new APIError('Unauthorized', StatusCodes.UNAUTHORIZED);
   }
 
-  const { serviceId, price_range, unit } = req.body;
+  const { serviceId, typeId, price_range, unit } = req.body;
 
-  if (!serviceId || !price_range) {
+  if (!serviceId || !typeId || !price_range) {
     throw new APIError(
-      'serviceId and price_range are required',
+      'serviceId, typeId and price_range are required',
       StatusCodes.BAD_REQUEST
     );
   }
@@ -621,31 +615,33 @@ exports.addRateCard = asyncHandler(async (req, res) => {
     throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
   }
 
-  // 🔍 Find service subdocument
+  // 🔍 Find service
   const service = freelancer.services_offered.id(serviceId);
   if (!service) {
     throw new APIError('Service not found', StatusCodes.NOT_FOUND);
   }
 
-  // ✅ Update rate card
-  service.price_range = price_range.trim();
-  if (unit !== undefined) {
-    service.unit = unit.trim();
+  // 🔍 Find type inside service
+  const typeItem = service.subcategories.find(
+    s => s.type.toString() === typeId
+  );
+
+  if (!typeItem) {
+    throw new APIError('Service type not found', StatusCodes.NOT_FOUND);
   }
 
-  // 📝 Meta history
-  freelancer.meta.change_history.push({
-    updated_by: freelancerId,
-    changes: [`Rate card updated for service ${service.category}`], // Log category ID or name if possible
-    updated_at: new Date()
-  });
+  // ✅ Update rate card
+  typeItem.price_range = price_range.trim();
+  if (unit) typeItem.unit = unit.trim();
+
+ 
 
   await freelancer.save();
 
   res.status(StatusCodes.OK).json({
     success: true,
     message: 'Rate card updated successfully',
-    service
+    rate_card: typeItem
   });
 });
 
@@ -681,11 +677,7 @@ exports.updateFreelancerStatus = asyncHandler(async (req, res) => {
     freelancer.meta.portal_access = false;
   }
 
-  freelancer.meta.change_history.push({
-    updated_by: req.user._id,
-    changes: [`Freelancer status changed → ${status == 1 ? 'Approved' : 'Rejected'}`],
-    updated_at: new Date(),
-  });
+
 
   await freelancer.save();
 
@@ -731,11 +723,6 @@ exports.verifyFreelancerDocument = asyncHandler(async (req, res) => {
     freelancer.onboarding_status = 'profile_incomplete';
   }
 
-  freelancer.meta.change_history.push({
-    updated_by: req.user._id,
-    changes: [`Document ${doc.type} ${verified ? 'approved' : 'rejected'}`],
-    updated_at: new Date(),
-  });
 
   await freelancer.save();
 
@@ -800,12 +787,6 @@ exports.updateDocument = asyncHandler(async (req, res) => {
   /* ===========================
      META HISTORY
   ============================ */
-  freelancer.meta.change_history = freelancer.meta.change_history || [];
-  freelancer.meta.change_history.push({
-    updated_by: req.user._id,
-    changes: [`Document ${doc.type} re-uploaded after rejection`],
-    updated_at: new Date(),
-  });
 
   await freelancer.save();
 
@@ -832,12 +813,7 @@ exports.updateDocumentVerification = asyncHandler(async (req, res) => {
   doc.reason = verified ? null : (reason || 'Invalid document');
   doc.suggestion = verified ? null : (suggestion || 'Please re-upload correct file');
 
-  freelancer.meta.change_history = freelancer.meta.change_history || [];
-  freelancer.meta.change_history.push({
-    updated_by: req.user._id,
-    changes: [`Document ${doc.type} ${verified ? 'APPROVED' : 'REJECTED'}`],
-    updated_at: new Date(),
-  });
+ 
 
   await freelancer.save();
 

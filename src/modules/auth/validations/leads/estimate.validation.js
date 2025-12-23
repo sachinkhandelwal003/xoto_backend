@@ -34,82 +34,81 @@ const isValidObjectId = (value, fieldName = 'ID') => {
 // CUSTOMER — SUBMIT ESTIMATE
 // ------------------------------------------------------------
 exports.validateSubmitEstimate = [
-  // Customer name
-  body('customer_name')
-    .trim()
-    .notEmpty().withMessage('Customer name is required'),
 
-  // Email
-  body('customer_email')
-    .trim()
-    .notEmpty().withMessage('Customer email is required')
-    .isEmail().withMessage('Invalid email format'),
+  /* ---------- CUSTOMER NAME ---------- */
+  body("customer_name.first_name")
+    .notEmpty().withMessage("First name is required")
+    .isString(),
 
-  // Mobile country code
-  body('customer_mobile.country_code')
-    .notEmpty().withMessage('Country code is required')
-    .matches(/^\+\d{1,4}$/).withMessage('Invalid country code (e.g. +91, +1, +44)'),  
+  body("customer_name.last_name")
+    .notEmpty().withMessage("Last name is required")
+    .isString(),
 
-  // Mobile number
-  body('customer_mobile.number')
-    .notEmpty().withMessage('Mobile number is required')
-    .matches(/^\d{8,15}$/).withMessage('Mobile number must contain 8-15 digits only'),
+  /* ---------- EMAIL ---------- */
+  body("customer_email")
+    .notEmpty().withMessage("Customer email is required")
+    .isEmail().withMessage("Invalid email format"),
 
-  // Service Type (landscape / interior)
-  body('service_type')
-    .notEmpty().withMessage('service_type is required')
-    .isIn(['landscape', 'interior']).withMessage('service_type must be landscape or interior'),
+  /* ---------- MOBILE ---------- */
+  body("customer_mobile.country_code")
+    .notEmpty().withMessage("Country code is required")
+    .matches(/^\+\d{1,4}$/).withMessage("Invalid country code"),
 
-  // Type → EstimateMasterType
-  body('type')
-    .notEmpty().withMessage('Type (EstimateMasterType) is required')
-    .custom(async id => {
-      if (!mongoose.Types.ObjectId.isValid(id))
-        throw new Error('Invalid type ID');
-      const exists = await Type.findById(id);
-      if (!exists) throw new Error('Type not found');
-      return true;
-    }),
+  body("customer_mobile.number")
+    .notEmpty().withMessage("Mobile number is required")
+    .matches(/^\d{8,15}$/).withMessage("Mobile number must be 8–15 digits"),
 
-  // Subcategory → EstimateMasterSubcategory (optional)
-  body('subcategory')
+  /* ---------- SERVICE TYPE ---------- */
+  body("service_type")
+    .notEmpty().withMessage("service_type is required")
+    .isIn(["landscape", "interior"]),
+
+  /* ---------- TYPE ---------- */
+  body("type")
+    .notEmpty().withMessage("Type is required")
+    .custom(value => mongoose.Types.ObjectId.isValid(value))
+    .withMessage("Invalid type id"),
+
+  /* ---------- SUBCATEGORY ---------- */
+  body("subcategory")
     .optional()
-    .custom(async id => {
-      if (!mongoose.Types.ObjectId.isValid(id))
-        throw new Error('Invalid subcategory ID');
-      const exists = await Subcategory.findById(id);
-      if (!exists) throw new Error('Subcategory not found');
-      return true;
-    }),
+    .custom(value => mongoose.Types.ObjectId.isValid(value))
+    .withMessage("Invalid subcategory id"),
 
-  // Package (optional)
-  body('package')
+  /* ---------- PACKAGE ---------- */
+  body("package")
     .optional()
-    .custom(async id => {
-      if (!mongoose.Types.ObjectId.isValid(id))
-        throw new Error('Invalid package ID');
-      const exists = await LandscapingPackage.findById(id);
-      if (!exists) throw new Error('Package not found');
-      return true;
-    }),
+    .custom(value => mongoose.Types.ObjectId.isValid(value))
+    .withMessage("Invalid package id"),
 
-  // Area fields
-  body('area_sqft')
-    .notEmpty().withMessage('area_sqft is required')
-    .isNumeric().withMessage('area_sqft must be a number'),
+  /* ---------- AREA ---------- */
+  body("area_sqft")
+    .notEmpty().withMessage("area_sqft is required")
+    .isNumeric().withMessage("area_sqft must be a number"),
 
-  body('area_length')
+  body("area_length")
     .optional()
-    .isNumeric().withMessage('area_length must be a number'),
+    .isNumeric().withMessage("area_length must be a number"),
 
-  body('area_width')
+  body("area_width")
     .optional()
-    .isNumeric().withMessage('area_width must be a number'),
+    .isNumeric().withMessage("area_width must be a number"),
 
-  // Description
-  body('description')
-    .notEmpty().withMessage('Description is required')
-    .isString().withMessage('Description must be a string'),
+  /* ---------- DESCRIPTION ---------- */
+  body("description")
+    .notEmpty().withMessage("Description is required")
+    .isString(),
+
+  /* ---------- LOCATION ---------- */
+  body("location").optional().isObject(),
+
+  body("location.lat").optional().isFloat(),
+  body("location.lng").optional().isFloat(),
+  body("location.country").optional().isString(),
+  body("location.state").optional().isString(),
+  body("location.city").optional().isString(),
+  body("location.area").optional().isString(),
+  body("location.address").optional().isString(),
 
   validate
 ];

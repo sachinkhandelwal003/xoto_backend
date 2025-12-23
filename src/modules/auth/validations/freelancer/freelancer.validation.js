@@ -159,10 +159,10 @@ exports.validateCreateFreelancer = [
   body('location.state').optional().trim(),
   body('location.country').optional().trim(),
 
-  body('location.pincode')
+  body('location.po_box')
     .optional()
     .trim()
-    .matches(/^\d{5,6}$/).withMessage('Invalid pincode'),
+    .matches(/^\d{5,6}$/).withMessage('Invalid po_box'),
 
   // Languages
   body('languages')
@@ -174,41 +174,41 @@ exports.validateCreateFreelancer = [
     }),
 
   // SERVICES OFFERED
-  body('services_offered')
-    .isArray({ min: 1 }).withMessage('At least one service is required').bail()
-    .custom(async (services) => {
-      for (let i = 0; i < services.length; i++) {
-        const s = services[i];
+  // body('services_offered')
+  //   .isArray({ min: 1 }).withMessage('At least one service is required').bail()
+  //   .custom(async (services) => {
+  //     for (let i = 0; i < services.length; i++) {
+  //       const s = services[i];
 
-        if (!s.category) throw new Error(`Service ${i + 1}: category is required`);
-        isValidObjectId(s.category, `Service ${i + 1} category`);
+  //       if (!s.category) throw new Error(`Service ${i + 1}: category is required`);
+  //       isValidObjectId(s.category, `Service ${i + 1} category`);
 
-        if (!Array.isArray(s.subcategories) || s.subcategories.length === 0)
-          throw new Error(`Service ${i + 1}: at least one subcategory is required`);
+  //       if (!Array.isArray(s.subcategories) || s.subcategories.length === 0)
+  //         throw new Error(`Service ${i + 1}: at least one subcategory is required`);
 
-        const cat = await Category.findOne({ _id: s.category, is_deleted: false });
-        if (!cat) throw new Error(`Service ${i + 1}: Invalid category ID`);
+  //       const cat = await Category.findOne({ _id: s.category, is_deleted: false });
+  //       if (!cat) throw new Error(`Service ${i + 1}: Invalid category ID`);
 
-        for (let j = 0; j < s.subcategories.length; j++) {
-          const subId = s.subcategories[j];
+  //       for (let j = 0; j < s.subcategories.length; j++) {
+  //         const subId = s.subcategories[j];
 
-          isValidObjectId(subId, `Service ${i + 1} subcategory ${j + 1}`);
+  //         isValidObjectId(subId, `Service ${i + 1} subcategory ${j + 1}`);
 
-          const subcat = await Subcategory.findOne({
-            _id: subId,
-            category: s.category,
-            is_deleted: false
-          });
+  //         const subcat = await Subcategory.findOne({
+  //           _id: subId,
+  //           category: s.category,
+  //           is_deleted: false
+  //         });
 
-          if (!subcat)
-            throw new Error(`Service ${i + 1}, Subcategory ${j + 1}: Does not belong to selected category`);
-        }
+  //         if (!subcat)
+  //           throw new Error(`Service ${i + 1}, Subcategory ${j + 1}: Does not belong to selected category`);
+  //       }
 
-        if (s.price_range && !/^\d+\s?-\s?\d+/.test(s.price_range))
-          throw new Error(`Service ${i + 1}: Invalid price range (e.g., 500 - 2000)`);
-      }
-      return true;
-    }),
+  //       if (s.price_range && !/^\d+\s?-\s?\d+/.test(s.price_range))
+  //         throw new Error(`Service ${i + 1}: Invalid price range (e.g., 500 - 2000)`);
+  //     }
+  //     return true;
+  //   }),
 
   // PAYMENT
   body('payment.preferred_method')

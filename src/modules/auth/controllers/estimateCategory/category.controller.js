@@ -5,6 +5,8 @@ const {Subcategory} = require('../../models/estimateCategory/category.model');
 const {Type} = require('../../models/estimateCategory/category.model');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const APIError = require('../../../../utils/errorHandler');
+const logActivity = require('../../../../utils/logActivity');
+
 const asyncHandler = require('../../../../utils/asyncHandler');
 
 // CREATE Category
@@ -18,12 +20,32 @@ exports.createCategory = asyncHandler(async (req, res) => {
 
   const category = await Category.create({ name, description });
 
+  // 🔥 ACTIVITY LOG
+  await logActivity({
+    entity_type: 'Category',
+    entity_id: category._id,
+    module_id: '69317b5730e70111a929fe11',       // Estimate master
+    sub_module_id: '69317b7b30e70111a929fe4c',   // Category
+    performed_by: req.user._id,
+    role_id: req.user.role,
+    role_slug: req.user.role_slug || 'admin',
+    action_type: 'created',
+    description: `Category "${category.name}" created`,
+    new_value: {
+      name: category.name,
+      description: category.description,
+      isActive: true
+    },
+    req
+  });
+
   res.status(StatusCodes.CREATED).json({
     success: true,
     message: 'Category created successfully',
     category,
   });
 });
+
 
 // BULK CREATE with relationships
 exports.bulkCreateCategories = asyncHandler(async (req, res) => {

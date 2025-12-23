@@ -48,9 +48,9 @@ exports.customerLogin = asyncHandler(async (req, res) => {
     throw new APIError("Customer role not found", StatusCodes.NOT_FOUND);
   }
 
-  // Find customer by mobile + role
+  // Find customer by mobile.number + role
   const customer = await Customer.findOne({
-    mobile,
+    "mobile.number": mobile,
     role: customerRole._id,
     is_deleted: false
   }).populate("role", "name code");
@@ -73,6 +73,8 @@ exports.customerLogin = asyncHandler(async (req, res) => {
     customer
   });
 });
+
+
 
 exports.createUser = asyncHandler(async (req, res) => {
   const { email, mobile, password, name, role: roleId } = req.body;

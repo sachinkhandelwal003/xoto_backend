@@ -9,6 +9,15 @@ const {
   updateCategory,
   deleteCategory,
 } = require('../../controllers/estimateCategory/category.controller');
+const { protect, authorize } = require('../../../../middleware/auth');
+
+const {
+  uploadPreviewImage,
+  addMoodboardImages,
+  updateImageTitle,
+  deleteMoodboardImage,deletePreviewImage,getGalleryByTypeId,generateMoodboard
+} = require('../../controllers/estimateCategory/type.controller');
+const upload = require('../../../../middleware/multer');
 
 const {
   getSubcategories,
@@ -33,6 +42,10 @@ const {
   validateCreateType,
 } = require('../../validations/estimateCategory/category.validation');
 
+const uploadTypeImages = upload.fields([
+  { name: 'previewImage', maxCount: 1 },
+  { name: 'moodboardImages', maxCount: 20 }
+]);
 // Category Routes
 router.post('/', validateCreateCategory, createCategory);
 router.post('/bulk', validateBulkCreate, bulkCreateCategories);
@@ -53,8 +66,44 @@ router.delete('/:categoryId/subcategories/:id', deleteSubcategory);
 // Type Routes (nested under subcategory)
 router.get('/:categoryId/subcategories/:subcategoryId/types', getTypes);
 router.get('/:categoryId/subcategories/:subcategoryId/types/:id', getTypeById);
-router.post('/:categoryId/subcategories/:subcategoryId/types', validateCreateType, createType);
+router.post('/:categoryId/subcategories/:subcategoryId/types',protect, validateCreateType, createType);
 router.put('/:categoryId/subcategories/:subcategoryId/types/:id', updateType);
 router.delete('/:categoryId/subcategories/:subcategoryId/types/:id', deleteType);
+
+
+
+router.post(
+  '/types/:typeId/gallery/preview',
+  upload.fields([{ name: 'previewImage', maxCount: 1 }]),
+  uploadPreviewImage
+);
+
+router.post(
+  '/types/:typeId/gallery/moodboard',
+  upload.fields([{ name: 'moodboardImages', maxCount: 20 }]),
+  addMoodboardImages
+);
+
+router.put(
+  '/types/:typeId/gallery/image-title',
+  updateImageTitle
+);
+
+router.delete(
+  '/types/:typeId/gallery/moodboard/:imageId',
+  deleteMoodboardImage
+);
+
+router.delete(
+  '/types/:typeId/gallery/preview',
+  deletePreviewImage
+);
+router.get('/types/:typeId/gallery', getGalleryByTypeId);
+
+router.get(
+  '/types/:typeId/gallery/moodboard/generate',
+  generateMoodboard
+);
+
 
 module.exports = router;
