@@ -49,7 +49,7 @@ exports.getAllLandingPageLeads = asyncHandler(async (req, res) => {
 
     return {
       _id: lead._id,
-      type: lead.type,
+      type: "enquiry",
 
       name: {
         first_name,
