@@ -12,18 +12,15 @@ const {
 } = require('../../validations/consult/propertyLead.validation');
 
 // Public create
-// router.use(protectMulti);
+router.use(protectMulti);
 router.post('/create' , controller.createLandingPageLead);
 
 // Protected
 
-// // Get all
-// router.get('/',
-//   authorize({ roles: ['SuperAdmin', 'Admin', 'Manager'] }),
-//   checkPermission('PropertyLeads', 'view'),
-//   validateGetPropertyLeads,
-//   controller.getAllPropertyLeads
-// );
+// Get all
+router.get('/',
+  authorize({ roles: ['SuperAdmin', 'Admin', 'Manager'] }),controller.getAllLandingPageLeads
+);
 
 // // Get single
 // router.get('/:id', validatePropertyLeadId, controller.getPropertyLead);
