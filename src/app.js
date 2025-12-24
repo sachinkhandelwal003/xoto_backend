@@ -31,7 +31,10 @@ app.use('/users', require('./modules/auth/routes/user/user.routes'));
 app.use('/consult', require('./modules/auth/routes/consult/consult.routes'));
 app.use('/enquiry', require('./modules/auth/routes/consult/enquiry.routes'));
 app.use('/property/lead', require('./modules/auth/routes/consult/propertyLead.route'));
-
+app.use('/landing/lead',  (req, res, next) => {
+    console.log('request came on /landing/lead');
+    next();
+  },require('./modules/auth/routes/consult/LandingLead.route'));
 
 app.use('/freelancer/projects/get', require('../src/modules/auth/routes/freelancer/routesfreelancer'));
 app.use('/freelancer/category', require('../src/modules/auth/routes/freelancer/freelancercategory.routes'));
