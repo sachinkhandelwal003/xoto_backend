@@ -407,7 +407,7 @@ exports.getGalleryByTypeId = asyncHandler(async (req, res) => {
 exports.getQuestionByTypeId = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
 
-  const data = await TypeQuestion.findOne({ type: typeId }).populate('type');
+  const data = await TypeQuestion.find({ type: typeId }).populate('type');
   if (!data) {
     return res.status(StatusCodes.OK).json({
       success: true,
