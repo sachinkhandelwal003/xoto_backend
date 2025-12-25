@@ -5,7 +5,7 @@ const ImageSchema = new mongoose.Schema(
     id: { type: String },
     title: { type: String },
     url: { type: String },
-    perSqValue:{type:String,default:0,required:false}
+    perSqValue:{type:Number,default:0,required:false}
   },
   { _id: false }
 );
