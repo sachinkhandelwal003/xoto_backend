@@ -20,6 +20,13 @@ const TypeQuestionSchema = new mongoose.Schema(
     isActive: {
       type: Boolean,
       default: true
+    },
+
+    questionType: {
+      type: String,
+      default: "text",
+      enum: ["text", "options"],
+      required:false
     }
   },
   { timestamps: true }

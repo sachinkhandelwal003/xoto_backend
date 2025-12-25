@@ -10,6 +10,7 @@ const { TypeGallery } = require('../../models/estimateCategory/typeGallery.model
 const logActivity = require('../../../../utils/logActivity');
 const { resolveModule } = require('../../../../utils/resolveModule');
 const TypeQuestion = require('../../models/estimateCategory/typeQuestion.model');
+const TypeQuestionOption = require('../../models/estimateCategory/typeQuestionOptions.model');
 
 
 const shuffleArray = (array) => {
@@ -297,33 +298,57 @@ exports.addMoodboardImages = asyncHandler(async (req, res) => {
 
 exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
-  const { question } = req.body
+  const { question, questionType = "text", options = [] } = req.body;
 
-  const data = await TypeQuestion.create(
-    {
-      type: typeId,
-      question,
+  // 1️⃣ Create question first
+  const questionDoc = await TypeQuestion.create({
+    type: typeId,
+    question,
+    questionType
+  });
+
+  // 2️⃣ If question type is OPTIONS → create options
+  let optionsGenerated = [];
+  if (questionType === "options") {
+    if (!options.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Options are required for options type question"
+      });
     }
-  );
+
+    const optionDocs = options.map((opt, index) => ({
+      question: questionDoc._id,
+      title: opt.title,
+      order: opt.order ?? index
+    }));
+
+    optionsGenerated = await TypeQuestionOption.insertMany(optionDocs);
+  }
 
   res.status(StatusCodes.CREATED).json({
     success: true,
-    message: 'Moodboard Question added',
-    data,
+    message: "Question added successfully",
+    data: optionsGenerated && optionsGenerated.length>0? {...questionDoc.toObject(),optionsGenerated}:questionDoc
   });
 });
+
 
 
 exports.deleteMoodboardQuestions = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
   const { question_id } = req.body
-
+  console.log("typeId and question_id",typeId ,question_id)
   const data = await TypeQuestion.deleteOne(
     {
       type: typeId,
       _id:question_id,
     }
   );
+
+  await TypeQuestionOption.deleteMany({
+    question:question_id
+  })
 
   res.status(StatusCodes.CREATED).json({
     success: true,
