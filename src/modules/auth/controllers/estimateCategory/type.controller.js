@@ -450,7 +450,7 @@ exports.getGalleryByTypeId = asyncHandler(async (req, res) => {
 exports.getQuestionByTypeId = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
 
-  const data = await TypeQuestion.find({ type: typeId }).populate('type');
+  let data = await TypeQuestion.find({ type: typeId }).populate('type').lean();
   if (!data) {
     return res.status(StatusCodes.OK).json({
       success: true,
@@ -459,6 +459,18 @@ exports.getQuestionByTypeId = asyncHandler(async (req, res) => {
   }
 
 
+  if(data){
+    data = await Promise.all (data.map(async(obj)=>{
+      if(data.questionType!=="text"){
+        let options = await TypeQuestionOption.find({question:obj._id});
+        return {...obj,options}
+      }else{
+        return {...obj,options:[]}
+      }
+    }))
+  }
+
+  
   res.status(StatusCodes.OK).json({
     success: true,
     data,
