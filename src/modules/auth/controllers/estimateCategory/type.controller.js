@@ -278,6 +278,7 @@ exports.addMoodboardImages = asyncHandler(async (req, res) => {
     id: file.filename,
     title: file.originalname,
     url: `/uploads/${file.filename}`,
+    perSqValue: file.perSqValue !== "" && !isNaN(file.perSqValue) ? Number(file.perSqValue) : 0
   }));
 
   const gallery = await TypeGallery.findOneAndUpdate(
@@ -329,7 +330,7 @@ exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
   res.status(StatusCodes.CREATED).json({
     success: true,
     message: "Question added successfully",
-    data: optionsGenerated && optionsGenerated.length>0? {...questionDoc.toObject(),optionsGenerated}:questionDoc
+    data: optionsGenerated && optionsGenerated.length > 0 ? { ...questionDoc.toObject(), optionsGenerated } : questionDoc
   });
 });
 
@@ -338,22 +339,22 @@ exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
 exports.deleteMoodboardQuestions = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
   const { question_id } = req.body
-  console.log("typeId and question_id",typeId ,question_id)
+  console.log("typeId and question_id", typeId, question_id)
   const data = await TypeQuestion.deleteOne(
     {
       type: typeId,
-      _id:question_id,
+      _id: question_id,
     }
   );
 
   await TypeQuestionOption.deleteMany({
-    question:question_id
+    question: question_id
   })
 
   res.status(StatusCodes.CREATED).json({
     success: true,
     message: 'Moodboard Question deleted',
-    data:null,
+    data: null,
   });
 });
 
@@ -459,18 +460,18 @@ exports.getQuestionByTypeId = asyncHandler(async (req, res) => {
   }
 
 
-  if(data){
-    data = await Promise.all (data.map(async(obj)=>{
-      if(data.questionType!=="text"){
-        let options = await TypeQuestionOption.find({question:obj._id});
-        return {...obj,options}
-      }else{
-        return {...obj,options:[]}
+  if (data) {
+    data = await Promise.all(data.map(async (obj) => {
+      if (data.questionType !== "text") {
+        let options = await TypeQuestionOption.find({ question: obj._id });
+        return { ...obj, options }
+      } else {
+        return { ...obj, options: [] }
       }
     }))
   }
 
-  
+
   res.status(StatusCodes.OK).json({
     success: true,
     data,
