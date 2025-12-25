@@ -313,6 +313,25 @@ exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
   });
 });
 
+
+exports.deleteMoodboardQuestions = asyncHandler(async (req, res) => {
+  const { typeId } = req.params;
+  const { question_id } = req.body
+
+  const data = await TypeQuestion.deleteOne(
+    {
+      type: typeId,
+      _id:question_id,
+    }
+  );
+
+  res.status(StatusCodes.CREATED).json({
+    success: true,
+    message: 'Moodboard Question deleted',
+    data:null,
+  });
+});
+
 exports.updateImageTitle = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
   const { imageId, title, type } = req.body;

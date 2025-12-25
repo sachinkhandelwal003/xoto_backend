@@ -16,7 +16,8 @@ const {
   addMoodboardImages,
   updateImageTitle,
   addMoodboardQuestions,
-  deleteMoodboardImage,deletePreviewImage,getGalleryByTypeId,generateMoodboard,getQuestionByTypeId
+  deleteMoodboardImage,deletePreviewImage,getGalleryByTypeId,generateMoodboard,getQuestionByTypeId,
+  deleteMoodboardQuestions
 } = require('../../controllers/estimateCategory/type.controller');
 const upload = require('../../../../middleware/multer');
 
@@ -88,6 +89,11 @@ router.post(
 router.post(
   '/types/:typeId/question/moodboard',
   addMoodboardQuestions
+);
+
+router.post(
+  '/types/:typeId/question/moodboard/delete',
+  deleteMoodboardQuestions
 );
 
 router.put(
