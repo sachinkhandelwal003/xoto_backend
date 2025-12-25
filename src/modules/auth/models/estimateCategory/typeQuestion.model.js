@@ -1,18 +1,5 @@
 const mongoose = require("mongoose");
 
-
-const OptionSchema = new mongoose.Schema(
-  {
-    title: {
-      type: String,
-      required: true,
-      trim: true
-    }
-  },
-  { timestamps: false }
-);
-
-
 const TypeQuestionSchema = new mongoose.Schema(
   {
 
@@ -27,12 +14,6 @@ const TypeQuestionSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true
-    },
-
-    // Selectable options
-    options: {
-      type: [OptionSchema],
-      default: []
     },
 
     // Enable / Disable question

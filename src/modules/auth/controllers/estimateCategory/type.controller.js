@@ -297,13 +297,12 @@ exports.addMoodboardImages = asyncHandler(async (req, res) => {
 
 exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
-  const { question, options } = req.body
+  const { question } = req.body
 
   const data = await TypeQuestion.create(
     {
       type: typeId,
       question,
-      options
     }
   );
 
