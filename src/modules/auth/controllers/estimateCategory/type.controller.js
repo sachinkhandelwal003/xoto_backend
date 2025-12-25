@@ -1,14 +1,15 @@
 // controllers/type.controller.js
 const mongoose = require('mongoose');
-const {Category} = require('../../models/estimateCategory/category.model');
-const {Subcategory} = require('../../models/estimateCategory/category.model');
-const {Type} = require('../../models/estimateCategory/category.model');
+const { Category } = require('../../models/estimateCategory/category.model');
+const { Subcategory } = require('../../models/estimateCategory/category.model');
+const { Type } = require('../../models/estimateCategory/category.model');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const APIError = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
-const {TypeGallery} =require('../../models/estimateCategory/typeGallery.model')
-const logActivity  = require('../../../../utils/logActivity');
-const {resolveModule} = require('../../../../utils/resolveModule');
+const { TypeGallery } = require('../../models/estimateCategory/typeGallery.model')
+const logActivity = require('../../../../utils/logActivity');
+const { resolveModule } = require('../../../../utils/resolveModule');
+const TypeQuestion = require('../../models/estimateCategory/typeQuestion.model');
 
 
 const shuffleArray = (array) => {
@@ -294,6 +295,25 @@ exports.addMoodboardImages = asyncHandler(async (req, res) => {
   });
 });
 
+exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
+  const { typeId } = req.params;
+  const { question, options } = req.body
+
+  const data = await TypeQuestion.create(
+    {
+      type: typeId,
+      question,
+      options
+    }
+  );
+
+  res.status(StatusCodes.CREATED).json({
+    success: true,
+    message: 'Moodboard Question added',
+    data,
+  });
+});
+
 exports.updateImageTitle = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
   const { imageId, title, type } = req.body;
@@ -370,12 +390,12 @@ exports.getGalleryByTypeId = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
 
   const gallery = await TypeGallery.findOne({ type: typeId }).populate('type');
- if (!gallery) {
-  return res.status(StatusCodes.OK).json({
-    success: true,
-    gallery: null
-  });
-}
+  if (!gallery) {
+    return res.status(StatusCodes.OK).json({
+      success: true,
+      gallery: null
+    });
+  }
 
 
   res.status(StatusCodes.OK).json({
@@ -383,6 +403,27 @@ exports.getGalleryByTypeId = asyncHandler(async (req, res) => {
     gallery,
   });
 });
+
+exports.getQuestionByTypeId = asyncHandler(async (req, res) => {
+  const { typeId } = req.params;
+
+  const data = await TypeQuestion.findOne({ type: typeId }).populate('type');
+  if (!data) {
+    return res.status(StatusCodes.OK).json({
+      success: true,
+      data: null
+    });
+  }
+
+
+  res.status(StatusCodes.OK).json({
+    success: true,
+    data,
+  });
+});
+
+
+
 exports.generateMoodboard = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
 
