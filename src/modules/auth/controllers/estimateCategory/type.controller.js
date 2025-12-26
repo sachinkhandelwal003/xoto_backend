@@ -23,7 +23,7 @@ const shuffleArray = (array) => {
 };
 exports.createType = asyncHandler(async (req, res) => {
   const { categoryId, subcategoryId } = req.params;
-  const { label, description, order,baseEstimationValue } = req.body;
+  const { label, description, order,baseEstimationValueUnit } = req.body;
 
   //baseEstimationValue this will be for most basic setup whethjer you create any design
   if (!label?.trim()) {
@@ -61,7 +61,7 @@ exports.createType = asyncHandler(async (req, res) => {
     subcategory: subcategoryId,
     category: categoryId,
     order: order || 0,
-    baseEstimationValue:baseEstimationValue,
+    baseEstimationValueUnit:baseEstimationValueUnit,
     isActive: true
   });
 
