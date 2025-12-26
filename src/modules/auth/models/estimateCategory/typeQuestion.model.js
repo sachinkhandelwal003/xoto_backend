@@ -31,7 +31,8 @@ const TypeQuestionSchema = new mongoose.Schema(
      valueType:{
       type:String,
       default:"percentage",
-      enum:['percentage','fixedValue']
+      enum:['percentage','fixedValue'],
+      required:false
     },
     minValue: {
       type: Number,
