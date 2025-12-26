@@ -25,9 +25,19 @@ const TypeQuestionSchema = new mongoose.Schema(
     questionType: {
       type: String,
       default: "text",
-      enum: ["text", "options"],
-      required:false
-    }
+      enum: ["text", "yesorno", "options", "number"],
+      required: false
+    },
+    minValue: {
+      type: Number,
+      default: 0,
+      required: false
+    },
+    maxValue: {
+      type: Number,
+      default: 0,
+      required: false
+    },
   },
   { timestamps: true }
 );

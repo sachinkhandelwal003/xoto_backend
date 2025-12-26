@@ -22,6 +22,16 @@ const TypeQuestionOptionSchema = new mongoose.Schema(
     isActive: {
       type: Boolean,
       default: true
+    },
+    weightType:{
+      type:String,
+      default:"percentage",
+      enum:['percentage','fixedValue']
+    },
+    value:{
+      type:Number,
+      default:0,
+      required:false
     }
   },
   { timestamps: true }

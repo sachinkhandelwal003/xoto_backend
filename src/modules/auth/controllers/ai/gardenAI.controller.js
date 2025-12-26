@@ -32,7 +32,7 @@ ${description && description.length > 0 ? `Edit according to this description: $
 The image must look 100% real and authentic, like a professional photograph clicked using a DSLR camera.
 Photorealistic lighting, natural shadows, realistic textures, real-world proportions.
 No animation, no illustration, no cartoon style, no CGI, no artificial or stylized look.
-.Images should look real , no animated images should come `.trim();
+.Images should look real , no animated images should come`.trim();
 
     // Convert uploaded files to OpenAI format
     const images = await Promise.all(

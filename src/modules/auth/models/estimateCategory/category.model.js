@@ -102,6 +102,7 @@ const TypeSchema = new mongoose.Schema(
     },
     isActive: { type: Boolean, default: true },
     order: { type: Number, default: 0 },
+    baseEstimationValue:{type:Number,default:0,required:false}
   },
   { timestamps: true }
 );

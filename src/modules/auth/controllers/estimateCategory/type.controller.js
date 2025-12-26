@@ -23,8 +23,9 @@ const shuffleArray = (array) => {
 };
 exports.createType = asyncHandler(async (req, res) => {
   const { categoryId, subcategoryId } = req.params;
-  const { label, description, order } = req.body;
+  const { label, description, order,baseEstimationValue } = req.body;
 
+  //baseEstimationValue this will be for most basic setup whethjer you create any design
   if (!label?.trim()) {
     throw new APIError('Type label is required', StatusCodes.BAD_REQUEST);
   }
@@ -60,6 +61,7 @@ exports.createType = asyncHandler(async (req, res) => {
     subcategory: subcategoryId,
     category: categoryId,
     order: order || 0,
+    baseEstimationValue:baseEstimationValue,
     isActive: true
   });
 
