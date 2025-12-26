@@ -28,10 +28,11 @@ ${styleName && styleName.length > 0 ? `${styleName} create with these styles and
 Use these elements as well: ${elements}.
 ${description && description.length > 0 ? `Edit according to this description: ${description}` : ''}
 
+**STRICTLY FOLLOW THESE RULES **
 The image must look 100% real and authentic, like a professional photograph clicked using a DSLR camera.
 Photorealistic lighting, natural shadows, realistic textures, real-world proportions.
 No animation, no illustration, no cartoon style, no CGI, no artificial or stylized look.
-`.trim();
+.Images should look real , no animated images should come `.trim();
 
     // Convert uploaded files to OpenAI format
     const images = await Promise.all(
@@ -45,7 +46,7 @@ No animation, no illustration, no cartoon style, no CGI, no artificial or styliz
       model: "gpt-image-1",
       image: images,
       prompt,
-      input_fidelity: "low", // can be "medium" or "high"
+      input_fidelity: "high", // can be "medium" or "high"
     });
 
     // Convert Base64 output to buffer
