@@ -16,10 +16,21 @@ exports.generateGardenDesigns = async (req, res) => {
 
     let { styleName, elements, description } = req.body;
 
+    //     const prompt = `
+    // ${styleName && styleName.length > 0 ? `${styleName} create with these styles and use them.` : ''}
+    // Use these elements as well: ${elements}.
+    // ${description && description.length > 0 ? `Edit according to this description: ${description}` : ''}
+    // `.trim();
+
+
     const prompt = `
 ${styleName && styleName.length > 0 ? `${styleName} create with these styles and use them.` : ''}
 Use these elements as well: ${elements}.
 ${description && description.length > 0 ? `Edit according to this description: ${description}` : ''}
+
+The image must look 100% real and authentic, like a professional photograph clicked using a DSLR camera.
+Photorealistic lighting, natural shadows, realistic textures, real-world proportions.
+No animation, no illustration, no cartoon style, no CGI, no artificial or stylized look.
 `.trim();
 
     // Convert uploaded files to OpenAI format
