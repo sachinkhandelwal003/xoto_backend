@@ -30,31 +30,32 @@ exports.createType = asyncHandler(async (req, res) => {
     throw new APIError('Type label is required', StatusCodes.BAD_REQUEST);
   }
 
+  
   const category = await Category.findById(categoryId);
   if (!category) {
     throw new APIError('Category not found', StatusCodes.NOT_FOUND);
   }
-
+  
   const subcategory = await Subcategory.findOne({
     _id: subcategoryId,
     category: categoryId,
     isActive: true
   });
-
+  
   if (!subcategory) {
     throw new APIError('Subcategory not found', StatusCodes.NOT_FOUND);
   }
-
+  
   const exists = await Type.findOne({
     label: { $regex: `^${label}$`, $options: 'i' },
     subcategory: subcategoryId,
     category: categoryId
   });
-
+  
   if (exists) {
     throw new APIError('Type already exists in this subcategory', StatusCodes.CONFLICT);
   }
-
+  
   const type = await Type.create({
     label: label.trim(),
     description: description?.trim() || '',
@@ -64,6 +65,7 @@ exports.createType = asyncHandler(async (req, res) => {
     baseEstimationValueUnit:baseEstimationValueUnit,
     isActive: true
   });
+  await Type.updateMany({},{baseEstimationValue:0})
 
   const module_id = await resolveModule('estimate-master');
 
