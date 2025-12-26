@@ -66,7 +66,7 @@ exports.createType = asyncHandler(async (req, res) => {
     isActive: true
   });
   await Type.updateMany({},{
-    $set:{baseEstimationValue:0}})
+    $set:{baseEstimationValueUnit:0}})
 
   const module_id = await resolveModule('estimate-master');
 
