@@ -30,9 +30,14 @@ const TypeQuestionSchema = new mongoose.Schema(
     },
      valueType:{
       type:String,
-      default:"percentage",
-      enum:['percentage','fixedValue'],
+      default:"number",
+      enum:['percentage','number'],
       required:false
+    },
+    valueSubType:{
+      type:String,
+      default:"persqm",
+      enum:["persqm","flat"]
     },
     minValue: {
       type: Number,
@@ -44,6 +49,16 @@ const TypeQuestionSchema = new mongoose.Schema(
       default: 0,
       required: false
     },
+    includeInEstimate:{
+      type:Boolean,
+      default:true,
+      required:false
+    },
+    areaQuestion:{
+      type:Boolean,
+      default:false,
+      required:false,
+    }
   },
   { timestamps: true }
 );
