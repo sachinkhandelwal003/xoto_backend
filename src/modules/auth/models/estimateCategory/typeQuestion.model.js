@@ -44,6 +44,11 @@ const TypeQuestionSchema = new mongoose.Schema(
       default: 0,
       required: false
     },
+    includeInEstimate:{
+      type:Boolean,
+      default:true,
+      required:false
+    },
   },
   { timestamps: true }
 );

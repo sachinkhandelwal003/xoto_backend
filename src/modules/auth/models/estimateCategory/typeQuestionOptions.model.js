@@ -18,7 +18,11 @@ const TypeQuestionOptionSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
-
+    includeInEstimate:{
+      type:Boolean,
+      default:true,
+      required:false
+    },
     isActive: {
       type: Boolean,
       default: true
