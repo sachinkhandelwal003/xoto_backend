@@ -346,6 +346,22 @@ exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
   });
 });
 
+exports.getMoodboardQuestions = asyncHandler(async (req, res) => {
+  const { typeId } = req.params;
+
+  let allQuestions = await TypeQuestion.find({type:typeId});
+  allQuestions = await Promise.all( allQuestions.map(async(ques)=>{
+    let options = [];
+    options = await TypeQuestionOption.find({question:ques._id});
+    return {...ques,options}
+  }))
+  res.status(StatusCodes.CREATED).json({
+    success: true,
+    message: "Question added successfully",
+    data: allQuestions
+  });
+});
+
 
 
 exports.deleteMoodboardQuestions = asyncHandler(async (req, res) => {
