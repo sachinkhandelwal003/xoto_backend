@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const { PutObjectCommand } = require("@aws-sdk/client-s3");
 const s3 = require("../../../../config/s3Client");
-
+const AIGeneratedImages = require('../../models/user/AIGeneratedImages');
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 exports.generateGardenDesigns = async (req, res) => {
@@ -13,8 +13,18 @@ exports.generateGardenDesigns = async (req, res) => {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: "No image uploaded" });
     }
+    let user = req.user;
+    console.log("usertrrrrrrrrrrrrrrrrrrr",user)
+    let { styleName, elements, description ,userId} = req.body;
+    let aiGeneratedImagesCOunt = await AIGeneratedImages.find({userId:user._id});
 
-    let { styleName, elements, description } = req.body;
+    if(aiGeneratedImagesCOunt.length>0){
+      return res.status(400).json({
+        status:false,
+        message:"If you want to generate more images . Then purchase premium.",
+        aiImageGeneration:false
+      })
+    }
 
     //     const prompt = `
     // ${styleName && styleName.length > 0 ? `${styleName} create with these styles and use them.` : ''}
@@ -67,22 +77,37 @@ No animation, no illustration, no cartoon style, no CGI, no artificial or styliz
     const imageUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
 
 
-    // // Save the edited image
-    // const outputDir = path.join(__dirname, "../../output");
-    // if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+    let AiGeneratedImages = await AIGeneratedImages.create({
+      imageUrl,
+      userType:"customer",
+      userId:user._id 
+    })
 
-    // const outputPath = path.join(outputDir, `${Date.now()}_garden.png`);
-    // fs.writeFileSync(outputPath, imageBuffer);
-
-    // Return the edited image path or base64
     res.json({
       message: "Garden generated successfully",
       // file: outputPath,
       // base64: imageBase64, // optional
-      imageUrl
+      imageUrl,
+      AiGeneratedImages
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to generate garden" });
   }
 };
+
+// exports.getAllAIImages = async (req, res) => {
+//   try {
+//     let user = req.user;
+//     console.log("userrrrrrrrrrrrrrrr",user);
+
+//     // let allAIImages = 
+
+//     res.json({
+//       message: "Garden generated successfully",
+//     });
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ error: "Failed to generate garden" });
+//   }
+// };
