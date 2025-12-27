@@ -6,16 +6,17 @@ const { APIError } = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
 const { createToken } = require('../../../../middleware/auth');
 const { Role } = require('../../models/role/role.model');
-const Customer =require('../../models/user/customer.model')
+const Customer = require('../../models/user/customer.model')
+const PropertyLead = require("../../models/consultant/propertyLead.model")
 const mongoose = require('mongoose');
 
 exports.userLogin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
-  const user = await User.findOne({ 
-      email: email.toLowerCase(), 
-      is_deleted: false 
-    })
+  const user = await User.findOne({
+    email: email.toLowerCase(),
+    is_deleted: false
+  })
     .select('+password')
     .populate('role', 'name code isSuperAdmin');  // ⭐ FIXED
 
@@ -80,7 +81,8 @@ exports.customerSignup = asyncHandler(async (req, res) => {
     name,
     email,
     mobile,
-    location
+    location,
+    comingFromAiPage
   } = req.body;
 
   // 🔴 Required fields check
@@ -125,6 +127,27 @@ exports.customerSignup = asyncHandler(async (req, res) => {
 
   await customer.populate("role", "name code");
 
+
+  let lead = {};
+  if (comingFromAiPage === true) {
+
+    let new_location = location && typeof(location)=="object"? Object.values(location).filter(Boolean).join(', '):""
+    let payload = {
+      type: 'enquiry', // or 'enquiry' (your choice)
+      name,
+      email: email.toLowerCase(),
+      mobile,
+      location:new_location,
+      preferred_contact: 'whatsapp',
+      status: 'submit'
+    }
+
+
+
+
+    lead = await PropertyLead.create(payload);
+  }
+
   // 🔐 Generate token
   const token = createToken(customer);
 
@@ -132,7 +155,8 @@ exports.customerSignup = asyncHandler(async (req, res) => {
     success: true,
     message: "Customer registered successfully",
     token,
-    customer
+    customer,
+    lead
   });
 });
 

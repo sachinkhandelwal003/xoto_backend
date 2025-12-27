@@ -123,7 +123,7 @@ propertyLeadSchema.pre(['find', 'findOne', 'findOneAndUpdate', 'countDocuments',
     this.where({ is_deleted: false });
   }
 });
-
+ 
 const PropertyLead = mongoose.model('PropertyLead', propertyLeadSchema);
 
 // ======================== VALIDATION (Universal for ALL forms) ========================
