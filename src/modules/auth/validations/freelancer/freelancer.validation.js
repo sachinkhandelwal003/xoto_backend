@@ -31,206 +31,128 @@ const isValidObjectId = (value, fieldName) => {
 };
 
 
-// === CREATE FREELANCER (NO DOCUMENTS) ===
 exports.validateCreateFreelancer = [
 
-  // Email
+  /* ================= EMAIL ================= */
   body('email')
     .trim()
     .notEmpty().withMessage('Email is required').bail()
     .isEmail().withMessage('Invalid email format').bail()
     .normalizeEmail()
     .custom(async (email) => {
-      const exists = await Freelancer.findOne({ email, is_deleted: false });
+      const exists = await Freelancer.findOne({ email });
       if (exists) throw new Error('Email already in use');
       return true;
     }),
 
-  // Password
+  /* ================= PASSWORD ================= */
   body('password')
     .trim()
     .notEmpty().withMessage('Password is required').bail()
     .isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
 
-  // Confirm Password
   body('confirm_password')
-    .trim()
-    .notEmpty().withMessage('Confirm password is required').bail()
+    .notEmpty().withMessage('Confirm password is required')
     .custom((value, { req }) => {
-      if (value !== req.body.password) throw new Error('Passwords do not match');
+      if (value !== req.body.password)
+        throw new Error('Passwords do not match');
       return true;
     }),
 
-  // Name
+  /* ================= NAME ================= */
   body('name.first_name')
     .trim()
-    .notEmpty().withMessage('First name is required').bail()
-    .isLength({ min: 2, max: 50 }).withMessage('First name must be 2-50 characters'),
+    .notEmpty().withMessage('First name is required')
+    .isLength({ min: 2, max: 50 }),
 
   body('name.last_name')
     .trim()
-    .notEmpty().withMessage('Last name is required').bail()
-    .isLength({ min: 2, max: 50 }).withMessage('Last name must be 2-50 characters'),
+    .notEmpty().withMessage('Last name is required')
+    .isLength({ min: 2, max: 50 }),
 
-  // Mobile (string or object)
+  /* ================= MOBILE ================= */
   body('mobile')
-    .notEmpty().withMessage('Mobile number is required').bail()
+    .notEmpty().withMessage('Mobile is required')
     .custom((value, { req }) => {
       let country_code = '+91';
-      let number = '';
+      let number;
 
       if (typeof value === 'string') {
         number = value.replace(/\D/g, '');
-        if (number.length < 8 || number.length > 15)
-          throw new Error('Mobile must have 8-15 digits');
-      } 
-      else if (typeof value === 'object' && value.number) {
+      } else if (typeof value === 'object') {
         country_code = value.country_code || '+91';
-        number = value.number.toString().replace(/\D/g, '');
-
-        if (!/^\+\d{1,4}$/.test(country_code))
-          throw new Error('Invalid country code');
-
-        if (number.length < 8 || number.length > 15)
-          throw new Error('Mobile number must have 8-15 digits');
-      } 
-      else {
-        throw new Error('Mobile must be a valid number or object { country_code, number }');
+        number = String(value.number || '').replace(/\D/g, '');
+      } else {
+        throw new Error('Invalid mobile format');
       }
+
+      if (!/^\+\d{1,4}$/.test(country_code))
+        throw new Error('Invalid country code');
+
+      if (!/^\d{8,15}$/.test(number))
+        throw new Error('Mobile number must be 8–15 digits');
 
       req.body.mobile = { country_code, number };
       return true;
     })
-    .bail()
-    .custom(async (mobileObj) => {
+    .custom(async (mobile) => {
       const exists = await Freelancer.findOne({
-        "mobile.country_code": mobileObj.country_code,
-        "mobile.number": mobileObj.number,
-        is_deleted: false
+        'mobile.country_code': mobile.country_code,
+        'mobile.number': mobile.number
       });
       if (exists) throw new Error('Mobile number already in use');
       return true;
     }),
 
-  // Mobile Verified
+  /* ================= MOBILE VERIFIED ================= */
   body('is_mobile_verified')
     .toBoolean()
-    .isBoolean().withMessage('is_mobile_verified must be true/false').bail()
-    .custom((value) => {
-      if (value !== true)
-        throw new Error('You must verify your mobile number via OTP before registering');
+    .custom(value => {
+      if (!value)
+        throw new Error('Mobile must be verified via OTP');
       return true;
     }),
 
-  // Professional
+  /* ================= PROFESSIONAL ================= */
   body('professional.experience_years')
     .optional()
-    .isInt({ min: 0, max: 50 }).withMessage('Experience must be 0-50 years'),
+    .isInt({ min: 0, max: 50 }),
 
   body('professional.bio')
     .optional()
-    .trim()
-    .isLength({ max: 1000 }).withMessage('Bio must not exceed 1000 characters'),
+    .isLength({ max: 1000 }),
 
   body('professional.skills')
     .optional()
-    .isArray().withMessage('Skills must be an array').bail()
-    .custom((skills) => {
-      if (skills.length > 20) throw new Error('Maximum 20 skills allowed');
-      return true;
-    }),
-
-  body('professional.working_radius')
-    .optional()
-    .trim()
-    .matches(/^\d+\s?(km|mi)$/i).withMessage('Working radius must be like "50 km"'),
+    .isArray({ max: 20 }),
 
   body('professional.availability')
     .optional()
-    .trim()
-    .isIn(['Part-time', 'Full-time', 'Project-based']).withMessage('Invalid availability'),
+    .isIn(['Full-time', 'Part-time', 'Project-based']),
 
-  // Location
-  body('location.city')
-    .optional()
-    .trim()
-    .isLength({ min: 2, max: 100 }).withMessage('City must be 2-100 characters'),
-
+  /* ================= LOCATION ================= */
+  body('location.city').optional().isLength({ min: 2, max: 100 }),
   body('location.state').optional().trim(),
   body('location.country').optional().trim(),
-
-  body('location.po_box')
+  body('location.pincode')
     .optional()
-    .trim()
-    .matches(/^\d{5,6}$/).withMessage('Invalid po_box'),
+    .matches(/^\d{5,6}$/).withMessage('Invalid pincode'),
 
-  // Languages
+  /* ================= LANGUAGES ================= */
   body('languages')
     .optional()
-    .isArray().withMessage('Languages must be an array').bail()
-    .custom((langs) => {
-      if (langs.length > 10) throw new Error('Maximum 10 languages allowed');
-      return true;
-    }),
+    .isArray({ max: 10 }),
 
-  // SERVICES OFFERED
-  // body('services_offered')
-  //   .isArray({ min: 1 }).withMessage('At least one service is required').bail()
-  //   .custom(async (services) => {
-  //     for (let i = 0; i < services.length; i++) {
-  //       const s = services[i];
+  /* ================= PAYMENT ================= */
+  body('payment.preferred_method').optional().isString(),
+  body('payment.vat_number').optional().isString(),
+  body('payment.preferred_currency').optional().isMongoId(),
 
-  //       if (!s.category) throw new Error(`Service ${i + 1}: category is required`);
-  //       isValidObjectId(s.category, `Service ${i + 1} category`);
-
-  //       if (!Array.isArray(s.subcategories) || s.subcategories.length === 0)
-  //         throw new Error(`Service ${i + 1}: at least one subcategory is required`);
-
-  //       const cat = await Category.findOne({ _id: s.category, is_deleted: false });
-  //       if (!cat) throw new Error(`Service ${i + 1}: Invalid category ID`);
-
-  //       for (let j = 0; j < s.subcategories.length; j++) {
-  //         const subId = s.subcategories[j];
-
-  //         isValidObjectId(subId, `Service ${i + 1} subcategory ${j + 1}`);
-
-  //         const subcat = await Subcategory.findOne({
-  //           _id: subId,
-  //           category: s.category,
-  //           is_deleted: false
-  //         });
-
-  //         if (!subcat)
-  //           throw new Error(`Service ${i + 1}, Subcategory ${j + 1}: Does not belong to selected category`);
-  //       }
-
-  //       if (s.price_range && !/^\d+\s?-\s?\d+/.test(s.price_range))
-  //         throw new Error(`Service ${i + 1}: Invalid price range (e.g., 500 - 2000)`);
-  //     }
-  //     return true;
-  //   }),
-
-  // PAYMENT
-  body('payment.preferred_method')
-    .optional()
-    .isString().withMessage('Preferred payment method must be a string'),
-
-  body('payment.advance_percentage')
-    .optional()
-    .isInt({ min: 0, max: 100 }).withMessage('Advance % must be 0-100'),
-
-  body('payment.gst_number')
-    .optional()
-    .trim()
-    .matches(/^\d{2}[A-Z]{5}\d{4}[A-Z]{1}\d{1}[A-Z\d]{1}$/)
-    .withMessage('Invalid GST number'),
-
-  // Terms
+  /* ================= TERMS ================= */
   body('meta.agreed_to_terms')
     .toBoolean()
-    .isBoolean().withMessage('Agreed to terms must be boolean').bail()
-    .custom(value => {
-      if (!value) throw new Error('You must agree to terms and conditions');
+    .custom(val => {
+      if (!val) throw new Error('You must agree to terms');
       return true;
     }),
 

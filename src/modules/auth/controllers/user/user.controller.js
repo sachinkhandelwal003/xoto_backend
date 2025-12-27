@@ -75,6 +75,66 @@ exports.customerLogin = asyncHandler(async (req, res) => {
 });
 
 
+exports.customerSignup = asyncHandler(async (req, res) => {
+  const {
+    name,
+    email,
+    mobile,
+    location
+  } = req.body;
+
+  // 🔴 Required fields check
+  if (!name?.first_name || !name?.last_name || !email || !mobile?.number) {
+    throw new APIError(
+      "First name, last name, email, and mobile number are required",
+      StatusCodes.BAD_REQUEST
+    );
+  }
+
+  // 🔍 Get Customer role
+  const customerRole = await Role.findOne({ name: "Customer" });
+  if (!customerRole) {
+    throw new APIError("Customer role not found", StatusCodes.NOT_FOUND);
+  }
+
+  // 🔁 Check existing customer (email or mobile)
+  const existingCustomer = await Customer.findOne({
+    $or: [
+      { email: email.toLowerCase() },
+      { "mobile.number": mobile.number }
+    ],
+    is_deleted: false
+  });
+
+  if (existingCustomer) {
+    throw new APIError(
+      "Customer already exists with this email or mobile number",
+      StatusCodes.CONFLICT
+    );
+  }
+
+  // 🧾 Create customer
+  const customer = await Customer.create({
+    name,
+    email: email.toLowerCase(),
+    mobile,
+    role: customerRole._id,
+    location,
+    isActive: true
+  });
+
+  await customer.populate("role", "name code");
+
+  // 🔐 Generate token
+  const token = createToken(customer);
+
+  res.status(StatusCodes.CREATED).json({
+    success: true,
+    message: "Customer registered successfully",
+    token,
+    customer
+  });
+});
 
 exports.createUser = asyncHandler(async (req, res) => {
   const { email, mobile, password, name, role: roleId } = req.body;

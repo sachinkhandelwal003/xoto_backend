@@ -58,73 +58,58 @@ exports.freelancerLogin = asyncHandler(async (req, res) => {
 });
 
 // === CREATE ===
-// controllers/freelancer/freelancer.controller.js
-// controllers/freelancer/freelancer.controller.js
 exports.createFreelancer = asyncHandler(async (req, res) => {
   const data = req.body;
 
-  // 🔒 Uniqueness check
+  /* ================= DUPLICATE CHECK ================= */
   const existing = await Freelancer.findOne({
     $or: [
       { email: data.email },
       {
-        'mobile.country_code': data.mobile?.country_code,
-        'mobile.number': data.mobile?.number
+        'mobile.country_code': data.mobile.country_code,
+        'mobile.number': data.mobile.number
       }
     ]
   });
-  if (existing) {
+
+  if (existing)
     throw new APIError('Email or mobile already exists', StatusCodes.CONFLICT);
-  }
 
-  if (!data.is_mobile_verified) {
+  if (!data.is_mobile_verified)
     throw new APIError('Mobile must be verified', StatusCodes.BAD_REQUEST);
-  }
 
-  // 🎭 Role
+  /* ================= ROLE ================= */
   const role = await Role.findOne({ name: 'Freelancer' });
-  if (!role) throw new APIError('Role not found', StatusCodes.NOT_FOUND);
+  if (!role)
+    throw new APIError('Role not found', StatusCodes.NOT_FOUND);
 
+  /* ================= PREPARE DATA ================= */
   data.role = role._id;
-  data.status_info = { status: 0 };
   data.password = await bcrypt.hash(data.password, 10);
+
+  data.status_info = { status: 0 }; // Pending
   data.documents = [];
+  data.services_offered = [];
+  data.performance = {};
+  data.onboarding_status = 'registered';
 
-  // 🧠 NORMALIZE SERVICES (IMPORTANT)
-  if (Array.isArray(data.services_offered)) {
-    data.services_offered = data.services_offered.map(service => ({
-      category: service.category,
-      description: service.description || '',
-      is_active: true,
-
-      subcategories: (service.subcategories || []).map(typeId => ({
-        type: typeId,
-        price_range: null, // to be added later
-        unit: null,
-        is_active: true
-      }))
-    }));
-  }
-
-  // 🚀 Create
+  /* ================= CREATE ================= */
   const freelancer = await Freelancer.create(data);
 
-  // 🔗 Populate (UPDATED PATHS)
   await freelancer.populate([
     { path: 'role' },
-    { path: 'services_offered.category' },
-    { path: 'services_offered.subcategories.type' }
+    { path: 'payment.preferred_currency' }
   ]);
 
+  /* ================= RESPONSE ================= */
   res.status(StatusCodes.CREATED).json({
     success: true,
     message: 'Registration successful. Awaiting admin approval.',
     freelancer: {
       _id: freelancer._id,
       email: freelancer.email,
-      name: freelancer.name,
-      status: freelancer.status_info.status,
-      role: freelancer.role
+      full_name: freelancer.full_name,
+      onboarding_status: freelancer.onboarding_status
     }
   });
 });

@@ -4,6 +4,7 @@ const User = require('../../models/user/user.model');
 const {Role} = require('../../../auth/models/role/role.model');
 const mongoose = require('mongoose');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
+const Customer = require('../../models/user/customer.model');
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -27,6 +28,85 @@ const isValidObjectId = (value, fieldName = 'ID') => {
   return true;
 };
 
+exports.validateCustomerSignup = [
+
+  // 🔹 First Name
+  body('name.first_name')
+    .trim()
+    .notEmpty().withMessage('First name is required')
+    .isLength({ min: 2, max: 50 })
+    .withMessage('First name must be 2–50 characters'),
+
+  // 🔹 Last Name
+  body('name.last_name')
+    .trim()
+    .notEmpty().withMessage('Last name is required')
+    .isLength({ min: 2, max: 50 })
+    .withMessage('Last name must be 2–50 characters'),
+
+  // 🔹 Email
+  body('email')
+    .notEmpty().withMessage('Email is required')
+    .bail()
+    .custom(async (email) => {
+      const emailRegex = /^[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}$/;
+      const normalized = email.trim().toLowerCase();
+
+      if (!emailRegex.test(normalized)) {
+        throw new Error('Please enter a valid email address');
+      }
+
+      const existing = await Customer.findOne({
+        email: normalized,
+        is_deleted: false
+      });
+
+      if (existing) {
+        throw new Error('Email already registered');
+      }
+
+      return true;
+    }),
+
+  // 🔹 Mobile Number (Nested)
+  body('mobile.number')
+    .notEmpty().withMessage('Mobile number is required')
+    .bail()
+    .matches(/^\d{8,15}$/)
+    .withMessage('Mobile number must be 8–15 digits'),
+
+  // 🔹 Country Code (Optional)
+  body('mobile.country_code')
+    .optional()
+    .matches(/^\+\d{1,4}$/)
+    .withMessage('Invalid country code'),
+
+  // 🔹 Mobile Uniqueness
+  body('mobile.number')
+    .custom(async (number) => {
+      const existing = await Customer.findOne({
+        "mobile.number": number,
+        is_deleted: false
+      });
+
+      if (existing) {
+        throw new Error('Mobile number already registered');
+      }
+
+      return true;
+    }),
+
+  // 🔹 Location (Optional – safe validation)
+  body('location.lat').optional().isFloat().withMessage('Latitude must be a number'),
+  body('location.lng').optional().isFloat().withMessage('Longitude must be a number'),
+  body('location.country').optional().isString(),
+  body('location.state').optional().isString(),
+  body('location.city').optional().isString(),
+  body('location.area').optional().isString(),
+  body('location.address').optional().isString(),
+
+  validate
+];
 exports.validateCreateUser = [
   body('name.first_name')
     .trim()

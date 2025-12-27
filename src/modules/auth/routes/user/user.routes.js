@@ -7,12 +7,18 @@ const {
   validateCreateUser,
   validateLogin,
   validateGetUsers,
-  validateUserId,
+  validateUserId,validateCustomerSignup 
 } = require('../../validations/user/user.validation');
 
 // Public routes
 router.post('/login', validateLogin, controller.userLogin);
 router.post('/login/customer', controller.customerLogin);
+
+router.post(
+  '/signup/customer',
+  validateCustomerSignup,
+  controller.customerSignup
+);
 
 router.post('/register', validateCreateUser, controller.createUser);
 
