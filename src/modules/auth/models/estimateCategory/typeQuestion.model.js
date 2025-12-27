@@ -31,7 +31,7 @@ const TypeQuestionSchema = new mongoose.Schema(
      valueType:{
       type:String,
       default:"percentage",
-      enum:['percentage','fixedValue'],
+      enum:['percentage','number'],
       required:false
     },
     minValue: {
@@ -49,6 +49,11 @@ const TypeQuestionSchema = new mongoose.Schema(
       default:true,
       required:false
     },
+    areaQuestion:{
+      type:Boolean,
+      default:false,
+      required:false,
+    }
   },
   { timestamps: true }
 );

@@ -302,6 +302,7 @@ exports.addMoodboardImages = asyncHandler(async (req, res) => {
   });
 });
 
+// Questions 
 exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
   const { question, questionType = "text", options = [] } = req.body;
@@ -310,23 +311,27 @@ exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
   const questionDoc = await TypeQuestion.create({
     type: typeId,
     question,
-    questionType
+    questionType,
+    areaQuestion: req.body.areaQuestion || false
   });
 
   // 2️⃣ If question type is OPTIONS → create options
   let optionsGenerated = [];
-  if (questionType === "options") {
+  if (questionType === "options" || questionType === "yesorno") {
     if (!options.length) {
       return res.status(400).json({
         success: false,
-        message: "Options are required for options type question"
+        message: "Options are required for this type question"
       });
     }
 
     const optionDocs = options.map((opt, index) => ({
       question: questionDoc._id,
       title: opt.title,
-      order: opt.order ?? index
+      order: opt.order ?? index,
+      includeInEstimate:opt.includeInEstimate || true,
+      valueType:  opt.valueType || "percentage",
+      value: opt.value && !isNaN(opt.value) ? Number(opt.value) : 0
     }));
 
     optionsGenerated = await TypeQuestionOption.insertMany(optionDocs);
