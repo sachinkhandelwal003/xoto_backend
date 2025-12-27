@@ -312,7 +312,9 @@ exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
     type: typeId,
     question,
     questionType,
-    areaQuestion: req.body.areaQuestion || false
+    areaQuestion: req.body.areaQuestion || false,
+    valueType:req.body.valueType || "number",
+    valueSubType:req.body.valueSubType || "persqm"
   });
 
   // 2️⃣ If question type is OPTIONS → create options

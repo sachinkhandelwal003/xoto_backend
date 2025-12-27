@@ -29,9 +29,14 @@ const TypeQuestionOptionSchema = new mongoose.Schema(
     },
     valueType:{
       type:String,
-      default:"percentage",
+      default:"number",
       enum:['percentage','number'],
       required:false
+    },
+    valueSubType:{
+      type:String,
+      default:"persqm",
+      enum:["persqm","flat"]
     },
     value:{
       type:Number,
