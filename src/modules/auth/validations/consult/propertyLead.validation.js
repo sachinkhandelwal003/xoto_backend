@@ -30,13 +30,12 @@ exports.validateCreatePropertyLead = [
     'investor',
     'developer',
     'enquiry',
-    'consultation'
+    'consultation',"ai_enquiry"
   ]),
 
   body('name.first_name').notEmpty(),
   body('name.last_name').notEmpty(),
   body('email').isEmail(),
-  body('mobile.number').matches(/^\d{8,15}$/),
 
   // Schedule visit
   body('occupation')
@@ -106,6 +105,7 @@ exports.validateGetPropertyLeads = [
       'investor',
       'developer',
       'enquiry',
+      'ai_enquiry',
       'consultation'
     ])
     .withMessage('Invalid lead type'),
