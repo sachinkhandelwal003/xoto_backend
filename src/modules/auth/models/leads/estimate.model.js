@@ -94,7 +94,11 @@ const estimateSchema = new mongoose.Schema({
     reason: String,
     responded_at: Date
   },
-
+  estimated_amount :{
+    type:Number,
+    default:0,
+    required:false
+  },
   submitted_at: { type: Date, default: Date.now }
 
 }, { timestamps: true });

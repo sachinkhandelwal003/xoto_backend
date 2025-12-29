@@ -8,7 +8,10 @@ const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const Freelancer = require("../../models/Freelancer/freelancer.model");
 const mongoose = require('mongoose');
 const { Role } = require('../../models/role/role.model');
-  const { TypeGallery } = require("../../models/estimateCategory/typeGallery.model");
+const { TypeGallery } = require("../../models/estimateCategory/typeGallery.model");
+const { Type } = require("../../models/estimateCategory/category.model");
+const EstimateAnswer = require("../../models/estimateCategory/estimateAnswer.model");
+
 
 exports.submitEstimate = asyncHandler(async (req, res) => {
   const {
@@ -24,7 +27,8 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
     area_sqft,
     description,
     location,
-    type_gallery_snapshot
+    type_gallery_snapshot,
+    answers
   } = req.body;
 
   /* ---------- CUSTOMER ---------- */
@@ -52,35 +56,38 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
   }
 
   /* ---------- FETCH TYPE GALLERY ---------- */
-  const typeGallery = await TypeGallery.findOne({
-    type,
-    isActive: true
-  }).lean();
+  // const typeGallery = await TypeGallery.findOne({
+  //   type,
+  //   isActive: true
+  // }).lean();
 
-  if (!typeGallery) {
-    throw new APIError("Type gallery not found", 400);
-  }
+  // if (!typeGallery) {
+  //   throw new APIError("Type gallery not found", 400);
+  // }
 
   /* ---------- FILTER MOODBOARD IMAGES ---------- */
   let selectedMoodboards = [];
 
-  if (
-    type_gallery_snapshot?.moodboardImages &&
-    Array.isArray(type_gallery_snapshot.moodboardImages)
-  ) {
-    const requestedIds = type_gallery_snapshot.moodboardImages.map(img => img.id);
+  // if (
+  //   type_gallery_snapshot?.moodboardImages &&
+  //   Array.isArray(type_gallery_snapshot.moodboardImages)
+  // ) {
+  //   const requestedIds = type_gallery_snapshot.moodboardImages.map(img => img.id);
 
-    selectedMoodboards = typeGallery.moodboardImages.filter(img =>
-      requestedIds.includes(img.id)
-    );
-  }
+  //   selectedMoodboards = typeGallery.moodboardImages.filter(img =>
+  //     requestedIds.includes(img.id)
+  //   );
+  // }
+
+
+
 
   /* ---------- CREATE ESTIMATE ---------- */
   const estimate = await Estimate.create({
     service_type,
     type,
     subcategory,
-    package: pkg,
+    package: null,
     area_length,
     area_width,
     area_sqft,
@@ -89,16 +96,157 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
     customer: customer._id,
 
     // ✅ FINAL SNAPSHOT
-    type_gallery_snapshot: {
-      previewImage: typeGallery.previewImage, // auto
-      moodboardImages: selectedMoodboards     // user-selected only
-    }
+    type_gallery_snapshot: {}
   });
+
+  let childType = await Type.findOne({ _id: type });
+
+  // calculation block 
+  // in yesorno type if user selects no then  we will not add any value
+  // currently we'll have only one number type of question 
+  // options and yes or no are mostly same  
+
+  let estimationValue = 0;
+  let totalsqm = 0;
+
+  if (answers.length > 0) {
+    const areaAnswer = answers.find(a => a?.areaQuestion === true);
+
+    if (areaAnswer) {
+      totalsqm = Number(areaAnswer.answerValue) || 0;
+      console.log("childType.baseEstimationValueUnitchildType.baseEstimationValueUnit",childType.baseEstimationValueUnit)
+      console.log("Total sqmmmmmmmmmmmmmmmmmmmmmmmm",totalsqm)
+      const baseAmount =
+        Number(childType.baseEstimationValueUnit || 0) * totalsqm;
+
+      estimationValue += baseAmount;
+      areaAnswer.calculatedAmount = baseAmount;
+    }
+  }
+
+
+  // if (answers.length > 0) {
+  //   for (let answer of answers) {
+
+
+  //     if (answer && answer.areaQuestion == false && answer.questionType == "yesorno") {
+  //       if (answer.selectedOption && answer.selectedOption.title == "Yes") {
+  //         if (answer.selectedOption.valueSubType == "persqm") {
+  //           estimationValue += Number(answer.selectedOption.value) * Number(totalsqm);
+  //           answer.calculatedAmount = Number(answer.selectedOption.value) * Number(totalsqm);
+  //         } else { // for flat
+  //           estimationValue += Number(answer.selectedOption.value);
+  //           answer.calculatedAmount = Number(answer.selectedOption.value)
+  //         }
+  //       }
+  //     } else if (answer && answer.areaQuestion == false && answer.questionType == "options") { // same as yes or no 
+  //       if (answer.selectedOption.valueSubType == "persqm") {
+  //         answer.calculatedAmount = Number(answer.selectedOption.value) * Number(totalsqm)
+  //         estimationValue += Number(answer.selectedOption.value) * Number(totalsqm);
+  //       } else { // for flat
+  //         answer.calculatedAmount = Number(answer.selectedOption.value)
+  //         estimationValue += Number(answer.selectedOption.value)
+  //       }
+  //     }
+  //   }
+  // }
+
+  for (let answer of answers) {
+    if (!answer || !answer.includeInEstimate || answer.areaQuestion) continue;
+
+    let calculatedAmount = 0;
+
+    // YES / NO
+    if (answer.questionType === "yesorno") {
+      if (answer.selectedOption?.title === "Yes") {
+        if (answer.selectedOption.valueSubType === "persqm") {
+          calculatedAmount =
+            Number(answer.selectedOption.value || 0) * totalsqm;
+        } else {
+          calculatedAmount = Number(answer.selectedOption.value || 0);
+        }
+      }
+    }
+
+    // OPTIONS
+    if (answer.questionType === "options") {
+      if (answer.selectedOption?.valueSubType === "persqm") {
+        calculatedAmount =
+          Number(answer.selectedOption.value || 0) * totalsqm;
+      } else {
+        calculatedAmount = Number(answer.selectedOption.value || 0);
+      }
+    }
+
+    answer.calculatedAmount = calculatedAmount;
+    estimationValue += calculatedAmount;
+  }
+
+
+  console.log("Estimatiiiiiiiiiiiooooooooooonnnnnnnnnnnn value", estimationValue)
+
+
+  const estimateAnswerDocs = answers.map(answer => ({
+    estimate: estimate._id,
+
+    question: answer.question, // ObjectId from frontend
+    questionText: answer.questionText,
+    questionType: answer.questionType,
+
+    answerValue: answer.answerValue ?? null,
+
+    selectedOption: answer.selectedOption
+      ? {
+        optionId: answer.selectedOption.optionId,
+        title: answer.selectedOption.title,
+        value: answer.selectedOption.value,
+        valueSubType: answer.selectedOption.valueSubType
+      }
+      : null,
+
+    calculatedAmount: answer.calculatedAmount || 0,
+    includeInEstimate: answer.includeInEstimate ?? true,
+    areaQuestion: answer.areaQuestion ?? false
+  }));
+
+
+  let estimateAnswers = answers.map(answer => ({
+    estimate: estimate._id,
+
+    question: answer.question, // ObjectId from frontend
+    questionText: answer.questionText,
+    questionType: answer.questionType,
+
+    answerValue: answer.answerValue ?? null,
+
+    selectedOption: answer.selectedOption
+      ? {
+        optionId: answer.selectedOption.optionId,
+        title: answer.selectedOption.title,
+        value: answer.selectedOption.value,
+        valueSubType: answer.selectedOption.valueSubType
+      }
+      : null,
+
+    calculatedAmount: answer.calculatedAmount || 0,
+    includeInEstimate: answer.includeInEstimate ?? true,
+    areaQuestion: answer.areaQuestion ?? false
+  }));
+
+  await EstimateAnswer.insertMany(estimateAnswerDocs);
+
+
+  let updatedEstimate = await Estimate.findByIdAndUpdate(estimate._id, {
+    estimated_amount: estimationValue
+  },{new:true})
+
 
   res.status(201).json({
     success: true,
     message: "Estimate submitted successfully",
-    estimate_id: estimate._id
+    estimate_id: estimate._id,
+    final_price:Number(updatedEstimate.estimated_amount) || 0,
+    updatedEstimate: updatedEstimate
   });
 });
 
@@ -584,13 +732,14 @@ exports.getCustomerEstimates = asyncHandler(async (req, res) => {
       _id: id,
       customer: req.user.id
     }).populate([
-        {
-        path: "customer"},
+      {
+        path: "customer"
+      },
       { path: "type" },
       { path: "subcategory" },
       { path: "package" },
       { path: "final_quotation" },
-    
+
     ]);
 
     if (!estimate) {
@@ -618,8 +767,9 @@ exports.getCustomerEstimates = asyncHandler(async (req, res) => {
   --------------------------------------------------------- */
   let estimatesQuery = Estimate.find(query)
     .populate([
-        {
-        path: "customer"},
+      {
+        path: "customer"
+      },
       { path: "type" },
       { path: "subcategory" },
       { path: "package" },

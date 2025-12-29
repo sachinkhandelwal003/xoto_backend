@@ -84,7 +84,8 @@ const TypeSchema = new mongoose.Schema(
     label: {
       type: String,
       required: true,
-      trim: true,      lowercase: true   // 🔥 IMPORTANT
+      trim: true,      
+      lowercase: true   // 🔥 IMPORTANT
 
     },
     description: { type: String, trim: true },
