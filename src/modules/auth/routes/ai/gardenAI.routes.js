@@ -1,6 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const router = express.Router();
+const { protectCustomer, authorize } = require('../../../../middleware/auth');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -26,7 +27,17 @@ router.post(
     }
     next();
   },
+  protectCustomer,
   generateGardenDesigns
 );
+
+// router.use(protectCustomer);
+
+router.post(
+  "/get-all-ai-images",
+protectCustomer,
+  generateGardenDesigns
+);
+
 
 module.exports = router;

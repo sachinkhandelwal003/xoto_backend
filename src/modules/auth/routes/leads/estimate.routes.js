@@ -20,7 +20,6 @@ const validator = require('../../validations/leads/estimate.validation');
 // ------------------------------------------------------------
 router.post(
   '/submit',
-  validator.validateSubmitEstimate,
   controller.submitEstimate
 );
 
