@@ -18,6 +18,8 @@ const {
   generateGardenDesigns
 } = require("../../controllers/ai/gardenAI.controller");
 
+const AIchatRoutes = require("../../../ai/routes/ai.routes").default;
+
 router.post(
   "/generate-garden",
   upload.any(),
@@ -39,5 +41,9 @@ protectCustomer,
   generateGardenDesigns
 );
 
+router.use(
+  "/chat",
+  AIchatRoutes
+);
 
 module.exports = router;

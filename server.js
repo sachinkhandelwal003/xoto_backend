@@ -31,6 +31,7 @@ app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+
 // === STATIC FILES (UPLOADS) ===
 app.use(
   '/api/uploads',
