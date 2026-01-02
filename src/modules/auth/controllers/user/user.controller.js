@@ -133,7 +133,7 @@ exports.customerSignup = asyncHandler(async (req, res) => {
 
     let new_location = location && typeof(location)=="object"? Object.values(location).filter(Boolean).join(', '):""
     let payload = {
-      type: 'enquiry', // or 'enquiry' (your choice)
+      type: 'ai_enquiry', // or 'enquiry' (your choice)
       name,
       email: email.toLowerCase(),
       mobile,

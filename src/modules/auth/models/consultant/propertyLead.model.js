@@ -14,6 +14,7 @@ type: {
     'investor',
     'developer',
     'enquiry',
+    'ai_enquiry',
     'consultation' 
   ],
   required: true,
@@ -32,10 +33,7 @@ type: {
       type: String,
       required: true,
       trim: true,
-      validate: {
-        validator: v => /^\d{8,15}$/.test(v),
-        message: 'Mobile number must be 8–15 digits only'
-      }
+   
     }
   },
   email: {
