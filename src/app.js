@@ -4,7 +4,8 @@ const morgan = require('morgan');
 const helmet = require('helmet');
 const createError = require('http-errors');
 const logger = require('./config/logger');
-
+const upload = require("../src/middleware/s3Upload.js").default
+const { uploadFileToS3 } = require("./modules/s3/upload.js");
 
 
 const app = express();
@@ -25,7 +26,8 @@ app.use('/packages', require('./modules/auth/routes/packages/packages.routes'));
 app.use('/estimate/master/category', require('./modules/auth/routes/estimateCategory/category.routes'));
 
 app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/projectfreelancer.route'));
-
+app.use('/property', require('../src/modules/properties/routes/index.js'));
+app.post("/upload",upload.single("file"),uploadFileToS3) 
 app.use('/accountant', require('./modules/auth/routes/accountant/Accountant.routes'));
 app.use('/users', require('./modules/auth/routes/user/user.routes'));
 app.use('/consult', require('./modules/auth/routes/consult/consult.routes'));

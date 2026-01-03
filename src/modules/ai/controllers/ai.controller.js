@@ -57,7 +57,7 @@ export const chatHandler = async (req, res) => {
     let inputAudioUrl = null;
     let inputType = "text";
     console.log("CWD:", process.cwd());
-console.log("req.file:", req.file);
+    console.log("req.file:", req.file);
 
 
     // 🎤 USER VOICE INPUT
@@ -85,6 +85,7 @@ console.log("req.file:", req.file);
 
     // 💾 SAVE USER MESSAGE
     const userMessage = await ChatMessage.create({
+      session_id: req.body.session_id,
       sender: "user",
       receiver: "ai",
       type: inputType,
@@ -92,8 +93,19 @@ console.log("req.file:", req.file);
       audioUrl: inputAudioUrl
     });
 
+
+    const history = await ChatMessage.find({ session_id: req.body.session_id })
+      .sort({ createdAt: 1 })
+      .limit(15)
+      .select("sender text");
+
+    const chatHistory = history.map(m => ({
+      role: m.sender === "user" ? "user" : "assistant",
+      content: m.text
+    }));
+
     // 🤖 AI RESPONSE
-    const aiText = await chatWithAI(userText);
+    const aiText = await chatWithAI(userText,chatHistory);
 
     let outputAudioUrl = null;
     let outputType = "text";
@@ -114,6 +126,7 @@ console.log("req.file:", req.file);
 
     // 💾 SAVE AI MESSAGE
     const aiMessage = await ChatMessage.create({
+      session_id: req.body.session_id,
       sender: "ai",
       receiver: "user",
       type: outputType,
@@ -121,7 +134,7 @@ console.log("req.file:", req.file);
       audioUrl: outputAudioUrl
     });
 
-    // 📤 SEND TO FRONTEND
+
     return res.json({
       user: userMessage,
       ai: aiMessage
@@ -137,8 +150,8 @@ export const getAllMessages = async (req, res) => {
   try {
     let allMessages = await ChatMessage.find()
 
-   return res.json(allMessages);
-    
+    return res.json(allMessages);
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Chat processing failed" });
