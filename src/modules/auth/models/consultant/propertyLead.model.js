@@ -130,4 +130,4 @@ const PropertyLead = mongoose.model('PropertyLead', propertyLeadSchema);
 // ======================== CONTROLLER ========================
 
 
-module.exports = PropertyLead;
+module.exports = PropertyLead; 

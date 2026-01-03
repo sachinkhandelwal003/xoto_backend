@@ -66,7 +66,7 @@ exports.getAllPropertyLeads = asyncHandler(async (req, res) => {
     ];
   }
 
-  const total = await PropertyLead.countDocuments(query);
+  const total = await PropertyLead.countDocuments(query); 
   const leads = await PropertyLead.find(query)
     .sort({ createdAt: -1 })
     .skip((page - 1) * limit)
