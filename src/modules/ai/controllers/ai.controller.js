@@ -148,7 +148,8 @@ export const chatHandler = async (req, res) => {
 
 export const getAllMessages = async (req, res) => {
   try {
-    let allMessages = await ChatMessage.find()
+    let {session_id} = req.query;
+    let allMessages = await ChatMessage.find({session_id:session_id}).sort({createdAt:1})
 
     return res.json(allMessages);
 
