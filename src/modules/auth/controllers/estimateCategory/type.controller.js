@@ -306,7 +306,7 @@ exports.addMoodboardImages = asyncHandler(async (req, res) => {
 exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
   const { question, questionType = "text", options = [] } = req.body;
-
+  console.log("reqdbbbbbbbbbbbbbbbbbbbbbbbbbbooooooooo",req.body);
   // 1️⃣ Create question first
   const questionDoc = await TypeQuestion.create({
     type: typeId,
@@ -333,6 +333,7 @@ exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
       order: opt.order ?? index,
       includeInEstimate:opt.includeInEstimate || true,
       valueType:  opt.valueType || "percentage",
+      valueSubType: opt.valueSubType || "persqm",
       value: opt.value && !isNaN(opt.value) ? Number(opt.value) : 0
     }));
 
