@@ -38,20 +38,22 @@ const landingPageLeadSchema = new mongoose.Schema({
   area: {
     type: String,
     required: false,
-    trim: true
+    trim: true,
+    default: "",
   },
 
   description: {
     type: String,
     required: false,
-    trim: true
+    trim: true,
+    default: ""
   },
 
   status: {
     type: String,
     enum: ['submit', 'contacted', 'converted', 'dead'],
     default: 'submit',
-    required:false
+    required: false
   },
 
   notes: {

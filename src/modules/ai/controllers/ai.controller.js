@@ -104,8 +104,9 @@ export const chatHandler = async (req, res) => {
       content: m.text
     }));
 
+    let session_id = req.body.session_id
     // 🤖 AI RESPONSE
-    const aiText = await chatWithAI(userText,chatHistory);
+    const aiText = await chatWithAI(userText,session_id,chatHistory);
 
     let outputAudioUrl = null;
     let outputType = "text";
