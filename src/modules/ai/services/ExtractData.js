@@ -1,7 +1,10 @@
 export function extractLeadFromText(text) {
+
+    let userText = text.replace(/\\n/g, '\n').replace(/\\r/g, '');
+
   const get = (label) => {
     const regex = new RegExp(`${label}\\s*:\\s*(.+)`, 'i');
-    const match = text.match(regex);
+    const match = userText.match(regex);
     return match ? match[1].trim() : null;
   };
 
