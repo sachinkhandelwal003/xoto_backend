@@ -38,7 +38,7 @@ exports.userLogin = asyncHandler(async (req, res) => {
 
 exports.customerLogin = asyncHandler(async (req, res) => {
   const { mobile } = req.body;
-
+  console.log("req.bodyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",mobile);
   if (!mobile) {
     throw new APIError("Mobile number is required", StatusCodes.BAD_REQUEST);
   }
@@ -51,7 +51,7 @@ exports.customerLogin = asyncHandler(async (req, res) => {
 
   // Find customer by mobile.number + role
   const customer = await Customer.findOne({
-    "mobile.number": mobile,
+    mobile:mobile,
     role: customerRole._id,
     is_deleted: false
   }).populate("role", "name code");

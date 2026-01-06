@@ -53,7 +53,7 @@ export const createProperty = async (req, res) => {
             brochure
         } = req.body;
 
-        // ✅ Required fields check
+   
         if (!developer || !project_name || !location) {
             return res.status(400).json({
                 success: false,
@@ -61,7 +61,7 @@ export const createProperty = async (req, res) => {
             });
         }
 
-        // ✅ Validate ObjectId
+
         if (!mongoose.Types.ObjectId.isValid(developer)) {
             return res.status(400).json({
                 success: false,
@@ -69,7 +69,7 @@ export const createProperty = async (req, res) => {
             });
         }
 
-        // ✅ Check developer exists
+
         const developerExists = await Developer.findById(developer);
         if (!developerExists) {
             return res.status(404).json({
@@ -78,7 +78,7 @@ export const createProperty = async (req, res) => {
             });
         }
 
-        // ✅ Create property
+
         const property = await Property.create({
             developer,
             project_name,
