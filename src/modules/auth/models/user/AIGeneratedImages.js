@@ -23,6 +23,12 @@ const aiGeneratedImageSchema = new mongoose.Schema(
       enum: ['customer'],
       default: 'customer',
       required: true
+    },
+    designType: {
+      type: String,
+      default: "landscaping",
+      enum: ["landscaping", "interior"],
+      required:false
     }
   },
   {

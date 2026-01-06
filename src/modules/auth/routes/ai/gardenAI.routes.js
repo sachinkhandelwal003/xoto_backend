@@ -18,6 +18,11 @@ const {
   generateGardenDesigns
 } = require("../../controllers/ai/gardenAI.controller");
 
+
+const {
+  generateInteriorDesigns
+} = require("../../controllers/ai/gardenAI.controller");
+
 const AIchatRoutes = require("../../../ai/routes/ai.routes").default;
 
 router.post(
@@ -33,11 +38,24 @@ router.post(
   generateGardenDesigns
 );
 
+router.post(
+  "/generate-interior",
+  upload.any(),
+  (req, res, next) => {
+    if (req.files?.length) {
+      req.files.gardenImage = req.files;
+    }
+    next();
+  },
+  protectCustomer,
+  generateInteriorDesigns
+);
+
 // router.use(protectCustomer);
 
 router.post(
   "/get-all-ai-images",
-protectCustomer,
+  protectCustomer,
   generateGardenDesigns
 );
 
