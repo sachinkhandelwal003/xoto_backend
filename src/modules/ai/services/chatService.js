@@ -455,22 +455,18 @@ export async function chatWithAI(userText, session_id, chatHistory = []) {
         // Brief Requirement: 2BHK for investment`
         //         });
 
-return `Sure 😊  
-Just send me these details:
+return "Sure 😊\n\n" +
+"Please share the following details:\n\n" +
+"• Name\n" +
+"• Phone Number\n" +
+"• Email\n" +
+"• Property Type (Apartment / Villa / Plot)\n" +
+"• Area / Location\n" +
+"• Requirement\n\n" +
+"Example:\n" +
+"Rahul Sharma, 9876543210, rahul@gmail.com, Apartment, Dubai Marina, 2BHK for investment\n\n" +
+"NOTE: Please make sure you send the details exactly in the above format.";
 
-Name  
-Phone Number  
-Email
-Property Type (Apartment / Villa / Plot)  
-Area / Location  
-Requirement  
-
-
-Example:
-Rahul Sharma, 9876543210, rahul@gmail.com, Apartment, Dubai Marina, 2BHK for investment
-
-NOTE : PLEASE MAKE SURE YOU SEND THIS DATA IN THE GIVEN FORMAT 
-`;
 
 
       }
