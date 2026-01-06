@@ -419,22 +419,22 @@ export async function chatWithAI(userText, session_id, chatHistory = []) {
       await session.save();
 
       if (isPositiveResponseCame) {
-        return `Great! Please share the following details in this format:
+//         return `Great! Please share the following details in this format:
 
-Name:
-Phone Number:
-Email (optional):
-Property Type (Apartment / Villa / Plot):
-Area / Location:
-Brief Requirement:
+// Name:
+// Phone Number:
+// Email (optional):
+// Property Type (Apartment / Villa / Plot):
+// Area / Location:
+// Brief Requirement:
 
-Example:
-Name: Rahul Sharma,
-Phone Number: 9876543210,
-Email: rahul@gmail.com,
-Property Type: Apartment,
- City: Dubai Marina,
-Brief Requirement: 2BHK for investment`
+// Example:
+// Name: Rahul Sharma,
+// Phone Number: 9876543210,
+// Email: rahul@gmail.com,
+// Property Type: Apartment,
+//  City: Dubai Marina,
+// Brief Requirement: 2BHK for investment`
         //         messages.push({
         //           role: "assistant",
         //           content: `Great! Please share the following details in this format:
@@ -454,6 +454,23 @@ Brief Requirement: 2BHK for investment`
         // Area / Location: Dubai Marina,
         // Brief Requirement: 2BHK for investment`
         //         });
+
+return `Sure 😊  
+Just send me these details:
+
+Name  
+Phone Number  
+Email
+Property Type (Apartment / Villa / Plot)  
+Area / Location  
+Requirement  
+
+
+Example:
+Rahul Sharma, 9876543210, rahul@gmail.com, Apartment, Dubai Marina, 2BHK for investment
+
+NOTE : PLEASE MAKE SURE YOU SEND THIS DATA IN THE GIVEN FORMAT 
+`;
 
 
       }

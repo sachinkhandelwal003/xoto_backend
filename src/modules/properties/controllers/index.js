@@ -54,20 +54,10 @@ export const createProperty = async (req, res) => {
         } = req.body;
 
    
-        if (!developer || !project_name || !location) {
-            return res.status(400).json({
-                success: false,
-                message: "developer, project_name and location are required"
-            });
-        }
 
 
-        if (!mongoose.Types.ObjectId.isValid(developer)) {
-            return res.status(400).json({
-                success: false,
-                message: "Invalid developer ID"
-            });
-        }
+
+
 
 
         const developerExists = await Developer.findById(developer);
@@ -79,19 +69,30 @@ export const createProperty = async (req, res) => {
         }
 
 
-        const property = await Property.create({
-            developer,
-            project_name,
-            location,
-            not_ready_yet,
-            logo,
-            google_location,
-            brochure
-        });
+        const property = await Property.create({...req.body});
 
         return res.status(201).json({
             success: true,
             message: "Property created successfully",
+            data: property
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+export const getAllProperties = async (req, res) => {
+    try {
+
+        const property = await Property.find({});
+
+        return res.status(200).json({
+            success: true,
+            message: "Properties fetched successfully",
             data: property
         });
 
