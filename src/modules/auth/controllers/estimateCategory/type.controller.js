@@ -365,17 +365,17 @@ exports.getMoodboardQuestions = asyncHandler(async (req, res) => {
 });
 
 exports.getSingleMoodboardQuestionById = asyncHandler(async (req, res) => {
-  const { typeId,questionId } = req.params;
+  const { typeId, questionId } = req.params;
   // const { questionId } = req.query;
 
   let question = await TypeQuestion.findOne({ type: typeId, _id: questionId }).lean();
 
   if (!question) {
-  return res.status(StatusCodes.NOT_FOUND).json({
-    success: false,
-    message: "Question not found"
-  });
-}
+    return res.status(StatusCodes.NOT_FOUND).json({
+      success: false,
+      message: "Question not found"
+    });
+  }
 
   // allQuestions = await Promise.all( allQuestions.map(async(ques)=>{
   //   let options = [];
@@ -390,6 +390,60 @@ exports.getSingleMoodboardQuestionById = asyncHandler(async (req, res) => {
     success: true,
     message: "Question fetched successfully",
     data: question
+  });
+});
+
+
+exports.editMoodboardQuestionById = asyncHandler(async (req, res) => {
+  const { typeId, questionId } = req.params;
+  const { question, questionType = "text", options = [] } = req.body;
+  const { _id, ...updateData } = req.body;
+  console.log("reqdbbbbbbbbbbbbbbbbbbbbbbbbbbooooooooo", req.body);
+
+  let questionDoc = {}
+  if (req.body) {
+    questionDoc = await TypeQuestion.findOneAndUpdate({ _id: questionId }, updateData,{new:true});
+  }
+
+  let optionsGenerated = [];
+  if (req.body.options) {
+    if (questionType === "options" || questionType === "yesorno") {
+      optionsGenerated = await Promise.all(
+        options.map(async (opt, index) => {
+          const option = {
+            // question: questionDoc._id,
+            title: opt.title,
+            order: opt.order ?? index,
+            includeInEstimate: opt.includeInEstimate ?? true,
+            valueType: opt.valueType || "percentage",
+            valueSubType: opt.valueSubType || "persqm",
+            value: !isNaN(opt.value) ? Number(opt.value) : 0
+          };
+
+          return TypeQuestionOption.findByIdAndUpdate(
+            opt._id ,
+            option,{new:true}
+          );
+
+          // if (opt._id) {
+          //   // UPDATE existing option
+          //   return TypeQuestionOption.updateOne(
+          //     { _id: opt._id },
+          //     { $set: option }
+          //   );
+          // } else {
+          //   // CREATE new option
+          //   return TypeQuestionOption.create(option);
+          // }
+        })
+      );
+    }
+  }
+
+  res.status(StatusCodes.OK).json({
+    success: true,
+    message: "Question Edited successfully",
+    data: optionsGenerated && optionsGenerated.length > 0 ? { ...questionDoc.toObject(), optionsGenerated } : questionDoc
   });
 });
 
