@@ -23,50 +23,51 @@ const shuffleArray = (array) => {
 };
 exports.createType = asyncHandler(async (req, res) => {
   const { categoryId, subcategoryId } = req.params;
-  const { label, description, order,baseEstimationValueUnit } = req.body;
+  const { label, description, order, baseEstimationValueUnit } = req.body;
 
   //baseEstimationValue this will be for most basic setup whethjer you create any design
   if (!label?.trim()) {
     throw new APIError('Type label is required', StatusCodes.BAD_REQUEST);
   }
 
-  
+
   const category = await Category.findById(categoryId);
   if (!category) {
     throw new APIError('Category not found', StatusCodes.NOT_FOUND);
   }
-  
+
   const subcategory = await Subcategory.findOne({
     _id: subcategoryId,
     category: categoryId,
     isActive: true
   });
-  
+
   if (!subcategory) {
     throw new APIError('Subcategory not found', StatusCodes.NOT_FOUND);
   }
-  
+
   const exists = await Type.findOne({
     label: { $regex: `^${label}$`, $options: 'i' },
     subcategory: subcategoryId,
     category: categoryId
   });
-  
+
   if (exists) {
     throw new APIError('Type already exists in this subcategory', StatusCodes.CONFLICT);
   }
-  
+
   const type = await Type.create({
     label: label.trim(),
     description: description?.trim() || '',
     subcategory: subcategoryId,
     category: categoryId,
     order: order || 0,
-    baseEstimationValueUnit:baseEstimationValueUnit,
+    baseEstimationValueUnit: baseEstimationValueUnit,
     isActive: true
   });
-  await Type.updateMany({},{
-    $set:{baseEstimationValueUnit:0}})
+  await Type.updateMany({}, {
+    $set: { baseEstimationValueUnit: 0 }
+  })
 
   const module_id = await resolveModule('estimate-master');
 
@@ -306,15 +307,15 @@ exports.addMoodboardImages = asyncHandler(async (req, res) => {
 exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
   const { question, questionType = "text", options = [] } = req.body;
-  console.log("reqdbbbbbbbbbbbbbbbbbbbbbbbbbbooooooooo",req.body);
+  console.log("reqdbbbbbbbbbbbbbbbbbbbbbbbbbbooooooooo", req.body);
   // 1️⃣ Create question first
   const questionDoc = await TypeQuestion.create({
     type: typeId,
     question,
     questionType,
     areaQuestion: req.body.areaQuestion || false,
-    valueType:req.body.valueType || "number",
-    valueSubType:req.body.valueSubType || "persqm"
+    valueType: req.body.valueType || "number",
+    valueSubType: req.body.valueSubType || "persqm"
   });
 
   // 2️⃣ If question type is OPTIONS → create options
@@ -331,8 +332,8 @@ exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
       question: questionDoc._id,
       title: opt.title,
       order: opt.order ?? index,
-      includeInEstimate:opt.includeInEstimate || true,
-      valueType:  opt.valueType || "percentage",
+      includeInEstimate: opt.includeInEstimate || true,
+      valueType: opt.valueType || "percentage",
       valueSubType: opt.valueSubType || "persqm",
       value: opt.value && !isNaN(opt.value) ? Number(opt.value) : 0
     }));
@@ -350,16 +351,45 @@ exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
 exports.getMoodboardQuestions = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
 
-  let allQuestions = await TypeQuestion.find({type:typeId});
-  allQuestions = await Promise.all( allQuestions.map(async(ques)=>{
+  let allQuestions = await TypeQuestion.find({ type: typeId });
+  allQuestions = await Promise.all(allQuestions.map(async (ques) => {
     let options = [];
-    options = await TypeQuestionOption.find({question:ques._id});
-    return {...ques,options}
+    options = await TypeQuestionOption.find({ question: ques._id });
+    return { ...ques, options }
   }))
   res.status(StatusCodes.CREATED).json({
     success: true,
     message: "Question added successfully",
     data: allQuestions
+  });
+});
+
+exports.getSingleMoodboardQuestionById = asyncHandler(async (req, res) => {
+  const { typeId,questionId } = req.params;
+  // const { questionId } = req.query;
+
+  let question = await TypeQuestion.findOne({ type: typeId, _id: questionId }).lean();
+
+  if (!question) {
+  return res.status(StatusCodes.NOT_FOUND).json({
+    success: false,
+    message: "Question not found"
+  });
+}
+
+  // allQuestions = await Promise.all( allQuestions.map(async(ques)=>{
+  //   let options = [];
+  //   options = await TypeQuestionOption.find({question:ques._id});
+  //   return {...ques,options}
+  // }))
+
+  let options = await TypeQuestionOption.find({ question: question._id });
+
+  question = { ...question, options };
+  res.status(StatusCodes.CREATED).json({
+    success: true,
+    message: "Question fetched successfully",
+    data: question
   });
 });
 

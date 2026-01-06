@@ -18,7 +18,8 @@ const {
   addMoodboardQuestions,
   deleteMoodboardImage,deletePreviewImage,getGalleryByTypeId,generateMoodboard,getQuestionByTypeId,
   deleteMoodboardQuestions,
-  getMoodboardQuestions
+  getMoodboardQuestions,
+  getSingleMoodboardQuestionById
 } = require('../../controllers/estimateCategory/type.controller');
 const upload = require('../../../../middleware/multer');
 
@@ -96,9 +97,14 @@ router.post(
 );
 
 //get questions by master category id 
-router.post(
+router.get(
   '/types/:typeId/get-questions',
   getMoodboardQuestions
+);
+
+router.get(
+  '/types/:typeId/get-questions/:questionId',
+  getSingleMoodboardQuestionById
 );
 
 router.post(
