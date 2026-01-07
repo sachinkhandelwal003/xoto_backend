@@ -174,6 +174,8 @@ Images should look real; no animated images should come.
       designType: "interior"
     });
 
+    console.log("AiGeneratedImagesAiGeneratedImagesAiGeneratedImages",AiGeneratedImages)
+
     res.json({
       message: "Interior design generated successfully",
       imageUrl,
