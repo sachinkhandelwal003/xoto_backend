@@ -17,28 +17,28 @@ type: {
     'ai_enquiry',
     'consultation' 
   ],
-  required: true,
+  required: false,
   index: true
 },
 
 
   // Core fields (always required)
   name: {
-    first_name: { type: String, required: true, trim: true, maxlength: 50 },
-    last_name:  { type: String, required: true, trim: true, maxlength: 50 }
+    first_name: { type: String, required: false, trim: true, default:"" },
+    last_name:  { type: String, required: false, trim: true, default:"" }
   },
   mobile: {
-    country_code: { type: String, required: true, trim: true, default: '+91' },
+    country_code: { type: String, required: false, trim: true, default: '+91' },
     number: {
       type: String,
-      required: true,
+      required: false,
       trim: true,
    
     }
   },
   email: {
     type: String,
-    required: true,
+    required: false,
     lowercase: true,
     trim: true,
     match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Invalid email format']
@@ -66,7 +66,7 @@ consultant_type: {
 
   // Sell-specific
   listing_type: { type: String, trim: true },
-  city: { type: String, trim: true },
+  city: { type: String, trim: true,default:"" },
   area: { type: String, trim: true },
   project_name: { type: String, trim: true },
   bedroom_config: { type: String, trim: true },
@@ -90,7 +90,7 @@ consultant_type: {
   status: { type: String, enum: ['submit', 'contacted', 'converted', 'dead'], default: 'submit' },
   follow_up_date: { type: Date },
   notes: [{
-    text: { type: String, required: true },
+    text: { type: String, required: false },
     author: String,
     createdAt: { type: Date, default: Date.now }
   }],

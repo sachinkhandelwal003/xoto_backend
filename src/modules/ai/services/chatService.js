@@ -8,6 +8,7 @@ import chatSessions from "../models/chatSessions.js";
 import { extractLeadFromText } from "./ExtractData.js";
 // import LandingPageLead from "../../auth/models/consultant/LandingPageLead.model.js"
 import PropertyPageLead from "../../auth/models/consultant/propertyLead.model.js"
+import extractLeadWithAI from "../services/ExtractWithAi.js"
 
 dotenv.config();
 
@@ -312,7 +313,7 @@ Response style:
 ========================
 CORE IDENTITY (STRICT)
 ========================
-• Name: XOBIA (spelled as zobia)
+• Name: XOBIA (pronounced as zobia)
 • Gender: Female
 • Role: Official AI assistant of XOTO
 • Tone: Professional, polite, helpful, confident
@@ -622,6 +623,7 @@ export async function chatWithAI(userText, session_id, chatHistory = []) {
     if (canBeOurCustomer && !session.isPotentialCustomer && !session.assistanceAsked && !session.contactAsked && !session.contactProvided) {
       console.log("Code came int his block")
       session.isPotentialCustomer = true;
+
       console.log("Creating lead for session:", session_id);
       await session.save();
       return "Would you like our expert to assist you further?"
@@ -630,9 +632,10 @@ export async function chatWithAI(userText, session_id, chatHistory = []) {
       //   content: "Would you like our expert to assist you further?"
       // });
     }
-    else if ((isPositiveResponseCame || isNegativeResponseCame) && session.isPotentialCustomer && !session.assistanceAsked && !session.contactAsked && !session.contactProvided) {
+    else if ((isPositiveResponseCame) && session.isPotentialCustomer && !session.assistanceAsked && !session.contactAsked && !session.contactProvided) {
       console.log("Code in 2nd else if block and isPositiveResponseCame and isNegativeResponseCame", isPositiveResponseCame, isNegativeResponseCame)
       session.assistanceAsked = true;
+      session.waitingForLead = true;
       session.contactAsked = true;
       await session.save();
 
@@ -673,79 +676,135 @@ export async function chatWithAI(userText, session_id, chatHistory = []) {
         // Brief Requirement: 2BHK for investment`
         //         });
 
-        return "Sure 😊\n\n" +
-          "Please share the following details:\n\n" +
-          "• Name\n" +
-          "• Phone Number\n" +
-          "• Email\n" +
-          "• Property Type (Apartment / Villa / Plot)\n" +
-          "• Area / Location\n" +
-          "• Requirement\n\n" +
-          "Example:\n" +
-          "Rahul Sharma, 9876543210, rahul@gmail.com, Apartment, Dubai Marina, 2BHK for investment\n\n" +
-          "NOTE: Please make sure you send the details exactly in the above format.";
+        // return "Sure 😊\n\n" +
+        //   "Please share the following details:\n\n" +
+        //   "• Name\n" +
+        //   "• Phone Number\n" +
+        //   "• Email\n" +
+        //   "• Property Type (Apartment / Villa / Plot)\n" +
+        //   "• Area / Location\n" +
+        //   "• Requirement\n\n" +
+        //   "Example:\n" +
+        //   "Rahul Sharma, 9876543210, rahul@gmail.com, Apartment, Dubai Marina, 2BHK for investment\n\n" +
+        //   "NOTE: Please make sure you send the details exactly in the above format.";
 
-
-
+        return `Sure   
+May I know your name, contact number,email,city, and briefly what you’re looking for?`;
       }
-    } else if (session.isPotentialCustomer && session.assistanceAsked && session.contactAsked && !session.contactProvided) {
+    }
+    // else if (session.isPotentialCustomer && session.assistanceAsked && session.contactAsked && !session.contactProvided) {
+    else if (session.waitingForLead && !session.contactProvided) {
 
-
-      let extractedtext = extractLeadFromText(userText);
+      // let extractedtext = extractLeadFromText(userText);
+      let extractedtext = await extractLeadWithAI(userText, openai);
       console.log("extractedtextextractedtextextractedtextextractedtext", extractedtext)
 
-      const extractedLead = extractedtext.lead;
+      const extractedLead = extractedtext;
 
-      if (extractedLead) {
+      // if (extractedLead) {
 
 
-        console.log("code coming in 3rd else if ")
+      //   console.log("code coming in 3rd else if ")
+      //   // split name safely
+      //   const [first_name, ...lastParts] = extractedLead.name.trim().split(' ');
+      //   const last_name = lastParts.join(' ') || '';
+
+      //   // final payload
+      //   const propertyLeadPayload = {
+      //     type: 'ai_enquiry',
+
+      //     name: {
+      //       first_name: first_name,
+      //       last_name: last_name || 'NA'
+      //     },
+
+      //     mobile: {
+      //       country_code: '+971',
+      //       number: extractedLead.phone_number
+      //     },
+
+      //     email: extractedLead.email,
+
+      //     // optional but useful
+      //     description: extractedLead.description,
+
+      //     // map if available
+      //     preferred_city: extractedLead.city || undefined,
+
+      //     // inferred fields
+      //     preferred_contact: 'whatsapp',
+      //     status: 'submit'
+      //   };
+
+      //   let generatedLead = await PropertyPageLead.create(propertyLeadPayload);
+
+      //   session.name = extractedtext.lead.name;
+      //   session.phone = extractedtext.lead.phone_number;
+      //   session.city = extractedtext.lead.city;
+
+      //   await session.save();
+
+      //   console.log("Genrateddddddddddddddddddddddddddddddddddddddddd", generatedLead)
+      // } else {
+      //   // Normal AI behavior
+      //   messages.push({
+      //     role: "system",
+      //     content: XOTO_SYSTEM_PROMPT
+      //   });
+      // }
+
+      if (extractedLead && extractedLead.phone_number) {
+        console.log("Creating lead from AI-extracted data...");
+
         // split name safely
-        const [first_name, ...lastParts] = extractedLead.name.trim().split(' ');
-        const last_name = lastParts.join(' ') || '';
+        const [first_name, ...lastParts] = (extractedLead.name || "NA").trim().split(" ");
+        const last_name = lastParts.join(" ") || "NA";
 
         // final payload
         const propertyLeadPayload = {
-          type: 'ai_enquiry',
+          type: "ai_enquiry",
 
           name: {
             first_name: first_name,
-            last_name: last_name || 'NA'
+            last_name: last_name
           },
 
           mobile: {
-            country_code: '+91',
+            country_code: "+971", // optionally you can detect from number
             number: extractedLead.phone_number
           },
 
-          email: extractedLead.email,
+          email: extractedLead.email || null,
 
           // optional but useful
-          description: extractedLead.description,
+          description: extractedLead.description || null,
 
           // map if available
-          preferred_city: extractedLead.city || undefined,
+          city: extractedLead.city || null,
 
           // inferred fields
-          preferred_contact: 'whatsapp',
-          status: 'submit'
+          preferred_contact: "whatsapp",
+          status: "submit"
         };
 
+        console.log("propertyLeadPayloadpropertyLeadPayloadpropertyLeadPayload",propertyLeadPayload)
         let generatedLead = await PropertyPageLead.create(propertyLeadPayload);
 
-        session.name = extractedtext.lead.name;
-        session.phone = extractedtext.lead.phone_number;
-        session.city = extractedtext.lead.city;
+        // save session info
+        session.name = extractedLead.name || null;
+        session.phone = extractedLead.phone_number;
+        session.city = extractedLead.area || null;
+        session.contactProvided = true; // mark that we have lead
+        session.waitingForLead = false;
 
         await session.save();
 
-        console.log("Genrateddddddddddddddddddddddddddddddddddddddddd", generatedLead)
+        console.log("Generated lead:", generatedLead);
+
+        return "Thanks! We've noted your details. Our XOTO expert will reach out to you soon.";
       } else {
-        // Normal AI behavior
-        messages.push({
-          role: "system",
-          content: XOTO_SYSTEM_PROMPT
-        });
+        // fallback if AI didn't return usable info
+        return "Could you please provide your name and contact number so we can assist you?";
       }
     } else {
       // Normal AI behavior
