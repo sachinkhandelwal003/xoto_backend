@@ -1,4 +1,4 @@
-    export function isPotentialCustomer(userText = "") {
+export function isPotentialCustomer(userText = "") {
     if (!userText || typeof userText !== "string") return false;
 
     const text = userText.toLowerCase();
@@ -68,8 +68,52 @@
         "emi",
         "finance",
         "home loan",
-        "pre approval"
+        "pre approval",
+
+        // UPPERCASE versions
+        "LANDSCAPING",
+        "GARDEN",
+        "VILLA LANDSCAPING",
+        "INTERIOR",
+        "INTERIORS",
+        "KITCHEN",
+        "WARDROBE",
+        "RENOVATION",
+        "DESIGN",
+
+        "PRICE",
+        "COST",
+        "BUDGET",
+        "ESTIMATE",
+        "QUOTATION",
+        "QUOTE",
+
+        "CONSULTATION",
+        "SITE VISIT",
+        "CALL",
+        "CONTACT",
+        "EXPERT",
+        "HELP ME",
+
+        "BUY",
+        "PURCHASE",
+        "RENT",
+        "SELL",
+        "PROPERTY",
+        "VILLA",
+        "TOWNHOUSE",
+        "APARTMENT",
+        "OFF PLAN",
+        "READY PROPERTY",
+
+        "MORTGAGE",
+        "LOAN",
+        "EMI",
+        "FINANCE",
+        "HOME LOAN",
+        "PRE APPROVAL"
     ];
 
+
     return strongSignals.some(word => text.includes(word));
-    }
+}
