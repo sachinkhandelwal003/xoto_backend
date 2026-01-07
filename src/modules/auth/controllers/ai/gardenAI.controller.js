@@ -103,8 +103,6 @@ exports.generateInteriorDesigns = async (req, res) => {
       return res.status(400).json({ error: "No image uploaded" });
     }
 
-    await AIGeneratedImages.updateMany({},{designType: "landscaping"});
-
     const user = req.user;
     const { styleName, elements, description, roomType } = req.body;
 
