@@ -151,8 +151,8 @@ export const getAllProperties = async (req, res) => {
 export const getAllDevelopers = async (req, res) => {
     try {
 
-        let alldevelopers = await Developer.find({}).sort({createdAt:-1});
-        
+        let alldevelopers = await Developer.find({}).sort({ createdAt: -1 });
+
         return res.status(200).json({
             success: true,
             message: "Developers fetched successfully",
@@ -170,15 +170,15 @@ export const getAllDevelopers = async (req, res) => {
 export const MarketPlaceAPI = async (req, res) => {
     try {
 
-        const [properties,featuredPropeties]= await Promise.all([
+        const [properties, featuredPropeties] = await Promise.all([
             Property.find({}).populate("developer").sort({ createdAt: -1 }).limit(3),
-            Property.find({isFeatured:true}).populate("developer").sort({ createdAt: -1 }).limit(3)
+            Property.find({ isFeatured: true }).populate("developer").sort({ createdAt: -1 }).limit(3)
         ]);
 
         return res.status(200).json({
             success: true,
             message: "Properties fetched successfully",
-            data: {properties,featuredPropeties},
+            data: { properties, featuredPropeties },
         });
 
     } catch (error) {
@@ -220,6 +220,29 @@ export const deleteProperty = async (req, res) => {
             success: true,
             message: "Property Deleted successfully",
             data: property
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+
+export const deleteDeveloper = async (req, res) => {
+    try {
+        let id = req.query.id;
+
+        let projects = await Property.deleteMany({developer:id});
+        const developer = await Developer.findByIdAndDelete(id)
+
+
+        return res.status(200).json({
+            success: true,
+            message: "Developer Deleted successfully",
+            data: {developer,projects}
         });
 
     } catch (error) {

@@ -10,5 +10,6 @@ router.get("/get-all-properties",getAllProperties)
 router.get("/get-property-by-id",getPropertiesById)
 router.get("/marketplace",MarketPlaceAPI)
 router.get("/get-all-developers",getAllDevelopers)
+router.post("/delete-developer-by-id",deleteDeveloper)
 
 module.exports = router ; 
