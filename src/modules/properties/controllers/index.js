@@ -151,7 +151,23 @@ export const getAllProperties = async (req, res) => {
 export const getAllDevelopers = async (req, res) => {
     try {
 
-        let alldevelopers = await Developer.find({}).sort({ createdAt: -1 });
+        let search = req.query.search || "";
+
+        let query = {};
+
+        if (search != "") {
+            query = {
+                $or: [
+                    {
+                        name: { $regex: search, $options: "i" },
+                    }, {
+                        email: { $regex: search, $options: "i" }
+                    }
+                ]
+            }
+        }
+
+        let alldevelopers = await Developer.find(query).sort({ createdAt: -1 });
 
         return res.status(200).json({
             success: true,
@@ -235,14 +251,14 @@ export const deleteDeveloper = async (req, res) => {
     try {
         let id = req.query.id;
 
-        let projects = await Property.deleteMany({developer:id});
+        let projects = await Property.deleteMany({ developer: id });
         const developer = await Developer.findByIdAndDelete(id)
 
 
         return res.status(200).json({
             success: true,
             message: "Developer Deleted successfully",
-            data: {developer,projects}
+            data: { developer, projects }
         });
 
     } catch (error) {
