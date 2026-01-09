@@ -246,6 +246,37 @@ export const deleteProperty = async (req, res) => {
     }
 };
 
+export const editDeveloper = async (req, res) => {
+    try {
+
+        let id = req.query.id;
+        console.log("id",id)
+
+        const developerExists = await Developer.findById(id);
+        if (!developerExists) {
+            return res.status(404).json({
+                success: false,
+                message: "Developer not found"
+            });
+        }
+
+
+        let updatedDeveloper = await Developer.findByIdAndUpdate(id, { ...req.body }, { new: true });
+
+        return res.status(201).json({
+            success: true,
+            message: "Developer edited successfully",
+            data: updatedDeveloper
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
 
 export const deleteDeveloper = async (req, res) => {
     try {
@@ -259,6 +290,28 @@ export const deleteDeveloper = async (req, res) => {
             success: true,
             message: "Developer Deleted successfully",
             data: { developer, projects }
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+export const getDeveloperrById = async (req, res) => {
+    try {
+        let id = req.query.id;
+
+
+        const developer = await Developer.findOne({_id:id})
+
+
+        return res.status(200).json({
+            success: true,
+            message: "Developer fetched",
+            data: developer
         });
 
     } catch (error) {
