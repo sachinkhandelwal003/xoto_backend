@@ -3,29 +3,30 @@ const mongoose = require('mongoose');
 
 
 const propertyLeadSchema = new mongoose.Schema({
-type: {
-  type: String,
-  enum: [
-    'buy',
-    'sell',
-    'rent',
-    'schedule_visit',
-    'partner',
-    'investor',
-    'developer',
-    'enquiry',
-    'ai_enquiry',
-    'consultation' 
-  ],
-  required: false,
-  index: true
-},
+  type: {
+    type: String,
+    enum: [
+      'buy',
+      'sell',
+      'rent',
+      'schedule_visit',
+      'partner',
+      'investor',
+      'developer',
+      'enquiry',
+      'ai_enquiry',
+      'consultation',
+      "mortgage"
+    ],
+    required: false,
+    index: true
+  },
 
 
   // Core fields (always required)
   name: {
-    first_name: { type: String, required: false, trim: true, default:"" },
-    last_name:  { type: String, required: false, trim: true, default:"" }
+    first_name: { type: String, required: false, trim: true, default: "" },
+    last_name: { type: String, required: false, trim: true, default: "" }
   },
   mobile: {
     country_code: { type: String, required: false, trim: true, default: '+91' },
@@ -33,8 +34,29 @@ type: {
       type: String,
       required: false,
       trim: true,
-   
+
     }
+  },
+  has_property: {
+    type: Boolean,
+    default: false,
+    required: false
+  },
+  terms_accepted: {
+    type: Boolean,
+    default: true,
+    required: false
+  },
+  marketing_consent: {
+    type: Boolean,
+    default: true,
+    required: false
+  },
+  lead_sub_type: {
+    type: String,
+    enum: ['pre_approval', 'home_loan', 'refinance'],
+    trim: true,
+    default: "pre_approval"
   },
   email: {
     type: String,
@@ -44,11 +66,11 @@ type: {
     match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Invalid email format']
   },
   // Consultation specific
-consultant_type: {
-  type: String,
-  enum: ['landscape', 'interior', 'architect', 'civil_engineer', 'other'],
-  trim: true
-},
+  consultant_type: {
+    type: String,
+    enum: ['landscape', 'interior', 'architect', 'civil_engineer', 'other'],
+    trim: true
+  },
 
   preferred_contact: {
     type: String,
@@ -66,7 +88,7 @@ consultant_type: {
 
   // Sell-specific
   listing_type: { type: String, trim: true },
-  city: { type: String, trim: true,default:"" },
+  city: { type: String, trim: true, default: "" },
   area: { type: String, trim: true },
   project_name: { type: String, trim: true },
   bedroom_config: { type: String, trim: true },
@@ -121,7 +143,7 @@ propertyLeadSchema.pre(['find', 'findOne', 'findOneAndUpdate', 'countDocuments',
     this.where({ is_deleted: false });
   }
 });
- 
+
 const PropertyLead = mongoose.model('PropertyLead', propertyLeadSchema);
 
 // ======================== VALIDATION (Universal for ALL forms) ========================

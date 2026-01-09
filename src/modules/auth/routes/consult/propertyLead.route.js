@@ -13,6 +13,7 @@ const {
 
 // Public create
 router.post('/', validateCreatePropertyLead, controller.createPropertyLead);
+router.post('/create-mortgage-lead', controller.createMortgagePropertyLead);
 
 // Protected
 router.use(protectMulti);
@@ -27,6 +28,7 @@ router.get('/',
 
 // Get single
 router.get('/:id', validatePropertyLeadId, controller.getPropertyLead);
+
 
 // Update
 router.put('/:id',

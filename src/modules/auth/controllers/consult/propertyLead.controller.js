@@ -66,7 +66,7 @@ exports.getAllPropertyLeads = asyncHandler(async (req, res) => {
     ];
   }
 
-  const total = await PropertyLead.countDocuments(query); 
+  const total = await PropertyLead.countDocuments(query);
   const leads = await PropertyLead.find(query)
     .sort({ createdAt: -1 })
     .skip((page - 1) * limit)
@@ -94,6 +94,12 @@ exports.updatePropertyLead = asyncHandler(async (req, res) => {
   const lead = await PropertyLead.findByIdAndUpdate(req.params.id, req.body, { new: true });
   if (!lead) throw new APIError('Not found', StatusCodes.NOT_FOUND);
   res.json({ success: true, message: 'Updated', data: lead });
+});
+
+// Update
+exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
+  const lead = await PropertyLead.create({ ...req.body });
+  res.json({ success: true, message: 'Created', data: lead });
 });
 
 // Mark Contacted
