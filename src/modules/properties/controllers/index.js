@@ -44,10 +44,10 @@ export const createDeveloper = async (req, res) => {
 export const createProperty = async (req, res) => {
     try {
         const {
-            developer,...body
+            developer, ...body
         } = req.body;
 
-   
+
         const developerExists = await Developer.findById(developer);
         if (!developerExists) {
             return res.status(404).json({
@@ -57,7 +57,7 @@ export const createProperty = async (req, res) => {
         }
 
 
-        const property = await Property.create({...req.body});
+        const property = await Property.create({ ...req.body });
 
         return res.status(201).json({
             success: true,
@@ -73,14 +73,90 @@ export const createProperty = async (req, res) => {
     }
 };
 
+export const editProperty = async (req, res) => {
+    try {
+
+        let id = req.query.id;
+
+        const {
+            developer, ...body
+        } = req.body;
+
+
+        const developerExists = await Developer.findById(developer);
+        if (!developerExists) {
+            return res.status(404).json({
+                success: false,
+                message: "Developer not found"
+            });
+        }
+
+
+        const property = await Property.findByIdAndUpdate(id, { ...req.body }, { new: true });
+
+        return res.status(201).json({
+            success: true,
+            message: "Property edited successfully",
+            data: property
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
 export const getAllProperties = async (req, res) => {
     try {
 
-        const property = await Property.find({});
+        const property = await Property.find({}).sort({ createdAt: -1 });
 
         return res.status(200).json({
             success: true,
             message: "Properties fetched successfully",
+            data: property
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+export const getPropertiesById = async (req, res) => {
+    try {
+
+        let id = req.query.id;
+
+        const property = await Property.findById({_id:id});
+
+        return res.status(200).json({
+            success: true,
+            message: "Property fetched successfully",
+            data: property
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+export const deleteProperty = async (req, res) => {
+    try {
+        let id = req.query.id;
+
+        const property = await Property.findByIdAndDelete(id)
+
+        return res.status(200).json({
+            success: true,
+            message: "Property Deleted successfully",
             data: property
         });
 
