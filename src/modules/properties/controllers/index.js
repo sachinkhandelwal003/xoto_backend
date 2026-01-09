@@ -111,12 +111,32 @@ export const editProperty = async (req, res) => {
 export const getAllProperties = async (req, res) => {
     try {
 
-        const property = await Property.find({}).sort({ createdAt: -1 });
+        let page = Number(req.query.page) || 1;
+        let limit = Number(req.query.limit) || 10;
+        let skip = (page - 1) * limit;
+        let isFeatured = req.query.isFeatured;
+
+        let query = {};
+
+        if (isFeatured && isFeatured == "true") {
+            query.isFeatured = true;
+        }
+
+        const property = await Property.find(query).populate("developer").sort({ createdAt: -1 }).limit(limit).skip(skip);
+
+        let total = await Property.countDocuments(query);
+
 
         return res.status(200).json({
             success: true,
             message: "Properties fetched successfully",
-            data: property
+            data: property,
+            pagination: {
+                totalPages: Math.ceil(total / limit),
+                limit,
+                page,
+                total: total
+            }
         });
 
     } catch (error) {
@@ -132,7 +152,7 @@ export const getPropertiesById = async (req, res) => {
 
         let id = req.query.id;
 
-        const property = await Property.findById({_id:id});
+        const property = await Property.findById({ _id: id });
 
         return res.status(200).json({
             success: true,
