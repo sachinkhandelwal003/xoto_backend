@@ -147,6 +147,26 @@ export const getAllProperties = async (req, res) => {
     }
 };
 
+
+export const getAllDevelopers = async (req, res) => {
+    try {
+
+        let alldevelopers = await Developer.find({}).sort({createdAt:-1});
+        
+        return res.status(200).json({
+            success: true,
+            message: "Developers fetched successfully",
+            data: alldevelopers
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
 export const MarketPlaceAPI = async (req, res) => {
     try {
 
