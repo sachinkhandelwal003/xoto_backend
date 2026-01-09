@@ -66,13 +66,13 @@ const PropertySchema = new mongoose.Schema(
       type: String,
       required: false,
       trim: true,
-      default:""
+      default: ""
     },
 
     description: {
       type: String,
-      trim:true,
-      required:false,
+      trim: true,
+      required: false,
       default: ""
     },
 
@@ -83,24 +83,24 @@ const PropertySchema = new mongoose.Schema(
       type: String,
       enum: ["rent", "sell"],
       required: false,
-      default:"rent"
+      default: "rent"
     },
     propertySubType: {
       type: String,
       enum: ["off_plan", "ready", "resale"],
       required: false,
-      default:"off_plan"
+      default: "off_plan"
     },
     bedrooms: {
       type: Number,
       required: false,
-      default:0
+      default: 0
     },
 
     bathrooms: {
       type: Number,
       required: false,
-      default:0
+      default: 0
     },
 
     // =========================
@@ -108,41 +108,41 @@ const PropertySchema = new mongoose.Schema(
     // =========================
     length: {
       type: Number,
-      required:false,
-      default:0
+      required: false,
+      default: 0
     },
 
     lengthUnit: {
       type: String,
       enum: ["ft", "m"],
       default: "ft",
-      required:false
+      required: false
     },
 
     breadth: {
       type: Number,
-      required:false,
-      default:0
+      required: false,
+      default: 0
     },
 
     breadthUnit: {
       type: String,
       enum: ["ft", "m"],
       default: "ft",
-      required:false
+      required: false
     },
 
     builtUpArea: {
       type: Number,
-      required:false,
-      default:0
+      required: false,
+      default: 0
     },
 
     builtUpAreaUnit: {
       type: String,
       enum: ["sqft", "sqm"],
       default: "sqft",
-      required:false
+      required: false
     },
 
     // =========================
@@ -150,14 +150,14 @@ const PropertySchema = new mongoose.Schema(
     // =========================
     price: {
       type: Number,
-      required: false, 
-      default:0
+      required: false,
+      default: 0
     },
 
     currency: {
       type: String,
       default: "AED",
-      required:false
+      required: false
     },
 
     // =========================
@@ -171,7 +171,7 @@ const PropertySchema = new mongoose.Schema(
     country: {
       type: String,
       default: "UAE",
-      required:false
+      required: false
     },
     postalCode: String,
     googleLocation: String,
@@ -182,19 +182,19 @@ const PropertySchema = new mongoose.Schema(
     mainLogo: {
       type: String,
       default: "",
-      required:false
+      required: false
     },
 
     photos: {
       type: [String],
       default: [],
-      required:false
+      required: false
     },
 
     brochure: {
       type: String,
       default: "",
-      required:false
+      required: false
     },
 
     // =========================
@@ -203,13 +203,18 @@ const PropertySchema = new mongoose.Schema(
     isAvailable: {
       type: Boolean,
       default: true,
-      required:false
+      required: false
     },
 
     notReadyYet: {
       type: Boolean,
       default: false,
-      required:false
+      required: false
+    },
+    isFeatured: {
+      type: Boolean,
+      default: false,
+      required: false
     }
   },
   { timestamps: true }

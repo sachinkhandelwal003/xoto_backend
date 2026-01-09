@@ -24,7 +24,7 @@ export const createDeveloper = async (req, res) => {
         //   });
         // }
 
-        let developer = await Developer.create({ name });
+        let developer = await Developer.create({ ...req.body });
 
         return res.status(201).json({
             success: true,
@@ -44,22 +44,10 @@ export const createDeveloper = async (req, res) => {
 export const createProperty = async (req, res) => {
     try {
         const {
-            developer,
-            project_name,
-            location,
-            not_ready_yet,
-            logo,
-            google_location,
-            brochure
+            developer,...body
         } = req.body;
 
    
-
-
-
-
-
-
         const developerExists = await Developer.findById(developer);
         if (!developerExists) {
             return res.status(404).json({
