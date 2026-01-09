@@ -2,8 +2,9 @@
 // src/services/chatService.js
 import OpenAI from "openai";
 import dotenv from "dotenv";
-import { isPotentialCustomer } from "../services/leadDetector.js"
-import { isNegativeResponse, isPositiveResponse } from "../services/isPositiveResponse.js"
+// import { isPotentialCustomer } from "../services/leadDetector.js"
+import  isPotentialCustomerWithAI  from "../services/leadDetector.js"
+import { isPositiveResponseWithAI, isNegativeResponseWithAI } from "../services/isPositiveResponse.js"
 import chatSessions from "../models/chatSessions.js";
 import { extractLeadFromText } from "./ExtractData.js";
 // import LandingPageLead from "../../auth/models/consultant/LandingPageLead.model.js"
@@ -291,6 +292,8 @@ If a user provides personal or lead-related details such as:
 - Location
 - Budget
 - Requirement or intent (landscaping, interiors, buy/rent/sell, mortgage)
+
+
 
 You MUST:
 • Acknowledge receipt of the details
@@ -591,10 +594,10 @@ export async function chatWithAI(userText, session_id, chatHistory = []) {
       }
     }
 
-    let isPositiveResponseCame = isPositiveResponse(userText)
-    let isNegativeResponseCame = isNegativeResponse(userText)
+    let isPositiveResponseCame = await isPositiveResponseWithAI(userText,openai)
+    let isNegativeResponseCame = await isNegativeResponseWithAI(userText,openai)
 
-    let canBeOurCustomer = isPotentialCustomer(userText)
+    let canBeOurCustomer = await isPotentialCustomerWithAI(userText,openai)
     console.log("potenttttttttttttttttttttiiiiiiiiiiiiiiiaaaaaaaaaaallllll customers", canBeOurCustomer)
     let leadInstruction = "";
 
@@ -623,17 +626,17 @@ export async function chatWithAI(userText, session_id, chatHistory = []) {
     if (canBeOurCustomer && !session.isPotentialCustomer && !session.assistanceAsked && !session.contactAsked && !session.contactProvided) {
       console.log("Code came int his block")
       session.isPotentialCustomer = true;
-
-      console.log("Creating lead for session:", session_id);
       await session.save();
+      
+      console.log("Creating lead for session:", session_id);
       return "Would you like our expert to assist you further?"
       // messages.push({
-      //   role: "assistant",
-      //   content: "Would you like our expert to assist you further?"
-      // });
-    }
-    else if ((isPositiveResponseCame) && session.isPotentialCustomer && !session.assistanceAsked && !session.contactAsked && !session.contactProvided) {
-      console.log("Code in 2nd else if block and isPositiveResponseCame and isNegativeResponseCame", isPositiveResponseCame, isNegativeResponseCame)
+        //   role: "assistant",
+        //   content: "Would you like our expert to assist you further?"
+        // });
+      }
+      else if ((isPositiveResponseCame) && session.isPotentialCustomer && !session.assistanceAsked && !session.contactAsked && !session.contactProvided) {
+        console.log("Code in 2nd else if block and isPositiveResponseCame and isNegativeResponseCame", isPositiveResponseCame, isNegativeResponseCame)
       session.assistanceAsked = true;
       session.waitingForLead = true;
       session.contactAsked = true;
