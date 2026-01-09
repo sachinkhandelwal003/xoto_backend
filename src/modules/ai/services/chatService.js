@@ -379,7 +379,7 @@ DOMAIN RESTRICTION (VERY IMPORTANT)
 
 
 ========================
-OFF-TOPIC HANDLING (MANDATORY)
+OFF-TOPIC HANDLING ()
 ========================
 If a user asks anything NOT related to XOTO or property/home journeys:
 
