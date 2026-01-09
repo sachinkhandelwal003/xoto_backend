@@ -147,6 +147,28 @@ export const getAllProperties = async (req, res) => {
     }
 };
 
+export const MarketPlaceAPI = async (req, res) => {
+    try {
+
+        const [properties,featuredPropeties]= await Promise.all([
+            Property.find({}).populate("developer").sort({ createdAt: -1 }).limit(3),
+            Property.find({isFeatured:true}).populate("developer").sort({ createdAt: -1 }).limit(3)
+        ]);
+
+        return res.status(200).json({
+            success: true,
+            message: "Properties fetched successfully",
+            data: {properties,featuredPropeties},
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
 export const getPropertiesById = async (req, res) => {
     try {
 
