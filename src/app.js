@@ -27,7 +27,7 @@ app.use('/estimate/master/category', require('./modules/auth/routes/estimateCate
 
 app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/projectfreelancer.route'));
 app.use('/property', require('../src/modules/properties/routes/index.js'));
-// app.use('/products', require('../src/modules/products/routes/index.js'));
+app.use('/products', require('../src/modules/products/routes/index.js'));
 app.post("/upload",upload.single("file"),uploadFileToS3) 
 app.use('/accountant', require('./modules/auth/routes/accountant/Accountant.routes'));
 app.use('/users', require('./modules/auth/routes/user/user.routes'));
@@ -72,7 +72,7 @@ app.use('/brands', require('../src/modules/ecommerce/B2C/routes/brand.routes'));
 
 app.use('/categories', require('../src/modules/ecommerce/B2C/routes/category.routes'));
 app.use('/tags', require('../src/modules/ecommerce/B2C/routes/tags.routes'));
-app.use('/products', require('../src/modules/ecommerce/B2C/routes/product.routes'));
+// app.use('/products', require('../src/modules/ecommerce/B2C/routes/product.routes'));
 app.use('/vendor/warehouses', require('../src/modules/ecommerce/B2C/routes/warehouse.routes'));
 
 // 404 Handler

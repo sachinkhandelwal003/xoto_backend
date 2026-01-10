@@ -1,8 +1,9 @@
-// const Router = require("express");
-// const { createDeveloper, createProperty, getAllProperties, deleteProperty, getPropertyById, getDeveloperrById, editProperty, editDeveloper, getPropertiesById, MarketPlaceAPI, getAllDevelopers, deleteDeveloper } = require("../controllers/index.js")
-// const router = Router();
+const Router = require("express");
+const { createBrand } = require("../controllers/index.js")
+const router = Router();
 
-// router.post("/create-developer", createDeveloper)
+router.post("/create-brand", createBrand)
+router.post("/get-all-brand", createBrand)
 // router.post("/create-properties", createProperty)
 // router.post("/delete-property", deleteProperty)
 // router.post("/edit-property", editProperty)
@@ -15,4 +16,4 @@
 // router.get("/get-property-by-id", getPropertyById)
 // router.post("/edit-developer", editDeveloper)
 
-// module.exports = router; 
+module.exports = router; 
