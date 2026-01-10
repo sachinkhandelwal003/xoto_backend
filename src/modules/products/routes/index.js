@@ -1,9 +1,19 @@
 const Router = require("express");
-const { createBrand,getAllBrands } = require("../controllers/index.js")
+const { createBrand, getCategoryById, getAllBrands, getBrandByID, editBrandByID,editCategory,deleteCategoryByID, deleteBrandBYID, createCategory, getAllCategory } = require("../controllers/index.js")
 const router = Router();
 
 router.post("/create-brand", createBrand)
+router.post("/edit-brand-by-id", editBrandByID)
+router.post("/delete-brand-by-id", deleteBrandBYID)
 router.get("/get-all-brand", getAllBrands)
+router.get("/get-brand-by-id", getBrandByID)
+
+
+router.post("/create-category", createCategory)
+router.post("/edit-category-by-id", editCategory)
+router.post("/delete-category-by-id", deleteCategoryByID)
+router.get("/get-all-category", getAllCategory)
+router.get("/get-category-by-id", getCategoryById)
 // router.post("/create-properties", createProperty)
 // router.post("/delete-property", deleteProperty)
 // router.post("/edit-property", editProperty)
