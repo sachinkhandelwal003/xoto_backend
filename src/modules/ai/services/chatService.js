@@ -651,8 +651,16 @@ export async function chatWithAI(userText, session_id, chatHistory = []) {
     //     }
 
     let messages = []
+    if(isNegativeResponseCame){
+      console.log("negative response came")
+    }
+    
+    if(isPositiveResponseCame){
+      console.log("positive response came")
+    }
+
     // isPotentialCustomer,assistanceAsked , contactAsked , contactProvided , name , phone, city
-    if (canBeOurCustomer && !session.isPotentialCustomer && !session.assistanceAsked && !session.contactAsked && !session.contactProvided) {
+    if (!isNegativeResponseCame && canBeOurCustomer && !session.isPotentialCustomer && !session.assistanceAsked && !session.contactAsked && !session.contactProvided) {
       console.log("Code came int his block")
       session.isPotentialCustomer = true;
       await session.save();
@@ -664,7 +672,7 @@ export async function chatWithAI(userText, session_id, chatHistory = []) {
       //   content: "Would you like our expert to assist you further?"
       // });
     }
-    else if ((isPositiveResponseCame) && session.isPotentialCustomer && !session.assistanceAsked && !session.contactAsked && !session.contactProvided) {
+    else if (!isNegativeResponseCame && (isPositiveResponseCame) && session.isPotentialCustomer && !session.assistanceAsked && !session.contactAsked && !session.contactProvided) {
       console.log("Code in 2nd else if block and isPositiveResponseCame and isNegativeResponseCame", isPositiveResponseCame, isNegativeResponseCame)
       session.assistanceAsked = true;
       session.waitingForLead = true;
@@ -725,7 +733,7 @@ May I know your name, contact number,email,city, and briefly what you’re looki
       }
     }
     // else if (session.isPotentialCustomer && session.assistanceAsked && session.contactAsked && !session.contactProvided) {
-    else if (session.waitingForLead && !session.contactProvided) {
+    else if (!isNegativeResponseCame && session.waitingForLead && !session.contactProvided) {
 
       // let extractedtext = extractLeadFromText(userText);
       let extractedtext = await extractLeadWithAI(userText, openai);
@@ -834,7 +842,7 @@ May I know your name, contact number,email,city, and briefly what you’re looki
         console.log("Generated lead:", generatedLead);
 
         return "Thanks! We've noted your details. Our XOTO expert will reach out to you soon.";
-      } else {
+      } else if(!isNegativeResponseCame) {
         // fallback if AI didn't return usable info
         return "Could you please provide your name and contact number so we can assist you?";
       }
