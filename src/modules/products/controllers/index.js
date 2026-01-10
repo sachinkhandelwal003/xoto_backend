@@ -11,7 +11,7 @@ export const createBrand = async (req, res) => {
         return res.status(201).json({
             success: true,
             message: "Brand created successfully",
-            Brand:newbrand
+            Brand: newbrand
         });
 
     } catch (error) {
@@ -90,29 +90,30 @@ export const editProperty = async (req, res) => {
     }
 };
 
-export const getAllProperties = async (req, res) => {
+export const getAllBrands = async (req, res) => {
     try {
 
         let page = Number(req.query.page) || 1;
         let limit = Number(req.query.limit) || 10;
         let skip = (page - 1) * limit;
-        let isFeatured = req.query.isFeatured;
+        let search = req.query.search || "";
 
         let query = {};
-
-        if (isFeatured && isFeatured == "true") {
-            query.isFeatured = true;
+        if (search != "") {
+            query.brandName = {
+                $regex: new RegExp(search, "i")
+            }
         }
 
-        const property = await Property.find(query).populate("developer").sort({ createdAt: -1 }).limit(limit).skip(skip);
 
-        let total = await Property.countDocuments(query);
+        const brands = await Brand.find(query).sort({ createdAt: -1 }).limit(limit).skip(skip);
 
+        let total = await Brand.countDocuments(query);
 
         return res.status(200).json({
             success: true,
-            message: "Properties fetched successfully",
-            data: property,
+            message: "Brands fetched successfully",
+            data: brands,
             pagination: {
                 totalPages: Math.ceil(total / limit),
                 limit,

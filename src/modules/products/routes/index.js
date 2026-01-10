@@ -1,9 +1,9 @@
 const Router = require("express");
-const { createBrand } = require("../controllers/index.js")
+const { createBrand,getAllBrands } = require("../controllers/index.js")
 const router = Router();
 
 router.post("/create-brand", createBrand)
-router.post("/get-all-brand", createBrand)
+router.get("/get-all-brand", getAllBrands)
 // router.post("/create-properties", createProperty)
 // router.post("/delete-property", deleteProperty)
 // router.post("/edit-property", editProperty)
