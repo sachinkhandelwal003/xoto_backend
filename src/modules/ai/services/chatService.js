@@ -3,7 +3,7 @@
 import OpenAI from "openai";
 import dotenv from "dotenv";
 // import { isPotentialCustomer } from "../services/leadDetector.js"
-import  isPotentialCustomerWithAI  from "../services/leadDetector.js"
+import isPotentialCustomerWithAI from "../services/leadDetector.js"
 import { isPositiveResponseWithAI, isNegativeResponseWithAI } from "../services/isPositiveResponse.js"
 import chatSessions from "../models/chatSessions.js";
 import { extractLeadFromText } from "./ExtractData.js";
@@ -364,6 +364,18 @@ LANGUAGE ENFORCEMENT (CRITICAL)
 
 
 ========================
+LANGUAGE ENFORCEMENT (FINAL & STRICT)
+========================
+• Respond ONLY in the SAME language as the user's CURRENT message.
+• Ignore:
+  - Names
+  - Accents
+  - Countries
+  - Previous messages
+• Never change language unless the USER changes it.
+
+
+========================
 DOMAIN RESTRICTION (VERY IMPORTANT)
 ========================
 • You MUST respond ONLY to queries related to:
@@ -611,10 +623,10 @@ export async function chatWithAI(userText, session_id, chatHistory = []) {
       }
     }
 
-    let isPositiveResponseCame = await isPositiveResponseWithAI(userText,openai)
-    let isNegativeResponseCame = await isNegativeResponseWithAI(userText,openai)
+    let isPositiveResponseCame = await isPositiveResponseWithAI(userText, openai)
+    let isNegativeResponseCame = await isNegativeResponseWithAI(userText, openai)
 
-    let canBeOurCustomer = await isPotentialCustomerWithAI(userText,openai)
+    let canBeOurCustomer = await isPotentialCustomerWithAI(userText, openai)
     console.log("potenttttttttttttttttttttiiiiiiiiiiiiiiiaaaaaaaaaaallllll customers", canBeOurCustomer)
     let leadInstruction = "";
 
@@ -644,16 +656,16 @@ export async function chatWithAI(userText, session_id, chatHistory = []) {
       console.log("Code came int his block")
       session.isPotentialCustomer = true;
       await session.save();
-      
+
       console.log("Creating lead for session:", session_id);
       return "Would you like our expert to assist you further?"
       // messages.push({
-        //   role: "assistant",
-        //   content: "Would you like our expert to assist you further?"
-        // });
-      }
-      else if ((isPositiveResponseCame) && session.isPotentialCustomer && !session.assistanceAsked && !session.contactAsked && !session.contactProvided) {
-        console.log("Code in 2nd else if block and isPositiveResponseCame and isNegativeResponseCame", isPositiveResponseCame, isNegativeResponseCame)
+      //   role: "assistant",
+      //   content: "Would you like our expert to assist you further?"
+      // });
+    }
+    else if ((isPositiveResponseCame) && session.isPotentialCustomer && !session.assistanceAsked && !session.contactAsked && !session.contactProvided) {
+      console.log("Code in 2nd else if block and isPositiveResponseCame and isNegativeResponseCame", isPositiveResponseCame, isNegativeResponseCame)
       session.assistanceAsked = true;
       session.waitingForLead = true;
       session.contactAsked = true;
@@ -807,7 +819,7 @@ May I know your name, contact number,email,city, and briefly what you’re looki
           status: "submit"
         };
 
-        console.log("propertyLeadPayloadpropertyLeadPayloadpropertyLeadPayload",propertyLeadPayload)
+        console.log("propertyLeadPayloadpropertyLeadPayloadpropertyLeadPayload", propertyLeadPayload)
         let generatedLead = await PropertyPageLead.create(propertyLeadPayload);
 
         // save session info
