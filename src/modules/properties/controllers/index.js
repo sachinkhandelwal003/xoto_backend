@@ -250,7 +250,7 @@ export const editDeveloper = async (req, res) => {
     try {
 
         let id = req.query.id;
-        console.log("id",id)
+        console.log("id", id)
 
         const developerExists = await Developer.findById(id);
         if (!developerExists) {
@@ -305,13 +305,36 @@ export const getDeveloperrById = async (req, res) => {
         let id = req.query.id;
 
 
-        const developer = await Developer.findOne({_id:id})
+        const developer = await Developer.findOne({ _id: id })
 
 
         return res.status(200).json({
             success: true,
             message: "Developer fetched",
             data: developer
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+
+export const getPropertyById = async (req, res) => {
+    try {
+        let id = req.query.id;
+
+
+        const property = await Property.findOne({ _id: id })
+
+
+        return res.status(200).json({
+            success: true,
+            message: "Property fetched",
+            data: property
         });
 
     } catch (error) {

@@ -1,5 +1,5 @@
 const Router = require("express");
-const { createDeveloper, createProperty, getAllProperties, deleteProperty, getDeveloperrById, editProperty, editDeveloper, getPropertiesById, MarketPlaceAPI, getAllDevelopers, deleteDeveloper } = require("../controllers/index.js")
+const { createDeveloper, createProperty, getAllProperties, deleteProperty, getPropertyById, getDeveloperrById, editProperty, editDeveloper, getPropertiesById, MarketPlaceAPI, getAllDevelopers, deleteDeveloper } = require("../controllers/index.js")
 const router = Router();
 
 router.post("/create-developer", createDeveloper)
@@ -12,6 +12,7 @@ router.get("/marketplace", MarketPlaceAPI)
 router.get("/get-all-developers", getAllDevelopers)
 router.post("/delete-developer-by-id", deleteDeveloper)
 router.get("/get-developer-by-id", getDeveloperrById)
+router.get("/get-property-by-id", getPropertyById)
 router.post("/edit-developer", editDeveloper)
 
 module.exports = router; 
