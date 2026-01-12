@@ -187,15 +187,46 @@ export const getProductById = async (req, res) => {
             });
         }
 
-        let ProductColors = await ProductColour.findOne({product:existingProduct._id})
+        let ProductColors = await ProductColour.findOne({ product: existingProduct._id })
 
         existingProduct = {
-            ...existingProduct,ProductColors
+            ...existingProduct, ProductColors
         }
 
         return res.status(200).json({
             success: true,
             message: "Product fetched successfully",
+            data: existingProduct
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+
+export const deleteProductById = async (req, res) => {
+    try {
+
+        const { id } = req.query;
+
+        await ProductColour.deleteMany({ product: id })
+
+        let existingProduct = await Product.findByIdAndDelete(id);
+
+        if (!existingProduct) {
+            return res.status(400).json({
+                success: true,
+                message: "No Product Found",
+                data: existingProduct
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Product Deleted successfully",
             data: existingProduct
         });
     } catch (error) {
@@ -233,6 +264,38 @@ export const createProducts = async (req, res) => {
         let newproduct = await Product.create({ ...req.body.product });
 
         let colors = req.body.colours
+
+        let newColors = colors.map(c => {
+            return { ...c, product: newproduct._id }
+        })
+
+        let coloursData = await ProductColour.insertMany(newColors);
+
+        return res.status(201).json({
+            success: true,
+            message: "Category created successfully",
+            Brand: { newproduct, coloursData }
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+export const updateProducts = async (req, res) => {
+    try {
+
+        let newproduct = await Product.findByIdAndUpdate(id, { ...req.body.product });
+
+        let colors = req.body.colours
+
+        let oldColours = await ProductColour.find({product:id});
+
+        //delete old Colours data
+        oldColours.map(colours) 
 
         let newColors = colors.map(c => {
             return { ...c, product: newproduct._id }
