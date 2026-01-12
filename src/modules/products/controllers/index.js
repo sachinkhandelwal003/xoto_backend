@@ -104,6 +104,45 @@ export const getAllCategory = async (req, res) => {
     }
 };
 
+export const getAllProducts = async (req, res) => {
+    try {
+        let page = req.query.page ? Number(req.query.page) : 1;
+        let limit = req.query.limit ? Number(req.query.limit) : 10;
+        let skip = (page - 1) * limit;
+
+        let search = req.query.search || "";
+
+        let query = {};
+
+        if (search != "") {
+            query.name = { $regex: new RegExp(`${search}`, "i") }
+        }
+
+        let products = await Product.find(query).limit(limit).skip(skip).populate("category brandName").lean();
+
+        products = await Promise.all(
+            products.map(async (p) => {
+                let ProductColors = await ProductColour.find({ product: p._id });
+                return { ...p, ProductColors }
+            })
+        )
+
+        let total = await Product.countDocuments(query);
+
+        return res.status(200).json({
+            success: true,
+            message: "Products fetched successfully",
+            data: { products, pagination: { total, page, limit, totalPages: total / limit } }
+        })
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        })
+    }
+}
+
 export const getCategoryById = async (req, res) => {
     try {
 
@@ -168,7 +207,7 @@ export const createProducts = async (req, res) => {
         return res.status(201).json({
             success: true,
             message: "Category created successfully",
-            Brand: {newproduct,coloursData}
+            Brand: { newproduct, coloursData }
         });
 
     } catch (error) {
