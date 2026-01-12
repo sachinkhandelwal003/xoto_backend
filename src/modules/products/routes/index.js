@@ -1,5 +1,5 @@
 const Router = require("express");
-const { createBrand, getAllProducts , createProducts, createCategory, getCategoryById, getAllBrands, getBrandByID, editBrandByID, editCategory, deleteCategoryByID, deleteBrandBYID, getAllCategory } = require("../controllers/index.js")
+const { createBrand, getProductById,getAllProducts , createProducts, createCategory, getCategoryById, getAllBrands, getBrandByID, editBrandByID, editCategory, deleteCategoryByID, deleteBrandBYID, getAllCategory } = require("../controllers/index.js")
 const router = Router();
 
 //brand
@@ -20,6 +20,7 @@ router.get("/get-category-by-id", getCategoryById)
 //products
 router.post("/create-products", createProducts)
 router.get("/get-all-products", getAllProducts)
+router.get("/get-product-by-id", getProductById)
 // router.post("/delete-category-by-id", deleteCategoryByID)
 // router.get("/get-all-category", getAllCategory)
 // router.get("/get-category-by-id", getCategoryById)

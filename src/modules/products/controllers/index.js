@@ -171,6 +171,42 @@ export const getCategoryById = async (req, res) => {
     }
 };
 
+
+export const getProductById = async (req, res) => {
+    try {
+
+        const { id } = req.query;
+
+        let existingProduct = await Product.findOne({ _id: id }).populate("category brandName").lean();
+
+        if (!existingProduct) {
+            return res.status(400).json({
+                success: true,
+                message: "No Product Found",
+                data: existingProduct
+            });
+        }
+
+        let ProductColors = await ProductColour.findOne({product:existingProduct._id})
+
+        existingProduct = {
+            ...existingProduct,ProductColors
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Product fetched successfully",
+            data: existingProduct
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+
 export const createCategory = async (req, res) => {
     try {
 
