@@ -16,7 +16,7 @@ const ProductColourSchema = new mongoose.Schema(
         },
 
         photos: {
-            type: String,
+            type: [String],
             required: false,
             default: []
         },

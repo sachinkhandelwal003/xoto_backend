@@ -69,11 +69,11 @@ const ProductSchema = new mongoose.Schema(
     },
 
     material: {
-      type: String,
-      default: ""
+      type: [String],
+      default: []
     },
 
-    finish: {
+    finish: { // is a specification 
       type: String,
       default: ""
     },

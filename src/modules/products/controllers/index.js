@@ -2,7 +2,8 @@
 // import Developer from "../models/DeveloperModel.js";
 import Brand from "../models/BrandSchema.js";
 import Category from "../models/CategoryModel.js";
-
+import Product from "../models/ProductModel.js"
+import ProductColour from "../models/ProductColorSchema.js"
 
 export const createBrand = async (req, res) => {
     try {
@@ -131,6 +132,53 @@ export const getCategoryById = async (req, res) => {
     }
 };
 
+export const createCategory = async (req, res) => {
+    try {
+
+
+        const newCategory = await Category.create({ ...req.body });
+
+
+        return res.status(200).json({
+            success: true,
+            message: "Category added successfully",
+            data: newCategory
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+export const createProducts = async (req, res) => {
+    try {
+
+        let newproduct = await Product.create({ ...req.body.product });
+
+        let colors = req.body.colours
+
+        let newColors = colors.map(c => {
+            return { ...c, product: newproduct._id }
+        })
+
+        let coloursData = await ProductColour.insertMany(newColors);
+
+        return res.status(201).json({
+            success: true,
+            message: "Category created successfully",
+            Brand: {newproduct,coloursData}
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
 export const getBrandByID = async (req, res) => {
     try {
 
@@ -216,10 +264,12 @@ export const deleteCategoryByID = async (req, res) => {
 
 
 
-export const createCategory = async (req, res) => {
+export const createProduct = async (req, res) => {
     try {
 
-        let newbrand = await Category.create({ ...req.body });
+        let newproduct = await Product.create({ ...req.body.product });
+
+
 
         return res.status(201).json({
             success: true,
@@ -364,6 +414,7 @@ export const editProperty = async (req, res) => {
         });
     }
 };
+
 
 
 
