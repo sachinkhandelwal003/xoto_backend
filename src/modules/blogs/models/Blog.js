@@ -3,8 +3,12 @@ import mongoose from "mongoose"
 let BlogSchema = new mongoose.Schema({
     title: {
         type: String,
-        required: true,
         trim: true,
+        required: false,
+    },
+    subHeading: {
+        type: String,
+        default: "",
         required: false,
     },
     slug: {
@@ -18,6 +22,11 @@ let BlogSchema = new mongoose.Schema({
         required: false,
     },
     featuredImage: {
+        type: String,
+        default: "",
+        required: false,
+    },
+    coverImage: {
         type: String,
         default: "",
         required: false,
@@ -37,6 +46,11 @@ let BlogSchema = new mongoose.Schema({
         required: false
     },
     authorName: {
+        type: String,
+        required: false,
+        default: ""
+    },
+    authorImage: {
         type: String,
         required: false,
         default: ""
