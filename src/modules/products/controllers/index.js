@@ -313,7 +313,7 @@ export const updateProductById = async (req, res) => {
 
         let updatedColours = []
         for (let colour of colours) {
-            if (colour._id && existingIds.includes(colour._id.toString())) {
+            if (colour._id && colour._id != "" && existingIds.includes(colour._id.toString())) {
 
                 //update
                 let data = await ProductColour.findByIdAndUpdate(
@@ -327,12 +327,20 @@ export const updateProductById = async (req, res) => {
                 updatedColours.push(data)
 
             } else {
+                
+                // let data = await ProductColour.create({
+                //     ...colourData,
+                //     product: id
+                // })
 
-                let data = await ProductColour.create({
-                    ...colour,
+                let created = await ProductColour.create({
+                    colourName: colour.colourName,
+                    photos: colour.photos,
+                    isActive: colour.isActive,
                     product: id
-                })
-                updatedColours.push(data)
+                });
+
+                updatedColours.push(created)
 
 
             }
