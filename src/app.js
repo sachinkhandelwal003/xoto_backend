@@ -6,7 +6,7 @@ const createError = require('http-errors');
 const logger = require('./config/logger');
 const upload = require("../src/middleware/s3Upload.js").default
 const { uploadFileToS3 } = require("./modules/s3/upload.js");
-
+const blogRoutes = require('../src/modules/blogs/routes/index.js').default;
 
 const app = express();
 
@@ -72,7 +72,7 @@ app.use('/brands', require('../src/modules/ecommerce/B2C/routes/brand.routes'));
 
 app.use('/categories', require('../src/modules/ecommerce/B2C/routes/category.routes'));
 app.use('/tags', require('../src/modules/ecommerce/B2C/routes/tags.routes'));
-// app.use('/products', require('../src/modules/ecommerce/B2C/routes/product.routes'));
+app.use('/blogs', blogRoutes);
 app.use('/vendor/warehouses', require('../src/modules/ecommerce/B2C/routes/warehouse.routes'));
 
 // 404 Handler

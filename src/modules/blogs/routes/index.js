@@ -1,4 +1,5 @@
-import {Router} from express
+import {Router} from "express"
+import {createBlog} from "../controllers/index.js"
 
 const router = Router();
 
