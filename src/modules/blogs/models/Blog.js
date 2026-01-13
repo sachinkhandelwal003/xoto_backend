@@ -11,7 +11,7 @@ let BlogSchema = new mongoose.Schema({
         type: String,
         trim: true,
         required: false,
-        index:true
+        index: true
     },
     content: {
         type: String,
@@ -35,6 +35,11 @@ let BlogSchema = new mongoose.Schema({
     publishedAt: {
         type: Date,
         required: false
+    },
+    authorName: {
+        type: String,
+        required: false,
+        default: ""
     }
 }, {
     timestamps: true
