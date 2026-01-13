@@ -19,9 +19,24 @@ export const createBlog = async (req, res) => {
 export const getBlogs = async (req, res) => {
     try {
 
-        let allBlogs = await Blog.find({});
+        let page = Number(req.query.page) || 1;
+        let limit = Number(req.query.limit) || 10;
+        let search = req.query.search || "";
+        let skip = (page - 1) * limit;
 
-        return res.status(200).json({ success: true, message: "Blogs fetched successfully", data: allBlogs })
+        let query = {};
+
+        if (search != "") {
+            query.$or = [
+                { title: { $regex: search, $options: "i" } },
+                { content: { $regex: search, $options: "i" } }
+            ]
+        }
+
+        let allBlogs = await Blog.find(query).sort({ createdAt: -1 }).limit(limit).skip(skip);
+        let total = await Blog.countDocuments(query);
+
+        return res.status(200).json({ success: true, message: "Blogs fetched successfully", data: allBlogs, pagination: { total, page, limit, totalPages: Math.ceil(total / limit) } })
     } catch (error) {
         return res.status(500).json({
             success: false,
@@ -58,7 +73,7 @@ export const editBlogsById = async (req, res) => {
     try {
         let { id } = req.query;
 
-        let newBlog = await Blog.findByIdAndUpdate(id, { ...req.body },{new:true});
+        let newBlog = await Blog.findByIdAndUpdate(id, { ...req.body }, { new: true });
 
         if (!newBlog) {
             return res.status(400).json({ success: false, message: "No Blog Found" })
@@ -77,7 +92,7 @@ export const deleteBlogsBYId = async (req, res) => {
     try {
         let { id } = req.query;
 
-        let newBlog = await Blog.findByIdAndDelete(id, { ...req.body },{new:true});
+        let newBlog = await Blog.findByIdAndDelete(id, { ...req.body }, { new: true });
 
         if (!newBlog) {
             return res.status(400).json({ success: false, message: "No Blog Found" })
