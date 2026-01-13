@@ -187,7 +187,7 @@ export const getProductById = async (req, res) => {
             });
         }
 
-        let ProductColors = await ProductColour.findOne({ product: existingProduct._id })
+        let ProductColors = await ProductColour.find({ product: existingProduct._id })
 
         existingProduct = {
             ...existingProduct, ProductColors
@@ -285,28 +285,63 @@ export const createProducts = async (req, res) => {
     }
 };
 
-export const updateProducts = async (req, res) => {
+export const updateProductById = async (req, res) => {
     try {
 
-        let newproduct = await Product.findByIdAndUpdate(id, { ...req.body.product });
+        let { id } = req.query;
+        let { product, colours = [] } = req.body
 
-        let colors = req.body.colours
+        let updatedProduct = await Product.findByIdAndUpdate(id, product, { new: true });
 
-        let oldColours = await ProductColour.find({product:id});
+        if (!updatedProduct) {
+            return res.status(200).json({
+                success: false,
+                message: "Product not found"
+            })
+        }
 
-        //delete old Colours data
-        oldColours.map(colours) 
+        let existingColours = await ProductColour.find({ product: id });
 
-        let newColors = colors.map(c => {
-            return { ...c, product: newproduct._id }
+
+        let existingIds = existingColours.map((a) => a._id.toString());
+        let incomingIds = colours.filter(c => c._id).map(c => c._id.toString()); // old colours which remained 
+
+        await ProductColour.deleteMany({
+            product: id,
+            _id: { $nin: incomingIds }
         })
 
-        let coloursData = await ProductColour.insertMany(newColors);
+        let updatedColours = []
+        for (let colour of colours) {
+            if (colour._id && existingIds.includes(colour._id.toString())) {
+
+                //update
+                let data = await ProductColour.findByIdAndUpdate(
+                    colour._id,
+                    {
+                        colourName: colour.colourName,
+                        photos: colour.photos,
+                        isActive: colour.isActive
+                    }, { new: true })
+
+                updatedColours.push(data)
+
+            } else {
+
+                let data = await ProductColour.create({
+                    ...colour,
+                    product: id
+                })
+                updatedColours.push(data)
+
+
+            }
+        }
 
         return res.status(201).json({
             success: true,
-            message: "Category created successfully",
-            Brand: { newproduct, coloursData }
+            message: "Product updated successfully",
+            data: { updatedProduct, updatedColours }
         });
 
     } catch (error) {
