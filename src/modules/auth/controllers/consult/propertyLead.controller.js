@@ -113,15 +113,16 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
 
   // if it exist then we'll make the lead for it only if there is no lead in last 30 days
   if (customerAlreadyExists) {
-
+    customer = customerAlreadyExists
+    console.log("customerAlreadyExistscustomerAlreadyExists",customerAlreadyExists)
     const DAYS = 30;
     const fromDate = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000);
 
     const leads = await PropertyLead.find({
-      customerId: customerAlreadyExists,
+      customerId: customerAlreadyExists._id,
       createdAt: { $gte: fromDate }
     });
-
+    console.log("leadsleadsleadsleads",leads)
     if (leads.length > 0) {
       return res.json({ success: false, message: 'You already have created a lead within last 30 days . So please try after some days', data: null });
     }
@@ -132,6 +133,7 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
       name,
       mobile
     })
+    console.log("custoemrrrrrrrrrrrrrrrr",customer)
   }
 
 
