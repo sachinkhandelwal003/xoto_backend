@@ -22,6 +22,12 @@ const propertyLeadSchema = new mongoose.Schema({
     index: true
   },
 
+  customerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Customer",
+    required: false,
+    default: null
+  },
 
   // Core fields (always required)
   name: {
@@ -34,7 +40,6 @@ const propertyLeadSchema = new mongoose.Schema({
       type: String,
       required: false,
       trim: true,
-
     }
   },
   has_property: {

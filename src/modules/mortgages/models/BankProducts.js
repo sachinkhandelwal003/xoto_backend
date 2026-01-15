@@ -6,12 +6,6 @@ const mortgageApplicationSchema = new mongoose.Schema({
        APPLICATION IDENTITY
     ======================== */
 
-    customerId:{
-        type:mongoose.Schema.Types.ObjectId,
-        ref:"Customer",
-        required:false
-    },
-
     application_id: {
         type: String,              // SHQH7918
         required: false,
@@ -53,7 +47,7 @@ const mortgageApplicationSchema = new mongoose.Schema({
 
     income_type: {
         type: String,
-        enum: ["Salaried", "Self-Employed"],
+        enum: ["Salaried", "Self Employed"],
         required: false
     },
 

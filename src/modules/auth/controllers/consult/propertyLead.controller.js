@@ -4,6 +4,8 @@ const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const { APIError } = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
 const MortgageApplication = require("../../../mortgages/models/index.js");
+const Customer = require('../../models/user/customer.model.js')
+
 // Create
 exports.createPropertyLead = asyncHandler(async (req, res) => {
   let data = req.body;
@@ -98,7 +100,45 @@ exports.updatePropertyLead = asyncHandler(async (req, res) => {
 
 // Update
 exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
-  const lead = await PropertyLead.create({ ...req.body });
+  let { name, email, mobile } = req.body;
+
+  let customerAlreadyExists = await Customer.findOne({
+    $or: [
+      { email: email },
+      { mobile: mobile }
+    ]
+  })
+
+  let customer = {}
+
+  // if it exist then we'll make the lead for it only if there is no lead in last 30 days
+  if (customerAlreadyExists) {
+
+    const DAYS = 30;
+    const fromDate = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000);
+
+    const leads = await PropertyLead.find({
+      customerId: customerAlreadyExists,
+      createdAt: { $gte: fromDate }
+    });
+
+    if (leads.length > 0) {
+      return res.json({ success: false, message: 'You already have created a lead within last 30 days . So please try after some days', data: null });
+    }
+
+  } else { // if it doesnt exist then we have to do both signup and create lead
+    customer = await Customer.create({
+      email,
+      name,
+      mobile
+    })
+  }
+
+
+
+
+  const lead = await PropertyLead.create({ customerId: customer._id, ...req.body });
+
 
   let mortgageApplication = {};
 
@@ -110,6 +150,7 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
     if (lead.lead_sub_type === "buy_out") loanType = "buy_out";
 
     mortgageApplication = await MortgageApplication.create({
+      customerId: customer._id,
       application_id: `XOTO-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
       lead_id: lead._id,
 
@@ -126,7 +167,26 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
   }
 
 
-  res.json({ success: true, message: 'Created', data: {lead,mortgageApplication} });
+  const payload = {
+    id: customer._id,
+    email: customer.email,
+    type: "user",
+
+    role: {
+      id: user.role?._id || null,
+      code: user.role?.code || null,
+      name: user.role?.name || null,
+      isSuperAdmin: user.role?.isSuperAdmin || false,
+    }
+  };
+
+  let token = jwt.sign(payload, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRE || "30d",
+  });
+
+
+
+  res.json({ success: true, message: 'Created', data: { lead, mortgageApplication }, token });
 });
 
 // Mark Contacted
