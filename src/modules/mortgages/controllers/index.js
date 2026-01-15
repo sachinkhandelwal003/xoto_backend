@@ -44,14 +44,14 @@ const getLeadData = async (req, res) => {
   // application_id,lead_id,loan_type,mortgage_type,loan_preference,income_type,property_value,loan_amount,status,mortgage_manager
   try {
 
-    let {lead_id} = req.body;
+    let {lead_id} = req.query;
 
     let mortgage_application = await MortgageApplication.findOne({lead_id});
 
 
     return res.status(201).json({
       success: true,
-      message: "Mortgage application created successfully",
+      message: "Data fetched successfully",
       data: {mortgage_application,product_selected:{},upload_your_document:{},personal_details:{},product_requirements:{}}
     });
 
