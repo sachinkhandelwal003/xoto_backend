@@ -7,7 +7,7 @@ const logger = require('./config/logger');
 const upload = require("../src/middleware/s3Upload.js").default
 const { uploadFileToS3 } = require("./modules/s3/upload.js");
 const blogRoutes = require('../src/modules/blogs/routes/index.js').default;
-
+const mortgageRoutes = require('./modules/mortgages/routes/index.js');
 const app = express();
 
 // Middleware
@@ -34,6 +34,7 @@ app.use('/users', require('./modules/auth/routes/user/user.routes'));
 app.use('/consult', require('./modules/auth/routes/consult/consult.routes'));
 app.use('/enquiry', require('./modules/auth/routes/consult/enquiry.routes'));
 app.use('/property/lead', require('./modules/auth/routes/consult/propertyLead.route'));
+app.use('/mortgages',mortgageRoutes);
 app.use('/landing/lead',  (req, res, next) => {
     console.log('request came on /landing/lead');
     next();

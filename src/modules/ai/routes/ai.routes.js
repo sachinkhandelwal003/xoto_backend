@@ -1,25 +1,32 @@
 import express from "express";
 import { chatHandler, getAllMessages } from "../controllers/ai.controller.js";
 import { upload } from "../middlewares/upload.js"
+import { vapiwebhook } from "../services/chatService.js"
 
 const router = express.Router();
 
 // router.post("/", chatHandler);
 router.post(
-    "/",
-    upload.single("audio"), // optional
-    (req, res, next) => {
+  "/",
+  upload.single("audio"), // optional
+  (req, res, next) => {
     console.log("req.file 👉", req.file);
     console.log("req.body 👉", req.body);
     next();
   },
-    chatHandler
+  chatHandler
 );
 
 
+
+router.post(
+  "/webhook/vapi",
+  vapiwebhook
+);
+
 router.get(
-    "/get-all-messages",
-    getAllMessages
+  "/get-all-messages",
+  getAllMessages
 );
 
 export default router;

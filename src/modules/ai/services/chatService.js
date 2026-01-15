@@ -651,11 +651,11 @@ export async function chatWithAI(userText, session_id, chatHistory = []) {
     //     }
 
     let messages = []
-    if(isNegativeResponseCame){
+    if (isNegativeResponseCame) {
       console.log("negative response came")
     }
-    
-    if(isPositiveResponseCame){
+
+    if (isPositiveResponseCame) {
       console.log("positive response came")
     }
 
@@ -842,7 +842,7 @@ May I know your name, contact number,email,city, and briefly what you’re looki
         console.log("Generated lead:", generatedLead);
 
         return "Thanks! We've noted your details. Our XOTO expert will reach out to you soon.";
-      } else if(!isNegativeResponseCame) {
+      } else if (!isNegativeResponseCame) {
         // fallback if AI didn't return usable info
         return "Could you please provide your name and contact number so we can assist you?";
       }
@@ -879,3 +879,122 @@ May I know your name, contact number,email,city, and briefly what you’re looki
     throw new Error("Failed to get AI response");
   }
 }
+
+
+export async function vapiwebhook(req, res) {
+  try {
+    const message = req.body?.message;
+    if (!message) return res.sendStatus(200);
+
+    const {
+      type,
+      role,
+      transcriptType,
+      transcript,
+      call,
+    } = message;
+
+    // ✅ Only final USER speech
+    if (
+      type !== "transcript" ||
+      transcriptType !== "final" 
+      || role !== "user"
+    ) {
+      return res.sendStatus(200);
+    }
+
+    const session_id = call?.id;
+    const userText = transcript;
+
+    if (!session_id || !userText) {
+      return res.sendStatus(200);
+    }
+
+
+
+    let session = await chatSessions.findOne({ session_id });
+    if (!session) {
+      session = await chatSessions.create({ session_id });
+    }
+
+    const isPositiveResponseCame = await isPositiveResponseWithAI(userText, openai);
+    const isNegativeResponseCame = await isNegativeResponseWithAI(userText, openai);
+    const canBeOurCustomer = await isPotentialCustomerWithAI(userText, openai);
+
+    // 🟢 STEP 1: Detect potential customer
+    if (
+      !isNegativeResponseCame &&
+      canBeOurCustomer &&
+      !session.isPotentialCustomer &&
+      !session.contactProvided
+    ) {
+      session.isPotentialCustomer = true;
+      await session.save();
+
+      // 👉 optional: store event / flag
+      console.log("VAPI → Potential customer detected:", session_id);
+      return res.sendStatus(200);
+    }
+
+    // 🟢 STEP 2: User agrees for assistance
+    if (
+      !isNegativeResponseCame &&
+      isPositiveResponseCame &&
+      session.isPotentialCustomer &&
+      !session.contactAsked
+    ) {
+      session.assistanceAsked = true;
+      session.contactAsked = true;
+      session.waitingForLead = true;
+      await session.save();
+
+      console.log("VAPI → User agreed for assistance:", session_id);
+      return res.sendStatus(200);
+    }
+
+    // 🟢 STEP 3: Extract lead
+    if (!isNegativeResponseCame && session.waitingForLead && !session.contactProvided) {
+      const extractedLead = await extractLeadWithAI(userText, openai);
+
+      if (extractedLead?.phone_number) {
+        const [first_name, ...lastParts] =
+          (extractedLead.name || "NA").trim().split(" ");
+
+        await PropertyPageLead.create({
+          type: "ai_enquiry",
+          name: {
+            first_name,
+            last_name: lastParts.join(" ") || "NA",
+          },
+          mobile: {
+            country_code: "+971",
+            number: extractedLead.phone_number,
+          },
+          email: extractedLead.email || null,
+          description: extractedLead.description || null,
+          city: extractedLead.city || null,
+          preferred_contact: "whatsapp",
+          status: "submit",
+        });
+
+        session.name = extractedLead.name || null;
+        session.phone = extractedLead.phone_number;
+        session.city = extractedLead.city || null;
+        session.contactProvided = true;
+        session.waitingForLead = false;
+
+        await session.save();
+
+        console.log("🔥 VAPI → LEAD GENERATED:", session_id);
+      }
+    }
+
+    return res.sendStatus(200);
+
+  } catch (err) {
+    console.error("VAPI Webhook Error:", err);
+    return res.sendStatus(200);
+  }
+}
+
+
