@@ -883,6 +883,7 @@ May I know your name, contact number,email,city, and briefly what you’re looki
 
 export async function vapiwebhook(req, res) {
   try {
+    console.log("Request came on thisssssssssss",req.body?.message)
     const message = req.body?.message;
     if (!message) return res.sendStatus(200);
 
