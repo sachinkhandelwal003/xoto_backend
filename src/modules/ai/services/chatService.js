@@ -883,112 +883,90 @@ May I know your name, contact number,email,city, and briefly what you’re looki
 
 export async function vapiwebhook(req, res) {
   try {
-    console.log("Request came on thisssssssssss",req.body?.message)
     const message = req.body?.message;
     if (!message) return res.sendStatus(200);
 
-    const {
-      type,
-      role,
-      transcriptType,
-      transcript,
-      call,
-    } = message;
+    console.log("VAPI message type:", message.type);
 
-    // ✅ Only final USER speech
-    if (
-      type !== "transcript" ||
-      transcriptType !== "final" 
-      || role !== "user"
-    ) {
+    // ✅ ONLY care about conversation updates
+    if (message.type !== "conversation-update") {
       return res.sendStatus(200);
     }
 
+    const { conversation, call } = message;
     const session_id = call?.id;
-    const userText = transcript;
 
-    if (!session_id || !userText) {
+    if (!session_id || !Array.isArray(conversation)) {
       return res.sendStatus(200);
     }
 
-
-
+    // 🔥 Get or create session
     let session = await chatSessions.findOne({ session_id });
     if (!session) {
       session = await chatSessions.create({ session_id });
     }
 
-    const isPositiveResponseCame = await isPositiveResponseWithAI(userText, openai);
-    const isNegativeResponseCame = await isNegativeResponseWithAI(userText, openai);
-    const canBeOurCustomer = await isPotentialCustomerWithAI(userText, openai);
-
-    // 🟢 STEP 1: Detect potential customer
-    if (
-      !isNegativeResponseCame &&
-      canBeOurCustomer &&
-      !session.isPotentialCustomer &&
-      !session.contactProvided
-    ) {
-      session.isPotentialCustomer = true;
-      await session.save();
-
-      // 👉 optional: store event / flag
-      console.log("VAPI → Potential customer detected:", session_id);
+    // ❌ Already have lead → stop
+    if (session.contactProvided) {
       return res.sendStatus(200);
     }
 
-    // 🟢 STEP 2: User agrees for assistance
-    if (
-      !isNegativeResponseCame &&
-      isPositiveResponseCame &&
-      session.isPotentialCustomer &&
-      !session.contactAsked
-    ) {
-      session.assistanceAsked = true;
-      session.contactAsked = true;
-      session.waitingForLead = true;
-      await session.save();
+    // 🔥 Build FULL user conversation
+    const fullUserText = conversation
+      .filter(m => m.role === "user" && m.content)
+      .map(m => m.content)
+      .join("\n");
 
-      console.log("VAPI → User agreed for assistance:", session_id);
+    if (!fullUserText.trim()) {
       return res.sendStatus(200);
     }
 
-    // 🟢 STEP 3: Extract lead
-    if (!isNegativeResponseCame && session.waitingForLead && !session.contactProvided) {
-      const extractedLead = await extractLeadWithAI(userText, openai);
+    console.log("FULL USER CONVERSATION:\n", fullUserText);
 
-      if (extractedLead?.phone_number) {
-        const [first_name, ...lastParts] =
-          (extractedLead.name || "NA").trim().split(" ");
+    // 🔍 AI checks (now with FULL context)
+    const isNegative = await isNegativeResponseWithAI(fullUserText, openai);
+    if (isNegative) return res.sendStatus(200);
 
-        await PropertyPageLead.create({
-          type: "ai_enquiry",
-          name: {
-            first_name,
-            last_name: lastParts.join(" ") || "NA",
-          },
-          mobile: {
-            country_code: "+971",
-            number: extractedLead.phone_number,
-          },
-          email: extractedLead.email || null,
-          description: extractedLead.description || null,
-          city: extractedLead.city || null,
-          preferred_contact: "whatsapp",
-          status: "submit",
-        });
+    const canBeCustomer = await isPotentialCustomerWithAI(fullUserText, openai);
+    if (!canBeCustomer) return res.sendStatus(200);
 
-        session.name = extractedLead.name || null;
-        session.phone = extractedLead.phone_number;
-        session.city = extractedLead.city || null;
-        session.contactProvided = true;
-        session.waitingForLead = false;
+    // 🔥 Extract lead ONCE
+    const extractedLead = await extractLeadWithAI(fullUserText, openai);
 
-        await session.save();
-
-        console.log("🔥 VAPI → LEAD GENERATED:", session_id);
-      }
+    if (!extractedLead?.phone_number) {
+      return res.sendStatus(200);
     }
+
+    // 🟢 Save lead
+    const [first_name, ...lastParts] =
+      (extractedLead.name || "NA").trim().split(" ");
+
+    await PropertyPageLead.create({
+      type: "ai_enquiry",
+      name: {
+        first_name,
+        last_name: lastParts.join(" ") || "NA",
+      },
+      mobile: {
+        country_code: "",
+        number: extractedLead.phone_number,
+      },
+      email: extractedLead.email || null,
+      description: extractedLead.description || null,
+      city: extractedLead.city || null,
+      preferred_contact: "whatsapp",
+      status: "submit",
+    });
+
+    // 🔒 Lock session
+    session.name = extractedLead.name || null;
+    session.phone = extractedLead.phone_number;
+    session.city = extractedLead.city || null;
+    session.contactProvided = true;
+
+    await session.save();
+
+    console.log("🔥 VAPI → LEAD GENERATED:", session_id);
 
     return res.sendStatus(200);
 
@@ -997,5 +975,6 @@ export async function vapiwebhook(req, res) {
     return res.sendStatus(200);
   }
 }
+
 
 
