@@ -5,7 +5,7 @@ const { APIError } = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
 const MortgageApplication = require("../../../mortgages/models/index.js");
 const Customer = require('../../models/user/customer.model.js')
-
+const jwt = require("jsonwebtoken");
 // Create
 exports.createPropertyLead = asyncHandler(async (req, res) => {
   let data = req.body;
