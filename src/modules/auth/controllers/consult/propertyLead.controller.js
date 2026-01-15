@@ -173,10 +173,10 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
     type: "user",
 
     role: {
-      id: user.role?._id || null,
-      code: user.role?.code || null,
-      name: user.role?.name || null,
-      isSuperAdmin: user.role?.isSuperAdmin || false,
+      id: customer.role?._id || null,
+      code: customer.role?.code || null,
+      name: customer.role?.name || null,
+      isSuperAdmin: customer.role?.isSuperAdmin || false,
     }
   };
 
