@@ -1,6 +1,6 @@
 const MortgageApplication = require("../models/index.js");
 const BankMortgageProduct = require("../models/BankProduct.js");
-const mortgageApplicationDocuments = require("../models/CustomerDocument.js")
+const mortgageApplicationDocument = require("../models/CustomerDocument.js")
 const { Country, State, City } = require("country-state-city");
 
 // CREATE Mortgage Application
@@ -47,8 +47,8 @@ const UpdateLeadDocuments = async (req, res) => {
   try {
 
     let { lead_id, application_id, customer_id } = req.query;
-
-    let mortgageApplicationDocs = await mortgageApplicationDocuments.findOne({ lead_id, customerId: customer_id });
+    console.log("lead_id, application_id, customer_id",lead_id, application_id, customer_id)
+    let mortgageApplicationDocs = await mortgageApplicationDocument.findOne({lead_id});
 
     console.log("mortgageApplicationDocsmortgageApplicationDocs",mortgageApplicationDocs)
 
@@ -62,11 +62,11 @@ const UpdateLeadDocuments = async (req, res) => {
 
     let body = req.body;
 
-    let updatedMortgageApplication = await mortgageApplicationDocuments.findOneAndUpdate({
-      lead_id, application_id, customer_id
+    let updatedMortgageApplication = await mortgageApplicationDocument.findOneAndUpdate({
+      lead_id
     }, {
       ...req.body
-    })
+    },{new:true})
 
     return res.status(200).json({
       success: true,

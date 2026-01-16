@@ -145,6 +145,7 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
 
   let mortgageApplication = {};
   let mortgageDocument = {};
+  const applicationId = `XOTO-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
   if (lead.type === "mortgage") {
 
@@ -155,7 +156,7 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
 
     mortgageApplication = await MortgageApplication.create({
       customerId: customer._id,
-      application_id: `XOTO-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+      application_id: applicationId,
       lead_id: lead._id,
 
       loan_type: loanType,
@@ -174,7 +175,7 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
     // we'll create a document entry here for user and after this he/she can edit those document 
     mortgageDocument = await mortgageApplicationDocument.create({
       customerId: customer._id,
-      application_id: `XOTO-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+      application_id: applicationId,
       lead_id: lead._id
     })  
 
