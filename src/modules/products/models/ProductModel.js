@@ -7,7 +7,11 @@ const ProductSchema = new mongoose.Schema(
       required: false,
       trim: true
     },
-
+    photos:{
+      type:[String],
+      default:"",
+      required:false
+    },
     category: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
