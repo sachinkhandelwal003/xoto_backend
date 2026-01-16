@@ -90,7 +90,7 @@ const getLeadData = async (req, res) => {
     let { lead_id } = req.query;
 
     let mortgage_application = await MortgageApplication.findOne({ lead_id });
-    let upload_your_document = await mortgageApplicationDocuments.find({ lead_id });
+    let upload_your_document = await mortgageApplicationDocument.find({ lead_id });
 
     return res.status(201).json({
       success: true,
