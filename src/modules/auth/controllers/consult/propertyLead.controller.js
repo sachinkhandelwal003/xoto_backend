@@ -5,6 +5,7 @@ const { APIError } = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
 const MortgageApplication = require("../../../mortgages/models/index.js");
 const mortgageApplicationDocument = require("../../../mortgages/models/CustomerDocument.js");
+const MortgageApplicationCustomerDetails = require("../../../mortgages/models/CustomerBasicDetails.js");
 const Customer = require('../../models/user/customer.model.js')
 const jwt = require("jsonwebtoken");
 // Create
@@ -145,6 +146,7 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
 
   let mortgageApplication = {};
   let mortgageDocument = {};
+  let mortgageCustomerDetails = {};
   const applicationId = `XOTO-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
   if (lead.type === "mortgage") {
@@ -177,7 +179,17 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
       customerId: customer._id,
       application_id: applicationId,
       lead_id: lead._id
-    })  
+    })
+
+
+    mortgageCustomerDetails = await MortgageApplicationCustomerDetails.create({
+      customerId: customer._id,
+      application_id: applicationId,
+      lead_id: lead._id,
+
+      full_name: `${lead?.name?.first_name || ""} ${lead?.name?.last_name || ""}`.trim(),
+      nationality: "UAE"
+    });
 
   }
 
@@ -201,7 +213,7 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
 
 
 
-  res.json({ success: true, message: 'Created', data: { lead, mortgageApplication ,mortgageDocument}, token });
+  res.json({ success: true, message: 'Created', data: { lead, mortgageApplication, mortgageDocument ,mortgageCustomerDetails}, token });
 });
 
 // Mark Contacted
