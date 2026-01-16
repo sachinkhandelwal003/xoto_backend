@@ -4,6 +4,7 @@ const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const { APIError } = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
 const MortgageApplication = require("../../../mortgages/models/index.js");
+const mortgageApplicationDocument = require("../../../mortgages/models/CustomerDocument.js");
 const Customer = require('../../models/user/customer.model.js')
 const jwt = require("jsonwebtoken");
 // Create
@@ -120,7 +121,7 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
 
     const leads = await PropertyLead.find({
       customerId: customerAlreadyExists._id,
-      createdAt: { $gte: fromDate } 
+      createdAt: { $gte: fromDate }
     });
     console.log("leadsleadsleadsleads", leads)
     if (leads.length > 0) {
@@ -143,6 +144,7 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
 
 
   let mortgageApplication = {};
+  let mortgageDocument = {};
 
   if (lead.type === "mortgage") {
 
@@ -166,6 +168,16 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
 
       status: "in_progress"
     });
+
+
+
+    // we'll create a document entry here for user and after this he/she can edit those document 
+    mortgageDocument = await mortgageApplicationDocument.create({
+      customerId: customer._id,
+      application_id: `XOTO-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+      lead_id: lead._id
+    })  
+
   }
 
 
@@ -188,7 +200,7 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
 
 
 
-  res.json({ success: true, message: 'Created', data: { lead, mortgageApplication }, token });
+  res.json({ success: true, message: 'Created', data: { lead, mortgageApplication ,mortgageDocument}, token });
 });
 
 // Mark Contacted
