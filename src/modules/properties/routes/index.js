@@ -3,6 +3,7 @@ const { createDeveloper, createProperty, getAllProperties, deleteProperty, getPr
 const router = Router();
 
 router.post("/create-developer", createDeveloper)
+router.post("/signup-developer", createDeveloper)
 router.post("/create-properties", createProperty)
 router.post("/delete-property", deleteProperty)
 router.post("/edit-property", editProperty)
