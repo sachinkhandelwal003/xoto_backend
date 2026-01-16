@@ -1,6 +1,6 @@
 import Property from "../models/PropertyModel.js";
 import Developer from "../models/DeveloperModel.js";
-
+import jwt from "jsonwebtoken";
 
 export const createDeveloper = async (req, res) => {
     try {
@@ -28,8 +28,51 @@ export const createDeveloper = async (req, res) => {
 
         return res.status(201).json({
             success: true,
-            message: "Developer created successfully",
+            message: "Developer signup successfully",
             developer
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+export const loginDeveloper = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        // // check if developer already exists
+        // let developer = await Developer.findOne({ name });
+
+        // if (developer) {
+        //   return res.status(200).json({
+        //     success: true,
+        //     message: "Developer already exists",
+        //     developer
+        //   });
+        // }
+
+        let developer = await Developer.findOne({ email, password });
+
+        if (!developer) {
+            return res.status(201).json({
+                success: true,
+                message: "No developer found",
+                data: null
+            });
+        }
+
+        let token = jwt.sign({ email: developer.email, name: developer.name }, "secret_key",
+            { expiresIn: "30d" })
+
+        return res.status(201).json({
+            success: true,
+            message: "Developer login successfully",
+            data: developer,
+            token
         });
 
     } catch (error) {

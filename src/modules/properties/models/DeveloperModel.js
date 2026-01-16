@@ -4,6 +4,7 @@ const DeveloperSchema = new mongoose.Schema({
     name: { type: String, trim: true, default: "", required: false }, //name is the companyName
     phone_number: { type: String, trim: true, default: "", required: false },
     country_code: { type: String, trim: true, default: "", required: false },
+    password:{type: String, trim: true, default: "", required: false},
     email: { type: String, trim: true, default: "", required: false },
     logo: { type: String, default: "", trim: true, required: false },
     description: { type: String, default: "", trim: true, required: false },
