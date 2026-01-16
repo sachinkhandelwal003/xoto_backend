@@ -1,5 +1,6 @@
 const MortgageApplication = require("../models/index.js");
-
+const BankMortgageProduct = require("../models/BankProduct.js");
+const { Country, State, City } = require("country-state-city");
 
 // CREATE Mortgage Application
 const createMortgageApplication = async (req, res) => {
@@ -64,4 +65,79 @@ const getLeadData = async (req, res) => {
 };
 
 
-module.exports = {createMortgageApplication,getLeadData}
+const createBankProducts = async (req, res) => {
+  try {
+
+
+    let bankProduct = await BankMortgageProduct.create({...req.body});
+
+
+    return res.status(201).json({
+      success: true,
+      message: "Bank Product created successfully",
+      data: bankProduct
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getAllBankProducts = async (req, res) => {
+  try {
+
+
+    let bankProducts = await BankMortgageProduct.find();
+
+
+    return res.status(200).json({
+      success: true,
+      message: "Bank Product fetched successfully",
+      data: bankProducts
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+
+const getAllUaeStates = async (req, res) => {
+  try {
+    const states = State.getStatesOfCountry("AE");
+
+    let allCities = [];
+
+    states.forEach((state) => {
+      const cities = City.getCitiesOfState("AE", state.isoCode);
+      allCities.push(...cities);
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "UAE states and cities fetched successfully",
+      data: {
+        states,
+        cities: allCities
+      }
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+
+
+module.exports = {createMortgageApplication,getLeadData,createBankProducts,getAllBankProducts,getAllUaeStates}
