@@ -6,6 +6,7 @@ const asyncHandler = require('../../../../utils/asyncHandler');
 const MortgageApplication = require("../../../mortgages/models/index.js");
 const mortgageApplicationDocument = require("../../../mortgages/models/CustomerDocument.js");
 const MortgageApplicationCustomerDetails = require("../../../mortgages/models/CustomerBasicDetails.js");
+const MortgageApplicationProductRequirements = require("../../../mortgages/models/ProductRequirements.js")
 const Customer = require('../../models/user/customer.model.js')
 const jwt = require("jsonwebtoken");
 // Create
@@ -147,6 +148,7 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
   let mortgageApplication = {};
   let mortgageDocument = {};
   let mortgageCustomerDetails = {};
+  let mortgageProductRequirements = {};
   const applicationId = `XOTO-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
   if (lead.type === "mortgage") {
@@ -191,6 +193,35 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
       nationality: "UAE"
     });
 
+
+    mortgageProductRequirements = await MortgageApplicationProductRequirements.create({
+      customerId: customer._id,
+      application_id: applicationId,
+      lead_id: lead._id,
+
+      // sensible initial defaults (editable later by user)
+      purchase_type: lead.lead_sub_type || "",
+      existing_mortgage: lead.lead_sub_type === "refinance" ? "yes" : "no",
+
+      found_property: "yes",
+      applicant: "single",
+
+      mortgage_type: "fixed",
+      fixed_term: "",
+
+      loan_type: loanType,
+      loan_period: 0,
+      loan_to_value: 0,
+
+      primary_application_income_type: lead.occupation || "",
+      primary_application_income: 0,
+      primary_application_age: 0,
+      primary_applicant_finance_audit: "yes",
+
+      property_value: lead.price || 0,
+      property_emirate: lead.emirate || "",
+      property_area: lead.area || ""
+    });
   }
 
 
@@ -212,8 +243,7 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
   });
 
 
-
-  res.json({ success: true, message: 'Created', data: { lead, mortgageApplication, mortgageDocument ,mortgageCustomerDetails}, token });
+  res.json({ success: true, message: 'Created', data: { lead, mortgageApplication, mortgageDocument, mortgageCustomerDetails, mortgageProductRequirements }, token });
 });
 
 // Mark Contacted

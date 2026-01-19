@@ -2,6 +2,7 @@ const MortgageApplication = require("../models/index.js");
 const BankMortgageProduct = require("../models/BankProduct.js");
 const mortgageApplicationDocument = require("../models/CustomerDocument.js")
 const customerBasicDetails = require("../models/CustomerBasicDetails.js")
+const MortgageApplicationProductRequirements = require("../models/ProductRequirements.js")
 const { Country, State, City } = require("country-state-city");
 
 // CREATE Mortgage Application
@@ -93,7 +94,7 @@ const UpdateMortgageApplicationPersonalDetails = async (req, res) => {
 
     console.log("mortgageApplicationDocsmortgageApplicationDocs", customerbasicdetails)
 
-    if (customerbasicdetails.length==0) {
+    if (customerbasicdetails.length == 0) {
       return res.status(400).json({
         success: true,
         message: "No application found",
@@ -191,6 +192,34 @@ const getAllBankProducts = async (req, res) => {
   }
 };
 
+const productRequirements = async (req, res) => {
+  try {
+    let {lead_id} = req.query;
+
+    let bankProducts = await MortgageApplicationProductRequirements.findOneAndUpdate({lead_id},{...req.body},{new:true});
+
+    if (!bankProducts) {
+      return res.status(400).json({
+        success: true,
+        message: "No application found",
+        data: null
+      })
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Product requirements have been updated successfully",
+      data: bankProducts
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 
 
 const getAllUaeStates = async (req, res) => {
@@ -224,4 +253,4 @@ const getAllUaeStates = async (req, res) => {
 
 
 
-module.exports = { UpdateMortgageApplicationPersonalDetails,createMortgageApplication, getLeadData, createBankProducts, getAllBankProducts, getAllUaeStates, UpdateLeadDocuments }
+module.exports = {productRequirements, UpdateMortgageApplicationPersonalDetails, createMortgageApplication, getLeadData, createBankProducts, getAllBankProducts, getAllUaeStates, UpdateLeadDocuments }
