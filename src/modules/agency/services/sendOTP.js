@@ -11,7 +11,7 @@ const transporter = nodemailer.createTransport({
     pass: process.env.SMTP_PASS   || "wojs okcb tpns aoug" // your email password or app password
   }
 });
-
+ 
 /**
  * Send OTP email
  * @param {string} toEmail - recipient email
