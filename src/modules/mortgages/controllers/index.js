@@ -134,11 +134,12 @@ const getLeadData = async (req, res) => {
     let mortgage_application = await MortgageApplication.findOne({ lead_id });
     let upload_your_document = await mortgageApplicationDocument.find({ lead_id });
     let personal_details = await customerBasicDetails.find({ lead_id });
+    let product_details = await MortgageApplicationProductRequirements.find({ lead_id });
 
     return res.status(201).json({
       success: true,
       message: "Data fetched successfully",
-      data: { mortgage_application, product_selected: {}, upload_your_document: upload_your_document[0], personal_details: personal_details[0], product_requirements: {} }
+      data: { mortgage_application, product_selected: product_details, upload_your_document: upload_your_document[0], personal_details: personal_details[0], product_requirements: {} }
     });
 
   } catch (error) {
