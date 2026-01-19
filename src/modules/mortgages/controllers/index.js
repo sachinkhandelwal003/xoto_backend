@@ -139,7 +139,7 @@ const getLeadData = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "Data fetched successfully",
-      data: { mortgage_application, product_selected: product_details, upload_your_document: upload_your_document[0], personal_details: personal_details[0], product_requirements: {} }
+      data: { mortgage_application, product_selected: product_details[0], upload_your_document: upload_your_document[0], personal_details: personal_details[0], product_requirements: {} }
     });
 
   } catch (error) {
