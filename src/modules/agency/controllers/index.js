@@ -98,6 +98,36 @@ const verifyOTP = async (req, res) => {
     }
 }
 
+const updateAgencyStatus = async (req, res) => {
+    try {
+        const { id } = req.query;
+
+        const agency = await Agency.findById(id);
+
+        if (!agency) {
+            return res.status(404).json({
+                success: false,
+                message: "Agency not found"
+            });
+        }
+
+        agency.is_active = !agency.is_active;
+        await agency.save();
+
+        return res.json({
+            success: true,
+            message: `Agency ${agency.is_active ? "activated" : "deactivated"} successfully`,
+            data: agency
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
 
 
-export { agencySignup, verifyOTP }
+
+export { agencySignup, verifyOTP, updateAgencyStatus }
