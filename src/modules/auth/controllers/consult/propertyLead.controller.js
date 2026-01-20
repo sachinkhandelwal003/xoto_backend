@@ -72,11 +72,23 @@ exports.getAllPropertyLeads = asyncHandler(async (req, res) => {
   }
 
   const total = await PropertyLead.countDocuments(query);
-  const leads = await PropertyLead.find(query)
+  let leads = await PropertyLead.find(query)
     .sort({ createdAt: -1 })
     .skip((page - 1) * limit)
     .limit(parseInt(limit))
     .lean();
+
+  leads = await Promise.all(
+    leads.map(async (lead) => {
+      let mortgage_application = await MortgageApplication.find({ lead_id: lead._id });
+      let mortgage_applicationdocument = await mortgageApplicationDocument.find({ lead_id: lead._id });
+      let personal_details = await MortgageApplicationCustomerDetails.find({ lead_id: lead._id });
+      let product_details = await MortgageApplicationProductRequirements.find({ lead_id: lead._id });
+      return { ...lead, mortgage_application: mortgage_application[0] ? mortgage_application[0] : {}, mortgage_applicationdocument: mortgage_applicationdocument[0] ? mortgage_applicationdocument[0] : {}, personal_details: personal_details[0] ? personal_details[0] : {}, product_details: product_details[0] ? product_details[0] : {} }
+    })
+  )
+
+
 
   const data = leads.map(l => ({ ...l, full_name: l.full_name }));
 

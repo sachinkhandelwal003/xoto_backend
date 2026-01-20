@@ -8,5 +8,6 @@ const router = express.Router();
 router.post("/agency-signup",agencySignup)
 router.post("/agency-signup/verify-otp",verifyOTP)
 router.post("/update-agency-status",updateAgencyStatus)
+// router.post("/create-agent",createAgent)
 
 module.exports = router;

@@ -1,6 +1,8 @@
 import Otp from "../models/OTP.js";
 import Agency from "../models/index.js";
 import sendOtpEmail from "../services/sendOTP.js"
+import bcrypt from "bcryptjs";
+import Agent from "../models/agent.js"
 
 const agencySignup = async (req, res) => {
     try {
@@ -63,7 +65,7 @@ const verifyOTP = async (req, res) => {
         let verifyOTP = await Otp.findOne({ otp: newotp, email, purpose: "agency_signup", createdAt: { $gte: threeMinutesAgo } });
         console.log("nbodyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", verifyOTP)
 
-
+        let new_password = await bcrypt.hash(password, 10)
 
         if (!verifyOTP) {
             return res.status(400).json({
@@ -75,7 +77,7 @@ const verifyOTP = async (req, res) => {
 
 
 
-        const newagency = await Agency.create({ subscription_status: "free", otp_verified: true, is_active: false, ...req.body })
+        const newagency = await Agency.create({ subscription_status: "free", otp_verified: true, is_active: true, password: new_password, ...req.body })
 
         // const otp = Math.floor(100000 + Math.random() * 900000);
 
@@ -128,6 +130,36 @@ const updateAgencyStatus = async (req, res) => {
     }
 };
 
+
+const createAgent = async (req, res) => {
+    try {
+        const { id } = req.query;
+
+        const agency = await Agent.findById(id);
+
+        if (!agency) {
+            return res.status(404).json({
+                success: false,
+                message: "Agency not found"
+            });
+        }
+
+        agency.is_active = !agency.is_active;
+        await agency.save();
+
+        return res.json({
+            success: true,
+            message: `Agency ${agency.is_active ? "activated" : "deactivated"} successfully`,
+            data: agency
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
 
 
 export { agencySignup, verifyOTP, updateAgencyStatus }
