@@ -23,8 +23,8 @@ const shuffleArray = (array) => {
 };
 exports.createType = asyncHandler(async (req, res) => {
   const { categoryId, subcategoryId } = req.params;
-  let { label, description, order, baseEstimationValueUnit } = req.body;
-  baseEstimationValueUnit = baseEstimationValueUnit ? Number(baseEstimationValueUnit) : 0;
+  let { label, description, order, baseRatePerSqFt } = req.body;
+  let baseEstimationValueUnit = baseRatePerSqFt ? Number(baseRatePerSqFt) : 0;
   //baseEstimationValue this will be for most basic setup whethjer you create any design
   if (!label?.trim()) {
     throw new APIError('Type label is required', StatusCodes.BAD_REQUEST);
