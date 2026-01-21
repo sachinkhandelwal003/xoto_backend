@@ -228,17 +228,19 @@ exports.updateType = asyncHandler(async (req, res) => {
 exports.deleteType = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  const type = await Type.findByIdAndUpdate(
-    id,
-    { isActive: false },
-    { new: true }
-  );
+  // const type = await Type.findByIdAndUpdate(
+  //   id,
+  //   { isActive: false },
+  //   { new: true }
+  // );
+
+  const type = await Type.findByIdAndDelete(id);
 
   if (!type) throw new APIError('Type not found', StatusCodes.NOT_FOUND);
 
   res.status(StatusCodes.OK).json({
     success: true,
-    message: 'Type deactivated successfully',
+    message: 'Type deleted successfully',
     type,
   });
 });
