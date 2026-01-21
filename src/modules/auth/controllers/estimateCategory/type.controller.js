@@ -194,7 +194,7 @@ exports.getTypeById = asyncHandler(async (req, res) => {
 // UPDATE Type
 exports.updateType = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { label, description, isActive, order } = req.body;
+  const { label, description, isActive, order, baseEstimationValueUnit } = req.body;
 
   const type = await Type.findById(id);
   if (!type) throw new APIError('Type not found', StatusCodes.NOT_FOUND);
@@ -213,6 +213,7 @@ exports.updateType = asyncHandler(async (req, res) => {
   if (description !== undefined) type.description = description;
   if (isActive !== undefined) type.isActive = isActive;
   if (order !== undefined) type.order = order;
+  if (baseEstimationValueUnit !== undefined) type.baseEstimationValueUnit = baseEstimationValueUnit;
 
   await type.save();
 
@@ -402,7 +403,7 @@ exports.editMoodboardQuestionById = asyncHandler(async (req, res) => {
 
   let questionDoc = {}
   if (req.body) {
-    questionDoc = await TypeQuestion.findOneAndUpdate({ _id: questionId }, updateData,{new:true});
+    questionDoc = await TypeQuestion.findOneAndUpdate({ _id: questionId }, updateData, { new: true });
   }
 
   let optionsGenerated = [];
@@ -421,8 +422,8 @@ exports.editMoodboardQuestionById = asyncHandler(async (req, res) => {
           };
 
           return TypeQuestionOption.findByIdAndUpdate(
-            opt._id ,
-            option,{new:true}
+            opt._id,
+            option, { new: true }
           );
 
           // if (opt._id) {
