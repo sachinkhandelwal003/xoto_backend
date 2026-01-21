@@ -194,7 +194,7 @@ exports.getTypeById = asyncHandler(async (req, res) => {
 // UPDATE Type
 exports.updateType = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { label, description, isActive, order, baseEstimationValueUnit } = req.body;
+  let { label, description, isActive, order, baseEstimationValueUnit } = req.body;
 
   const type = await Type.findById(id);
   if (!type) throw new APIError('Type not found', StatusCodes.NOT_FOUND);
@@ -213,7 +213,7 @@ exports.updateType = asyncHandler(async (req, res) => {
   if (description !== undefined) type.description = description;
   if (isActive !== undefined) type.isActive = isActive;
   if (order !== undefined) type.order = order;
-  if (baseEstimationValueUnit !== undefined) type.baseEstimationValueUnit = baseEstimationValueUnit;
+  if (baseEstimationValueUnit !== undefined) type.baseEstimationValueUnit = Number(baseEstimationValueUnit);
 
   await type.save();
 
