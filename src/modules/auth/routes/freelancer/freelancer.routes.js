@@ -35,7 +35,7 @@ router.put('/rate-card',protectFreelancer , controller.addRateCard);
 
 router.put(
   '/document/:documentId',
-  upload.single('file'),protectFreelancer, // single file
+  protectFreelancer,
   controller.updateDocument
 );
 // ADMIN → ALL FREELANCERS SUBMODULE

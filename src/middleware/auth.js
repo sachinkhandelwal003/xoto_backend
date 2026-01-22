@@ -61,7 +61,7 @@ const protectBase = (Model, name) => async (req, res, next) => {
     const token = req.headers.authorization?.startsWith("Bearer")
       ? req.headers.authorization.split(" ")[1]
       : null;
-
+    console.log("tokennnnnnnnnnnnnnnnn",token)
     if (!token)
       throw new APIError("No token provided", StatusCodes.UNAUTHORIZED);
 
@@ -71,6 +71,7 @@ const protectBase = (Model, name) => async (req, res, next) => {
       "role",
       "name code level isSuperAdmin"
     );
+    console.log("entityentityentityentity",entity)
 
     if (!entity)
       throw new APIError(`${name} not found`, StatusCodes.UNAUTHORIZED);

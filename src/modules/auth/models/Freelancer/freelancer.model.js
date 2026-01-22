@@ -136,14 +136,14 @@ const freelancer_schema = new mongoose.Schema({
     type: String,
     enum: [
       'registered', // registered,profile_incomplete
-      'profile_incomplete',
+      'profile_incomplete', // only using profile_incomplete , approved , rejected , suspended
       'profile_submitted', // complete
       'under_review', // update
       'approved',  
       'rejected',
       'suspended'
     ],
-    default: 'registered'
+    default: 'profile_incomplete'
   },
 
   status_info: status_info_schema,

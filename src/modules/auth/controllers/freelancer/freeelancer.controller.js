@@ -614,46 +614,46 @@ exports.updateFreelancerProfile = asyncHandler(async (req, res) => {
 
   if (Array.isArray(data.documents)) {
 
-  // 1️⃣ incoming IDs
-  const incomingIds = data.documents
-    .filter(d => d._id)
-    .map(d => d._id.toString());
+    // 1️⃣ incoming IDs
+    const incomingIds = data.documents
+      .filter(d => d._id)
+      .map(d => d._id.toString());
 
-  // 2️⃣ remove old docs not present in incoming list
-  freelancer.documents = freelancer.documents.filter(d =>
-    !d._id || incomingIds.includes(d._id.toString())
-  );
+    // 2️⃣ remove old docs not present in incoming list
+    freelancer.documents = freelancer.documents.filter(d =>
+      !d._id || incomingIds.includes(d._id.toString())
+    );
 
-  // 3️⃣ update / create
-  data.documents.forEach(doc => {
-    if (!doc.type || !doc.path) return;
+    // 3️⃣ update / create
+    data.documents.forEach(doc => {
+      if (!doc.type || !doc.path) return;
 
-    // UPDATE
-    if (doc._id) {
-      const existingDoc = freelancer.documents.id(doc._id);
-      if (!existingDoc) return;
+      // UPDATE
+      if (doc._id) {
+        const existingDoc = freelancer.documents.id(doc._id);
+        if (!existingDoc) return;
 
-      Object.assign(existingDoc, {
-        type: doc.type,
-        path: doc.path,
-        verified: false,
-        verified_at: null,
-        verified_by: null,
-      });
-    }
-    // CREATE
-    else {
-      freelancer.documents.push({
-        type: doc.type,
-        path: doc.path,
-        verified: false,
-        verified_at: null,
-        verified_by: null,
-        uploaded_at: new Date()
-      });
-    }
-  });
-}
+        Object.assign(existingDoc, {
+          type: doc.type,
+          path: doc.path,
+          verified: false,
+          verified_at: null,
+          verified_by: null,
+        });
+      }
+      // CREATE
+      else {
+        freelancer.documents.push({
+          type: doc.type,
+          path: doc.path,
+          verified: false,
+          verified_at: null,
+          verified_by: null,
+          uploaded_at: new Date()
+        });
+      }
+    });
+  }
 
 
 
@@ -853,15 +853,16 @@ exports.verifyFreelancerDocument = asyncHandler(async (req, res) => {
 exports.updateDocument = asyncHandler(async (req, res) => {
   const { documentId } = req.params;
 
-  if (!req.file) {
-    throw new APIError('File is required', StatusCodes.BAD_REQUEST);
-  }
+  // if (!req.file) {
+  //   throw new APIError('File is required', StatusCodes.BAD_REQUEST);
+  // }
+  console.log("documentIddocumentIddocumentId",documentId)
+  console.log("req.user.idreq.user.idreq.user.id",req.user)
 
   const freelancer = await Freelancer.findById(req.user.id);
   if (!freelancer) {
     throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
   }
-
   const doc = freelancer.documents.id(documentId);
   if (!doc) {
     throw new APIError('Document not found', StatusCodes.NOT_FOUND);
@@ -878,7 +879,7 @@ exports.updateDocument = asyncHandler(async (req, res) => {
   /* ===========================
      RESET REJECTED DOCUMENT
   ============================ */
-  doc.path = req.file.path;
+  doc.path = req.body.path;
   doc.uploaded_at = new Date();
 
   // 🔄 Reset verification state
