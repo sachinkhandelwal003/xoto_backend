@@ -372,7 +372,7 @@ exports.getFreelancerProfile = asyncHandler(async (req, res) => {
 
   const completionPercentage = Math.round(
     Object.values(sections).reduce((a, b) => a + b, 0) /
-      Object.keys(sections).length
+    Object.keys(sections).length
   );
 
   /* ================================
@@ -560,7 +560,7 @@ exports.updateFreelancerProfile = asyncHandler(async (req, res) => {
   /* ===========================
      META HISTORY
   ============================ */
-  
+
 
   await freelancer.save();
 
@@ -619,7 +619,7 @@ exports.addRateCard = asyncHandler(async (req, res) => {
   typeItem.price_range = price_range.trim();
   if (unit) typeItem.unit = unit.trim();
 
- 
+
 
   await freelancer.save();
 
@@ -637,6 +637,15 @@ exports.updateFreelancerStatus = asyncHandler(async (req, res) => {
   const freelancer = await Freelancer.findById(id);
   if (!freelancer) {
     throw new APIError('Freelancer not found', StatusCodes.NOT_FOUND);
+  }
+
+
+  if (freelancer.onboarding_status == "registered" || freelancer.onboarding_status == "profile_incomplete") {
+    return res.status(StatusCodes.BAD_REQUEST).json({
+      success: true,
+      message: "We cannot approve the profile of freelancer till its profile is completed.",
+      data: null
+    });
   }
 
   if (![0, 1, 2].includes(Number(status))) {
@@ -798,7 +807,7 @@ exports.updateDocumentVerification = asyncHandler(async (req, res) => {
   doc.reason = verified ? null : (reason || 'Invalid document');
   doc.suggestion = verified ? null : (suggestion || 'Please re-upload correct file');
 
- 
+
 
   await freelancer.save();
 

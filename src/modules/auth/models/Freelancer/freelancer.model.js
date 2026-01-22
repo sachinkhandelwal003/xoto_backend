@@ -132,14 +132,14 @@ const freelancer_schema = new mongoose.Schema({
   documents: [document_schema],
 
   // Onboarding & Approval Flow
-  onboarding_status: {
+  onboarding_status: { // onboarding_status:profile_submitted
     type: String,
     enum: [
-      'registered',
+      'registered', // registered,profile_incomplete
       'profile_incomplete',
-      'profile_submitted',
-      'under_review',
-      'approved',
+      'profile_submitted', // complete
+      'under_review', // update
+      'approved',  
       'rejected',
       'suspended'
     ],
