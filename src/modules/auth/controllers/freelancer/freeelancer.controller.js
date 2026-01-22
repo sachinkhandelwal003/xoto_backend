@@ -93,9 +93,15 @@ exports.createFreelancer = asyncHandler(async (req, res) => {
   if (data.services_offered?.length) {
     data.services_offered = data.services_offered.map(service => ({
       category: service.category,
-      subcategories: service.subcategories || [],
-      unit: service.unit,
-      description: service.description
+      subcategories: (service.subcategories || []).map(subId => ({
+        type: subId,
+        price_range: null,
+        unit: service.unit || null,
+        is_active: true
+      })),
+      description: service.description || '',
+      images: [],
+      is_active: true
     }));
   }
   data.performance = {};
