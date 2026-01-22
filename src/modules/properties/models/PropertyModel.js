@@ -1,54 +1,3 @@
-// const mongoose = require("mongoose");
-
-// const PropertySchema = new mongoose.Schema({
-//     developer: {
-//         type: mongoose.Schema.Types.ObjectId,
-//         ref: "Developer",
-//         required: false
-//     },
-//     project_name: {
-//         type: String,
-//         default: "",
-//         required: false,
-//         trim: true
-//     },
-//     location: {
-//         type: String,
-//         default: "",
-//         required: false,
-//         trim: true
-//     },
-//     not_ready_yet: {
-//         type: Boolean,
-//         default: true,
-//         required: false
-//     },
-//     logo: {
-//         type: String,
-//         default: "",
-//         required: false,
-//         trim: true
-//     },
-//     google_location: {
-//         type: String,
-//         default: "",
-//         required: false,
-//         trim: true
-//     },
-//     brochure: {
-//         type: String,
-//         required: false,
-//         trim: true,
-//         default: ""
-//     } //brochure,google_location,logo,not_ready_yet,location
-// },
-//     { timestamps: true })
-
-
-// const Property = mongoose.model("Property", PropertySchema, "Property");
-// module.exports = Property;
-
-
 const mongoose = require("mongoose");
 
 const PropertySchema = new mongoose.Schema(
@@ -79,7 +28,7 @@ const PropertySchema = new mongoose.Schema(
     // =========================
     // PROPERTY TYPE
     // =========================
-    propertyType: {
+    transactionType: {
       type: String,
       enum: ["rent", "sell"],
       required: false,
@@ -132,7 +81,13 @@ const PropertySchema = new mongoose.Schema(
       required: false
     },
 
-    builtUpArea: {
+    builtUpArea_min: { // this is the min size
+      type: Number,
+      required: false,
+      default: 0
+    },
+
+    builtUpArea_max: { // this is the max size
       type: Number,
       required: false,
       default: 0
@@ -214,6 +169,68 @@ const PropertySchema = new mongoose.Schema(
     isFeatured: {
       type: Boolean,
       default: false,
+      required: false
+    },
+
+    // new fields we are adding 
+    handover: {
+      type: String,
+      default: "",
+      required: false
+    },
+    unitType: {
+      type: [String],
+      required: false,
+      default: []
+    },
+    propertyType: {
+      type: String,
+      required: false,
+      default: ""
+    },
+    description: {
+      type: String,
+      required: false,
+      default: ""
+    },
+    downPayment: { // this will be in percentage
+      type: Number,
+      required: false,
+      default: 0
+    },
+    paymentPlan_initialPercentage: {
+      type: Number,
+      required: false,
+      default: 0
+    },
+    paymentPlan_laterPercentage: {
+      type: Number,
+      required: false,
+      default: 0
+    },
+    price_min: {
+      type: Number,
+      required: false,
+      default: 0
+    },
+    price_max: {
+      type: Number,
+      required: false,
+      default: 0
+    },
+    amenities: {
+      type: [String],
+      default: [],
+      required: false
+    },
+    location_highlights: {
+      type: [String],
+      default: [],
+      required: false
+    },
+    about_developer: {
+      type: String,
+      default: "",
       required: false
     }
   },
