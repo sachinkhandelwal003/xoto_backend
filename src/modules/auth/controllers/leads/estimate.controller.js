@@ -237,7 +237,8 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
 
 
   let updatedEstimate = await Estimate.findByIdAndUpdate(estimate._id, {
-    estimated_amount: estimationValue
+    estimated_amount: estimationValue,
+    area_sqft:totalsqm 
   },{new:true})
 
 
