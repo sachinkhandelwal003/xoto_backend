@@ -532,26 +532,56 @@ exports.updateFreelancerProfile = asyncHandler(async (req, res) => {
   /* ===========================
      DOCUMENT UPLOADS
   ============================ */
-  if (req.files) {
-    const docTypes = ['resume', 'identityProof', 'addressProof', 'certificate'];
+  // if (req.files) {
+  //   const docTypes = ['resume', 'identityProof', 'addressProof', 'certificate'];
 
-    docTypes.forEach(type => {
-      if (req.files[type]?.[0]) {
-        const file = req.files[type][0];
-        const index = freelancer.documents.findIndex(d => d.type === type);
+  //   docTypes.forEach(type => {
+  //     if (req.files[type]?.[0]) {
+  //       const file = req.files[type][0];
+  //       const index = freelancer.documents.findIndex(d => d.type === type);
 
-        const doc = {
-          type,
-          path: file.path,
-          verified: false,
-          uploaded_at: new Date()
+  //       const doc = {
+  //         type,
+  //         path: file.path,
+  //         verified: false,
+  //         uploaded_at: new Date()
+  //       };
+
+  //       if (index >= 0) freelancer.documents[index] = { ...freelancer.documents[index], ...doc };
+  //       else freelancer.documents.push(doc);
+  //     }
+  //   });
+  // }
+
+  /* ===========================
+   DOCUMENT LINKS (S3)
+=========================== */
+  if (Array.isArray(data.documents)) {
+    data.documents.forEach(doc => {
+      if (!doc.type || !doc.path) return;
+
+      const index = freelancer.documents.findIndex(d => d.type === doc.type);
+
+      const documentData = {
+        type: doc.type,
+        path: doc.path,
+        verified: false,          // reset on re-upload
+        verified_at: null,
+        verified_by: null,
+        uploaded_at: new Date()
+      };
+
+      if (index >= 0) {
+        freelancer.documents[index] = {
+          ...freelancer.documents[index],
+          ...documentData
         };
-
-        if (index >= 0) freelancer.documents[index] = { ...freelancer.documents[index], ...doc };
-        else freelancer.documents.push(doc);
+      } else {
+        freelancer.documents.push(documentData);
       }
     });
   }
+
 
   /* ===========================
      ONBOARDING STATUS (UPDATED)
