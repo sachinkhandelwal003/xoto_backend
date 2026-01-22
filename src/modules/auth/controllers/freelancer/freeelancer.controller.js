@@ -556,31 +556,105 @@ exports.updateFreelancerProfile = asyncHandler(async (req, res) => {
   /* ===========================
    DOCUMENT LINKS (S3)
 =========================== */
+  // if (Array.isArray(data.documents)) {
+  //   data.documents.forEach(doc => {
+  //     if (!doc.type || !doc.path) return;
+
+  //     const index = freelancer.documents.findIndex(d => d.type === doc.type);
+
+  //     const documentData = {
+  //       type: doc.type,
+  //       path: doc.path,
+  //       verified: false,          // reset on re-upload
+  //       verified_at: null,
+  //       verified_by: null,
+  //       uploaded_at: new Date()
+  //     };
+
+  //     if (index >= 0) {
+  //       freelancer.documents[index] = {
+  //         ...freelancer.documents[index],
+  //         ...documentData
+  //       };
+  //     } else {
+  //       freelancer.documents.push(documentData);
+  //     }
+  //   });
+
+  //   let newIds = data.documents.map(a => a._id.toString());
+  //   let allOldIDs = freelancer.documents.map((a) => a._id);
+  //   freelancer.documents = freelancer.documents.filter(d =>
+  //     !d._id || newIds.includes(d._id.toString())
+  //   );
+  //   data.documents.map((document) => {
+  //     if (document._id) { // update
+  //       const documentData = {
+  //         _id: doc._id,
+  //         type: doc.type,
+  //         path: doc.path,
+  //         verified: false,          // reset on re-upload
+  //         verified_at: null,
+  //         verified_by: null,
+  //         uploaded_at: new Date()
+  //       };
+  //       freelancer.documents.push(documentData);
+  //     } else {
+  //       const documentData = {
+  //         type: doc.type,
+  //         path: doc.path,
+  //         verified: false,          // reset on re-upload
+  //         verified_at: null,
+  //         verified_by: null,
+  //         uploaded_at: new Date()
+  //       };
+  //       freelancer.documents.push(documentData);
+  //     }
+  //   })
+  // }
+
   if (Array.isArray(data.documents)) {
-    data.documents.forEach(doc => {
-      if (!doc.type || !doc.path) return;
 
-      const index = freelancer.documents.findIndex(d => d.type === doc.type);
+  // 1️⃣ incoming IDs
+  const incomingIds = data.documents
+    .filter(d => d._id)
+    .map(d => d._id.toString());
 
-      const documentData = {
+  // 2️⃣ remove old docs not present in incoming list
+  freelancer.documents = freelancer.documents.filter(d =>
+    !d._id || incomingIds.includes(d._id.toString())
+  );
+
+  // 3️⃣ update / create
+  data.documents.forEach(doc => {
+    if (!doc.type || !doc.path) return;
+
+    // UPDATE
+    if (doc._id) {
+      const existingDoc = freelancer.documents.id(doc._id);
+      if (!existingDoc) return;
+
+      Object.assign(existingDoc, {
         type: doc.type,
         path: doc.path,
-        verified: false,          // reset on re-upload
+        verified: false,
+        verified_at: null,
+        verified_by: null,
+      });
+    }
+    // CREATE
+    else {
+      freelancer.documents.push({
+        type: doc.type,
+        path: doc.path,
+        verified: false,
         verified_at: null,
         verified_by: null,
         uploaded_at: new Date()
-      };
+      });
+    }
+  });
+}
 
-      if (index >= 0) {
-        freelancer.documents[index] = {
-          ...freelancer.documents[index],
-          ...documentData
-        };
-      } else {
-        freelancer.documents.push(documentData);
-      }
-    });
-  }
 
 
   /* ===========================
