@@ -90,6 +90,14 @@ exports.createFreelancer = asyncHandler(async (req, res) => {
   data.status_info = { status: 0 }; // Pending
   data.documents = [];
   // data.services_offered = [];
+  if (data.services_offered?.length) {
+    data.services_offered = data.services_offered.map(service => ({
+      category: service.category,
+      subcategories: service.subcategories || [],
+      unit: service.unit,
+      description: service.description
+    }));
+  }
   data.performance = {};
   data.onboarding_status = 'registered';
 
