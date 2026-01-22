@@ -68,6 +68,8 @@ app.use('/freelancer', require('../src/modules/auth/routes/freelancer/freelancer
 
 
 app.use('/freelancer/projects/invoice', require('../src/modules/auth/routes/freelancer/invoice.route'));
+app.use('/otp', require('../src/modules/auth/routes/freelancer/invoice.route'));
+
 
 app.use('/attributes', require('../src/modules/ecommerce/B2C/routes/attribute.routes'));
 app.use('/materials', require('../src/modules/ecommerce/B2C/routes/material.routes'));

@@ -89,7 +89,7 @@ exports.createFreelancer = asyncHandler(async (req, res) => {
 
   data.status_info = { status: 0 }; // Pending
   data.documents = [];
-  data.services_offered = [];
+  // data.services_offered = [];
   data.performance = {};
   data.onboarding_status = 'registered';
 
@@ -100,6 +100,9 @@ exports.createFreelancer = asyncHandler(async (req, res) => {
     { path: 'role' },
     { path: 'payment.preferred_currency' }
   ]);
+
+
+
 
   /* ================= RESPONSE ================= */
   res.status(StatusCodes.CREATED).json({
