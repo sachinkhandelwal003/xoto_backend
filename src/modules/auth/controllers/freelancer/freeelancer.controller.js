@@ -452,8 +452,8 @@ exports.updateFreelancerProfile = asyncHandler(async (req, res) => {
   /* ===========================
      PROFILE IMAGE
   ============================ */
-  if (req.files?.profile_image?.[0]) {
-    freelancer.profile_image = req.files.profile_image[0].path;
+  if (data.profile_image) {
+    freelancer.profile_image = data.profile_image;
   }
 
   /* ===========================
