@@ -4,7 +4,7 @@ const { Category } = require('../../models/estimateCategory/category.model');
 const { Subcategory } = require('../../models/estimateCategory/category.model');
 const { Type } = require('../../models/estimateCategory/category.model');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
-const APIError = require('../../../../utils/errorHandler');
+const {APIError} = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
 const { TypeGallery } = require('../../models/estimateCategory/typeGallery.model')
 const logActivity = require('../../../../utils/logActivity');
@@ -30,7 +30,7 @@ exports.createType = asyncHandler(async (req, res) => {
     throw new APIError('Type label is required', StatusCodes.BAD_REQUEST);
   }
 
-
+  console.log("categoryId subcategoryIdsubcategoryIdsubcategoryId",subcategoryId,categoryId)
   const category = await Category.findById(categoryId);
   if (!category) {
     throw new APIError('Category not found', StatusCodes.NOT_FOUND);
@@ -38,12 +38,15 @@ exports.createType = asyncHandler(async (req, res) => {
 
   const subcategory = await Subcategory.findOne({
     _id: subcategoryId,
-    category: categoryId,
-    isActive: true
+    category: categoryId
   });
 
   if (!subcategory) {
     throw new APIError('Subcategory not found', StatusCodes.NOT_FOUND);
+  }
+
+  if(!subcategory.isActive){
+    throw new APIError('This subcategory is not active . We can only add types for active categories and subcategories', StatusCodes.NOT_FOUND);
   }
 
   const exists = await Type.findOne({

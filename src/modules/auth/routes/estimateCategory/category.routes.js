@@ -73,7 +73,7 @@ router.get('/:categoryId/subcategories/:subcategoryId/types', getTypes);
 router.get('/:categoryId/subcategories/:subcategoryId/types/:id', getTypeById);
 
 // to create master type
-router.post('/:categoryId/subcategories/:subcategoryId/types',protect, validateCreateType, createType);
+router.post('/:categoryId/subcategories/:subcategoryId/types',protect, createType);
 
 router.put('/:categoryId/subcategories/:subcategoryId/types/:id', updateType);
 router.delete('/:categoryId/subcategories/:subcategoryId/types/:id', deleteType);
