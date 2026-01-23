@@ -424,7 +424,7 @@ exports.getEstimates = asyncHandler(async (req, res) => {
   let estimates = await estimatesQuery;
 
   estimates = await Promise.all(estimates.map(async (e) => {
-    let EstimateAnswers = await EstimateAnswer.findOne({ estimate: e._id }).populate("selectedOption question");
+    let EstimateAnswers = await EstimateAnswer.find({ estimate: e._id }).populate("selectedOption question");
     return { ...e.toObject(), EstimateAnswers }
   }))
 
