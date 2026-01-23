@@ -1,8 +1,9 @@
 import Router from "express";
-import {sendOtp} from "../controllers/index.js"
+import {sendOtp,verifyOtp} from "../controllers/index.js"
 
 const router = Router();
 
 router.post("/send-otp",sendOtp)
+router.post("/verify-otp",verifyOtp)
 
 export default router;

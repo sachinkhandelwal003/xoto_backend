@@ -31,7 +31,7 @@ export const sendOtp = async (req, res) => {
 
     return res.status(200).json({
       message: "OTP sent successfully",
-      data:otpGenerated
+      data: otpGenerated
     });
   } catch (error) {
     console.error(error);
@@ -43,19 +43,17 @@ export const sendOtp = async (req, res) => {
 
 export const verifyOtp = async (req, res) => {
   try {
-    const { phone, otp } = req.body;
+    const { country_code, phone_number, otp } = req.body;
 
-    if (!phone || !otp) {
+    if (!country_code || !phone_number || !otp) {
       return res.status(400).json({
         message: "Phone and OTP are required",
       });
     }
 
-    const otpHash = crypto.createHash("sha256").update(otp).digest("hex");
-
     const otpRecord = await Otp.findOne({
-      phone,
-      expires_at: { $gt: new Date() },
+      country_code,
+      phone_number,
     });
 
     if (!otpRecord) {
@@ -63,9 +61,17 @@ export const verifyOtp = async (req, res) => {
         message: "Invalid or expired OTP",
       });
     }
+    const OTP_EXPIRY_MS = 3 * 60 * 1000; // 3 minutes
+
+    if (Date.now() - otpRecord.createdAt.getTime() > OTP_EXPIRY_MS) {
+      await Otp.deleteMany({ country_code, phone_number });
+      return res.status(400).json({
+        message: "OTP expired. Please request a new one.",
+      });
+    }
 
     // ✅ OTP verified → delete all OTPs for this phone
-    await Otp.deleteMany({ phone });
+    await Otp.deleteMany({ phone_number });
 
     return res.status(200).json({
       message: "OTP verified successfully",
