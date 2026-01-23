@@ -9,6 +9,7 @@ const { uploadFileToS3 } = require("./modules/s3/upload.js");
 const blogRoutes = require('../src/modules/blogs/routes/index.js').default;
 const mortgageRoutes = require('./modules/mortgages/routes/index.js');
 const agencyRoutes = require('./modules/agency/routes/index.js');
+const otpRoutes = require('../src/modules/otp/routes/index.js').default
 const app = express();
 
 // Middleware
@@ -68,7 +69,7 @@ app.use('/freelancer', require('../src/modules/auth/routes/freelancer/freelancer
 
 
 app.use('/freelancer/projects/invoice', require('../src/modules/auth/routes/freelancer/invoice.route'));
-app.use('/otp', require('../src/modules/auth/routes/freelancer/invoice.route'));
+app.use('/otp', otpRoutes);
 
 
 app.use('/attributes', require('../src/modules/ecommerce/B2C/routes/attribute.routes'));

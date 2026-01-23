@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import Otp from "../models/otp.model.js";
+import Otp from "../models/index.js";
 import { sendSms } from "../services/twilio.service.js";
 
 // helper
@@ -9,26 +9,29 @@ const generateOtp = () => {
 
 export const sendOtp = async (req, res) => {
   try {
-    const { phone } = req.body;
+    const { country_code, phone_number } = req.body;
 
-    if (!phone) {
+    if (!phone_number || !country_code) {
       return res.status(400).json({ message: "Phone number is required" });
     }
 
     const otp = generateOtp();
 
     // OPTIONAL: delete old OTPs before creating new one
-    await Otp.deleteMany({ phone });
+    await Otp.deleteMany({ country_code, phone_number });
 
-    await Otp.create({
-      phone,
+    let otpGenerated = await Otp.create({
+      phone_number,
+      country_code,
       otp
     });
 
-    await sendSms(phone, `Your OTP is ${otp} from . It is valid for 5 minutes.`);
+    let phone = country_code.trim() + phone_number.trim();
+    await sendSms(phone, `Your OTP is ${otp}. This OTP is valid for 3 minutes. Do not share it with anyone.`);
 
     return res.status(200).json({
       message: "OTP sent successfully",
+      data:otpGenerated
     });
   } catch (error) {
     console.error(error);
