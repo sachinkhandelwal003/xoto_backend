@@ -114,8 +114,8 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
 
     if (areaAnswer) {
       totalsqm = Number(areaAnswer.answerValue) || 0;
-      console.log("childType.baseEstimationValueUnitchildType.baseEstimationValueUnit",childType.baseEstimationValueUnit)
-      console.log("Total sqmmmmmmmmmmmmmmmmmmmmmmmm",totalsqm)
+      console.log("childType.baseEstimationValueUnitchildType.baseEstimationValueUnit", childType.baseEstimationValueUnit)
+      console.log("Total sqmmmmmmmmmmmmmmmmmmmmmmmm", totalsqm)
       const baseAmount =
         Number(childType.baseEstimationValueUnit || 0) * totalsqm;
 
@@ -238,15 +238,15 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
 
   let updatedEstimate = await Estimate.findByIdAndUpdate(estimate._id, {
     estimated_amount: estimationValue,
-    area_sqft:totalsqm 
-  },{new:true})
+    area_sqft: totalsqm
+  }, { new: true })
 
 
   res.status(201).json({
     success: true,
     message: "Estimate submitted successfully",
     estimate_id: estimate._id,
-    final_price:Number(updatedEstimate.estimated_amount) || 0,
+    final_price: Number(updatedEstimate.estimated_amount) || 0,
     updatedEstimate: updatedEstimate
   });
 });
@@ -421,7 +421,12 @@ exports.getEstimates = asyncHandler(async (req, res) => {
     };
   }
 
-  const estimates = await estimatesQuery;
+  let estimates = await estimatesQuery;
+
+  estimates = await Promise.all(estimates.map(async (e) => {
+    let EstimateAnswers = await EstimateAnswer.findOne({ estimate: e._id }).populate("selectedOption question");
+    return { ...e.toObject(), EstimateAnswers }
+  }))
 
   res.status(StatusCodes.OK).json({
     success: true,
