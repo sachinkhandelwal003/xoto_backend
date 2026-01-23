@@ -762,7 +762,7 @@ exports.updateFreelancerStatus = asyncHandler(async (req, res) => {
 
 
   if (freelancer.onboarding_status == "registered" || freelancer.onboarding_status == "profile_incomplete") {
-    if(status=="approved"){
+    if(Number(status)==1){
       return res.status(StatusCodes.BAD_REQUEST).json({
         success: true,
         message: "We cannot approve the profile of freelancer till its profile is completed.",

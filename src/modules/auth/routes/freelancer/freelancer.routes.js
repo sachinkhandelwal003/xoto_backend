@@ -41,7 +41,7 @@ router.put(
 // ADMIN → ALL FREELANCERS SUBMODULE
 router.use(protect, checkPermission('Freelancers', 'view', 'All Freelancers'));
 router.put('/document/verification/check', controller.updateDocumentVerification);
-router.put('/:id/status', checkPermission('Freelancers', 'update', 'All Freelancers'), validateFreelancerId, validateUpdateFreelancerStatus, controller.updateFreelancerStatus);
+router.put('/:id/status',  validateFreelancerId, validateUpdateFreelancerStatus, controller.updateFreelancerStatus);
 router.delete('/:id', checkPermission('Freelancers', 'delete', 'All Freelancers'), validateFreelancerId, controller.deleteFreelancer);
 
 
