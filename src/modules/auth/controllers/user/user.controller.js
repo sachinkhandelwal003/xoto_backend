@@ -92,6 +92,7 @@ exports.customerSignup = asyncHandler(async (req, res) => {
       StatusCodes.BAD_REQUEST
     );
   }
+  console.log("mobileeeeeeeeeeeeeeeeeee",mobile)
 
   // 🔍 Get Customer role
   const customerRole = await Role.findOne({ name: "Customer" });
@@ -103,12 +104,15 @@ exports.customerSignup = asyncHandler(async (req, res) => {
   const existingCustomer = await Customer.findOne({
     $or: [
       { email: email.toLowerCase() },
-      { "mobile.number": mobile.number }
+      {mobile:mobile}
+      // { "mobile.number": mobile.number },
+      // { "mobile.country_code": mobile.country_code }
     ],
     is_deleted: false
   });
 
   if (existingCustomer) {
+    console.log("existingCustomerexistingCustomer",existingCustomer)
     throw new APIError(
       "Customer already exists with this email or mobile number",
       StatusCodes.CONFLICT

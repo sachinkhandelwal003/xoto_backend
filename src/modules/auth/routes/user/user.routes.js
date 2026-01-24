@@ -16,7 +16,7 @@ router.post('/login/customer', controller.customerLogin);
 
 router.post(
   '/signup/customer',
-  validateCustomerSignup,
+  // validateCustomerSignup,
   controller.customerSignup
 );
 

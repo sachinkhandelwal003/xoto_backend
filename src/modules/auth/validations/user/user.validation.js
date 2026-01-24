@@ -83,13 +83,15 @@ exports.validateCustomerSignup = [
 
   // 🔹 Mobile Uniqueness
   body('mobile.number')
-    .custom(async (number) => {
+    .custom(async (number,country_code) => {
       const existing = await Customer.findOne({
+        "mobile.country_code":country_code,
         "mobile.number": number,
         is_deleted: false
       });
 
       if (existing) {
+        console.log("existingexistingexisting",existing)
         throw new Error('Mobile number already registered');
       }
 
