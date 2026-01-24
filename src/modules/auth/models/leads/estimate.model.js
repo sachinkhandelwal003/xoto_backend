@@ -80,7 +80,7 @@ const estimateSchema = new mongoose.Schema({
 
   // Final quotation chosen by supervisor
   final_quotation: { type: mongoose.Schema.Types.ObjectId, ref: 'Quotation' },
-
+  freelancer_selected_quotation:{ type: mongoose.Schema.Types.ObjectId, ref: 'Quotation' },
   // 🔵 CUSTOMER PROGRESS
   customer_progress: {
     type: String,

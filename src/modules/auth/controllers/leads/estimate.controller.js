@@ -50,7 +50,7 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
       role: customerRole._id,
       location
     });
-  } else if (location) {
+  } else if (customer && location) {
     customer.location = location;
     await customer.save();
   }
@@ -269,10 +269,10 @@ exports.getQuotations = asyncHandler(async (req, res) => {
     .populate([{
       path: "created_by",
       select: "name email mobile role"
-    },{
-      path:"estimate_type"
-    },{
-      path:"estimate_subcategory"
+    }, {
+      path: "estimate_type"
+    }, {
+      path: "estimate_subcategory"
     }])
     .sort({ created_at: -1 });
 
@@ -605,28 +605,51 @@ exports.approveFinalQuotation = asyncHandler(async (req, res) => {
 // SUPERVISOR: CREATE FINAL QUOTATION
 // ------------------------------------------------------------// SUPERVISOR: CREATE FINAL QUOTATION
 exports.createFinalQuotation = asyncHandler(async (req, res) => {
-  const { items, scope_of_work, discount_percent = 0 } = req.body;
-
-  if (!items || items.length === 0) {
-    throw new APIError("Quotation items are required", StatusCodes.BAD_REQUEST);
+  const { scope_of_work, discount_percent = 0, price, estimate_type, estimate_subcategory, freelancer_quotation_id } = req.body;
+  if (!freelancer_quotation_id) {
+    throw new APIError("Freelancer quotation ID is required", 400);
   }
+  // if (!items || items.length === 0) {
+  //   throw new APIError("Quotation items are required", StatusCodes.BAD_REQUEST);
+  // }
 
   const estimate = await Estimate.findById(req.params.id);
   if (!estimate) throw new APIError('Estimate not found', StatusCodes.NOT_FOUND);
 
   // Remove old final
   await Quotation.updateMany({ estimate: req.params.id }, { is_final: false });
+  let freelancer_quotation = await Quotation.findOneAndUpdate({ estimate: req.params.id, _id: freelancer_quotation_id }, { is_selected_by_supervisor: true },
+    { new: true });
+
+
+  if (!freelancer_quotation) {
+    throw new APIError("Selected freelancer quotation not found", 404);
+  }
+
+  const priceNum = Number(price);
+  const discountPercentNum = Number(discount_percent);
+
+  if (priceNum < 0) throw new APIError("Price must be >= 0", 400);
+  if (discountPercentNum < 0 || discountPercentNum > 100) {
+    throw new APIError("Discount must be between 0 and 100", 400);
+  }
+
+  const discountAmount = Number(((priceNum * discountPercentNum) / 100).toFixed(2));
+  const grand_total = Number(Math.max(0, priceNum - discountAmount).toFixed(2));
+
 
   const quotation = await Quotation.create({
     estimate: req.params.id,
     created_by: req.user._id,
     created_by_model: "Allusers",
     role: "supervisor",
-    items,
     scope_of_work,
     discount_percent,
-    is_final: true
+    is_final: true,
+    price, estimate_type, estimate_subcategory, grand_total, discount_amount: discountAmount
   });
+
+  estimate.freelancer_selected_quotation = freelancer_quotation._id
 
   estimate.final_quotation = quotation._id;
   estimate.status = "final_created";

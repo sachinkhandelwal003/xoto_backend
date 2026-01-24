@@ -46,6 +46,7 @@ const quotationSchema = new mongoose.Schema({
   discount_percent: { type: Number, default: 0, min: 0, max: 100 },
   discount_amount: { type: Number, default: 0 },
   grand_total: { type: Number, default: 0, required: false },
+  is_selected_by_supervisor:{type:Boolean,default:false,required:false},
 
   is_final: { type: Boolean, default: false },
   superadmin_approved: { type: Boolean, default: false },

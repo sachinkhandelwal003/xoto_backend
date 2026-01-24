@@ -77,7 +77,7 @@ router.post(
 // ------------------------------------------------------------
 router.post(
   '/:id/final-quotation',
-protectSupervisor,  validator.validateCreateFinalQuotation,
+protectSupervisor,
   controller.createFinalQuotation
 );
 
