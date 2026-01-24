@@ -38,7 +38,7 @@ exports.userLogin = asyncHandler(async (req, res) => {
 
 exports.customerLogin = asyncHandler(async (req, res) => {
   const { mobile } = req.body;
-  console.log("req.bodyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",mobile);
+  console.log("req.bodyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", mobile);
   if (!mobile) {
     throw new APIError("Mobile number is required", StatusCodes.BAD_REQUEST);
   }
@@ -51,7 +51,7 @@ exports.customerLogin = asyncHandler(async (req, res) => {
 
   // Find customer by mobile.number + role
   const customer = await Customer.findOne({
-    mobile:mobile,
+    mobile: mobile,
     role: customerRole._id,
     is_deleted: false
   }).populate("role", "name code");
@@ -92,7 +92,7 @@ exports.customerSignup = asyncHandler(async (req, res) => {
       StatusCodes.BAD_REQUEST
     );
   }
-  console.log("mobileeeeeeeeeeeeeeeeeee",mobile)
+  console.log("mobileeeeeeeeeeeeeeeeeee", mobile)
 
   // 🔍 Get Customer role
   const customerRole = await Role.findOne({ name: "Customer" });
@@ -104,7 +104,7 @@ exports.customerSignup = asyncHandler(async (req, res) => {
   const existingCustomer = await Customer.findOne({
     $or: [
       { email: email.toLowerCase() },
-      {mobile:mobile}
+      { mobile: mobile }
       // { "mobile.number": mobile.number },
       // { "mobile.country_code": mobile.country_code }
     ],
@@ -112,11 +112,13 @@ exports.customerSignup = asyncHandler(async (req, res) => {
   });
 
   if (existingCustomer) {
-    console.log("existingCustomerexistingCustomer",existingCustomer)
-    throw new APIError(
-      "Customer already exists with this email or mobile number",
-      StatusCodes.CONFLICT
-    );
+    console.log("existingCustomerexistingCustomer", existingCustomer)
+    return res.status(400).json([
+      {
+        status: 500,
+        message: "Customer already exists with this email or mobile number"
+      }
+    ])
   }
 
   // 🧾 Create customer
@@ -135,13 +137,13 @@ exports.customerSignup = asyncHandler(async (req, res) => {
   let lead = {};
   if (comingFromAiPage === true) {
 
-    let new_location = location && typeof(location)=="object"? Object.values(location).filter(Boolean).join(', '):""
+    let new_location = location && typeof (location) == "object" ? Object.values(location).filter(Boolean).join(', ') : ""
     let payload = {
       type: 'ai_enquiry', // or 'enquiry' (your choice)
       name,
       email: email.toLowerCase(),
       mobile,
-      location:new_location,
+      location: new_location,
       preferred_contact: 'whatsapp',
       status: 'submit'
     }
