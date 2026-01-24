@@ -472,6 +472,30 @@ exports.assignToSupervisor = asyncHandler(async (req, res) => {
   });
 });
 
+exports.approvedBySuperAdmin = asyncHandler(async (req, res) => {
+  let { estimate_id, final_quotation_id } = req.query;
+
+  // update the final quotation of  supervisor and in customer side we will show this as the final quotation
+  // if customer approves it the we'll create a project on superVisor side 
+  // and there he will do the creating milestone work
+  // otherwise if the customer deny then notify supervisor and admin that the customer has rejected your 
+
+
+
+  const estimate = await Estimate.findById(req.params.id);
+  if (!estimate) throw new APIError('Estimate not found', StatusCodes.NOT_FOUND);
+
+  await estimate.save();
+
+  await estimate.populate('assigned_supervisor', 'name email');
+
+  res.json({
+    success: true,
+    message: 'Assigned to supervisor',
+    data: estimate
+  });
+});
+
 // ------------------------------------------------------------
 // SUPERVISOR: SEND REQUEST TO FREELANCERS
 // ------------------------------------------------------------
@@ -529,24 +553,35 @@ exports.submitQuotation = asyncHandler(async (req, res) => {
     estimate: req.params.id,
     created_by: req.user._id
   });
-  if (existing) throw new APIError('Already submitted', 400);
+  // if (existing) throw new APIError('Already submitted', 400);
 
   const priceNum = Number(price);
   const discountPercentNum = Number(discount_percent);
 
-  if (priceNum < 0) throw new APIError("Price must be >= 0", 400);
+  if (priceNum < 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Price cannot be less than 0',
+      data: null
+    })
+  };
   if (discountPercentNum < 0 || discountPercentNum > 100) {
-    throw new APIError("Discount must be between 0 and 100", 400);
-  }
+    return res.status(400).json({
+      success: false,
+      message: 'Discount percentage can be between 0 and 100',
+      data: null
+    })
+  };
 
   const discountAmount = Number(((priceNum * discountPercentNum) / 100).toFixed(2));
   const grand_total = Number(Math.max(0, priceNum - discountAmount).toFixed(2));
+  console.log("grenadeeeeeeeeeeeeeeeeeeeeeeeeeee",grand_total)
   const quotation = await Quotation.create({
     estimate: req.params.id,
     created_by: req.user._id,
     created_by_model: "Freelancer",
     role: "freelancer",
-    grand_total,
+    grand_total:grand_total,
     scope_of_work,
     discount_percent,
     price,

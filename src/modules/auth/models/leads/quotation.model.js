@@ -72,7 +72,7 @@ quotationSchema.pre('save', function (next) {
   this.discount_amount = discountAmount;
 
   // Grand Total
-  this.grand_total = Number((this.subtotal - discountAmount).toFixed(2));
+  // this.grand_total = Number((this.subtotal - discountAmount).toFixed(2));
 
   next();
 });
