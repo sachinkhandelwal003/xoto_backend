@@ -389,7 +389,12 @@ exports.getEstimates = asyncHandler(async (req, res) => {
         select: "name email mobile"
       },
       {
-        path: "freelancer_quotations.quotation"
+        path: "freelancer_quotations.quotation",
+        populate: [
+          { path: "estimate_type" },
+          { path: "estimate_subcategory" },
+          { path: "created_by", select: "name email mobile" }
+        ]
       },
       { path: "final_quotation" },
       {
@@ -514,7 +519,7 @@ exports.submitQuotation = asyncHandler(async (req, res) => {
 
   const estimate = await Estimate.findById(req.params.id);
   if (!estimate) throw new APIError('Estimate not found', 404);
-  
+
   // Prevent duplicate
   const existing = await Quotation.findOne({
     estimate: req.params.id,
