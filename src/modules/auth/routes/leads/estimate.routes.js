@@ -68,7 +68,6 @@ router.post(
   '/:id/quotation',
   protectFreelancer,
   // authorize({ roles: ['freelancer'] }),
-  validator.validateSubmitQuotation,
   controller.submitQuotation
 );
 

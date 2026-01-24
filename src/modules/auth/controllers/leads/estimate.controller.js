@@ -507,14 +507,14 @@ exports.sendToFreelancers = asyncHandler(async (req, res) => {
 // FREELANCER: SUBMIT QUOTATION
 // ------------------------------------------------------------// FREELANCER: SUBMIT QUOTATION
 exports.submitQuotation = asyncHandler(async (req, res) => {
-  const { items, scope_of_work, discount_percent = 0 } = req.body;
+  const { scope_of_work, discount_percent = 0, price, estimate_type, estimate_subcategory } = req.body;
 
-  if (!items?.length) throw new APIError("Items required", 400);
+  // if (!items?.length) throw new APIError("Items required", 400);
   if (!scope_of_work) throw new APIError("Scope of work required", 400);
 
   const estimate = await Estimate.findById(req.params.id);
   if (!estimate) throw new APIError('Estimate not found', 404);
-
+  
   // Prevent duplicate
   const existing = await Quotation.findOne({
     estimate: req.params.id,
@@ -527,9 +527,11 @@ exports.submitQuotation = asyncHandler(async (req, res) => {
     created_by: req.user._id,
     created_by_model: "Freelancer",
     role: "freelancer",
-    items,
     scope_of_work,
     discount_percent,
+    price,
+    estimate_type,
+    estimate_subcategory
   });
 
   estimate.freelancer_quotations.push({

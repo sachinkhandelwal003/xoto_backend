@@ -14,7 +14,7 @@ const lineItemSchema = new mongoose.Schema({
 const quotationSchema = new mongoose.Schema({
   estimate: { type: mongoose.Schema.Types.ObjectId, ref: 'Estimate', required: true },
 
-  created_by: { 
+  created_by: {
     type: mongoose.Schema.Types.ObjectId,
     required: true,
     refPath: "created_by_model"
@@ -24,20 +24,28 @@ const quotationSchema = new mongoose.Schema({
     required: true,
     enum: ["Freelancer", "Allusers"]
   },
-  role: { 
-    type: String, 
-    enum: ["freelancer", "supervisor"], 
-    required: true 
+  role: {
+    type: String,
+    enum: ["freelancer", "supervisor"],
+    required: true
   },
 
-  items: [lineItemSchema],
-  scope_of_work: { type: String, required: true },
+  items: { type: [lineItemSchema], default: [] },
+  estimate_type: {
+    type: mongoose.Schema.Types.ObjectId, ref: "EstimateMasterType", required: false
+  },
+  estimate_subcategory: {
+    type: mongoose.Schema.Types.ObjectId, ref: "EstimateMasterSubcategory", required: false
+  },
 
+  price: { type: Number, required: false, default: 0 },
+  // type = EstimateMasterType , subcategory = EstimateMasterSubcategory
+  scope_of_work: { type: String, required: true },
   // THESE ARE NOW OPTIONAL — WILL BE AUTO-CALCULATED
   subtotal: { type: Number, default: 0 },
   discount_percent: { type: Number, default: 0, min: 0, max: 100 },
   discount_amount: { type: Number, default: 0 },
-  grand_total: { type: Number, default: 0 },
+  grand_total: { type: Number, default: 0, required: false },
 
   is_final: { type: Boolean, default: false },
   superadmin_approved: { type: Boolean, default: false },
@@ -47,7 +55,7 @@ const quotationSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // AUTO CALCULATE TOTALS BEFORE SAVE
-quotationSchema.pre('save', function(next) {
+quotationSchema.pre('save', function (next) {
   // Recalculate each item total
   this.items = this.items.map(item => {
     const total = Number((item.quantity * item.unit_price).toFixed(2));
