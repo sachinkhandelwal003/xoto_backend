@@ -15,14 +15,14 @@ exports.generateGardenDesigns = async (req, res) => {
     }
     let user = req.user;
     // console.log("usertrrrrrrrrrrrrrrrrrrr",user)
-    let { styleName, elements, description ,userId} = req.body;
-    let aiGeneratedImagesCOunt = await AIGeneratedImages.find({userId:user._id,designType: "landscaping"});
+    let { styleName, elements, description, userId } = req.body;
+    let aiGeneratedImagesCOunt = await AIGeneratedImages.find({ userId: user._id, designType: "landscaping" });
 
-    if(aiGeneratedImagesCOunt.length>0){
+    if (aiGeneratedImagesCOunt.length > 0) {
       return res.status(400).json({
-        status:false,
-        message:"If you want to generate more images . Then purchase premium.",
-        aiImageGeneration:false
+        status: false,
+        message: "If you want to generate more images . Then purchase premium.",
+        aiImageGeneration: false
       })
     }
 
@@ -79,8 +79,8 @@ No animation, no illustration, no cartoon style, no CGI, no artificial or styliz
 
     let AiGeneratedImages = await AIGeneratedImages.create({
       imageUrl,
-      userType:"customer",
-      userId:user._id ,
+      userType: "customer",
+      userId: user._id,
       designType: "landscaping"
     })
 
@@ -94,6 +94,37 @@ No animation, no illustration, no cartoon style, no CGI, no artificial or styliz
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to generate garden" });
+  }
+};
+
+exports.getgardenDesigns = async (req, res) => {
+  try {
+
+    let user = req.user;
+    // console.log("usertrrrrrrrrrrrrrrrrrrr",user)
+    let aiGeneratedImagesCOunt = await AIGeneratedImages.find({ userId: user._id, designType: "landscaping" });
+
+    return res.status(200).json({
+      data: aiGeneratedImagesCOunt
+    })
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to get garden designs" });
+  }
+};
+
+exports.getInteriorDesigns = async (req, res) => {
+  try {
+    let user = req.user;
+    // console.log("usertrrrrrrrrrrrrrrrrrrr",user)
+    let aiGeneratedImagesCOunt = await AIGeneratedImages.find({ userId: user._id, designType: "interior" });
+
+    return res.status(200).json({
+      data: aiGeneratedImagesCOunt
+    })
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to get interior designs" });
   }
 };
 
@@ -172,7 +203,7 @@ Images should look real; no animated images should come.
       designType: "interior"
     });
 
-    console.log("AiGeneratedImagesAiGeneratedImagesAiGeneratedImages",AiGeneratedImages)
+    console.log("AiGeneratedImagesAiGeneratedImagesAiGeneratedImages", AiGeneratedImages)
 
     res.json({
       message: "Interior design generated successfully",
@@ -191,7 +222,7 @@ Images should look real; no animated images should come.
 //     let user = req.user;
 //     console.log("userrrrrrrrrrrrrrrr",user);
 
-//     // let allAIImages = 
+//     // let allAIImages =
 
 //     res.json({
 //       message: "Garden generated successfully",

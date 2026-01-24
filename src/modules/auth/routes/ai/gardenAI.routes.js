@@ -20,7 +20,7 @@ const {
 
 
 const {
-  generateInteriorDesigns
+  generateInteriorDesigns,getInteriorDesigns , getgardenDesigns
 } = require("../../controllers/ai/gardenAI.controller");
 
 const AIchatRoutes = require("../../../ai/routes/ai.routes").default;
@@ -37,6 +37,21 @@ router.post(
   protectCustomer,
   generateGardenDesigns
 );
+
+router.get(
+  "/get-interior-designs",
+  protectCustomer,
+  getInteriorDesigns
+);
+
+router.get(
+  "/get-landscape-designs",
+  protectCustomer,
+  getgardenDesigns
+);
+
+
+// getInteriorDesigns , getgardenDesigns
 
 router.post(
   "/generate-interior",
