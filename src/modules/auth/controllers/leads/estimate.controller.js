@@ -266,10 +266,14 @@ exports.getQuotations = asyncHandler(async (req, res) => {
   }
 
   const quotations = await Quotation.find({ estimate: estimate_id })
-    .populate({
+    .populate([{
       path: "created_by",
       select: "name email mobile role"
-    })
+    },{
+      path:"estimate_type"
+    },{
+      path:"estimate_subcategory"
+    }])
     .sort({ created_at: -1 });
 
   res.json({
