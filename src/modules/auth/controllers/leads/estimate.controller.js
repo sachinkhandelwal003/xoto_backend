@@ -527,11 +527,22 @@ exports.submitQuotation = asyncHandler(async (req, res) => {
   });
   if (existing) throw new APIError('Already submitted', 400);
 
+  const priceNum = Number(price);
+  const discountPercentNum = Number(discount_percent);
+
+  if (priceNum < 0) throw new APIError("Price must be >= 0", 400);
+  if (discountPercentNum < 0 || discountPercentNum > 100) {
+    throw new APIError("Discount must be between 0 and 100", 400);
+  }
+
+  const discountAmount = Number(((priceNum * discountPercentNum) / 100).toFixed(2));
+  const grand_total = Number(Math.max(0, priceNum - discountAmount).toFixed(2));
   const quotation = await Quotation.create({
     estimate: req.params.id,
     created_by: req.user._id,
     created_by_model: "Freelancer",
     role: "freelancer",
+    grand_total,
     scope_of_work,
     discount_percent,
     price,
