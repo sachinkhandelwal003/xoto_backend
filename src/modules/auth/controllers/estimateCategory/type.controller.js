@@ -4,7 +4,7 @@ const { Category } = require('../../models/estimateCategory/category.model');
 const { Subcategory } = require('../../models/estimateCategory/category.model');
 const { Type } = require('../../models/estimateCategory/category.model');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
-const {APIError} = require('../../../../utils/errorHandler');
+const { APIError } = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
 const { TypeGallery } = require('../../models/estimateCategory/typeGallery.model')
 const logActivity = require('../../../../utils/logActivity');
@@ -30,7 +30,7 @@ exports.createType = asyncHandler(async (req, res) => {
     throw new APIError('Type label is required', StatusCodes.BAD_REQUEST);
   }
 
-  console.log("categoryId subcategoryIdsubcategoryIdsubcategoryId",subcategoryId,categoryId)
+  console.log("categoryId subcategoryIdsubcategoryIdsubcategoryId", subcategoryId, categoryId)
   const category = await Category.findById(categoryId);
   if (!category) {
     throw new APIError('Category not found', StatusCodes.NOT_FOUND);
@@ -45,7 +45,7 @@ exports.createType = asyncHandler(async (req, res) => {
     throw new APIError('Subcategory not found', StatusCodes.NOT_FOUND);
   }
 
-  if(!subcategory.isActive){
+  if (!subcategory.isActive) {
     throw new APIError('This subcategory is not active . We can only add types for active categories and subcategories', StatusCodes.NOT_FOUND);
   }
 
@@ -314,6 +314,22 @@ exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
   const { question, questionType = "text", options = [] } = req.body;
   console.log("reqdbbbbbbbbbbbbbbbbbbbbbbbbbbooooooooo", req.body);
+
+  let areaQuestion = req.body.areaQuestion === true;
+
+  if (areaQuestion) {
+    let isAreaQuestionAlreadyAdded = await TypeQuestion.findOne({
+      areaQuestion: true,
+      type: typeId,
+    })
+    if (isAreaQuestionAlreadyAdded) {
+      return res.status(400).json({
+        success: false,
+        message: "Only a adding a single area question is allowed "
+      });
+    }
+  }
+
   // 1️⃣ Create question first
   const questionDoc = await TypeQuestion.create({
     type: typeId,
@@ -404,9 +420,33 @@ exports.editMoodboardQuestionById = asyncHandler(async (req, res) => {
   const { typeId, questionId } = req.params;
   const { question, questionType = "text", options = [] } = req.body;
   const { _id, ...updateData } = req.body;
-  console.log("reqdbbbbbbbbbbbbbbbbbbbbbbbbbbooooooooo", req.body);
+  // console.log("reqdbbbbbbbbbbbbbbbbbbbbbbbbbbooooooooo", req.body);
 
-  let questionDoc = {}
+  let areaQuestion = req.body.areaQuestion === true;
+
+  if (areaQuestion && questionType != "number") {
+    return res.status(400).json({
+      success: false,
+      message: "The Area Question should be of number type only"
+    });
+  }
+
+  if (areaQuestion && questionType == "number") {
+    const existingAreaQuestion = await TypeQuestion.findOne({
+      type: typeId,
+      areaQuestion: true,
+      _id: { $ne: questionId } 
+    });
+    if (existingAreaQuestion) {
+      return res.status(400).json({
+        success: false,
+        message: "Only adding a single area question is allowed "
+      });
+    }
+  }
+
+  let questionDoc = {};
+
   if (req.body) {
     questionDoc = await TypeQuestion.findOneAndUpdate({ _id: questionId }, updateData, { new: true });
   }
