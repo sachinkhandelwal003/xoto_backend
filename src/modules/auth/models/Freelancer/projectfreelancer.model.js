@@ -6,7 +6,7 @@ const dailyUpdateSchema = new mongoose.Schema({
   work_done: { type: String, required: true, trim: true },
   photos: [{ type: String }],
   notes: { type: String, trim: true },
-  updated_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  updated_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, // customer, freelancer
   approval_status: {
     type: String,
     enum: ['pending', 'approved', 'rejected'],
@@ -59,7 +59,7 @@ const projectSchema = new mongoose.Schema({
   customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
   estimate_reference: { type: mongoose.Schema.Types.ObjectId, ref: 'Estimate', required: true },
 
-freelancers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Freelancer' }],
+  freelancers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Freelancer' }],
   accountant: { type: mongoose.Schema.Types.ObjectId, ref: 'Allusers', default: null },
 
   status: {
@@ -99,19 +99,19 @@ projectSchema.pre('save', async function (next) {
 
 
 // Smart status auto-update
-projectSchema.pre('save', function(next) {
+projectSchema.pre('save', function (next) {
   const active = this.milestones.filter(m => !m.is_deleted);
   const approved = active.filter(m => m.status === 'approved');
 
   if (active.length > 0 && approved.length === active.length) {
     this.status = 'completed';
-  } 
+  }
   else if (this.freelancers && this.freelancers.length > 0 && approved.length > 0) {
     this.status = 'in_progress';
-  } 
+  }
   else if (this.freelancers && this.freelancers.length > 0) {
     this.status = 'assigned';
-  } 
+  }
   else {
     this.status = 'pending';
   }
@@ -119,7 +119,7 @@ projectSchema.pre('save', function(next) {
   next();
 });
 
-projectSchema.pre(['find', 'findOne', 'findById'], function() {
+projectSchema.pre(['find', 'findOne', 'findById'], function () {
   this.where({ is_deleted: { $ne: true } });
 });
 

@@ -39,6 +39,13 @@ router.put(
   controller.assignToSupervisor
 );
 
+router.put(
+  '/supervisor-quotation/approved-by-superadmin',
+  protect,                               // user must be logged in
+  authorize({ roles: ['superadmin'] }),  // only superadmin
+  controller.approvedBySuperAdmin
+);
+
 
 // ------------------------------------------------------------
 // GET ALL / SINGLE ESTIMATES (Admin/Supervisor/Superadmin)

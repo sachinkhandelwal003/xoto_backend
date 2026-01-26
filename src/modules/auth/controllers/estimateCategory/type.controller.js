@@ -321,7 +321,7 @@ exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
     questionType,
     areaQuestion: req.body.areaQuestion || false,
     valueType: req.body.valueType || "number",
-    valueSubType: req.body.valueSubType || "persqm"
+    valueSubType: req.body.valueSubType || "persqft"
   });
 
   // 2️⃣ If question type is OPTIONS → create options
@@ -340,7 +340,7 @@ exports.addMoodboardQuestions = asyncHandler(async (req, res) => {
       order: opt.order ?? index,
       includeInEstimate: opt.includeInEstimate || true,
       valueType: opt.valueType || "percentage",
-      valueSubType: opt.valueSubType || "persqm",
+      valueSubType: opt.valueSubType || "persqft",
       value: opt.value && !isNaN(opt.value) ? Number(opt.value) : 0
     }));
 
@@ -422,7 +422,7 @@ exports.editMoodboardQuestionById = asyncHandler(async (req, res) => {
             order: opt.order ?? index,
             includeInEstimate: opt.includeInEstimate ?? true,
             valueType: opt.valueType || "percentage",
-            valueSubType: opt.valueSubType || "persqm",
+            valueSubType: opt.valueSubType || "persqft",
             value: !isNaN(opt.value) ? Number(opt.value) : 0
           };
 

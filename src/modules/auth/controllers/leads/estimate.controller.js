@@ -159,7 +159,7 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
     // YES / NO
     if (answer.questionType === "yesorno") {
       if (answer.selectedOption?.title === "Yes") {
-        if (answer.selectedOption.valueSubType === "persqm") {
+        if (answer.selectedOption.valueSubType === "persqft") {
           calculatedAmount =
             Number(answer.selectedOption.value || 0) * totalsqm;
         } else {
@@ -170,7 +170,7 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
 
     // OPTIONS
     if (answer.questionType === "options") {
-      if (answer.selectedOption?.valueSubType === "persqm") {
+      if (answer.selectedOption?.valueSubType === "persqft") {
         calculatedAmount =
           Number(answer.selectedOption.value || 0) * totalsqm;
       } else {

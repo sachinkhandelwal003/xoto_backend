@@ -36,8 +36,8 @@ const TypeQuestionSchema = new mongoose.Schema(
     },
     valueSubType:{
       type:String,
-      default:"persqm",
-      enum:["persqm","flat"]
+      default:"persqft", // persqfeet
+      enum:["persqft","flat"]
     },
     minValue: {
       type: Number,
