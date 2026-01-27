@@ -34,6 +34,13 @@ exports.freelancerLogin = asyncHandler(async (req, res) => {
     });
   }
 
+  if (!freelancer.isActive) {
+    return res.status(400).json({
+      success: false,
+      message: 'Your profile is not active yet .Please contact support',
+    });
+  }
+
   // Compare password
   const isMatch = await bcrypt.compare(password, freelancer.password);
   if (!isMatch) {
@@ -762,7 +769,7 @@ exports.updateFreelancerStatus = asyncHandler(async (req, res) => {
 
 
   if (freelancer.onboarding_status == "registered" || freelancer.onboarding_status == "profile_incomplete") {
-    if(Number(status)==1){
+    if (Number(status) == 1) {
       return res.status(StatusCodes.BAD_REQUEST).json({
         success: true,
         message: "We cannot approve the profile of freelancer till its profile is completed.",
@@ -858,8 +865,8 @@ exports.updateDocument = asyncHandler(async (req, res) => {
   // if (!req.file) {
   //   throw new APIError('File is required', StatusCodes.BAD_REQUEST);
   // }
-  console.log("documentIddocumentIddocumentId",documentId)
-  console.log("req.user.idreq.user.idreq.user.id",req.user)
+  console.log("documentIddocumentIddocumentId", documentId)
+  console.log("req.user.idreq.user.idreq.user.id", req.user)
 
   const freelancer = await Freelancer.findById(req.user.id);
   if (!freelancer) {
