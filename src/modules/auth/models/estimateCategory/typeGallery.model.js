@@ -5,8 +5,7 @@ const ImageSchema = new mongoose.Schema(
     title: { type: String },
     url: { type: String },
     perSqValue:{type:Number,default:0,required:false}
-  },
-  { _id: false }
+  }
 );
 
 const TypeGallerySchema = new mongoose.Schema(
