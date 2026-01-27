@@ -341,10 +341,7 @@ export const deleteProductById = async (req, res) => {
 
 export const createCategory = async (req, res) => {
     try {
-
-
         const newCategory = await Category.create({ ...req.body });
-
 
         return res.status(200).json({
             success: true,
