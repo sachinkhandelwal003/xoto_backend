@@ -36,7 +36,7 @@ exports.createPropertyLead = asyncHandler(async (req, res) => {
     } else {
       data.preferred_contact = 'call';
     }
-  }
+  } // message,stakeholder_type,name, email
 
   /* -------------------------
      Auto-map consultation
