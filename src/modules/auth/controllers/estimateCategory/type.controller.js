@@ -553,10 +553,16 @@ exports.updateImageTitle = asyncHandler(async (req, res) => {
 exports.deleteMoodboardImage = asyncHandler(async (req, res) => {
   const { typeId, imageId } = req.params;
 
+  // await TypeGallery.findOneAndUpdate(
+  //   { type: typeId },
+  //   {moodboardImages:[]}
+  // )
+  console.log("imageIdimageIdimageIdimageIdimageIdimageId",imageId)
+
   const gallery = await TypeGallery.findOneAndUpdate(
     { type: typeId },
     {
-      $pull: { moodboardImages: { id: imageId } },
+      $pull: { moodboardImages: { _id: imageId } },
     },
     { new: true }
   );
