@@ -254,16 +254,11 @@ exports.deleteType = asyncHandler(async (req, res) => {
 exports.uploadPreviewImage = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
 
-  if (!req.files?.previewImage?.length) {
-    throw new APIError('Preview image is required', StatusCodes.BAD_REQUEST);
-  }
-
-  const previewFile = req.files.previewImage[0];
+  const { previewFile } = req.body;
 
   const previewImage = {
-    id: previewFile.filename,
-    title: previewFile.originalname,
-    url: `/uploads/${previewFile.filename}`,
+    title: previewFile.title,
+    url: previewFile.url,
   };
 
   const gallery = await TypeGallery.findOneAndUpdate(
@@ -281,15 +276,15 @@ exports.uploadPreviewImage = asyncHandler(async (req, res) => {
 
 exports.addMoodboardImages = asyncHandler(async (req, res) => {
   const { typeId } = req.params;
+  const { moodBoardImages = [] } = req.body;
 
-  if (!req.files?.moodboardImages?.length) {
-    throw new APIError('Moodboard images required', StatusCodes.BAD_REQUEST);
+  if (!Array.isArray(moodBoardImages) || !moodBoardImages.length) {
+    throw new APIError("Moodboard images required", StatusCodes.BAD_REQUEST);
   }
 
-  const images = req.files.moodboardImages.map(file => ({
-    id: file.filename,
-    title: file.originalname,
-    url: `/uploads/${file.filename}`,
+  const images = req.body.moodBoardImages.map(file => ({
+    title: file.title || "",
+    url: file.url,
     perSqValue: file.perSqValue !== "" && !isNaN(file.perSqValue) ? Number(file.perSqValue) : 0
   }));
 
@@ -435,7 +430,7 @@ exports.editMoodboardQuestionById = asyncHandler(async (req, res) => {
     const existingAreaQuestion = await TypeQuestion.findOne({
       type: typeId,
       areaQuestion: true,
-      _id: { $ne: questionId } 
+      _id: { $ne: questionId }
     });
     if (existingAreaQuestion) {
       return res.status(400).json({
