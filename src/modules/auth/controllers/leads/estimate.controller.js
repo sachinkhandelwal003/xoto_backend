@@ -575,13 +575,13 @@ exports.submitQuotation = asyncHandler(async (req, res) => {
 
   const discountAmount = Number(((priceNum * discountPercentNum) / 100).toFixed(2));
   const grand_total = Number(Math.max(0, priceNum - discountAmount).toFixed(2));
-  console.log("grenadeeeeeeeeeeeeeeeeeeeeeeeeeee",grand_total)
+  console.log("grenadeeeeeeeeeeeeeeeeeeeeeeeeeee", grand_total)
   const quotation = await Quotation.create({
     estimate: req.params.id,
     created_by: req.user._id,
     created_by_model: "Freelancer",
     role: "freelancer",
-    grand_total:grand_total,
+    grand_total: grand_total,
     scope_of_work,
     discount_percent,
     price,
@@ -597,7 +597,7 @@ exports.submitQuotation = asyncHandler(async (req, res) => {
 
   // If all freelancers replied
   // if (estimate.freelancer_quotations.length >= estimate.sent_to_freelancers.length) {
-    estimate.supervisor_progress = "request_completed";
+  estimate.supervisor_progress = "request_completed";
   // }
 
   await estimate.save();
@@ -672,16 +672,42 @@ exports.createFinalQuotation = asyncHandler(async (req, res) => {
   const discountAmount = Number(((priceNum * discountPercentNum) / 100).toFixed(2));
   const grand_total = Number(Math.max(0, priceNum - discountAmount).toFixed(2));
 
+  // margin_percent , margin_amount , status:"supervisor_to_admin"
+  let margin_amount = req.body.margin_amount || null;
+  margin_amount = Number(margin_amount);
+  let margin_percent = Number(req.body.margin_percent) || 0;
+
+
+  if (margin_percent && !margin_amount) {
+
+    if (margin_percent < 0 || margin_percent > 100) {
+      throw new APIError("Margin percent must be between 0 and 100", 400);
+    }
+
+    let newAmount = (Number(freelancer_quotation.price) * Number(margin_percent)) / 100;
+    margin_amount = newAmount;
+  }
+
+  let margin_type = req.body.margin_type || "percentage";
+  let newPrice = Number(price)
+  if(margin_amount>0){
+    newPrice += margin_amount
+  }
+  
 
   const quotation = await Quotation.create({
     estimate: req.params.id,
     created_by: req.user._id,
     created_by_model: "Allusers",
+    margin_percent: margin_percent,
+    margin_amount: margin_amount,
+    status: "supervisor_to_admin",
     role: "supervisor",
+    margin_type: margin_type,
     scope_of_work,
     discount_percent,
     is_final: true,
-    price, estimate_type, estimate_subcategory, grand_total, discount_amount: discountAmount
+    price:newPrice, estimate_type, estimate_subcategory, grand_total:newPrice, discount_amount: discountAmount
   });
 
   estimate.freelancer_selected_quotation = freelancer_quotation._id
