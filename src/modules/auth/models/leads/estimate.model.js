@@ -40,10 +40,10 @@ const estimateSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: [
-      'pending',
-      'assigned',
-      'final_created',
-      'superadmin_approved',
+      'pending', // customer - > superadmin -> 
+      'assigned',// superadmin -> supervisor 
+      'final_created', // supervisor --> superadmin
+      'superadmin_approved', 
       'customer_accepted',
       'customer_rejected',
       'cancelled', 'deal'
@@ -58,7 +58,7 @@ const estimateSchema = new mongoose.Schema({
   deal_converted_at: Date,
   deal_converted_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   // 🔵 Separate SUPERVISOR PROGRESS
-  supervisor_progress: {
+  supervisor_progress: { // supervisor --> freelancer , 
     type: String,
     enum: ['none', 'request_sent', 'request_completed', 'final_quotation_created'],
     default: 'none'
@@ -80,6 +80,7 @@ const estimateSchema = new mongoose.Schema({
 
   // Final quotation chosen by supervisor
   final_quotation: { type: mongoose.Schema.Types.ObjectId, ref: 'Quotation' },
+  admin_final_quotation: { type: mongoose.Schema.Types.ObjectId, ref: 'Quotation' }, //admin --> customer
   freelancer_selected_quotation:{ type: mongoose.Schema.Types.ObjectId, ref: 'Quotation' },
   // 🔵 CUSTOMER PROGRESS
   customer_progress: {

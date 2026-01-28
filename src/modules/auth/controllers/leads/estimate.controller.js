@@ -345,8 +345,8 @@ exports.getEstimates = asyncHandler(async (req, res) => {
   --------------------------------------------------------- */
   const query = {};
 
-  if (status) query.status = status;
-  if (supervisor_progress) query.supervisor_progress = supervisor_progress;
+  if (status) query.status = status; // asigned
+  if (supervisor_progress) query.supervisor_progress = supervisor_progress; // request_completed
   if (customer_progress) query.customer_progress = customer_progress;
   if (supervisor) query.assigned_supervisor = supervisor;
   if (customer_email) query.customer_email = new RegExp(customer_email, "i");
@@ -596,9 +596,9 @@ exports.submitQuotation = asyncHandler(async (req, res) => {
   });
 
   // If all freelancers replied
-  if (estimate.freelancer_quotations.length >= estimate.sent_to_freelancers.length) {
+  // if (estimate.freelancer_quotations.length >= estimate.sent_to_freelancers.length) {
     estimate.supervisor_progress = "request_completed";
-  }
+  // }
 
   await estimate.save();
 

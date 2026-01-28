@@ -45,8 +45,12 @@ const quotationSchema = new mongoose.Schema({
   subtotal: { type: Number, default: 0 },
   discount_percent: { type: Number, default: 0, min: 0, max: 100 },
   discount_amount: { type: Number, default: 0 },
+  margin_percent: { type: Number, default: 0, required:false },
+  margin_amount: { type: Number, default: 0 ,required:false},
+  margin_amount: { type: Number, default: 0 ,required:false},
   grand_total: { type: Number, default: 0, required: false },
-  is_selected_by_supervisor:{type:Boolean,default:false,required:false},
+  status:{type:String,default:"freelancer_to_supervisor",enum:["freelancer_to_supervisor","supervisor_to_admin","admin_to_customer"]},
+  is_selected_by_supervisor: { type: Boolean, default: false, required: false },
 
   is_final: { type: Boolean, default: false },
   superadmin_approved: { type: Boolean, default: false },
