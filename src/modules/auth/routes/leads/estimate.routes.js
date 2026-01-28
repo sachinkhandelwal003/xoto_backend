@@ -92,9 +92,9 @@ protectSupervisor,
 // ------------------------------------------------------------
 // 6. SUPERADMIN — APPROVE FINAL QUOTATION
 // ------------------------------------------------------------
-router.put(
-  '/:id/approve-quotation',
-protect,  validator.validateApproveFinalQuotation,
+router.post(
+  '/approve-quotation-by-admin',
+protect,
   controller.approveFinalQuotation
 );
 

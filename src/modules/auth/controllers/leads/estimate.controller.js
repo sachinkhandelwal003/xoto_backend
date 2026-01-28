@@ -295,7 +295,7 @@ exports.getQuotations = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    estimate_id: estimate && estimate._id? estimate._id : null,
+    estimate_id: estimate && estimate._id ? estimate._id : null,
     freelance_id: freelance_id ? freelance_id : null,
     total: quotations.length,
     final_quotation: final_quotation,
@@ -637,18 +637,64 @@ exports.submitQuotation = asyncHandler(async (req, res) => {
 // SUPERVISOR: CREATE FINAL QUOTATION
 // SUPERADMIN: APPROVE FINAL QUOTATION
 exports.approveFinalQuotation = asyncHandler(async (req, res) => {
-  const estimate = await Estimate.findById(req.params.id)
-    .populate('final_quotation');
+  let {
+    scope_of_work,
+    price,
+    estimate_type,
+    estimate_subcategory,
+    margin_type,
+    margin_percent = 0,
+    margin_amount = 0
+  } = req.body;
+  
 
-  if (!estimate) throw new APIError('Estimate not found', StatusCodes.NOT_FOUND);
-  if (!estimate.final_quotation) throw new APIError("No final quotation", StatusCodes.BAD_REQUEST);
+  if (!price || Number(price) <= 0) {
+    throw new APIError("Valid price is required", 400);
+  }
 
-  const quotation = estimate.final_quotation;
+  const estimate = await Estimate.findById(req.query.id);
+  if (!estimate) throw new APIError("Estimate not found", 404);
 
-  quotation.superadmin_approved = true;
-  quotation.superadmin_approved_at = new Date();
-  await quotation.save();
+  let new_price = Number(price);
+  let final_margin_amount = 0;
 
+  if (margin_type === "percentage") {
+    console.log("code came in this bliock")
+    if (margin_percent < 0 || margin_percent > 100) {
+      throw new APIError("Margin percentage must be between 0 and 100", 400);
+    }
+
+    final_margin_amount = (new_price * margin_percent) / 100;
+    console.log("final_margin_amountfinal_margin_amount",new_price,margin_percent)
+    new_price += final_margin_amount;
+
+  } else if (margin_type === "amount") {
+    if (margin_amount < 0) {
+      throw new APIError("Margin amount cannot be negative", 400);
+    }
+
+    final_margin_amount = Number(margin_amount);
+    new_price += final_margin_amount;
+  }
+
+  const admin_final_quotation = await Quotation.create({
+    estimate: estimate._id,
+    created_by: req.user._id,
+    created_by_model: "Admin",
+    role: "admin",
+    grand_total: new_price,
+    scope_of_work,
+    price: new_price,
+    estimate_type,
+    estimate_subcategory,
+    margin_type,
+    margin_percent,
+    margin_amount: final_margin_amount,
+    superadmin_approved: true,
+    superadmin_approved_at: new Date()
+  });
+
+  estimate.admin_final_quotation = admin_final_quotation._id;
   estimate.status = "superadmin_approved";
   estimate.customer_progress = "sent_to_customer";
 
@@ -657,9 +703,13 @@ exports.approveFinalQuotation = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     message: "Final quotation approved & sent to customer",
-    data: { estimate, final_quotation: quotation }
+    data: {
+      estimate,
+      final_quotation: admin_final_quotation
+    }
   });
 });
+
 // ------------------------------------------------------------// ------------------------------------------------------------
 // SUPERVISOR: CREATE FINAL QUOTATION
 // ------------------------------------------------------------// SUPERVISOR: CREATE FINAL QUOTATION

@@ -22,11 +22,11 @@ const quotationSchema = new mongoose.Schema({
   created_by_model: {
     type: String,
     required: true,
-    enum: ["Freelancer", "Allusers"]
+    enum: ["Freelancer", "Allusers","Admin"]
   },
   role: {
     type: String,
-    enum: ["freelancer", "supervisor"],
+    enum: ["freelancer", "supervisor","admin"],
     required: true
   },
 
