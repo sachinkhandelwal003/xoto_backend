@@ -677,8 +677,9 @@ exports.createFinalQuotation = asyncHandler(async (req, res) => {
   margin_amount = Number(margin_amount);
   let margin_percent = Number(req.body.margin_percent) || 0;
 
-
-  if (margin_percent && !margin_amount) {
+  
+  let margin_type = req.body.margin_type || "percentage";
+  if ( margin_type =="percentage" && margin_percent && !margin_amount) {
 
     if (margin_percent < 0 || margin_percent > 100) {
       throw new APIError("Margin percent must be between 0 and 100", 400);
@@ -688,7 +689,6 @@ exports.createFinalQuotation = asyncHandler(async (req, res) => {
     margin_amount = newAmount;
   }
 
-  let margin_type = req.body.margin_type || "percentage";
   let newPrice = Number(price)
   if(margin_amount>0){
     newPrice += margin_amount
