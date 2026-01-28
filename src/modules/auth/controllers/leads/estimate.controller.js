@@ -254,18 +254,29 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
 
 
 exports.getQuotations = asyncHandler(async (req, res) => {
-  const { estimate_id } = req.query;
+  let { estimate_id, freelance_id } = req.query;
+  let page = Number(req.query.page) || 1;
+  let limit = Number(req.query.limit) || 10;
 
-  if (!estimate_id) {
-    throw new APIError("estimate_id is required", StatusCodes.BAD_REQUEST);
+  let skip = (page - 1) * limit;
+  // if (!estimate_id) {
+  //   throw new APIError("estimate_id is required", StatusCodes.BAD_REQUEST);
+  // }
+  let estimate = {}
+  if (estimate_id) {
+
+    estimate = await Estimate.findById(estimate_id);
+    if (!estimate) {
+      throw new APIError("Estimate not found", StatusCodes.NOT_FOUND);
+    }
+  } else if (freelance_id) {
+    estimate = await Estimate.findOne({ sent_to_freelancers: { $in: [new mongoose.Types.ObjectId(freelance_id)] } });
+    if (!estimate) {
+      throw new APIError("Estimate not found", StatusCodes.NOT_FOUND);
+    }
   }
 
-  const estimate = await Estimate.findById(estimate_id);
-  if (!estimate) {
-    throw new APIError("Estimate not found", StatusCodes.NOT_FOUND);
-  }
-
-  const quotations = await Quotation.find({ estimate: estimate_id })
+  const quotations = await Quotation.find({ estimate: estimate._id })
     .populate([{
       path: "created_by",
       select: "name email mobile role"
@@ -273,15 +284,28 @@ exports.getQuotations = asyncHandler(async (req, res) => {
       path: "estimate_type"
     }, {
       path: "estimate_subcategory"
-    }])
+    }]).skip(skip).limit(limit)
     .sort({ created_at: -1 });
+  let total = await Quotation.countDocuments({ estimate: estimate._id })
+
+  const final_quotation = await Quotation.findOne({
+    estimate: estimate._id,
+    is_final: true
+  })
 
   res.json({
     success: true,
-    estimate_id,
+    estimate_id: estimate && estimate._id? estimate._id : null,
+    freelance_id: freelance_id ? freelance_id : null,
     total: quotations.length,
-    final_quotation: quotations.find(q => q.is_final) || null,
-    data: quotations
+    final_quotation: final_quotation,
+    data: quotations,
+    pagination: {
+      page,
+      limit,
+      total,
+      total_pages: Math.ceil(total / limit)
+    }
   });
 });
 
@@ -677,9 +701,9 @@ exports.createFinalQuotation = asyncHandler(async (req, res) => {
   margin_amount = Number(margin_amount);
   let margin_percent = Number(req.body.margin_percent) || 0;
 
-  
+
   let margin_type = req.body.margin_type || "percentage";
-  if ( margin_type =="percentage") {
+  if (margin_type == "percentage") {
 
     if (margin_percent < 0 || margin_percent > 100) {
       throw new APIError("Margin percent must be between 0 and 100", 400);
@@ -690,10 +714,10 @@ exports.createFinalQuotation = asyncHandler(async (req, res) => {
   }
 
   let newPrice = Number(price)
-  if(margin_amount>0){
+  if (margin_amount > 0) {
     newPrice += margin_amount
   }
-  
+
 
   const quotation = await Quotation.create({
     estimate: req.params.id,
@@ -707,7 +731,7 @@ exports.createFinalQuotation = asyncHandler(async (req, res) => {
     scope_of_work,
     discount_percent,
     is_final: true,
-    price:newPrice, estimate_type, estimate_subcategory, grand_total:newPrice, discount_amount: discountAmount
+    price: newPrice, estimate_type, estimate_subcategory, grand_total: newPrice, discount_amount: discountAmount
   });
 
   estimate.freelancer_selected_quotation = freelancer_quotation._id
