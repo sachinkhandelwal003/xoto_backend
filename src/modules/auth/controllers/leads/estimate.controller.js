@@ -307,7 +307,7 @@ exports.getQuotationsByEstimateId = asyncHandler(async (req, res) => {
   let { estimate_id } = req.query;
   let page = Number(req.query.page) || 1;
   let limit = Number(req.query.limit) || 10;
-  let is_final = req.query.is_final 
+  let is_final = req.query.is_final
 
   let skip = (page - 1) * limit;
   // if (!estimate_id) {
@@ -334,7 +334,7 @@ exports.getQuotationsByEstimateId = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    estimate:estimate_id,
+    estimate: estimate_id,
     total: quotations.length,
     final_quotation: final_quotation,
     data: quotations,
@@ -368,8 +368,8 @@ exports.getEstimates = asyncHandler(async (req, res) => {
   if (id) {
     const estimate = await Estimate.findById(id)
       .populate([
-        { path: "type" },         
-        {path:"admin_final_quotation"},                    // EstimateMasterType
+        { path: "type" },
+        { path: "admin_final_quotation" },                    // EstimateMasterType
         { path: "subcategory" },                      // EstimateMasterSubcategory
         { path: "package" },                          // LandscapingPackage
         {
@@ -441,7 +441,7 @@ exports.getEstimates = asyncHandler(async (req, res) => {
   let estimatesQuery = Estimate.find(query)
     .populate([
       { path: "type" },
-      {path:"admin_final_quotation"},
+      { path: "admin_final_quotation" },
       { path: "subcategory" },
       { path: "package" },
       {
@@ -999,7 +999,16 @@ exports.getCustomerEstimates = asyncHandler(async (req, res) => {
       { path: "type" },
       { path: "subcategory" },
       { path: "package" },
-      { path: "final_quotation" }
+      { path: "final_quotation" },
+      {
+        path: "admin_final_quotation", populate: [{
+          path: "estimate_type",
+          model: "EstimateMasterType" // use your actual model name
+        }, {
+          path: "estimate_subcategory",
+          model: "EstimateMasterSubcategory" // use your actual model name
+        }]
+      }
     ])
     .sort({ createdAt: -1 });
 
