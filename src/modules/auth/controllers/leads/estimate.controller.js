@@ -263,7 +263,15 @@ exports.getQuotations = asyncHandler(async (req, res) => {
   //   throw new APIError("estimate_id is required", StatusCodes.BAD_REQUEST);
   // }
 
-  const quotations = await Quotation.find({ created_by: freelancer_id, created_by_model: "Freelancer" })
+  let query = { created_by: freelancer_id, created_by_model: "Freelancer" }
+
+  let is_selected_by_supervisor = req.query.is_selected_by_supervisor;
+
+  if (is_selected_by_supervisor) {
+    query.is_selected_by_supervisor = is_selected_by_supervisor=="true"
+  }
+
+  const quotations = await Quotation.find(query)
     .populate([{
       path: "created_by",
       select: "name email mobile role"
