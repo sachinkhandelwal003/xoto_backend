@@ -10,6 +10,7 @@ const blogRoutes = require('../src/modules/blogs/routes/index.js').default;
 const mortgageRoutes = require('./modules/mortgages/routes/index.js');
 const agencyRoutes = require('./modules/agency/routes/index.js');
 const otpRoutes = require('../src/modules/otp/routes/index.js').default
+const customer = require('../src/modules/customer/routes/index.js').default
 const app = express();
 
 // Middleware
@@ -23,6 +24,7 @@ app.use(express.urlencoded({ extended: true }));
 require('./config/database');
 // app.use('/uploads',express.static(path.join(__dirname, '..', 'uploads')));
 app.use('/estimates', require('./modules/auth/routes/leads/estimate.routes'));
+app.use('/customer',customer );
 app.use('/ai', require('./modules/auth/routes/ai/gardenAI.routes'));
 app.use('/packages', require('./modules/auth/routes/packages/packages.routes'));
 app.use('/estimate/master/category', require('./modules/auth/routes/estimateCategory/category.routes'));
