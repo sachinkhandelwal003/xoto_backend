@@ -307,6 +307,7 @@ exports.getQuotationsByEstimateId = asyncHandler(async (req, res) => {
   let { estimate_id } = req.query;
   let page = Number(req.query.page) || 1;
   let limit = Number(req.query.limit) || 10;
+  let is_final = req.query.is_final 
 
   let skip = (page - 1) * limit;
   // if (!estimate_id) {
@@ -796,7 +797,7 @@ exports.createFinalQuotation = asyncHandler(async (req, res) => {
       throw new APIError("Margin percent must be between 0 and 100", 400);
     }
 
-    let newAmount = (Number(freelancer_quotation.price) * Number(margin_percent)) / 100;
+    let newAmount = (Number(price) * Number(margin_percent)) / 100;
     margin_amount = newAmount;
   }
 
