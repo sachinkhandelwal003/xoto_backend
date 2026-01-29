@@ -24,6 +24,7 @@ router.post(
 );
 
 router.get('/quotation', protectMulti, controller.getQuotations); // we need to change this 
+router.get('/quotation-by-estimate-id', protectMulti, controller.getQuotationsByEstimateId); // we need to change this 
 router.get('/customer/my-estimates', protectMulti, controller.getCustomerEstimates);
 
 router.get('/customer/estimate/:id/quotation', protectMulti, controller.getCustomerQuotation);

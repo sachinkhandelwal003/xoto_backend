@@ -268,7 +268,7 @@ exports.getQuotations = asyncHandler(async (req, res) => {
   let is_selected_by_supervisor = req.query.is_selected_by_supervisor;
 
   if (is_selected_by_supervisor) {
-    query.is_selected_by_supervisor = is_selected_by_supervisor=="true"
+    query.is_selected_by_supervisor = is_selected_by_supervisor == "true"
   }
 
   const quotations = await Quotation.find(query)
@@ -290,6 +290,50 @@ exports.getQuotations = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     freelancer_id: freelancer_id ? freelancer_id : null,
+    total: quotations.length,
+    final_quotation: final_quotation,
+    data: quotations,
+    pagination: {
+      page,
+      limit,
+      total,
+      total_pages: Math.ceil(total / limit)
+    }
+  });
+});
+
+
+exports.getQuotationsByEstimateId = asyncHandler(async (req, res) => {
+  let { estimate_id } = req.query;
+  let page = Number(req.query.page) || 1;
+  let limit = Number(req.query.limit) || 10;
+
+  let skip = (page - 1) * limit;
+  // if (!estimate_id) {
+  //   throw new APIError("estimate_id is required", StatusCodes.BAD_REQUEST);
+  // }
+
+  let query = { estimate: estimate_id, created_by_model: "Freelancer" }
+
+  const quotations = await Quotation.find(query)
+    .populate([{
+      path: "created_by",
+      select: "name email mobile role"
+    }, { path: "estimate" }, {
+      path: "estimate_type"
+    }, {
+      path: "estimate_subcategory"
+    }]).skip(skip).limit(limit)
+    .sort({ created_at: -1 });
+  let total = await Quotation.countDocuments({ estimate: estimate_id, created_by_model: "Freelancer" })
+
+  const final_quotation = await Quotation.findOne({
+    estimate: estimate_id, created_by_model: "Freelancer", is_final: true
+  })
+
+  res.json({
+    success: true,
+    estimate:estimate_id,
     total: quotations.length,
     final_quotation: final_quotation,
     data: quotations,
