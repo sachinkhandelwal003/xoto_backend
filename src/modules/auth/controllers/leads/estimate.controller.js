@@ -368,7 +368,8 @@ exports.getEstimates = asyncHandler(async (req, res) => {
   if (id) {
     const estimate = await Estimate.findById(id)
       .populate([
-        { path: "type" },                             // EstimateMasterType
+        { path: "type" },         
+        {path:"admin_final_quotation"},                    // EstimateMasterType
         { path: "subcategory" },                      // EstimateMasterSubcategory
         { path: "package" },                          // LandscapingPackage
         {
@@ -440,6 +441,7 @@ exports.getEstimates = asyncHandler(async (req, res) => {
   let estimatesQuery = Estimate.find(query)
     .populate([
       { path: "type" },
+      {path:"admin_final_quotation"},
       { path: "subcategory" },
       { path: "package" },
       {
