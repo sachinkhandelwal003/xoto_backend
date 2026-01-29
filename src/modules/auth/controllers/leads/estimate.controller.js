@@ -986,7 +986,17 @@ exports.getCustomerEstimates = asyncHandler(async (req, res) => {
   };
 
   if (status) query.status = status;
-  if (customer_progress) query.customer_progress = customer_progress;
+  if (customer_progress) {
+    if (customer_progress == "customer_responded") {
+      query.$or =[
+          { customer_progress: "customer_responded" },
+          { customer_progress: "deal_created" }
+        ]
+         // customer_responded,deal_created
+    } else {
+      query.customer_progress = customer_progress;
+    }
+  }
 
   /* ---------------------------------------------------------
       🟦 MAIN QUERY
