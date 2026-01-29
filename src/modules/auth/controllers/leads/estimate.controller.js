@@ -254,7 +254,7 @@ exports.submitEstimate = asyncHandler(async (req, res) => {
 
 
 exports.getQuotations = asyncHandler(async (req, res) => {
-  let { estimate_id, freelance_id } = req.query;
+  let { freelancer_id } = req.query;
   let page = Number(req.query.page) || 1;
   let limit = Number(req.query.limit) || 10;
 
@@ -262,41 +262,26 @@ exports.getQuotations = asyncHandler(async (req, res) => {
   // if (!estimate_id) {
   //   throw new APIError("estimate_id is required", StatusCodes.BAD_REQUEST);
   // }
-  let estimate = {}
-  if (estimate_id) {
 
-    estimate = await Estimate.findById(estimate_id);
-    if (!estimate) {
-      throw new APIError("Estimate not found", StatusCodes.NOT_FOUND);
-    }
-  } else if (freelance_id) {
-    estimate = await Estimate.findOne({ sent_to_freelancers: { $in: [new mongoose.Types.ObjectId(freelance_id)] } });
-    if (!estimate) {
-      throw new APIError("Estimate not found", StatusCodes.NOT_FOUND);
-    }
-  }
-
-  const quotations = await Quotation.find({ estimate: estimate._id })
+  const quotations = await Quotation.find({ created_by: freelancer_id, created_by_model: "Freelancer" })
     .populate([{
       path: "created_by",
       select: "name email mobile role"
-    }, {
+    }, { path: "estimate" }, {
       path: "estimate_type"
     }, {
       path: "estimate_subcategory"
     }]).skip(skip).limit(limit)
     .sort({ created_at: -1 });
-  let total = await Quotation.countDocuments({ estimate: estimate._id })
+  let total = await Quotation.countDocuments({ created_by: freelancer_id, created_by_model: "Freelancer" })
 
   const final_quotation = await Quotation.findOne({
-    estimate: estimate._id,
-    is_final: true
+    created_by: freelancer_id, created_by_model: "Freelancer", is_final: true
   })
 
   res.json({
     success: true,
-    estimate_id: estimate && estimate._id ? estimate._id : null,
-    freelance_id: freelance_id ? freelance_id : null,
+    freelancer_id: freelancer_id ? freelancer_id : null,
     total: quotations.length,
     final_quotation: final_quotation,
     data: quotations,
@@ -646,7 +631,7 @@ exports.approveFinalQuotation = asyncHandler(async (req, res) => {
     margin_percent = 0,
     margin_amount = 0
   } = req.body;
-  
+
 
   if (!price || Number(price) <= 0) {
     throw new APIError("Valid price is required", 400);
@@ -665,7 +650,7 @@ exports.approveFinalQuotation = asyncHandler(async (req, res) => {
     }
 
     final_margin_amount = (new_price * margin_percent) / 100;
-    console.log("final_margin_amountfinal_margin_amount",new_price,margin_percent)
+    console.log("final_margin_amountfinal_margin_amount", new_price, margin_percent)
     new_price += final_margin_amount;
 
   } else if (margin_type === "amount") {
