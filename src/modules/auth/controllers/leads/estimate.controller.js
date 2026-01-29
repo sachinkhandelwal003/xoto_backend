@@ -718,7 +718,7 @@ exports.approveFinalQuotation = asyncHandler(async (req, res) => {
   const admin_final_quotation = await Quotation.create({
     estimate: estimate._id,
     created_by: req.user._id,
-    created_by_model: "Admin",
+    created_by_model: "User",
     role: "admin",
     grand_total: new_price,
     scope_of_work,
