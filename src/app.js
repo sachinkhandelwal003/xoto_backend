@@ -12,7 +12,7 @@ const agencyRoutes = require('./modules/agency/routes/index.js');
 const otpRoutes = require('../src/modules/otp/routes/index.js').default
 const customer = require('../src/modules/customer/routes/index.js').default
 const app = express();
-
+const Notification = require("../src/modules/Notification/Routes/NotificationRoutes.js").default
 // Middleware
 app.use(cors());
 app.use(helmet());
@@ -82,7 +82,8 @@ app.use('/categories', require('../src/modules/ecommerce/B2C/routes/category.rou
 app.use('/tags', require('../src/modules/ecommerce/B2C/routes/tags.routes'));
 app.use('/blogs', blogRoutes);
 app.use('/vendor/warehouses', require('../src/modules/ecommerce/B2C/routes/warehouse.routes'));
-
+// notifications
+app.use('/notifications', Notification);
 // 404 Handler
 app.use((req, res, next) => {
   next(createError.NotFound());
