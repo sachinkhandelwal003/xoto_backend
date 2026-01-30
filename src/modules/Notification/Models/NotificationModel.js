@@ -14,7 +14,7 @@ const notificationSchema = new mongoose.Schema(
       default: "",
       required: false
     },
-    
+
      sender: {
     email: { type: String},
   full_name:  { type: String },
@@ -42,13 +42,6 @@ const notificationSchema = new mongoose.Schema(
 
     notificationType: {
       type: String,
-      enum: [
-        "NEW_INQUIRY",
-        "INQUIRY_REPLY",
-        "PRICE_DROP",
-        "PROPERTY_APPROVED",
-        "PROPERTY_REJECTED"
-      ],
       default: "NEW_INQUIRY",
       required: true
     },
