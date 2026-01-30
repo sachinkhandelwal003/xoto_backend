@@ -4,6 +4,7 @@ const Consultant = require('../../models/consultant/consult.model');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const { APIError } = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
+const Notification = require('../../../Notification/Models/NotificationModel');
 
 const logger = winston.createLogger({
   level: 'info',
@@ -79,6 +80,21 @@ exports.createConsultant = asyncHandler(async (req, res) => {
     notes
   } = req.body;
 
+  const CONSULTANT_TYPE_MAP = {
+    landscaping: 'landscape',
+    landscape: 'landscape',
+    interior: 'interior',
+    interior_design: 'interior',
+    architect: 'architect',
+    architecture: 'architect',
+    civil: 'civil_engineer',
+    civil_engineer: 'civil_engineer',
+    other: 'other'
+  };
+
+  const normalizedType =
+    CONSULTANT_TYPE_MAP[type?.toLowerCase()] || 'other';
+
   const consultant = await Consultant.create({
     name: {
       first_name: name.first_name.trim(),
@@ -89,7 +105,7 @@ exports.createConsultant = asyncHandler(async (req, res) => {
       number: mobile.number.trim()
     },
     email: email.toLowerCase().trim(),
-    type, // New field
+    type: normalizedType,
     status,
     message: message?.trim(),
     follow_up_date,
@@ -97,13 +113,26 @@ exports.createConsultant = asyncHandler(async (req, res) => {
     is_active: true
   });
 
-  logger.info(`Consultant created: ${consultant._id} | ${consultant.full_name} | Type: ${consultant.type}`);
+  /* 🔔 SEND NOTIFICATION DIRECTLY FROM BACKEND */
+  await Notification.create({
+    receiverType: 'admin',
+    notificationType: 'consultant_created',
+    title: 'New Consultant Request',
+    message: `New ${normalizedType.replace('_', ' ')} consultant request from ${consultant.full_name}`,
+    senderType: 'system'
+  });
+
+  logger.info(
+    `Consultant created: ${consultant._id} | ${consultant.full_name} | Type: ${normalizedType}`
+  );
+
   res.status(StatusCodes.CREATED).json({
     success: true,
     message: 'Consultant created successfully',
     consultant
   });
 });
+
 
 // GET SINGLE CONSULTANT
 exports.getConsultant = asyncHandler(async (req, res) => {

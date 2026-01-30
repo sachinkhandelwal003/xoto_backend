@@ -1,5 +1,8 @@
+// import Notification from "../Models/NotificationModel.js";
 import Notification from "../Models/NotificationModel.js";
+
 import User from "../../auth/models/User.js";
+
 export const createNotification = async (req, res) => {
   try {
     let {

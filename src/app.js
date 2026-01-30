@@ -13,6 +13,8 @@ const otpRoutes = require('../src/modules/otp/routes/index.js').default
 const customer = require('../src/modules/customer/routes/index.js').default
 const app = express();
 const Notification = require("../src/modules/Notification/Routes/NotificationRoutes.js").default
+const PropertyLead = require("./modules/auth/routes/consult/propertyLead.route").default
+
 // Middleware
 app.use(cors());
 app.use(helmet());
