@@ -12,9 +12,9 @@ const router = express.Router();
 // CREATE
 router.post("/create-notification", createNotification);
 //GET
-router.get("/receiver-notification", getNotificationsByReceiver);
+router.get("/receiver-notification/:receiver", getNotificationsByReceiver);
 // Mark as read
-router.patch("/read-notification", markAsRead);
+router.patch("/read-notification/:id", markAsRead);
 
 // DELETE
 router.delete("/delete-notification", deleteNotification);

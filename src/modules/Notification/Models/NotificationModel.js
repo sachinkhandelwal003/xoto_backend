@@ -9,11 +9,23 @@ const notificationSchema = new mongoose.Schema(
       required: false
     },
 
-    sender: {
+    senderId: {
       type: String,
       default: "",
       required: false
     },
+    
+     sender: {
+    email: { type: String},
+  full_name:  { type: String },
+  mobile: {
+    country_code: { type: String },
+    number: {
+      type: String,
+    }
+  }
+
+  },
 
 
     receiverType: {
