@@ -132,11 +132,11 @@ exports.validateCreateVendor = [
   // ===============================
   // REGISTRATION
   // ===============================
-  body('registration.pan_number')
-    .trim()
-    .notEmpty().withMessage('PAN is required').bail()
-    .matches(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/)
-    .withMessage('Invalid PAN format').bail(),
+  // body('registration.pan_number')
+  //   .trim()
+  //   .notEmpty().withMessage('PAN is required').bail()
+  //   .matches(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/)
+  //   .withMessage('Invalid PAN format').bail(),
 
  body('registration.gstin')
   .optional({ checkFalsy: true }) // ✅ ignores "", null, undefined

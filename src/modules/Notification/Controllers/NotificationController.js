@@ -139,6 +139,37 @@ export const markAsRead = async (req, res) => {
     });
   }
 };
+export const markAllAsRead = async (req, res) => {
+  try {
+    const { userId } = req.body; // or req.user._id if using auth middleware
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required"
+      });
+    }
+
+    const result = await Notification.updateMany(
+      { receiver: userId, isRead: false },
+      { $set: { isRead: true } }
+    );
+
+    return res.json({
+      success: true,
+      message: "All notifications marked as read",
+      data: result
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+};
+
+
 
 export const getAllNotifications = async (req, res) => {
   try {

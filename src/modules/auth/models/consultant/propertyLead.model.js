@@ -143,12 +143,26 @@ propertyLeadSchema.index({ email: 1 });
 propertyLeadSchema.index({ is_deleted: false });
 
 // Soft delete
-propertyLeadSchema.pre(['find', 'findOne', 'findOneAndUpdate', 'countDocuments', 'aggregate'], function () {
-  if (!this.getOptions()?.includeDeleted) {
-    this.where({ is_deleted: false });
+propertyLeadSchema.pre(
+  ['find', 'findOne', 'findOneAndUpdate', 'countDocuments'],
+  function () {
+    if (!this.getOptions?.()?.includeDeleted) {
+      this.where({ is_deleted: false });
+    }
+  }
+);
+
+propertyLeadSchema.pre('aggregate', function () {
+  const pipeline = this.pipeline();
+
+  const hasDeletedFilter = pipeline.some(
+    stage => stage.$match && stage.$match.is_deleted !== undefined
+  );
+
+  if (!hasDeletedFilter) {
+    pipeline.unshift({ $match: { is_deleted: false } });
   }
 });
-
 const PropertyLead = mongoose.model('PropertyLead', propertyLeadSchema);
 
 // ======================== VALIDATION (Universal for ALL forms) ========================

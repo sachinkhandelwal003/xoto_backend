@@ -30,6 +30,7 @@ app.use('/customer',customer );
 app.use('/ai', require('./modules/auth/routes/ai/gardenAI.routes'));
 app.use('/packages', require('./modules/auth/routes/packages/packages.routes'));
 app.use('/estimate/master/category', require('./modules/auth/routes/estimateCategory/category.routes'));
+app.use('/dashboard', require('./modules/auth/routes/dashboardview/dashboard.routes.js'));
 
 app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/projectfreelancer.route'));
 app.use('/property', require('../src/modules/properties/routes/index.js'));
