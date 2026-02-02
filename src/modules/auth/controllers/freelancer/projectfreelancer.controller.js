@@ -1,7 +1,7 @@
 // controllers/freelancer/projectfreelancer.controller.js
 const Project = require('../../models/Freelancer/projectfreelancer.model');
 const Freelancer = require('../../models/Freelancer/freelancer.model');
-const Accountant=require('../../models/accountant/Accountant.model')
+const Accountant = require('../../models/accountant/Accountant.model')
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const { APIError } = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
@@ -51,7 +51,7 @@ exports.createProject = asyncHandler(async (req, res) => {
 
   // ── 2. Project dates ─────────────────────────────────────────────
   const projectStart = new Date(start_date);
-  const projectEnd   = new Date(end_date);
+  const projectEnd = new Date(end_date);
   if (isNaN(projectStart) || isNaN(projectEnd) || projectStart >= projectEnd) {
     throw new APIError('Project start_date must be before end_date', StatusCodes.BAD_REQUEST);
   }
@@ -94,17 +94,17 @@ exports.createProject = asyncHandler(async (req, res) => {
   // ── 4. File Uploads (unchanged) ───────────────────────────────────
   const drawings_blueprints = req.files?.drawings_blueprints
     ? (Array.isArray(req.files.drawings_blueprints) ? req.files.drawings_blueprints : [req.files.drawings_blueprints])
-        .map(f => f.path)
+      .map(f => f.path)
     : [];
 
   const visualization_3d = req.files?.visualization_3d
     ? (Array.isArray(req.files.visualization_3d) ? req.files.visualization_3d : [req.files.visualization_3d])
-        .map(f => f.path)
+      .map(f => f.path)
     : [];
 
   const permits_documents = req.files?.permits_documents
     ? (Array.isArray(req.files.permits_documents) ? req.files.permits_documents : [req.files.permits_documents])
-        .map(f => f.path)
+      .map(f => f.path)
     : [];
 
   // ── 5. Permits Approvals (unchanged) ──────────────────────────────
@@ -112,7 +112,7 @@ exports.createProject = asyncHandler(async (req, res) => {
   if (req.body.permits_approvals) {
     let permits = req.body.permits_approvals;
     if (typeof permits === 'string') {
-      try { permits = JSON.parse(permits); } catch {}
+      try { permits = JSON.parse(permits); } catch { }
     }
     permits = Array.isArray(permits) ? permits : [permits];
 
@@ -149,13 +149,13 @@ exports.createProject = asyncHandler(async (req, res) => {
     } : {},
     design_concept: design_concept || '',
     work_scope: work_scope ? {
-      softscaping:   work_scope.softscaping   === true || work_scope.softscaping   === 'true',
-      hardscaping:   work_scope.hardscaping   === true || work_scope.hardscaping   === 'true',
+      softscaping: work_scope.softscaping === true || work_scope.softscaping === 'true',
+      hardscaping: work_scope.hardscaping === true || work_scope.hardscaping === 'true',
       irrigation_systems: work_scope.irrigation_systems === true || work_scope.irrigation_systems === 'true',
-      lighting_design:    work_scope.lighting_design    === true || work_scope.lighting_design    === 'true',
-      water_features:     work_scope.water_features     === true || work_scope.water_features     === 'true',
+      lighting_design: work_scope.lighting_design === true || work_scope.lighting_design === 'true',
+      water_features: work_scope.water_features === true || work_scope.water_features === 'true',
       furniture_accessories: work_scope.furniture_accessories === true || work_scope.furniture_accessories === 'true',
-      maintenance_plan:   work_scope.maintenance_plan   === true || work_scope.maintenance_plan   === 'true'
+      maintenance_plan: work_scope.maintenance_plan === true || work_scope.maintenance_plan === 'true'
     } : {
       softscaping: false, hardscaping: false, irrigation_systems: false,
       lighting_design: false, water_features: false, furniture_accessories: false,
@@ -281,14 +281,14 @@ exports.getMilestones = asyncHandler(async (req, res) => {
 });
 
 exports.getProjects = asyncHandler(async (req, res) => {
-  const { id, page = 1, limit, status, search, freelancer } = req.query;
+  const { id, page = 1, limit, status, search, freelancer ,supervisor,customer} = req.query;
   const user = req.user;
 
   // === SINGLE PROJECT BY ID ===
   if (id) {
     const project = await Project.findOne({ _id: id, is_deleted: false })
       .populate('customer', 'name email')
-            .populate('accountant', 'name email')
+      .populate('accountant', 'name email')
       .populate('freelancers', 'name email mobile')  // (if array exists)
       .populate('category', 'name')
       .populate('subcategory', 'name')
@@ -313,8 +313,16 @@ exports.getProjects = asyncHandler(async (req, res) => {
   if (status) query.status = status;
   if (search) query.title = { $regex: search.trim(), $options: 'i' };
 
-  if (freelancer && ['SuperAdmin', 'Admin'].includes(user.role)) {
-    query.freelancer = freelancer;
+  if (freelancer) {
+    query.assigned_freelancer = freelancer;
+  }
+
+  if (supervisor) {
+    query.assigned_supervisor = supervisor;
+  }
+
+  if(customer){
+    query.customer=customer
   }
 
   // Pagination rules
@@ -322,8 +330,10 @@ exports.getProjects = asyncHandler(async (req, res) => {
 
   let dbQuery = Project.find(query)
     .populate('customer', 'name email')
+    .populate('assigned_supervisor')
+    .populate('assigned_freelancer')
     .populate('freelancers', 'name email mobile')   // (if array exists)
-                .populate('accountant', 'name email')
+    .populate('accountant', 'name email')
     .populate('category', 'name')
     .populate('subcategory', 'name')
     .sort({ createdAt: -1 });
@@ -341,11 +351,11 @@ exports.getProjects = asyncHandler(async (req, res) => {
     success: true,
     pagination: limit
       ? {
-          page: Number(page),
-          limit: Number(limit),
-          total,
-          totalPages: Math.ceil(total / limit)
-        }
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
       : null,
     projects
   });
@@ -912,8 +922,8 @@ exports.getMyProjects = asyncHandler(async (req, res) => {
     const progress =
       activeMilestones.length > 0
         ? Math.round(
-            (completedMilestones.length / activeMilestones.length) * 100
-          )
+          (completedMilestones.length / activeMilestones.length) * 100
+        )
         : 0;
 
     return {
@@ -1022,8 +1032,8 @@ exports.getMyProjectsAccountant = asyncHandler(async (req, res) => {
     const progress =
       activeMilestones.length > 0
         ? Math.round(
-            (completedMilestones.length / activeMilestones.length) * 100
-          )
+          (completedMilestones.length / activeMilestones.length) * 100
+        )
         : 0;
 
     return {
