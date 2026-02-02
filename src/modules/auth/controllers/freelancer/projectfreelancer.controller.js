@@ -332,6 +332,7 @@ exports.getProjects = asyncHandler(async (req, res) => {
     .populate('customer', 'name email')
     .populate('assigned_supervisor')
     .populate('assigned_freelancer')
+    .populate('estimate_reference')
     .populate('freelancers', 'name email mobile')   // (if array exists)
     .populate('accountant', 'name email')
     .populate('category', 'name')
