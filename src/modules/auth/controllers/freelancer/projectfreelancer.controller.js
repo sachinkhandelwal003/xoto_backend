@@ -411,11 +411,11 @@ exports.addMilestone = asyncHandler(async (req, res) => {
   let milestones = project.milestones ;
 
   let sum  = milestones.reduce((sum,milestone)=>{
-    return sum + milestone.milestone_weightage
+    return sum + (Number(milestone.milestone_weightage) || 0)
   },0)
 
   let difference = sum + Number(milestone_weightage)
-  
+  console.log("sum milestone_weightage difference",sum,milestone_weightage,difference)
   if(difference>100){
     return res.status(400).json({
       data:"All milestone weightage's sum cannot exceed more than 100 percent"
@@ -433,7 +433,7 @@ exports.addMilestone = asyncHandler(async (req, res) => {
     progress: 0,
     milestone_weightage: milestone_weightage ? Number(milestone_weightage) : 0,
     status: 'pending',
-    photos: photos.length > 0 ? photos : [],
+    photos: photos && photos.length > 0 ? photos : [],
     notes: ''
   });
 
