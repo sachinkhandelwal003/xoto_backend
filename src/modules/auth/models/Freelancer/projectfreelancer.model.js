@@ -57,8 +57,10 @@ const projectSchema = new mongoose.Schema({
   category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category_freelancer', required: true },
   subcategory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Subcategory_freelancer' }], // ← ARRAY
   customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
+  //assigned_supervisor
+  assigned_supervisor: { type: mongoose.Schema.Types.ObjectId, ref: 'Allusers' }, // assigned supervisor
+  assigned_freelancer: { type: mongoose.Schema.Types.ObjectId, ref: 'Freelancer' }, // asigned freelancer
   estimate_reference: { type: mongoose.Schema.Types.ObjectId, ref: 'Estimate', required: true },
-
   freelancers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Freelancer' }],
   accountant: { type: mongoose.Schema.Types.ObjectId, ref: 'Allusers', default: null },
 
