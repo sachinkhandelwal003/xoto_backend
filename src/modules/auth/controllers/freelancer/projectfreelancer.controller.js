@@ -407,7 +407,7 @@ exports.addMilestone = asyncHandler(async (req, res) => {
 
   // ADD MILESTONE
   project.milestones.push({
-    milestone_number,              // ← HERE
+    milestone_number,
     title,
     description: description || '',
     start_date: s,

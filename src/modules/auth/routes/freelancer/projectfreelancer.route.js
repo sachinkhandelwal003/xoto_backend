@@ -42,7 +42,6 @@ router.get(
 router.get(
   '/',
   protectMulti,
-  authorize({ roles: ['admin', 'superadmin'] }),
   controller.getProjects
 );
 // Access: Admin, SuperAdmin
@@ -59,10 +58,8 @@ router.post(
 // ── ADMIN/SUPERADMIN: Add milestone to project ────────────────────
 router.post(
   '/:id/milestones',
-  protectMulti,
-    upload.array('photos', 10),           // max 10 photos
+  protectMulti,          // max 10 photos
   validateProjectId,
-  validateAddMilestone,
   authorize({ roles: ['admin', 'superadmin'] }),
   controller.addMilestone
 );
