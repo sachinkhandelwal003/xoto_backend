@@ -332,7 +332,20 @@ exports.getProjects = asyncHandler(async (req, res) => {
     .populate('customer', 'name email')
     .populate('assigned_supervisor')
     .populate('assigned_freelancer')
-    .populate('estimate_reference')
+    .populate({
+      path: 'estimate_reference',
+      populate: [
+        {
+          path: 'type',
+          populate: {
+            path: 'category'
+          }
+        },
+        {
+          path: 'subcategory'
+        }
+      ]
+    })
     .populate('freelancers', 'name email mobile')   // (if array exists)
     .populate('accountant', 'name email')
     .populate('category', 'name')
@@ -409,17 +422,17 @@ exports.addMilestone = asyncHandler(async (req, res) => {
 
   //milestone_weightage,customer_approved_after_completion,freelancer_approved_after_completion
 
-  let milestones = project.milestones ;
+  let milestones = project.milestones;
 
-  let sum  = milestones.reduce((sum,milestone)=>{
+  let sum = milestones.reduce((sum, milestone) => {
     return sum + (Number(milestone.milestone_weightage) || 0)
-  },0)
+  }, 0)
 
   let difference = sum + Number(milestone_weightage)
-  console.log("sum milestone_weightage difference",sum,milestone_weightage,difference)
-  if(difference>100){
+  console.log("sum milestone_weightage difference", sum, milestone_weightage, difference)
+  if (difference > 100) {
     return res.status(400).json({
-      data:"All milestone weightage's sum cannot exceed more than 100 percent"
+      data: "All milestone weightage's sum cannot exceed more than 100 percent"
     })
   }
 

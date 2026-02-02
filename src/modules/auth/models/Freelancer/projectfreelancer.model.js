@@ -57,8 +57,8 @@ const projectSchema = new mongoose.Schema({
   overview: { type: String },
   scope_details: { type: String },
 
-  category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category_freelancer', required: true },
-  subcategory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Subcategory_freelancer' }], // ← ARRAY
+  // category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category_freelancer', required: true },
+  // subcategory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Subcategory_freelancer' }], // ← ARRAY
   customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
   //assigned_supervisor
   assigned_supervisor: { type: mongoose.Schema.Types.ObjectId, ref: 'Allusers' }, // assigned supervisor
