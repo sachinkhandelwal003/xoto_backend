@@ -58,9 +58,6 @@ router.post(
 // ── ADMIN/SUPERADMIN: Add milestone to project ────────────────────
 router.post(
   '/:id/milestones',
-  protectMulti,          // max 10 photos
-  validateProjectId,
-  authorize({ roles: ['admin', 'superadmin'] }),
   controller.addMilestone
 );
 // Access: Freelancer (on their assigned project)
@@ -78,9 +75,6 @@ router.get(
 router.put(
   '/:id/milestones/:milestoneId/daily/:dailyId/approve',
   protectMulti,
-  validateMilestone,
-  validateApproveDaily,
-  authorize({ roles: ['admin', 'superadmin'] }),
   controller.approveDailyUpdate
 );
 // Access: Admin, SuperAdmin
@@ -89,8 +83,6 @@ router.put(
 router.put(
   '/:id/milestones/:milestoneId/daily/:dailyId/reject',
   protectMulti,
-  validateMilestone,
-  authorize({ roles: ['admin', 'superadmin'] }),
   controller.rejectDailyUpdate
 );
 // Access: Admin, SuperAdmin

@@ -281,7 +281,7 @@ exports.getMilestones = asyncHandler(async (req, res) => {
 });
 
 exports.getProjects = asyncHandler(async (req, res) => {
-  const { id, page = 1, limit, status, search, freelancer ,supervisor,customer} = req.query;
+  const { id, page = 1, limit, status, search, freelancer, supervisor, customer } = req.query;
   const user = req.user;
 
   // === SINGLE PROJECT BY ID ===
@@ -321,8 +321,8 @@ exports.getProjects = asyncHandler(async (req, res) => {
     query.assigned_supervisor = supervisor;
   }
 
-  if(customer){
-    query.customer=customer
+  if (customer) {
+    query.customer = customer
   }
 
   // Pagination rules
@@ -366,7 +366,7 @@ exports.getProjects = asyncHandler(async (req, res) => {
 /* 2. ADD MILESTONE – FULLY COMPATIBLE WITH MODEL */
 exports.addMilestone = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { title, description, start_date, end_date, amount } = req.body;
+  const { title, photos, description, start_date, end_date, amount, milestone_weightage } = req.body;
 
   // REQUIRED FIELDS
   if (!title || !start_date || !end_date || !amount) {
@@ -402,10 +402,12 @@ exports.addMilestone = asyncHandler(async (req, res) => {
   const milestone_number =
     project.milestones.filter(m => !m.is_deleted).length + 1;
 
-  // PHOTOS
-  const photos = req.files ? req.files.map(f => f.path) : [];
 
   // ADD MILESTONE
+
+
+  //milestone_weightage,customer_approved_after_completion,freelancer_approved_after_completion
+
   project.milestones.push({
     milestone_number,
     title,
@@ -415,8 +417,9 @@ exports.addMilestone = asyncHandler(async (req, res) => {
     due_date,
     amount: amountNum,
     progress: 0,
+    milestone_weightage: milestone_weightage ? Number(milestone_weightage) : 0,
     status: 'pending',
-    photos,
+    photos: photos.length > 0 ? photos : [],
     notes: ''
   });
 
