@@ -345,8 +345,6 @@ exports.getProjects = asyncHandler(async (req, res) => {
     })
     .populate('freelancers', 'name email mobile')   // (if array exists)
     .populate('accountant', 'name email')
-    .populate('category', 'name')
-    .populate('subcategory', 'name')
     .sort({ createdAt: -1 });
 
   if (limit) {
