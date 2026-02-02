@@ -50,9 +50,6 @@ router.get(
 router.post(
   '/:id/milestones/:milestoneId/daily',
   protectMulti,
-  authorize({ roles: ['Freelancer'] }),
-  upload.array('photos', 10),
-  validateDailyUpdate,
   controller.addDailyUpdate
 );
 

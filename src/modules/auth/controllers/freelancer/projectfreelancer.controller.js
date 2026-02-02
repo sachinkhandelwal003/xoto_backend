@@ -605,7 +605,7 @@ exports.addDailyUpdate = asyncHandler(async (req, res) => {
   const milestone = req.milestone;
 
   const updateDate = date ? new Date(date) : new Date();
-  const photos = req.files ? req.files.map(f => f.path) : [];
+  const photos = req.body.photos && req.body.photos.length>0 ? req.body.photos:[];
 
   const newUpdate = {
     date: updateDate,
