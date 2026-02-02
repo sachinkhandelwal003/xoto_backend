@@ -290,8 +290,19 @@ exports.getProjects = asyncHandler(async (req, res) => {
       .populate('customer', 'name email')
       .populate('accountant', 'name email')
       .populate('freelancers', 'name email mobile')  // (if array exists)
-      .populate('category', 'name')
-      .populate('subcategory', 'name')
+      .populate('assigned_supervisor')
+      .populate('assigned_freelancer')
+      .populate({
+        path: 'estimate_reference',
+        populate: [
+          {
+            path: 'type'
+          },
+          {
+            path: 'subcategory'
+          }
+        ]
+      })
       .select('-__v')
       .lean();
 
