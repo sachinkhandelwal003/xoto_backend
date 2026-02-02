@@ -336,10 +336,7 @@ exports.getProjects = asyncHandler(async (req, res) => {
       path: 'estimate_reference',
       populate: [
         {
-          path: 'type',
-          populate: {
-            path: 'category'
-          }
+          path: 'type'
         },
         {
           path: 'subcategory'
