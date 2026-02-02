@@ -585,7 +585,7 @@ exports.addDailyUpdate = asyncHandler(async (req, res) => {
   console.log("Params:", req.params);
   console.log("User:", req.user?.email || req.user?._id);
   console.log("Body:", req.body);
-  console.log("Files:", req.files?.map(f => f.originalname) || "No files");
+  // console.log("Files:", req.files?.map(f => f.originalname) || "No files");
   console.log("=========================================");
 
   const { id, milestoneId } = req.params;
