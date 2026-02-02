@@ -48,10 +48,10 @@ router.get(
 
 // ── FREELANCER: Add daily update to milestone ────────────────────
 router.post(
-  '/:id/milestones/:milestoneId/daily',
+  '/daily-update',
   protectMulti,
   controller.addDailyUpdate
-);
+); 
 
 router.post(
   '/update-milestone',

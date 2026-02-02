@@ -483,7 +483,7 @@ exports.updateMilestoneById = asyncHandler(async (req, res) => {
   const milestone = project.milestones.id(milestoneId);
   console.log("milestonemilestonemilestonemilestone", milestone)
 
-  if (!milestone ) {
+  if (!milestone) {
     throw new APIError('Milestone not found', StatusCodes.NOT_FOUND);
   }
 
@@ -496,7 +496,7 @@ exports.updateMilestoneById = asyncHandler(async (req, res) => {
 
   res.status(StatusCodes.OK).json({
     success: true,
-    message:"Milestone updated ",
+    message: "Milestone updated ",
     milestone
   });
 });
@@ -588,7 +588,7 @@ exports.addDailyUpdate = asyncHandler(async (req, res) => {
   // console.log("Files:", req.files?.map(f => f.originalname) || "No files");
   console.log("=========================================");
 
-  const { id, milestoneId } = req.params;
+  const { projectId, milestoneId } = req.query;
   const { work_done, date, notes } = req.body;
   const freelancerId = req.user?._id;
 
@@ -601,11 +601,16 @@ exports.addDailyUpdate = asyncHandler(async (req, res) => {
   }
 
   // Project and milestone were already attached in validator
-  const project = req.project;
-  const milestone = req.milestone;
+  const project = await Project.findById(projectId);
+
+  if (!project) {
+    return res.status(404).json({ success: false, message: "Project not found" });
+  }
+
+  const milestone = project.milestones.id(milestoneId);
 
   const updateDate = date ? new Date(date) : new Date();
-  const photos = req.body.photos && req.body.photos.length>0 ? req.body.photos:[];
+  const photos = req.body.photos && req.body.photos.length > 0 ? req.body.photos : [];
 
   const newUpdate = {
     date: updateDate,
