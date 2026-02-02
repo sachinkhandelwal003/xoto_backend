@@ -467,6 +467,41 @@ exports.addMilestone = asyncHandler(async (req, res) => {
   });
 });
 
+exports.updateMilestoneById = asyncHandler(async (req, res) => {
+  const { projectId, milestoneId } = req.query;
+
+  // FIND PROJECT
+  const project = await Project.findOne({
+    _id: projectId,
+  });
+
+  if (!project) {
+    throw new APIError('Project not found', StatusCodes.NOT_FOUND);
+  }
+
+  // FIND MILESTONE
+  const milestone = project.milestones.id(milestoneId);
+  console.log("milestonemilestonemilestonemilestone", milestone)
+
+  if (!milestone ) {
+    throw new APIError('Milestone not found', StatusCodes.NOT_FOUND);
+  }
+
+  // UPDATE ONLY SENT FIELDS
+  Object.keys(req.body).forEach((key) => {
+    milestone[key] = req.body[key];
+  });
+
+  await project.save();
+
+  res.status(StatusCodes.OK).json({
+    success: true,
+    message:"Milestone updated ",
+    milestone
+  });
+});
+
+
 
 
 exports.assignFreelancer = asyncHandler(async (req, res) => {

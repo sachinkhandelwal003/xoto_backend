@@ -55,6 +55,11 @@ router.post(
   validateDailyUpdate,
   controller.addDailyUpdate
 );
+
+router.post(
+  '/update-milestone',
+  controller.updateMilestoneById
+);
 // ── ADMIN/SUPERADMIN: Add milestone to project ────────────────────
 router.post(
   '/:id/milestones',
