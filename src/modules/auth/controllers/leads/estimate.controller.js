@@ -408,7 +408,13 @@ exports.getEstimates = asyncHandler(async (req, res) => {
   --------------------------------------------------------- */
   const query = {};
 
-  if (status) query.status = status; // asigned
+  if (status) {
+    if (status == "supervisor_submitted") {
+      query.status = { $in: ["superadmin_approved", "customer_accepted", "customer_rejected", "cancelled", "deal"] }
+    } else {
+      query.status = status;
+    }
+  } // asigned
   if (supervisor_progress) query.supervisor_progress = supervisor_progress; // request_completed
   if (customer_progress) query.customer_progress = customer_progress;
   if (supervisor) query.assigned_supervisor = supervisor;
@@ -988,11 +994,11 @@ exports.getCustomerEstimates = asyncHandler(async (req, res) => {
   if (status) query.status = status;
   if (customer_progress) {
     if (customer_progress == "customer_responded") {
-      query.$or =[
-          { customer_progress: "customer_responded" },
-          { customer_progress: "deal_created" }
-        ]
-         // customer_responded,deal_created
+      query.$or = [
+        { customer_progress: "customer_responded" },
+        { customer_progress: "deal_created" }
+      ]
+      // customer_responded,deal_created
     } else {
       query.customer_progress = customer_progress;
     }
