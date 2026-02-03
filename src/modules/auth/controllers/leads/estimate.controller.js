@@ -1131,7 +1131,7 @@ exports.convertToDeal = asyncHandler(async (req, res) => {
     );
   }
 
-  const finalQuotation = estimate.final_quotation;
+  const finalQuotation = estimate.admin_final_quotation;
 
   // 2️⃣ Normalize client name
   let clientName = estimate.customer_name;

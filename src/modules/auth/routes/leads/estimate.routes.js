@@ -112,7 +112,6 @@ router.put(
 router.post(
   '/:id/convert-to-deal',
   protectMulti,
-  authorize({ roles: ['superadmin', 'admin'] }),
   controller.convertToDeal
 );
 
