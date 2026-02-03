@@ -488,6 +488,26 @@ exports.updateMilestoneById = asyncHandler(async (req, res) => {
   }
 
   // UPDATE ONLY SENT FIELDS
+  console.log("req.bodyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", req.body)
+
+  if (req.body.customer_approval_after_completion == true) {
+    if (milestone.customer_approval_after_completion == true) {
+      return res.status(400).json({
+        status: "error",
+        message: "Customer have already marked his approval here"
+      })
+    }
+  }
+
+  if (req.body.freelancer_approv_after_completion) {
+    if (milestone.customer_approval_after_completion == false) {
+      return res.status(400).json({
+        status: "error",
+        message: "Customer haven't approved it yet from his/her side."
+      })
+    }
+  }
+
   Object.keys(req.body).forEach((key) => {
     milestone[key] = req.body[key];
   });
