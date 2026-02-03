@@ -3,6 +3,7 @@
 import Brand from "../models/BrandSchema.js";
 import Category from "../models/CategoryModel.js";
 import Product from "../models/ProductModel.js"
+import EcommerceCartItem from "../models/EcommerceCart.js"
 import ProductColour from "../models/ProductColorSchema.js"
 
 export const createBrand = async (req, res) => {
@@ -448,6 +449,36 @@ export const updateProductById = async (req, res) => {
             success: true,
             message: "Product updated successfully",
             data: { updatedProduct, updatedColours }
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+export const addToCart = async (req, res) => {
+    try {
+
+        // now we will add this prudtc in the cart Items of users
+        ////productId,customerId,productColorId,price,quantity
+        const { productId, customerId, productColorId } = req.body;
+        let alreadyExist = await EcommerceCartItem.findOne({ productId, customerId, productColorId })
+
+        if (alreadyExist) {
+            return res.status(400).json({
+                message: "This product already exists in your cart"
+            })
+        }
+
+        let cartproduct = await EcommerceCartItem.create({ ...req.body });
+
+        return res.status(201).json({
+            success: true,
+            message: "Product added to cart successfully",
+            data: cartproduct
         });
 
     } catch (error) {
