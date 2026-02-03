@@ -27,7 +27,7 @@ const {
 router.get(
   '/my',
   protectMulti,
-  authorize({ roles: ['Freelancer','Accountant'] }),
+  authorize({ roles: ['Freelancer', 'Accountant'] }),
   controller.getMyProjects
 );
 router.get(
@@ -42,6 +42,26 @@ router.post(
   '/send-milestone-bill-to-customer',
   controller.sendMileStoneBillToCustomer
 );
+
+router.get(
+  '/get-milestone-bill-by-customerid',
+  controller.getMileStoneBillByCustomerId
+);
+
+router.get(
+  '/get-milestone-bill-by-milestoneid',
+  controller.getMileStoneBillByMileStoneId
+);
+
+router.get(
+  '/get-milestone-bill-by-estimateid',
+  controller.getMileStoneBillByEstimateId
+);
+
+router.post(
+  "/update-milestone",
+  controller.updateMileStoneBill
+)
 // Access: Freelancer only
 
 // ── ADMIN/SUPERADMIN: List all projects ───────────────────────────
@@ -57,7 +77,7 @@ router.post(
   '/daily-update',
   protectMulti,
   controller.addDailyUpdate
-); 
+);
 
 router.post(
   '/update-milestone',

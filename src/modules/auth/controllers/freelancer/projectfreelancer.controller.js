@@ -1167,6 +1167,55 @@ exports.sendMileStoneBillToCustomer = asyncHandler(async (req, res) => {
   })
 });
 
+exports.getMileStoneBillByMileStoneId = asyncHandler(async (req, res) => {
+
+  const { milestone_id, customer_id, estimate_id } = req.query;
+
+  const createdBill = await MileStonebill.find({ milestone_id });
+
+  return res.status(200).json({
+    data: createdBill,
+    message: "Bill fetched"
+  })
+});
+
+exports.getMileStoneBillByCustomerId = asyncHandler(async (req, res) => {
+
+  const { milestone_id, customer_id, estimate_id } = req.query;
+
+  const createdBill = await MileStonebill.find({ customer_id });
+
+  return res.status(200).json({
+    data: createdBill,
+    message: "Bill fetched"
+  })
+});
+
+exports.getMileStoneBillByEstimateId = asyncHandler(async (req, res) => {
+
+  const { milestone_id, customer_id, estimate_id } = req.query;
+
+  const createdBill = await MileStonebill.find({ estimate_id });
+
+  return res.status(200).json({
+    data: createdBill,
+    message: "Bill fetched"
+  })
+});
+
+
+exports.updateMileStoneBill = asyncHandler(async (req, res) => {
+
+  const { id } = req.query;
+
+  const updateBill = await MileStonebill.findOneAndUpdate({ _id: id }, { ...req.body }, { new: true });
+
+  return res.status(200).json({
+    data: updateBill,
+    message: "Updated Bill"
+  })
+});
+
 
 exports.getProjectsByFreelancerId = asyncHandler(async (req, res) => {
   const { freelancerId, page = 1, limit = 10, status } = req.query;
