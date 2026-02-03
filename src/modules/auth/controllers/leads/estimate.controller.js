@@ -1107,6 +1107,7 @@ exports.convertToDeal = asyncHandler(async (req, res) => {
   // 1️⃣ Fetch estimate with all required relations
   const estimate = await Estimate.findById(id)
     .populate("final_quotation")
+    .populate("admin_final_quotation")
     .populate("freelancer_selected_quotation")
     .populate("customer", "name email mobile")
     .populate("subcategory")   // EstimateMasterSubcategory

@@ -25,6 +25,7 @@ router.post("/delete-product-by-id", deleteProductById)
 router.post("/edit-product-by-id", updateProductById)
 
 router.post("/add-to-cart-by-customer", addToCart)
+// router.post("/get-all-cartItems-by-customerId", getAllCartItemsByCartId)
 
 
 // router.get("/get-all-category", getAllCategory)
