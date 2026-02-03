@@ -128,7 +128,6 @@ router.post(
 router.post(
   '/:id/move',
   protectMulti,
-  authorize({ roles: ['admin', 'superadmin'] }),
   controller.moveProjectToAccountant
 );
 // Access: Admin, SuperAdmin
