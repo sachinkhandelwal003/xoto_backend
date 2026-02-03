@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../../controllers/user/user.controller');
-const { protect } = require('../../../../middleware/auth');
+const { protect, protectMulti } = require('../../../../middleware/auth');
 const {
   validateCreateUser,
   validateLogin,
@@ -23,7 +23,7 @@ router.post(
 router.post('/register', controller.createUser);
 
 // Protected routes
-router.use(protect);
+router.use(protectMulti);
 
 router.get('/', controller.getAllUsers);
 router.put('/:id/toggle', validateUserId, controller.toggleStatus);

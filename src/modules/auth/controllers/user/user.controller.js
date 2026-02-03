@@ -293,6 +293,100 @@ exports.getAllUsers = asyncHandler(async (req, res) => {
   });
 });
 
+// exports.getAllUsers = asyncHandler(async (req, res) => {
+//   let { page = 1, limit, search = "", role, active } = req.query;
+
+//   const query = { is_deleted: false };
+
+//   // -----------------------------------------------------
+//   // ROLE FILTER (ObjectId OR name/slug/code allowed)
+//   // -----------------------------------------------------
+//   if (role) {
+//     // If NOT ObjectId → treat as role name/slug/code
+//     if (!mongoose.Types.ObjectId.isValid(role)) {
+//       const foundRole = await Role.findOne({
+//         $or: [
+//           { name: new RegExp(`^${role}$`, "i") },
+//           { slug: new RegExp(`^${role}$`, "i") },
+//           { code: new RegExp(`^${role}$`, "i") }
+//         ]
+//       }).lean();
+
+//       if (!foundRole) {
+//         return res.status(400).json({
+//           success: false,
+//           message: `Role '${role}' not found`,
+//         });
+//       }
+
+//       query.role = foundRole._id;
+//     } else {
+//       query.role = role; // already ObjectId
+//     }
+//   }
+
+//   // -----------------------------------------------------
+//   // ACTIVE FILTER
+//   // -----------------------------------------------------
+//   if (active !== undefined) {
+//     query.isActive = active === "true";
+//   }
+
+//   // -----------------------------------------------------
+//   // SEARCH FILTER
+//   // -----------------------------------------------------
+//   if (search) {
+//     const regex = new RegExp(search, "i");
+//     query.$or = [
+//       { "name.first_name": regex },
+//       { "name.last_name": regex },
+//       { email: regex },
+//       { mobile: regex },
+//     ];
+//   }
+
+//   // Base query
+//   let usersQuery = User.find(query)
+//     .select("-password")
+//     .populate("role", "name code slug isActive")
+//     .sort({ createdAt: -1 });
+
+//   // -----------------------------------------------------
+//   // CASE 1: NO LIMIT → return all users
+//   // -----------------------------------------------------
+//   if (!limit) {
+//     const users = await usersQuery.lean();
+//     return res.json({
+//       success: true,
+//       data: users,
+//       pagination: null,
+//     });
+//   }
+
+//   // -----------------------------------------------------
+//   // CASE 2: LIMIT PROVIDED → apply pagination
+//   // -----------------------------------------------------
+//   limit = Number(limit);
+//   page = Number(page);
+//   const skip = (page - 1) * limit;
+
+//   const [users, total] = await Promise.all([
+//     usersQuery.skip(skip).limit(limit).lean(),
+//     User.countDocuments(query),
+//   ]);
+
+//   res.json({
+//     success: true,
+//     data: users,
+//     pagination: {
+//       page,
+//       limit,
+//       total,
+//       totalPages: Math.ceil(total / limit),
+//     },
+//   });
+// });
+
 
 exports.toggleStatus = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id);
