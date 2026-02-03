@@ -36,6 +36,12 @@ router.get(
   authorize({ roles: ['Accountant'] }),
   controller.getMyProjectsAccountant
 );
+
+
+router.post(
+  '/send-milestone-bill-to-customer',
+  controller.sendMileStoneBillToCustomer
+);
 // Access: Freelancer only
 
 // ── ADMIN/SUPERADMIN: List all projects ───────────────────────────

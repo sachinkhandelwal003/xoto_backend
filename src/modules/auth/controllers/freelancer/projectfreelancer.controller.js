@@ -5,6 +5,7 @@ const Accountant = require('../../models/accountant/Accountant.model')
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const { APIError } = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
+const MileStonebill = require("../freelancer/models/MileStoneBill.js")
 const mongoose = require('mongoose');
 const logger = require('winston').createLogger({
   level: 'info',
@@ -1153,6 +1154,19 @@ exports.getMyProjectsAccountant = asyncHandler(async (req, res) => {
     projects: projectsWithStats,
   });
 });
+
+exports.sendMileStoneBillToCustomer = asyncHandler(async (req, res) => {
+
+  const { milestone_id, customer_id, price, estimate_id } = req.body;
+
+  const createBill = await MileStonebill.create({ ...req.body });
+
+  return res.status(200).json({
+    data: createBill,
+    message: "Bill created and sent to customer"
+  })
+});
+
 
 exports.getProjectsByFreelancerId = asyncHandler(async (req, res) => {
   const { freelancerId, page = 1, limit = 10, status } = req.query;
