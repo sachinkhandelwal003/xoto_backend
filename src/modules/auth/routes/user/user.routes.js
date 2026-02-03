@@ -20,7 +20,7 @@ router.post(
   controller.customerSignup
 );
 
-router.post('/register', validateCreateUser, controller.createUser);
+router.post('/register', controller.createUser);
 
 // Protected routes
 router.use(protect);
