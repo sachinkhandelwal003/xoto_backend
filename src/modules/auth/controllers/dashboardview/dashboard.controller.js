@@ -3,6 +3,8 @@ const Freelancer = require('../../models/Freelancer/freelancer.model');
 const VendorB2C = require('../../models/Vendor/B2cvendor.model');
 const Developer = require('../../../properties/models/DeveloperModel');
 const Property = require('../../../properties/models/PropertyModel');
+const Estimate = require('../../../auth/models/leads/estimate.model');
+const Project = require('../../../auth/models/Freelancer/projectfreelancer.model');
 
 /* ---------------- DATE RANGE HELPER ---------------- */
 const getDateRange = (range) => {
@@ -210,3 +212,32 @@ exports.superAdminDashboard = async (req, res) => {
   }
 };
 
+
+
+exports.supervisorDashboard = async (req, res) => {
+  try {
+    const { supervisor_id } = req.query;
+
+    let assigned_estimates = await Estimate.countDocuments({ assigned_supervisor: supervisor_id });
+
+    let pending_estimates = await Estimate.countDocuments({ assigned_supervisor: supervisor_id, status: "pending" })
+
+    let completed_projects = await Project.countDocuments({ assigned_supervisor: supervisor_id, status: "completed" });
+
+    let pending_projects = await Project.countDocuments({ assigned_supervisor: supervisor_id, status: "in_progress" })
+    /* ---------------- RESPONSE ---------------- */
+    res.json({
+      success: true,
+      data: {
+        assigned_estimates, pending_estimates, completed_projects, pending_projects
+      }
+    });
+
+  } catch (err) {
+    console.error('SupervispDashboard Error Dashboard Error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Dashboard data fetch failed'
+    });
+  }
+};
