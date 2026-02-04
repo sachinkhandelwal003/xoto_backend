@@ -1209,7 +1209,7 @@ exports.updateMileStoneBill = asyncHandler(async (req, res) => {
   const { id } = req.query;
 
   const updateBill = await MileStonebill.findOneAndUpdate({ _id: id }, { ...req.body }, { new: true });
-
+  
   return res.status(200).json({
     data: updateBill,
     message: "Updated Bill"

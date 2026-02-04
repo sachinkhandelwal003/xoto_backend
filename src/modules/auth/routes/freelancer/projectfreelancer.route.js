@@ -59,7 +59,7 @@ router.get(
 );
 
 router.post(
-  "/update-milestone",
+  "/update-milestone-bill",
   controller.updateMileStoneBill
 )
 // Access: Freelancer only
