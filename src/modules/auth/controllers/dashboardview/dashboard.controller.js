@@ -214,30 +214,116 @@ exports.superAdminDashboard = async (req, res) => {
 
 
 
+// exports.supervisorDashboard = async (req, res) => {
+//   try {
+
+//     let date = 
+
+//     const { supervisor_id } = req.query;
+
+//     let assigned_estimates = await Estimate.countDocuments({ assigned_supervisor: supervisor_id });
+
+//     let pending_estimates = await Estimate.countDocuments({ assigned_supervisor: supervisor_id, status: "pending" })
+
+//     let completed_projects = await Project.countDocuments({ assigned_supervisor: supervisor_id, status: "completed" });
+
+//     let pending_projects = await Project.countDocuments({ assigned_supervisor: supervisor_id, status: "in_progress" })
+//     /* ---------------- RESPONSE ---------------- */
+
+//     let top_five_projects = await Project.find({ assigned_supervisor: supervisor_id }).sort({ createdAt: -1 }).limit(5);
+
+//     let estimate_graph = await Estimate
+
+//     res.json({
+//       success: true,
+//       data: {
+//         assigned_estimates, pending_estimates, completed_projects, pending_projects, top_five_projects
+//       }
+//     });
+
+//   } catch (err) {
+//     console.error('SupervispDashboard Error Dashboard Error:', err);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Dashboard data fetch failed'
+//     });
+//   }
+// };
+
+
+
 exports.supervisorDashboard = async (req, res) => {
   try {
-    const { supervisor_id } = req.query;
+    const { supervisor_id, from, to } = req.query;
 
-    let assigned_estimates = await Estimate.countDocuments({ assigned_supervisor: supervisor_id });
+    const parseDate = (d) => {
+      const [dd, mm, yyyy] = d.split("-");
+      return new Date(`${yyyy}-${mm}-${dd}`);
+    };
 
-    let pending_estimates = await Estimate.countDocuments({ assigned_supervisor: supervisor_id, status: "pending" })
+    const fromDate = parseDate(from);
+    const toDate = parseDate(to);
 
-    let completed_projects = await Project.countDocuments({ assigned_supervisor: supervisor_id, status: "completed" });
+    let assigned_estimates = await Estimate.countDocuments({
+      assigned_supervisor: supervisor_id
+    });
 
-    let pending_projects = await Project.countDocuments({ assigned_supervisor: supervisor_id, status: "in_progress" })
-    /* ---------------- RESPONSE ---------------- */
+    let pending_estimates = await Estimate.countDocuments({
+      assigned_supervisor: supervisor_id,
+      status: "pending"
+    });
 
-    let top_five_projects = await Project.find({ assigned_supervisor: supervisor_id }).sort({ createdAt: -1 }).limit(5);
+    let completed_projects = await Project.countDocuments({
+      assigned_supervisor: supervisor_id,
+      status: "completed"
+    });
+
+    let pending_projects = await Project.countDocuments({
+      assigned_supervisor: supervisor_id,
+      status: "in_progress"
+    });
+
+    let top_five_projects = await Project.find({
+      assigned_supervisor: supervisor_id
+    })
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    /* -------- GRAPH DATA (SIMPLE AF) -------- */
+
+    const estimates = await Estimate.find({
+      assigned_supervisor: supervisor_id,
+      createdAt: { $gte: fromDate, $lte: toDate }
+    }).select("createdAt");
+
+    const graph = {};
+
+    estimates.forEach(e => {
+      const date = e.createdAt.toISOString().split("T")[0]; // YYYY-MM-DD
+      graph[date] = (graph[date] || 0) + 1;
+    });
+
+    const estimate_graph = Object.keys(graph)
+      .sort()
+      .map(date => ({
+        date,
+        total: graph[date]
+      }));
 
     res.json({
       success: true,
       data: {
-        assigned_estimates, pending_estimates, completed_projects, pending_projects, top_five_projects
+        assigned_estimates,
+        pending_estimates,
+        completed_projects,
+        pending_projects,
+        top_five_projects,
+        estimate_graph
       }
     });
 
   } catch (err) {
-    console.error('SupervispDashboard Error Dashboard Error:', err);
+    console.error('SupervisorDashboard Error:', err);
     res.status(500).json({
       success: false,
       message: 'Dashboard data fetch failed'
