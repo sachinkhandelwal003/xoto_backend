@@ -1187,7 +1187,7 @@ exports.getMileStoneBillByCustomerId = asyncHandler(async (req, res) => {
 
   const { milestone_id, customer_id, estimate_id } = req.query;
 
-  const createdBill = await MileStonebill.find({ customer_id }).populate("customer_id").populate("estimate_id");
+  const createdBill = await MileStonebill.find({ customer_id }).populate("customer_id").populate("estimate_id").populate("project_id");
 
   return res.status(200).json({
     data: createdBill,
