@@ -226,10 +226,13 @@ exports.supervisorDashboard = async (req, res) => {
 
     let pending_projects = await Project.countDocuments({ assigned_supervisor: supervisor_id, status: "in_progress" })
     /* ---------------- RESPONSE ---------------- */
+
+    let top_five_projects = await Project.find({ assigned_supervisor: supervisor_id }).sort({ createdAt: -1 }).limit(5);
+
     res.json({
       success: true,
       data: {
-        assigned_estimates, pending_estimates, completed_projects, pending_projects
+        assigned_estimates, pending_estimates, completed_projects, pending_projects, top_five_projects
       }
     });
 
