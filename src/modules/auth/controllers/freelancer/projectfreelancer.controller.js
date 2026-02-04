@@ -1171,7 +1171,7 @@ exports.getMileStoneBillByMileStoneId = asyncHandler(async (req, res) => {
 
   const { milestone_id, customer_id, estimate_id } = req.query;
 
-  const createdBill = await MileStonebill.find({ milestone_id });
+  const createdBill = await MileStonebill.find({ milestone_id }).populate("customer_id").populate("estimate_id");
 
   return res.status(200).json({
     data: createdBill,
@@ -1183,7 +1183,7 @@ exports.getMileStoneBillByCustomerId = asyncHandler(async (req, res) => {
 
   const { milestone_id, customer_id, estimate_id } = req.query;
 
-  const createdBill = await MileStonebill.find({ customer_id });
+  const createdBill = await MileStonebill.find({ customer_id }).populate("customer_id").populate("estimate_id");
 
   return res.status(200).json({
     data: createdBill,
@@ -1195,7 +1195,7 @@ exports.getMileStoneBillByEstimateId = asyncHandler(async (req, res) => {
 
   const { milestone_id, customer_id, estimate_id } = req.query;
 
-  const createdBill = await MileStonebill.find({ estimate_id });
+  const createdBill = await MileStonebill.find({ estimate_id }).populate("customer_id").populate("estimate_id");
 
   return res.status(200).json({
     data: createdBill,
