@@ -14,6 +14,7 @@ const customer = require('../src/modules/customer/routes/index.js').default
 const app = express();
 const Notification = require("../src/modules/Notification/Routes/NotificationRoutes.js").default
 const PropertyLead = require("./modules/auth/routes/consult/propertyLead.route").default
+const ProfileData  = require("./modules/profile/routes/index.js").default
 
 // Middleware
 app.use(cors());
@@ -35,6 +36,7 @@ app.use('/dashboard', require('./modules/auth/routes/dashboardview/dashboard.rou
 app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/projectfreelancer.route'));
 app.use('/property', require('../src/modules/properties/routes/index.js'));
 app.use('/products', require('../src/modules/products/routes/index.js'));
+app.use('/profile', ProfileData);
 app.post("/upload", upload.single("file"), uploadFileToS3)
 app.use('/accountant', require('./modules/auth/routes/accountant/Accountant.routes'));
 app.use('/users', require('./modules/auth/routes/user/user.routes'));
