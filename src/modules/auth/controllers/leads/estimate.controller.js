@@ -359,7 +359,8 @@ exports.getEstimates = asyncHandler(async (req, res) => {
     supervisor,
     customer_email,
     freelancer_id,
-    customer_id
+    customer_id,
+    search
   } = req.query;
 
   /* ---------------------------------------------------------

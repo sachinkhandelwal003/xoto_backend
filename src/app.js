@@ -26,7 +26,7 @@ app.use(express.urlencoded({ extended: true }));
 require('./config/database');
 // app.use('/uploads',express.static(path.join(__dirname, '..', 'uploads')));
 app.use('/estimates', require('./modules/auth/routes/leads/estimate.routes'));
-app.use('/customer',customer );
+app.use('/customer', customer);
 app.use('/ai', require('./modules/auth/routes/ai/gardenAI.routes'));
 app.use('/packages', require('./modules/auth/routes/packages/packages.routes'));
 app.use('/estimate/master/category', require('./modules/auth/routes/estimateCategory/category.routes'));
@@ -35,18 +35,18 @@ app.use('/dashboard', require('./modules/auth/routes/dashboardview/dashboard.rou
 app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/projectfreelancer.route'));
 app.use('/property', require('../src/modules/properties/routes/index.js'));
 app.use('/products', require('../src/modules/products/routes/index.js'));
-app.post("/upload",upload.single("file"),uploadFileToS3) 
+app.post("/upload", upload.single("file"), uploadFileToS3)
 app.use('/accountant', require('./modules/auth/routes/accountant/Accountant.routes'));
 app.use('/users', require('./modules/auth/routes/user/user.routes'));
 app.use('/consult', require('./modules/auth/routes/consult/consult.routes'));
 app.use('/enquiry', require('./modules/auth/routes/consult/enquiry.routes'));
 app.use('/property/lead', require('./modules/auth/routes/consult/propertyLead.route'));
 app.use('/agency', agencyRoutes);
-app.use('/mortgages',mortgageRoutes);
-app.use('/landing/lead',  (req, res, next) => {
-    console.log('request came on /landing/lead');
-    next();
-  },require('./modules/auth/routes/consult/LandingLead.route'));
+app.use('/mortgages', mortgageRoutes);
+app.use('/landing/lead', (req, res, next) => {
+  console.log('request came on /landing/lead');
+  next();
+}, require('./modules/auth/routes/consult/LandingLead.route'));
 
 app.use('/freelancer/projects/get', require('../src/modules/auth/routes/freelancer/routesfreelancer'));
 app.use('/freelancer/category', require('../src/modules/auth/routes/freelancer/freelancercategory.routes'));

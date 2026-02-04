@@ -53,36 +53,46 @@ exports.superAdminDashboard = async (req, res) => {
       PropertyLead.countDocuments({ is_active: true }),
 
       /* LEADS BY STATUS */
-   PropertyLead.aggregate([
-  {
-    $match: {
-      type: {
-        $in: [
-          'buy',
-          'sell',
-          'rent',
-          'schedule_visit',
-          'partner',
-          'investor',
-          'developer',
-          'enquiry',
-          'ai_enquiry',
-          'consultation',
-          'mortgage'
-        ]
-      }
-    }
-  },
-  {
-    $group: {
-      _id: '$type',
-      count: { $sum: 1 }
-    }
-  }
-]),
+      PropertyLead.aggregate([
+        {
+          $match: {
+            type: {
+              $in: [
+                'buy',
+                'sell',
+                'rent',
+                'schedule_visit',
+                'partner',
+                'investor',
+                'developer',
+                'enquiry',
+                'ai_enquiry',
+                'consultation',
+                'mortgage'
+              ]
+            }
+          }
+        },
+        {
+          $group: {
+            _id: '$type',
+            count: { $sum: 1 }
+          }
+        }
+      ]),
 
 
       /* LEADS BY TYPE */
+      // PropertyLead.aggregate([
+      //   { $match: { is_deleted: false } },
+      //   {
+      //     $group: {
+      //       _id: { $ifNull: ['$type', 'unknown'] },
+      //       count: { $sum: 1 }
+      //     }
+      //   }
+      // ]),
+
       PropertyLead.aggregate([
         { $match: { is_deleted: false } },
         {
@@ -90,8 +100,12 @@ exports.superAdminDashboard = async (req, res) => {
             _id: { $ifNull: ['$type', 'unknown'] },
             count: { $sum: 1 }
           }
+        },
+        {
+          $match: { _id: { $ne: 'unknown' } }
         }
       ]),
+
 
       /* LEADS TIMELINE */
       PropertyLead.aggregate([
@@ -119,7 +133,7 @@ exports.superAdminDashboard = async (req, res) => {
       }),
 
       Freelancer.countDocuments({
-  onboarding_status: { $ne: 'approved' },
+        onboarding_status: { $ne: 'approved' },
         isActive: true
       }),
 
