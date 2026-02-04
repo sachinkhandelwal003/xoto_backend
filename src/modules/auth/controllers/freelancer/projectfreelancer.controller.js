@@ -509,6 +509,10 @@ exports.updateMilestoneById = asyncHandler(async (req, res) => {
     }
   }
 
+  if(req.body.status=="approved" && milestone.status !== "approved"){
+    project.project_completion_percentage = project.project_completion_percentage + Number(milestone.milestone_weightage)
+  }
+
   Object.keys(req.body).forEach((key) => {
     milestone[key] = req.body[key];
   });
@@ -1209,7 +1213,7 @@ exports.updateMileStoneBill = asyncHandler(async (req, res) => {
   const { id } = req.query;
 
   const updateBill = await MileStonebill.findOneAndUpdate({ _id: id }, { ...req.body }, { new: true });
-  
+
   return res.status(200).json({
     data: updateBill,
     message: "Updated Bill"

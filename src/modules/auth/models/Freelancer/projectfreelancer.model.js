@@ -18,30 +18,30 @@ const dailyUpdateSchema = new mongoose.Schema({
   rejection_reason: { type: String }
 }, { timestamps: true });
 
-  const milestoneSchema = new mongoose.Schema({
-    milestone_number: { type: Number, required: true },
-    title: { type: String, required: true, trim: true },
-    description: { type: String, trim: true },
-    start_date: { type: Date, required: true },
-    end_date: { type: Date, required: true },
-    due_date: { type: Date, required: true },
-    amount: { type: Number, required: true, min: 0 },
-    progress: { type: Number, min: 0, max: 100, default: 0 },
-    status: {
-      type: String,
-      enum: ['pending', 'in_progress', 'release_requested', 'approved', 'cancelled'],
-      default: 'pending'
-    },
-    photos: [{ type: String }],
-    notes: { type: String },
-    daily_updates: [dailyUpdateSchema],
-    release_requested_at: { type: Date },
-    milestone_weightage: { type: Number, required: false, default: 0 },
-    customer_approval_after_completion: { type: Boolean, required: false, default: false },
-    freelancer_approv_after_completion: { type: Boolean, required: false, default: false },
-    approved_at: { type: Date },
-    is_deleted: { type: Boolean, default: false }
-  }, { timestamps: true });
+const milestoneSchema = new mongoose.Schema({
+  milestone_number: { type: Number, required: true },
+  title: { type: String, required: true, trim: true },
+  description: { type: String, trim: true },
+  start_date: { type: Date, required: true },
+  end_date: { type: Date, required: true },
+  due_date: { type: Date, required: true },
+  amount: { type: Number, required: true, min: 0 },
+  progress: { type: Number, min: 0, max: 100, default: 0 },
+  status: {
+    type: String,
+    enum: ['pending', 'in_progress', 'release_requested', 'approved', 'cancelled'],
+    default: 'pending'
+  },
+  photos: [{ type: String }],
+  notes: { type: String },
+  daily_updates: [dailyUpdateSchema],
+  release_requested_at: { type: Date },
+  milestone_weightage: { type: Number, required: false, default: 0 },
+  customer_approval_after_completion: { type: Boolean, required: false, default: false },
+  freelancer_approv_after_completion: { type: Boolean, required: false, default: false },
+  approved_at: { type: Date },
+  is_deleted: { type: Boolean, default: false }
+}, { timestamps: true });
 
 const projectSchema = new mongoose.Schema({
   Code: { type: String, unique: true },
@@ -74,6 +74,7 @@ const projectSchema = new mongoose.Schema({
   },
 
   milestones: [milestoneSchema],
+  project_completion_percentage: { type: Number, default: 0, required: false },
 
   is_deleted: { type: Boolean, default: false },
   deleted_at: { type: Date }
