@@ -1105,9 +1105,7 @@ exports.getMyProjectsAccountant = asyncHandler(async (req, res) => {
   const [projects, total] = await Promise.all([
     Project.find(query)
       .populate('customer', 'name email')
-      .select(
-        'title description status budget deadline milestones overall_progress createdAt'
-      )
+      .populate('estimate_reference')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(+limit)
