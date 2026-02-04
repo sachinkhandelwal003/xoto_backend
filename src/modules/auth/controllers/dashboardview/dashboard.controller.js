@@ -290,9 +290,88 @@ exports.supervisorDashboard = async (req, res) => {
       .limit(5);
 
     /* -------- GRAPH DATA (SIMPLE AF) -------- */
-    console.log("fromDatefromDatefromDatefromDatefromDatefromDate",fromDate,toDate)
+    console.log("fromDatefromDatefromDatefromDatefromDatefromDate", fromDate, toDate)
     const estimates = await Estimate.find({
       assigned_supervisor: supervisor_id,
+      createdAt: { $gte: fromDate, $lte: toDate }
+    })
+
+    const graph = {};
+
+    estimates.forEach(e => {
+      const date = e.createdAt.toISOString().split("T")[0]; // YYYY-MM-DD
+      graph[date] = (graph[date] || 0) + 1;
+    });
+
+    const estimate_graph = Object.keys(graph)
+      .sort()
+      .map(date => ({
+        date,
+        total: graph[date]
+      }));
+
+    res.json({
+      success: true,
+      data: {
+        assigned_estimates,
+        pending_estimates,
+        completed_projects,
+        pending_projects,
+        top_five_projects,
+        estimate_graph
+      }
+    });
+
+  } catch (err) {
+    console.error('SupervisorDashboard Error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Dashboard data fetch failed'
+    });
+  }
+};
+
+exports.freelancerDashboard = async (req, res) => {
+  try {
+    const { freelancer_id, from, to } = req.query;
+
+    const parseDate = (d) => {
+      const [dd, mm, yyyy] = d.split("-");
+      return new Date(`${yyyy}-${mm}-${dd}`);
+    };
+
+    const fromDate = parseDate(from);
+    const toDate = parseDate(to);
+
+    let assigned_estimates = await Estimate.countDocuments({
+      sent_to_freelancers: { $in: [freelancer_id] }
+    });
+
+    let pending_estimates = await Estimate.countDocuments({
+      sent_to_freelancers: { $in: [freelancer_id] },
+      status: "pending"
+    });
+
+    let completed_projects = await Project.countDocuments({
+      assigned_freelancer: freelancer_id,
+      status: "completed"
+    });
+
+    let pending_projects = await Project.countDocuments({
+      assigned_freelancer: freelancer_id,
+      status: "in_progress"
+    });
+
+    let top_five_projects = await Project.find({
+      assigned_freelancer: freelancer_id
+    })
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    /* -------- GRAPH DATA (SIMPLE AF) -------- */
+    console.log("fromDatefromDatefromDatefromDatefromDatefromDate", fromDate, toDate)
+    const estimates = await Estimate.find({
+      sent_to_freelancers: { $in: [freelancer_id] },
       createdAt: { $gte: fromDate, $lte: toDate }
     })
 
