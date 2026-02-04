@@ -290,11 +290,11 @@ exports.supervisorDashboard = async (req, res) => {
       .limit(5);
 
     /* -------- GRAPH DATA (SIMPLE AF) -------- */
-
+    console.log("fromDatefromDatefromDatefromDatefromDatefromDate",fromDate,toDate)
     const estimates = await Estimate.find({
       assigned_supervisor: supervisor_id,
       createdAt: { $gte: fromDate, $lte: toDate }
-    }).select("createdAt");
+    })
 
     const graph = {};
 
