@@ -321,57 +321,57 @@ export const editDeveloper = async (req, res) => {
     }
 };
 
-export const agentSignup = async (req, res) => {
-    try {
+// export const agentSignup = async (req, res) => {
+//     try {
 
-        let { email, password, country_code, phone_number } = req.body;
+//         let { email, password, country_code, phone_number } = req.body;
 
-        let emailAlreadyExist = await Agent.findOne({ email: email });
+//         let emailAlreadyExist = await Agent.findOne({ email: email });
 
-        if (emailAlreadyExist) {
-            return res.status(200).json({
-                message: "Agent Already exist for this email"
-            })
-        }
+//         if (emailAlreadyExist) {
+//             return res.status(200).json({
+//                 message: "Agent Already exist for this email"
+//             })
+//         }
 
-        let phoneNumberAlreadyExist = await Agent.findOne({
-            country_code, phone_number
-        })
+//         let phoneNumberAlreadyExist = await Agent.findOne({
+//             country_code, phone_number
+//         })
 
-        if (phoneNumberAlreadyExist) {
-            return res.status(200).json({
-                message: "Agent Already exist for this number"
-            })
-        }
+//         if (phoneNumberAlreadyExist) {
+//             return res.status(200).json({
+//                 message: "Agent Already exist for this number"
+//             })
+//         }
 
-        const newAgent = await Agent.create({
-            ...req.body
-        });
+//         const newAgent = await Agent.create({
+//             ...req.body
+//         });
 
-        const developerExists = await Agent.findById(id);
-        if (!developerExists) {
-            return res.status(404).json({
-                success: false,
-                message: "Developer not found"
-            });
-        }
+//         const developerExists = await Agent.findById(id);
+//         if (!developerExists) {
+//             return res.status(404).json({
+//                 success: false,
+//                 message: "Developer not found"
+//             });
+//         }
 
 
-        let updatedDeveloper = await Developer.findByIdAndUpdate(id, { ...req.body }, { new: true });
+//         let updatedDeveloper = await Developer.findByIdAndUpdate(id, { ...req.body }, { new: true });
 
-        return res.status(201).json({
-            success: true,
-            message: "Developer edited successfully",
-            data: updatedDeveloper
-        });
+//         return res.status(201).json({
+//             success: true,
+//             message: "Developer edited successfully",
+//             data: updatedDeveloper
+//         });
 
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-};
+//     } catch (error) {
+//         return res.status(500).json({
+//             success: false,
+//             message: error.message
+//         });
+//     }
+// };
 
 
 export const deleteDeveloper = async (req, res) => {
