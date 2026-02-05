@@ -1,10 +1,13 @@
-const PropertyLead = require('../../models/consultant/propertyLead.model');
+const mongoose = require('mongoose');
+const PropertyLead = require('../../models/consultant/propertyLead.model')
 const Freelancer = require('../../models/Freelancer/freelancer.model');
 const VendorB2C = require('../../models/Vendor/B2cvendor.model');
 const Developer = require('../../../properties/models/DeveloperModel');
 const Property = require('../../../properties/models/PropertyModel');
 const Estimate = require('../../../auth/models/leads/estimate.model');
 const Project = require('../../../auth/models/Freelancer/projectfreelancer.model');
+const Product = require('../../../products/models/ProductModel')
+const Purchase = require('../../../products/models/Purchase')
 
 /* ---------------- DATE RANGE HELPER ---------------- */
 const getDateRange = (range) => {
@@ -409,3 +412,233 @@ exports.freelancerDashboard = async (req, res) => {
     });
   }
 };
+
+
+exports.vendorDashboard = async (req, res) => {
+  try {
+    const { vendor_id, from, to } = req.query;
+
+    const parseDate = (d) => {
+      const [dd, mm, yyyy] = d.split("-");
+      return new Date(`${yyyy}-${mm}-${dd}`);
+    };
+
+    const fromDate = parseDate(from);
+    const toDate = parseDate(to);
+
+    /* ---------------- TOTAL PRODUCTS ---------------- */
+    const total_products = await Product.countDocuments({
+      vendor_id
+    });
+
+    /* ---------------- TOTAL ORDERS (PAID PURCHASES) ---------------- */
+    const total_orders = await Purchase.countDocuments({
+      status: "paid",
+      createdAt: { $gte: fromDate, $lte: toDate }
+    });
+
+    /* ---------------- TOTAL REVENUE ---------------- */
+    const revenueAgg = await Purchase.aggregate([
+      {
+        $match: {
+          status: "paid",
+          createdAt: { $gte: fromDate, $lte: toDate }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          total_revenue: { $sum: "$total_price" }
+        }
+      }
+    ]);
+
+    const total_revenue = revenueAgg[0]?.total_revenue || 0;
+
+    /* ---------------- TOP 5 PRODUCTS (FROM PURCHASE) ---------------- */
+      let top_products = await Product.find()
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    /* ---------------- SALES GRAPH (DATE-WISE REVENUE) ---------------- */
+    const salesGraphAgg = await Purchase.aggregate([
+      {
+        $match: {
+          status: "paid",
+          createdAt: { $gte: fromDate, $lte: toDate }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            date: {
+              $dateToString: {
+                format: "%Y-%m-%d",
+                date: "$createdAt"
+              }
+            }
+          },
+          total_revenue: { $sum: "$total_price" }
+        }
+      },
+      { $sort: { "_id.date": 1 } }
+    ]);
+
+    const sales_graph = salesGraphAgg.map(d => ({
+      date: d._id.date,
+      total_revenue: d.total_revenue
+    }));
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        total_products,
+        total_orders,
+        total_revenue,
+        top_products,
+        sales_graph
+      }
+    });
+
+  } catch (error) {
+    console.error("Vendor Dashboard Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Vendor dashboard fetch failed"
+    });
+  }
+};
+
+exports.customerDashboard = async (req, res) => {
+  try {
+    const { customer_id, from, to } = req.query;
+
+    const parseDate = (d) => {
+      const [dd, mm, yyyy] = d.split("-");
+      return new Date(`${yyyy}-${mm}-${dd}`);
+    };
+
+    const fromDate = parseDate(from);
+    const toDate = parseDate(to);
+
+    /* ---------------- TOTAL ESTIMATES ---------------- */
+    const total_estimates = await Estimate.countDocuments({
+      customer: customer_id
+    });
+
+    /* ---------------- TOTAL PROJECTS ---------------- */
+    const total_projects = await Project.countDocuments({
+      customer: customer_id
+    });
+
+    /* ---------------- TOTAL ORDERS ---------------- */
+    const total_orders = await Purchase.countDocuments({
+      customer_id,
+      status: "paid",
+      createdAt: { $gte: fromDate, $lte: toDate }
+    });
+
+    /* ---------------- TOTAL PURCHASED PRODUCTS (QUANTITY) ---------------- */
+    const productsAgg = await Purchase.aggregate([
+      {
+        $match: {
+          customer_id: new mongoose.Types.ObjectId(customer_id),
+          status: "paid",
+          createdAt: { $gte: fromDate, $lte: toDate }
+        }
+      },
+      { $unwind: "$EcommerceCartitems" },
+      {
+        $lookup: {
+          from: "EcommerceCartItem",
+          localField: "EcommerceCartitems",
+          foreignField: "_id",
+          as: "cartItem"
+        }
+      },
+      { $unwind: "$cartItem" },
+      {
+        $group: {
+          _id: null,
+          total_products: { $sum: "$cartItem.quantity" }
+        }
+      }
+    ]);
+
+    const total_products = productsAgg[0]?.total_products || 0;
+
+    /* ---------------- TOTAL SPENT (REVENUE) ---------------- */
+    const revenueAgg = await Purchase.aggregate([
+      {
+        $match: {
+          customer_id: new mongoose.Types.ObjectId(customer_id),
+          status: "paid",
+          createdAt: { $gte: fromDate, $lte: toDate }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          total_spent: { $sum: "$total_price" }
+        }
+      }
+    ]);
+
+    const total_spent = revenueAgg[0]?.total_spent || 0;
+
+   
+
+    /* ---------------- PURCHASE GRAPH (DATE-WISE SPEND) ---------------- */
+    const salesGraphAgg = await Purchase.aggregate([
+      {
+        $match: {
+          customer_id: new mongoose.Types.ObjectId(customer_id),
+          status: "paid",
+          createdAt: { $gte: fromDate, $lte: toDate }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            date: {
+              $dateToString: {
+                format: "%Y-%m-%d",
+                date: "$createdAt"
+              }
+            }
+          },
+          total_spent: { $sum: "$total_price" }
+        }
+      },
+      { $sort: { "_id.date": 1 } }
+    ]);
+
+    const purchase_graph = salesGraphAgg.map(d => ({
+      date: d._id.date,
+      total_spent: d.total_spent
+    }));
+
+    /* ---------------- RESPONSE ---------------- */
+    return res.status(200).json({
+      success: true,
+      data: {
+        total_estimates,
+        total_projects,
+        total_orders,
+        total_products,
+        total_spent,
+        purchase_graph
+      }
+    });
+
+  } catch (error) {
+    console.error("Customer Dashboard Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Customer dashboard fetch failed"
+    });
+  }
+};
+
+
+
