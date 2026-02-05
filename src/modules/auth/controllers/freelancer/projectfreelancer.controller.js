@@ -465,12 +465,11 @@ exports.addMilestone = asyncHandler(async (req, res) => {
 
   const added = project.milestones[project.milestones.length - 1];
 
- const admin = await Admin.findOne({ isActive: true }).select(
-    "_id email full_name mobile"
-  );
-
-if (admin.length > 0) {
-  const adminNotifications = admin.map(admin => ({
+ const admins = await Admin.find({ isActive: true }).select(
+  "_id email full_name mobile"
+);
+if (admins.length > 0) {
+  const adminNotifications = admins.map(admin => ({
     receiver: admin._id.toString(),
     receiverType: "admin",
 
@@ -479,26 +478,35 @@ if (admin.length > 0) {
 
     notificationType: "MILESTONE_CREATED",
     title: "New Milestone Created",
-    message: `A new milestone "${title}" has been added to project ${project.Code}.`,
+    message: `Milestone #${added.milestone_number} "${added.title}" added to project ${project.Code}`,
 
-   
+    meta: {
+      project_id: project._id.toString(),
+      milestone_id: added._id.toString()
+    }
   }));
 
   await Notification.insertMany(adminNotifications);
 }
 
  if (project.assigned_freelancer) {
-    await Notification.create({
-      receiver: project.assigned_freelancer,
-      receiverType: "freelancer",
-      senderId: req.user._id,
-      senderType: "supervisor",
-      notificationType: "MILESTONE_CREATED",
-      title: "New Milestone Added",
-      message: `A new milestone "${title}" was added to project ${project.Code}`,
-     
-    });
-  }
+  await Notification.create({
+    receiver: project.assigned_freelancer.toString(),
+    receiverType: "freelancer",
+
+    senderId: req.user._id.toString(),
+    senderType: "supervisor",
+
+    notificationType: "MILESTONE_CREATED",
+    title: "New Milestone Added",
+    message: `Milestone #${added.milestone_number} "${added.title}" added to project ${project.Code}`,
+
+    meta: {
+      project_id: project._id.toString(),
+      milestone_id: added._id.toString()
+    }
+  });
+}
   res.status(StatusCodes.CREATED).json({
     success: true,
     milestone: added
