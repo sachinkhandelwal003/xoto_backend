@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { superAdminDashboard,supervisorDashboard ,freelancerDashboard,vendorDashboard,customerDashboard} = require('../../controllers/dashboardview/dashboard.controller');
+const { superAdminDashboard,supervisorDashboard ,freelancerDashboard,vendorDashboard,customerDashboard,accountantDashboard} = require('../../controllers/dashboardview/dashboard.controller');
 const { protect, authorize } = require('../../../../middleware/auth');
 
 router.get(
@@ -28,6 +28,10 @@ router.get(
 router.get(
   '/view/customer',
   customerDashboard
+);
+router.get(
+  '/view/accountant',
+  accountantDashboard
 );
 
 module.exports = router;

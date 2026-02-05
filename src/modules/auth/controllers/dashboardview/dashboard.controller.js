@@ -8,6 +8,7 @@ const Estimate = require('../../../auth/models/leads/estimate.model');
 const Project = require('../../../auth/models/Freelancer/projectfreelancer.model');
 const Product = require('../../../products/models/ProductModel')
 const Purchase = require('../../../products/models/Purchase')
+const MileStonebill = require("../../../auth/controllers/freelancer/models/MileStoneBill"); // adjust path if needed
 
 /* ---------------- DATE RANGE HELPER ---------------- */
 const getDateRange = (range) => {
@@ -639,6 +640,113 @@ exports.customerDashboard = async (req, res) => {
     });
   }
 };
+
+exports.accountantDashboard = async (req, res) => {
+  try {
+    const { accountant_id, from, to } = req.query;
+
+    /* ---------------- DATE FILTER ---------------- */
+    let dateFilter = {};
+    if (from && to) {
+      const parseDate = (d) => {
+        const [dd, mm, yyyy] = d.split("-");
+        return new Date(`${yyyy}-${mm}-${dd}`);
+      };
+
+      dateFilter.createdAt = {
+        $gte: parseDate(from),
+        $lte: parseDate(to)
+      };
+    }
+
+    /* ---------------- TOTAL PROJECTS ---------------- */
+    const total_projects = await Project.countDocuments({
+      accountant: accountant_id
+    });
+
+    /* ---------------- TOTAL BILLS ---------------- */
+    const total_bills = await MileStonebill.countDocuments({
+      ...dateFilter
+    });
+
+    /* ---------------- PAID / UNPAID BILLS ---------------- */
+    const paid_bills = await MileStonebill.countDocuments({
+      is_paid: true,
+      ...dateFilter
+    });
+
+    const unpaid_bills = await MileStonebill.countDocuments({
+      is_paid: false,
+      ...dateFilter
+    });
+
+    /* ---------------- COLLECTED AMOUNT ---------------- */
+    const collectedAgg = await MileStonebill.aggregate([
+      {
+        $match: {
+          is_paid: true,
+          ...dateFilter
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          collected_amount: { $sum: "$price" }
+        }
+      }
+    ]);
+
+    const collected_amount = collectedAgg[0]?.collected_amount || 0;
+
+    /* ---------------- PENDING AMOUNT ---------------- */
+    const pendingAgg = await MileStonebill.aggregate([
+      {
+        $match: {
+          is_paid: false,
+          ...dateFilter
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          pending_amount: { $sum: "$price" }
+        }
+      }
+    ]);
+
+    const pending_amount = pendingAgg[0]?.pending_amount || 0;
+
+    /* ---------------- RECENT BILLS ---------------- */
+    const recent_bills = await MileStonebill.find(dateFilter)
+      .populate("project_id", "Code title")
+      .populate("customer_id", "name email")
+      .sort({ createdAt: -1 })
+      .limit(10);
+
+    /* ---------------- RESPONSE ---------------- */
+    return res.status(200).json({
+      success: true,
+      data: {
+        total_projects,
+        total_bills,
+        paid_bills,
+        unpaid_bills,
+        collected_amount,
+        pending_amount,
+        recent_bills
+      }
+    });
+
+  } catch (error) {
+    console.error("Accountant Dashboard Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load accountant dashboard"
+    });
+  }
+};
+
+
 
 
 
