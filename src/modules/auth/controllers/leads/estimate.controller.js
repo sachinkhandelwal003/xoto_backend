@@ -12,6 +12,8 @@ const { TypeGallery } = require("../../models/estimateCategory/typeGallery.model
 const { Type } = require("../../models/estimateCategory/category.model");
 const EstimateAnswer = require("../../models/estimateCategory/estimateAnswer.model");
 const Notification =require("../../../Notification/Models/NotificationModel").default
+const Admin =require("../../models/User")
+
 
 
 exports.submitEstimate = asyncHandler(async (req, res) => {
@@ -698,6 +700,17 @@ exports.submitQuotation = asyncHandler(async (req, res) => {
 
   await estimate.save();
 
+   await Notification.create({
+      receiver: estimate.assigned_supervisor.toString(),
+      receiverType: "supervisor",
+
+      senderId: req.user._id.toString(),
+      senderType: "freelancer",
+      notificationType: "QUOTATION_SUBMITTED",
+      title: "Quotation Submitted",
+      message: "A freelancer has submitted a quotation for your estimate."
+    });
+
   res.json({
     success: true,
     message: 'Quotation submitted',
@@ -771,6 +784,19 @@ exports.approveFinalQuotation = asyncHandler(async (req, res) => {
   estimate.customer_progress = "sent_to_customer";
 
   await estimate.save();
+
+    await Notification.create({
+      receiver: estimate.assigned_supervisor.toString(),
+      receiverType: "supervisor",
+
+      senderId: req.user._id.toString(),
+      senderType: "admin",
+
+
+      notificationType: "FINAL_QUOTATION_APPROVED",
+      title: "Final Quotation Approved",
+      message: "Admin has approved the final quotation and sent it to the customer."
+    });
 
   res.json({
     success: true,
@@ -864,6 +890,24 @@ exports.createFinalQuotation = asyncHandler(async (req, res) => {
 
   await estimate.save();
 
+  const adminUser = await Admin.findOne({ isActive: true }).select(
+    "_id email full_name mobile"
+  );
+  
+    await Notification.create({
+      receiver: adminUser._id.toString(),
+      receiverType: "admin",
+
+      senderId: req.user._id.toString(),
+      senderType: "supervisor",
+
+    
+
+      notificationType: "FINAL_QUOTATION_CREATED",
+      title: "Final Quotation Submitted",
+      message: "Supervisor has submitted a final quotation for admin approval."
+    });
+
   res.json({
     success: true,
     message: "Final quotation created successfully",
@@ -903,6 +947,34 @@ exports.customerResponse = asyncHandler(async (req, res) => {
   estimate.customer_progress = "customer_responded";
 
   await estimate.save();
+
+   const adminUser = await Admin.findOne({ isActive: true }).select(
+    "email full_name mobile"
+  );
+
+  await Notification.create({
+      receiver: adminUser._id.toString(),
+      receiverType: "admin",
+
+      senderId: req.user._id.toString(),
+      senderType: "user",
+
+
+      notificationType:
+        status === "accepted"
+          ? "QUOTATION_ACCEPTED"
+          : "QUOTATION_REJECTED",
+
+      title:
+        status === "accepted"
+          ? "Quotation Accepted"
+          : "Quotation Rejected",
+
+      message:
+        status === "accepted"
+          ? "Customer has accepted the final quotation."
+          : `Customer has rejected the quotation.${reason ? " Reason: " + reason : ""}`
+    });
 
   res.json({
     success: true,
@@ -1213,6 +1285,27 @@ exports.convertToDeal = asyncHandler(async (req, res) => {
   estimate.deal_converted_by = req.user._id;
 
   await estimate.save();
+  
+    await Notification.create({
+    receiver: estimate.customer._id.toString(),
+    receiverType: "user",
+
+    senderId: req.user._id.toString(),
+    senderType: "admin",
+
+    notificationType: "DEAL_CONVERTED",
+    title: "Project Created Successfully",
+    message:
+      "Your estimate has been converted into a deal and a project has been created. Our team will contact you shortly.",
+
+    meta: {
+      estimate_id: estimate._id,
+      
+      project_id: project._id,
+      project_code: project.Code,
+      budget: project.budget
+    }
+  });
 
   // 5️⃣ Response
   res.status(StatusCodes.CREATED).json({
