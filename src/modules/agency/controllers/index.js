@@ -131,26 +131,40 @@ const updateAgencyStatus = async (req, res) => {
 };
 
 
-const createAgent = async (req, res) => {
+const agentSignup = async (req, res) => {
     try {
-        const { id } = req.query;
 
-        const agency = await Agent.findById(id);
+        let { email, password, country_code, phone_number } = req.body;
 
-        if (!agency) {
-            return res.status(404).json({
-                success: false,
-                message: "Agency not found"
-            });
+        let emailAlreadyExist = await Agent.findOne({ email: email });
+
+        if (emailAlreadyExist) {
+            return res.status(200).json({
+                message: "Agent Already exist for this email"
+            })
         }
 
-        agency.is_active = !agency.is_active;
-        await agency.save();
+        let phoneNumberAlreadyExist = await Agent.findOne({
+            country_code, phone_number
+        })
 
-        return res.json({
+        if (phoneNumberAlreadyExist) {
+            return res.status(200).json({
+                message: "Agent Already exist for this number"
+            })
+        }
+
+        let new_password = await bcrypt.hash(password, 10)
+
+        const newAgent = await Agent.create({
+            ...req.body, password: new_password
+        });
+
+
+        return res.status(201).json({
             success: true,
-            message: `Agency ${agency.is_active ? "activated" : "deactivated"} successfully`,
-            data: agency
+            message: "Account created successfully",
+            data: newAgent
         });
 
     } catch (error) {
@@ -162,4 +176,48 @@ const createAgent = async (req, res) => {
 };
 
 
-export { agencySignup, verifyOTP, updateAgencyStatus }
+const updateAgent = async (req, res) => {
+    try {
+
+        let { id } = req.query;
+
+        let agent = await Agent.findOneAndUpdate({ _id: id }, {
+            ...req.body
+        }, { new: true })
+
+        return res.status(201).json({
+            success: true,
+            message: "Agent updated successfully",
+            data: agent
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+const getAllAgents = async (req, res) => {
+    try {
+
+        let agent = await Agent.find({})
+
+        return res.status(201).json({
+            success: true,
+            message: "Agents fetched successfully",
+            data: agent
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+
+
+export {getAllAgents, agencySignup,updateAgent, verifyOTP, updateAgencyStatus, agentSignup }

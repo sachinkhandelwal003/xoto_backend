@@ -1,5 +1,5 @@
 const Router = require("express");
-const { createDeveloper, createProperty,loginDeveloper, getAllProperties, deleteProperty, getPropertyById, getDeveloperrById, editProperty, editDeveloper, getPropertiesById, MarketPlaceAPI, getAllDevelopers, deleteDeveloper } = require("../controllers/index.js")
+const { createDeveloper,agentSignup, createProperty,loginDeveloper, getAllProperties, deleteProperty, getPropertyById, getDeveloperrById, editProperty, editDeveloper, getPropertiesById, MarketPlaceAPI, getAllDevelopers, deleteDeveloper } = require("../controllers/index.js")
 const router = Router();
 
 router.post("/create-developer", createDeveloper)
