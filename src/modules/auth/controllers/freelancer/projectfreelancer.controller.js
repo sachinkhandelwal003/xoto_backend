@@ -480,10 +480,6 @@ if (admins.length > 0) {
     title: "New Milestone Created",
     message: `Milestone #${added.milestone_number} "${added.title}" added to project ${project.Code}`,
 
-    meta: {
-      project_id: project._id.toString(),
-      milestone_id: added._id.toString()
-    }
   }));
 
   await Notification.insertMany(adminNotifications);
@@ -501,10 +497,6 @@ if (admins.length > 0) {
     title: "New Milestone Added",
     message: `Milestone #${added.milestone_number} "${added.title}" added to project ${project.Code}`,
 
-    meta: {
-      project_id: project._id.toString(),
-      milestone_id: added._id.toString()
-    }
   });
 }
   res.status(StatusCodes.CREATED).json({
