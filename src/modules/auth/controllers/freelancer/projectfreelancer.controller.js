@@ -7,6 +7,9 @@ const { APIError } = require('../../../../utils/errorHandler');
 const asyncHandler = require('../../../../utils/asyncHandler');
 const MileStonebill = require("../freelancer/models/MileStoneBill.js")
 const mongoose = require('mongoose');
+const Notification =require("../../../Notification/Models/NotificationModel").default
+const Admin =require("../../models/User")
+
 const logger = require('winston').createLogger({
   level: 'info',
   format: require('winston').format.combine(
@@ -462,6 +465,40 @@ exports.addMilestone = asyncHandler(async (req, res) => {
 
   const added = project.milestones[project.milestones.length - 1];
 
+ const admin = await Admin.findOne({ isActive: true }).select(
+    "_id email full_name mobile"
+  );
+
+if (admin.length > 0) {
+  const adminNotifications = admin.map(admin => ({
+    receiver: admin._id.toString(),
+    receiverType: "admin",
+
+    senderId: req.user._id.toString(),
+    senderType: "supervisor",
+
+    notificationType: "MILESTONE_CREATED",
+    title: "New Milestone Created",
+    message: `A new milestone "${title}" has been added to project ${project.Code}.`,
+
+   
+  }));
+
+  await Notification.insertMany(adminNotifications);
+}
+
+ if (project.assigned_freelancer) {
+    await Notification.create({
+      receiver: project.assigned_freelancer,
+      receiverType: "freelancer",
+      senderId: req.user._id,
+      senderType: "supervisor",
+      notificationType: "MILESTONE_CREATED",
+      title: "New Milestone Added",
+      message: `A new milestone "${title}" was added to project ${project.Code}`,
+     
+    });
+  }
   res.status(StatusCodes.CREATED).json({
     success: true,
     milestone: added
@@ -518,6 +555,40 @@ exports.updateMilestoneById = asyncHandler(async (req, res) => {
   });
 
   await project.save();
+    const milestoneInfo = `Milestone #${milestone.milestone_number} (${milestone.title})`;
+  const projectInfo = `Project ${project.Code}`;
+  
+   const admins = await Admin.findOne({ isActive: true }).select(
+    "_id email full_name mobile"
+  );
+
+    if (admins.length) {
+    await Notification.insertMany(
+      admins.map(admin => ({
+        receiver: admin._id,
+        receiverType: "admin",
+        senderId: req.user._id,
+      senderType: "supervisor",
+        notificationType: "MILESTONE_UPDATED",
+        title: "Milestone Updated",
+        message: `${milestoneInfo} was updated in ${projectInfo}`,
+      
+      }))
+    );
+  }
+
+    if (project.assigned_freelancer) {
+    await Notification.create({
+      receiver: project.assigned_freelancer,
+      receiverType: "freelancer",
+      senderId: req.user._id,
+      senderType: "supervisor",
+      notificationType: "MILESTONE_UPDATED",
+      title: "Milestone Updated",
+      message: `${milestoneInfo} has been updated in ${projectInfo}`,
+     
+    });
+  }
 
   res.status(StatusCodes.OK).json({
     success: true,
