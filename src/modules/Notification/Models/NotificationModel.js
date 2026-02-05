@@ -30,13 +30,13 @@ const notificationSchema = new mongoose.Schema(
 
     receiverType: {
       type: String,
-      enum: ["user", "agent", "admin"],
+      enum: ["user", "agent", "admin","supervisor","freelancer","vendor","accountant"],
       default: "user"
     },
 
     senderType: {
       type: String,
-      enum: ["user", "agent", "admin", "system"],
+      enum: ["user", "agent", "admin","supervisor","freelancer","vendor","accountant"],
       default: "system"
     },
 

@@ -11,6 +11,7 @@ const { Role } = require('../../models/role/role.model');
 const { TypeGallery } = require("../../models/estimateCategory/typeGallery.model");
 const { Type } = require("../../models/estimateCategory/category.model");
 const EstimateAnswer = require("../../models/estimateCategory/estimateAnswer.model");
+const Notification =require("../../../Notification/Models/NotificationModel").default
 
 
 exports.submitEstimate = asyncHandler(async (req, res) => {
@@ -536,6 +537,17 @@ exports.assignToSupervisor = asyncHandler(async (req, res) => {
 
   await estimate.populate('assigned_supervisor', 'name email');
 
+   await Notification.create({
+    receiver: supervisor_id.toString(),
+    receiverType: "supervisor",
+
+    senderId: req.user._id.toString(),
+    senderType: "admin",
+
+    notificationType: "ESTIMATE_ASSIGNED",
+    title: "New Estimate Assigned",
+    message: `A new estimate has been assigned to you for review.`
+  });
   res.json({
     success: true,
     message: 'Assigned to supervisor',
