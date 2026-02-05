@@ -562,12 +562,15 @@ exports.updateMilestoneById = asyncHandler(async (req, res) => {
     "_id email full_name mobile"
   );
 
+  console.log("adminsadminsadmins",admins)
+  console.log("requser",req.user._id)
     if (admins.length) {
     await Notification.insertMany(
       admins.map(admin => ({
         receiver: admin._id,
         receiverType: "admin",
         senderId: req.user._id,
+  
       senderType: "supervisor",
         notificationType: "MILESTONE_UPDATED",
         title: "Milestone Updated",
