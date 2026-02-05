@@ -31,6 +31,11 @@ const EcommerceCartItemSchema = new mongoose.Schema(
       type: String,
       default: "",
       required: false,
+    },
+    converted_to_deal: {
+      type: Boolean,
+      default: false,
+      required: false,
     }
   },
   { timestamps: true }

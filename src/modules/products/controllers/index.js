@@ -4,6 +4,7 @@ import Brand from "../models/BrandSchema.js";
 import Category from "../models/CategoryModel.js";
 import Product from "../models/ProductModel.js"
 import EcommerceCartItem from "../models/EcommerceCart.js"
+import Purchase from "../models/Purchase.js"
 import ProductColour from "../models/ProductColorSchema.js"
 
 export const createBrand = async (req, res) => {
@@ -479,6 +480,63 @@ export const addToCart = async (req, res) => {
             success: true,
             message: "Product added to cart successfully",
             data: cartproduct
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+export const PurchaseCartItems = async (req, res) => {
+    try {
+
+        // Purchase schema
+
+        // EcommerceCartitems:[]
+        // total_price:
+        // customer_id:
+        // status:[]
+        // payment_id: Transaction_id
+
+
+        const { customerId } = req.query;
+        let allEcommerceItems = await EcommerceCartItem.find({ customerId })
+
+        if (allEcommerceItems.length == 0) {
+            return res.status(400).json({
+                message: "No Items available in cart"
+            })
+        }
+
+        
+        let EcommerceCartitems = [];
+        let total_price = 0;
+
+        let customer_id = allEcommerceItems[0].customerId;
+
+        let status = "paid"
+        let payment_id = null;
+
+        allEcommerceItems = await Promise.all(allEcommerceItems.map(async (a) => {
+
+            total_price += Number(a.price)
+            EcommerceCartitems.push(a._id);
+
+            await EcommerceCartItem.findByIdAndUpdate(a._id,{converted_to_deal:true})
+            return a;
+        }))
+
+        let purchase = await Purchase.create({
+            EcommerceCartitems,payment_id,status,customer_id,total_price
+        })
+
+        return res.status(201).json({
+            success: true,
+            message: "Purchased successfully",
+            data: purchase
         });
 
     } catch (error) {

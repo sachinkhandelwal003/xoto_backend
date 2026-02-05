@@ -20,4 +20,9 @@ router.get(
   freelancerDashboard
 );
 
+// router.get(
+//   '/view/vendor',
+//   VendorDashboard
+// );
+
 module.exports = router;

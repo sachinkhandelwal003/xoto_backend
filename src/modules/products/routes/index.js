@@ -1,5 +1,5 @@
 const Router = require("express");
-const { addToCart, createBrand, deleteProductById, getProductById, getAllProducts, createProducts, createCategory, getCategoryById, getAllBrands, getBrandByID, editBrandByID, editCategory, deleteCategoryByID, deleteBrandBYID, getAllCategory, updateProductById } = require("../controllers/index.js")
+const { addToCart, PurchaseCartItems,createBrand, deleteProductById, getProductById, getAllProducts, createProducts, createCategory, getCategoryById, getAllBrands, getBrandByID, editBrandByID, editCategory, deleteCategoryByID, deleteBrandBYID, getAllCategory, updateProductById } = require("../controllers/index.js")
 const router = Router();
 
 //brand
@@ -25,6 +25,7 @@ router.post("/delete-product-by-id", deleteProductById)
 router.post("/edit-product-by-id", updateProductById)
 
 router.post("/add-to-cart-by-customer", addToCart)
+router.post("/purchase-cart-items", PurchaseCartItems)
 // router.post("/get-all-cart-products", getAllCartItems)
 // router.post("/get-all-cartItems-by-customerId", getAllCartItemsByCartId)
 
