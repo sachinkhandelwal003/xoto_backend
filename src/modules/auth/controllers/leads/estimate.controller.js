@@ -608,6 +608,19 @@ exports.sendToFreelancers = asyncHandler(async (req, res) => {
 
   await estimate.save();
 
+  const notifications = validFreelancers.map(freelancer => ({
+    receiver: freelancer._id.toString(),
+    receiverType: "freelancer",
+
+    senderId: req.user._id.toString(),
+    senderType: "supervisor", // admin / supervisor
+    notificationType: "QUOTATION_REQUEST",
+    title: "New Quotation Request",
+    message: "You have received a new request to submit a quotation."
+  }));
+
+    await Notification.insertMany(notifications);
+
   res.json({
     success: true,
     message: "Request sent to selected freelancers",
