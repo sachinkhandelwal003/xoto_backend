@@ -1286,7 +1286,8 @@ exports.convertToDeal = asyncHandler(async (req, res) => {
 
   await estimate.save();
   
-    await Notification.create({
+  if (estimate.customer?._id) {
+  await Notification.create({
     receiver: estimate.customer._id.toString(),
     receiverType: "user",
 
@@ -1297,16 +1298,44 @@ exports.convertToDeal = asyncHandler(async (req, res) => {
     title: "Project Created Successfully",
     message:
       "Your estimate has been converted into a deal and a project has been created. Our team will contact you shortly.",
-
-    meta: {
-      estimate_id: estimate._id,
-      
-      project_id: project._id,
-      project_code: project.Code,
-      budget: project.budget
-    }
   });
+}
+if (estimate.assigned_supervisor) {
+  await Notification.create({
+    receiver: estimate.assigned_supervisor.toString(),
+    receiverType: "supervisor",
 
+    senderId: req.user._id.toString(),
+    senderType: "admin",
+
+    notificationType: "PROJECT_ASSIGNED_SUPERVISOR",
+    title: "New Project Assigned",
+    message:
+      "A new project has been created and assigned to you. You will manage this project.",
+
+  });
+}
+const selectedFreelancerQuotation = await Quotation.findOne({
+  _id: estimate.freelancer_selected_quotation,
+  is_selected_by_supervisor: true
+}).populate("created_by");
+
+
+if (selectedFreelancerQuotation?.created_by?._id) {
+  await Notification.create({
+    receiver: selectedFreelancerQuotation.created_by._id.toString(),
+    receiverType: "freelancer",
+
+    senderId: req.user._id.toString(),
+    senderType: "admin",
+
+    notificationType: "PROJECT_ASSIGNED_FREELANCER",
+    title: "New Project Assigned",
+    message:
+      "A new project has been created and assigned to you. You are ready to start working on it.",
+
+  });
+}
   // 5️⃣ Response
   res.status(StatusCodes.CREATED).json({
     success: true,
