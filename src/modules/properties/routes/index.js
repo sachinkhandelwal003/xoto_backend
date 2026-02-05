@@ -17,4 +17,8 @@ router.get("/get-developer-by-id", getDeveloperrById)
 router.get("/get-property-by-id", getPropertyById)
 router.post("/edit-developer", editDeveloper)
 
+router.post("/agent-signup", agentSignup)
+
+
+
 module.exports = router; 
