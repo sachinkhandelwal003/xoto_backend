@@ -468,6 +468,9 @@ exports.addMilestone = asyncHandler(async (req, res) => {
  const admins = await Admin.find({ isActive: true }).select(
   "_id email full_name mobile"
 );
+console.log("adminsadminsadmins",admins)
+console.log("requserrequserrequserrequser",req.user._id)
+
 if (admins.length > 0) {
   const adminNotifications = admins.map(admin => ({
     receiver: admin._id.toString(),
@@ -558,12 +561,11 @@ exports.updateMilestoneById = asyncHandler(async (req, res) => {
     const milestoneInfo = `Milestone #${milestone.milestone_number} (${milestone.title})`;
   const projectInfo = `Project ${project.Code}`;
   
-   const admins = await Admin.findOne({ isActive: true }).select(
+   const admins = await Admin.find({ isActive: true }).select(
     "_id email full_name mobile"
   );
 
-  console.log("adminsadminsadmins",admins)
-  console.log("requser",req.user._id)
+ 
     if (admins.length) {
     await Notification.insertMany(
       admins.map(admin => ({
@@ -670,7 +672,18 @@ exports.moveProjectToAccountant = asyncHandler(async (req, res) => {
 
   project.accountant = accountantId;
   await project.save();
+  const projectInfo = `Project ${project.Code} - ${project.title}`;
 
+ await Notification.create({
+    receiver: accountantId,            // ✅ FIXED
+    receiverType: "accountant",
+    senderId: req.user._id,             // admin / supervisor
+    senderType: "supervisor",
+    notificationType: "PROJECT_ASSIGNED",
+    title: "New Project Assigned",
+    message: `You have been assigned a new project: ${projectInfo}`,
+   
+  });
   res.json({ success: true, message: 'Project moved to accountant successfully', project });
 });
 
@@ -727,7 +740,25 @@ exports.addDailyUpdate = asyncHandler(async (req, res) => {
   await project.save();
 
   const added = milestone.daily_updates[milestone.daily_updates.length - 1];
+  if (project.assigned_supervisor) {
+    const milestoneInfo = `Milestone #${milestone.milestone_number} (${milestone.title})`;
+    const projectInfo = `Project ${project.Code}`;
 
+    await Notification.create({
+      receiver: project.assigned_supervisor,
+      receiverType: "supervisor",
+      senderId: freelancerId,
+      senderType: "freelancer",
+      notificationType: "DAILY_UPDATE_ADDED",
+      title: "New Daily Update",
+      message: `A new daily update was added to ${milestoneInfo} in ${projectInfo}`,
+      meta: {
+        projectId: project._id,
+        milestoneId: milestone._id,
+        dailyUpdateId: added._id,
+      },
+    });
+  }
   res.status(StatusCodes.CREATED).json({
     success: true,
     message: "Daily update added successfully",
@@ -786,6 +817,19 @@ exports.approveDailyUpdate = asyncHandler(async (req, res) => {
 
   await project.save();
 
+const milestoneInfo = `Milestone #${milestone.milestone_number} (${milestone.title})`;
+const projectInfo = `Project ${project.Code}`;
+
+await Notification.create({
+  receiver: daily.updated_by,        // freelancer
+  receiverType: "freelancer",
+  senderId: req.user._id,             // superadmin
+  senderType: "supervisor",
+  notificationType: "DAILY_UPDATE_APPROVED",
+  title: "Daily Update Approved",
+  message: `Your daily update for ${milestoneInfo} in ${projectInfo} has been approved.`,
+ 
+});
   res.json({
     success: true,
     message: "Daily update approved successfully",
@@ -834,7 +878,19 @@ exports.rejectDailyUpdate = asyncHandler(async (req, res) => {
     : 0;
 
   await project.save();
+const milestoneInfo = `Milestone #${milestone.milestone_number} (${milestone.title})`;
+const projectInfo = `Project ${project.Code}`;
 
+await Notification.create({
+  receiver: daily.updated_by,
+  receiverType: "freelancer",
+  senderId: req.user._id,
+  senderType: "supervisor",
+  notificationType: "DAILY_UPDATE_REJECTED",
+  title: "Daily Update Rejected",
+  message: `Your daily update for ${milestoneInfo} in ${projectInfo} was rejected.${reason ? ` Reason: ${reason}` : ""}`,
+
+});
   res.json({
     success: true,
     message: "Daily update rejected",
@@ -921,7 +977,33 @@ exports.approveMilestone = asyncHandler(async (req, res) => {
   project.overall_progress = total ? Math.round((done / total) * 100) : 0;
 
   await project.save();
-
+if (project.assigned_freelancer) {
+    const milestoneData = {
+      _id: milestone._id,
+      milestone_number: milestone.milestone_number,
+      title: milestone.title,
+      status: milestone.status,
+      progress: milestone.progress,
+      amount: milestone.amount,
+      approved_at: milestone.approved_at,
+      action_date: new Date()
+    };
+       await Notification.create({
+      receiver: project.assigned_freelancer,
+      receiverType: "freelancer",
+      senderId: req.user._id,
+      senderType: "supervisor",
+      notificationType: "MILESTONE_APPROVED",
+      title: "Milestone Approved",
+      message: `Milestone #${milestone.milestone_number} (${milestone.title}) has been approved for Project ${project.Code}.`,
+      meta: {
+        projectId: project._id,
+        milestoneId: milestone._id,
+        milestone: milestoneData,
+        project_progress: project.overall_progress
+      }
+    });
+  }
   res.json({
     success: true,
     message: "Milestone approved",
@@ -1232,16 +1314,21 @@ exports.getMyProjectsAccountant = asyncHandler(async (req, res) => {
 });
 
 exports.sendMileStoneBillToCustomer = asyncHandler(async (req, res) => {
+  const { milestone_id, customer_id, price, estimate_id, project_id } = req.body;
 
-  const { milestone_id, customer_id, price, estimate_id } = req.body;
-
+  // CREATE BILL
   const createBill = await MileStonebill.create({ ...req.body });
 
+ 
+
   return res.status(200).json({
+    success: true,
     data: createBill,
     message: "Bill created and sent to customer"
-  })
+  });
 });
+
+
 
 exports.getMileStoneBillByMileStoneId = asyncHandler(async (req, res) => {
 

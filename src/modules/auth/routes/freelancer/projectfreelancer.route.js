@@ -39,7 +39,7 @@ router.get(
 
 
 router.post(
-  '/send-milestone-bill-to-customer',
+  '/send-milestone-bill-to-customer',protectMulti,
   controller.sendMileStoneBillToCustomer
 );
 
@@ -59,7 +59,7 @@ router.get(
 );
 
 router.post(
-  "/update-milestone-bill",
+  "/update-milestone-bill",protectMulti,
   controller.updateMileStoneBill
 )
 // Access: Freelancer only
@@ -81,11 +81,13 @@ router.post(
 
 router.post(
   '/update-milestone',
+  protectMulti,
   controller.updateMilestoneById
 );
 // ── ADMIN/SUPERADMIN: Add milestone to project ────────────────────
 router.post(
   '/:id/milestones',
+  protectMulti,
   controller.addMilestone
 );
 // Access: Freelancer (on their assigned project)
