@@ -3,6 +3,7 @@ import Agency from "../models/index.js";
 import sendOtpEmail from "../services/sendOTP.js"
 import bcrypt from "bcryptjs";
 import Agent from "../models/agent.js"
+import jwt from "jsonwebtoken"
 
 const agencySignup = async (req, res) => {
     try {
@@ -175,6 +176,60 @@ const agentSignup = async (req, res) => {
     }
 };
 
+const agentLogin = async (req, res) => {
+    try {
+
+        let { email, password } = req.body;
+
+        let emailExist = await Agent.findOne({ email: email });
+
+        if (!emailExist) {
+            return res.status(200).json({
+                message: "Wrong credentials"
+            })
+        }
+
+        if (emailExist.isVerifiedByAdmin == false) {
+            return res.status(200).json({
+                message: "Your account is not verified yet . Please contact support "
+            })
+        }
+
+
+        let password_match = await bcrypt.compare(password, emailExist.password)
+
+        if (!password_match) {
+            return res.status(400).json({
+                status: "error",
+                message: "Wrong credentials"
+            })
+        }
+
+
+        const token = jwt.sign(
+            { agentId: emailExist._id, role: "GRID_AGENT" },
+            process.env.JWT_SECRET,
+            { expiresIn: "100d" }
+        );
+
+        let agentData = emailExist.toObject();
+        delete agentData.password;
+
+
+        return res.status(201).json({
+            success: true,
+            message: "Account login successfully",
+            data: { user: agentData, token }
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
 
 const updateAgent = async (req, res) => {
     try {
@@ -220,4 +275,4 @@ const getAllAgents = async (req, res) => {
 
 
 
-export {getAllAgents, agencySignup,updateAgent, verifyOTP, updateAgencyStatus, agentSignup }
+export { getAllAgents, agentLogin, agencySignup, updateAgent, verifyOTP, updateAgencyStatus, agentSignup }
