@@ -1,5 +1,6 @@
 import Property from "../models/PropertyModel.js";
 import Developer from "../models/DeveloperModel.js";
+// import Agent from "../models/Agent.js";
 import jwt from "jsonwebtoken";
 
 export const createDeveloper = async (req, res) => {
@@ -319,6 +320,8 @@ export const editDeveloper = async (req, res) => {
         });
     }
 };
+
+
 
 
 export const deleteDeveloper = async (req, res) => {
