@@ -14,7 +14,7 @@ const customer = require('../src/modules/customer/routes/index.js').default
 const app = express();
 const Notification = require("../src/modules/Notification/Routes/NotificationRoutes.js").default
 const PropertyLead = require("./modules/auth/routes/consult/propertyLead.route").default
-const ProfileData  = require("./modules/profile/routes/index.js").default
+const ProfileData = require("./modules/profile/routes/index.js").default
 
 // Middleware
 app.use(cors());

@@ -112,6 +112,7 @@ exports.protectCustomer = protectBase(Customer, "Customer");
 ============================================================ */
 exports.protectMulti = async (req, res, next) => {
   try {
+    console.log("tokennnnnn",req.headers)
     const token = req.headers.authorization?.startsWith("Bearer")
       ? req.headers.authorization.split(" ")[1]
       : null;
@@ -122,7 +123,7 @@ exports.protectMulti = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     const type = decoded.type?.toLowerCase().replace(/\s/g, "");
-
+    console.log("ecodedddddddddddddddddd",decoded)
     const entityMap = {
       user: User,
       allusers: AllUsers,

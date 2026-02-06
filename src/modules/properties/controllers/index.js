@@ -66,8 +66,10 @@ export const loginDeveloper = async (req, res) => {
             });
         }
 
-        let token = jwt.sign({ email: developer.email, name: developer.name }, "secret_key",
-            { expiresIn: "30d" })
+
+            let token = jwt.sign({ email: developer.email, name: developer.name }, process.env.JWT_SECRET, {
+                expiresIn: process.env.JWT_EXPIRE || "30d",
+              });
 
         return res.status(201).json({
             success: true,
