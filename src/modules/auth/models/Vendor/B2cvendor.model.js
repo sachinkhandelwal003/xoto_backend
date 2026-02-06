@@ -100,17 +100,6 @@ const performanceSchema = new mongoose.Schema({
   top_selling_products: [{ type: String }]
 }, { _id: false });
 
-const statusInfoSchema = new mongoose.Schema({
-  status: { type: Number, enum: [0, 1, 2], default: 0 }, // 0=Pending, 1=Approved, 2=Rejected
-  approved_at: Date,
-  approved_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  rejected_at: Date,
-  rejected_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  rejection_reason: String
-}, { _id: false });
-
-
-
 const metaSchema = new mongoose.Schema({
   agreed_to_terms: { type: Boolean, required: true },
   vendor_portal_access: { type: Boolean, default: false },
@@ -132,7 +121,6 @@ const vendorB2CSchema = new mongoose.Schema({
     unique: true,
     lowercase: true,
     trim: true,
-    match: [/^\S+@\S+\.\S+$/, 'Invalid email']
   },
   password: { type: String, required: true, select: false },
   mobile: {
@@ -141,18 +129,19 @@ const vendorB2CSchema = new mongoose.Schema({
       type: String,
       required: true,
       trim: true,
-      match: [/^\d{8,15}$/, 'Mobile must be 8-15 digits']
     }
   },
   is_mobile_verified: { type: Boolean, default: false },
   is_email_verified: { type: Boolean, default: false },
   role: { type: mongoose.Schema.Types.ObjectId, ref: 'Role', required: true },
 
-  onboarding_status: {
-    type: String,
-    enum: ['registered', 'profile_incomplete', 'profile_submitted', 'under_review', 'approved', 'rejected', 'suspended'],
-    default: 'registered'
-  },
+ 
+status: {
+  type: String,
+  enum: ['registered', 'approved', 'rejected', 'suspended'],
+  default: 'registered'
+}
+,
 
 
   store_details: { type: storeDetailsSchema, required: true, default: {} },
@@ -162,7 +151,6 @@ const vendorB2CSchema = new mongoose.Schema({
   documents: { type: documentsSchema, default: {} },
   operations: { type: operationsSchema, default: {} },
   performance: { type: performanceSchema, default: {} },
-  status_info: { type: statusInfoSchema, default: () => ({ status: 0 }) },
     isActive: { type: Boolean, default: true },
   meta: { type: metaSchema, required: true }
 },

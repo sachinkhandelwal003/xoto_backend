@@ -62,6 +62,7 @@ exports.vendorLogin = asyncHandler(async (req, res, next) => {
     next(error);
   }
 });
+
   exports.updateVendorProfile = asyncHandler(async (req, res) => {
     const vendorId = req.user._id;
 
@@ -238,11 +239,15 @@ exports.createVendor = asyncHandler(async (req, res) => {
     first_name,
     last_name,
     email,
-    mobile, // { country_code, number }
+    mobile,
     password,
     confirmPassword,
     store_details,
     registration,
+    bank_details,
+    contacts,
+    documents,
+    operations,
     meta
   } = req.body;
 
@@ -251,7 +256,7 @@ exports.createVendor = asyncHandler(async (req, res) => {
     throw new APIError('Passwords do not match', StatusCodes.BAD_REQUEST);
   }
 
-  // 2. Check if email or mobile already exists
+  // 2. Existing check
   const existing = await VendorB2C.findOne({
     $or: [
       { email: email.toLowerCase() },
@@ -262,13 +267,13 @@ exports.createVendor = asyncHandler(async (req, res) => {
     throw new APIError('Email or Mobile already registered', StatusCodes.CONFLICT);
   }
 
-  // 3. Find Vendor Role
+  // 3. Role
   const vendorRole = await Role.findOne({ name: 'Vendor-B2C' });
   if (!vendorRole) {
     throw new APIError('Vendor role not found', StatusCodes.INTERNAL_SERVER_ERROR);
   }
 
-  // 4. Build vendor data
+  // 4. Build vendor data (FULL)
   const vendorData = {
     name: {
       first_name: first_name.trim(),
@@ -281,56 +286,39 @@ exports.createVendor = asyncHandler(async (req, res) => {
       number: mobile.number
     },
     role: vendorRole._id,
-    status_info: { status: 0 }, // pending
+
+    status: 'registered',
+
     store_details: {
-      store_name: store_details.store_name,
-      store_description: store_details.store_description || '',
-      store_type: store_details.store_type,
-      store_address: store_details.store_address,
-      city: store_details.city,
-      country: store_details.country || 'India',
-      pincode: store_details.pincode,
-      categories: store_details.categories.map(id => new mongoose.Types.ObjectId(id)),
-      website: store_details.website || '',
-      social_links: store_details.social_links || {}
+      ...store_details,
+      categories: store_details.categories.map(
+        id => new mongoose.Types.ObjectId(id)
+      )
     },
-    registration: {
-      pan_number: registration?.pan_number?.toUpperCase(),
-      gstin: registration?.gstin?.toUpperCase() || ''
-    },
-    onboarding_status: 'profile_submitted',
-    status_info: { status: 0 }, // pending
+
+    registration: registration || {},
+    bank_details: bank_details || {},
+    contacts: contacts || {},
+    documents: documents || {},
+    operations: operations || {},
+
+
     meta: {
-      agreed_to_terms: meta?.agreed_to_terms === true || meta?.agreed_to_terms === 'true',
-      change_history: [{
-        updated_by: req.user?._id || null,
-        changes: ['Vendor account created']
-      }]
+      agreed_to_terms: meta?.agreed_to_terms === true,
+      vendor_portal_access: false
     }
   };
 
-  // 5. Handle Logo
-
-
-  // 7. Create Vendor
+  // 5. Create vendor
   const vendor = await VendorB2C.create(vendorData);
-
-  // 8. Populate categories for response
-  const populatedVendor = await VendorB2C.findById(vendor._id)
-    .populate('store_details.categories', 'name slug')
-    .select(`
-      name email mobile store_details.store_name store_details.logo
-      store_details.city store_details.pincode status_info.status
-    `);
-
-  logger.info(`New Vendor Registered: ${vendor._id} - ${email}`);
 
   res.status(StatusCodes.CREATED).json({
     success: true,
     message: 'Vendor registered successfully! Awaiting admin approval.',
-    data: populatedVendor
+    data: vendor
   });
 });
+
 
 // Get All Vendors
 // Get All Vendors
@@ -691,75 +679,95 @@ exports.deleteVendor = asyncHandler(async (req, res, next) => {
     message: 'Vendor deleted successfully'
   });
 });
+exports.updateVendorStatus = asyncHandler(async (req, res) => {
+  const { status, rejection_reason } = req.body;
+  const allowedStatus = ['registered', 'approved', 'rejected', 'suspended'];
 
-// Update Vendor Status
-// Update Vendor Status (admin)
-exports.updateVendorStatus = asyncHandler(async (req, res, next) => {
-  const { status, rejection_reason, onboarding_status } = req.body;
-  const allowedOnboarding = ['registered','profile_incomplete','profile_submitted','under_review','approved','rejected','suspended'];
+  if (!allowedStatus.includes(status)) {
+    throw new APIError(
+      `Invalid status. Allowed: ${allowedStatus.join(', ')}`,
+      StatusCodes.BAD_REQUEST
+    );
+  }
 
   const vendor = await VendorB2C.findById(req.params.id);
   if (!vendor) {
-    logger.warn(`Vendor not found for status update: ${req.params.id}`);
     throw new APIError('Vendor not found', StatusCodes.NOT_FOUND);
   }
 
-  // Validate numeric status (0,1,2) if provided
-  if (status !== undefined) {
-    const s = parseInt(status);
-    if (![0,1,2].includes(s)) {
-      throw new APIError('Invalid status value. Allowed: 0,1,2', StatusCodes.BAD_REQUEST);
-    }
-    vendor.status_info.status = s;
-  }
+  // =========================
+  // STATUS HANDLING
+  // =========================
 
-  // Set rejection reason if present
-  if (rejection_reason) {
-    vendor.status_info.rejection_reason = rejection_reason;
-  }
+  vendor.status = status;
 
-  // Handle explicit onboarding_status (admin may want to set it)
-  if (onboarding_status) {
-    if (!allowedOnboarding.includes(onboarding_status)) {
-      throw new APIError('Invalid onboarding_status value', StatusCodes.BAD_REQUEST);
-    }
-    vendor.onboarding_status = onboarding_status;
-  } else {
-    // If onboarding_status not supplied, derive from status when appropriate
-    if (status !== undefined) {
-      const s = parseInt(status);
-      if (s === 1) { // approved
-        vendor.status_info.approved_at = new Date();
-        vendor.status_info.approved_by = req.user._id;
-        vendor.onboarding_status = 'approved';
-      } else if (s === 2) { // rejected
-        vendor.status_info.rejected_at = new Date();
-        vendor.status_info.rejected_by = req.user._id;
-        vendor.onboarding_status = 'rejected';
+  switch (status) {
+
+ case 'approved': {
+  vendor.isActive = true;
+  vendor.meta.vendor_portal_access = true;
+
+  const setUpdates = {};
+
+  if (vendor.documents && typeof vendor.documents === 'object') {
+    Object.keys(vendor.documents).forEach(key => {
+      const doc = vendor.documents[key];
+      if (doc && doc.path) {
+        setUpdates[`documents.${key}.verified`] = true;
+        setUpdates[`documents.${key}.verified_at`] = new Date();
+        setUpdates[`documents.${key}.verified_by`] = req.user._id;
       }
-      // s===0 -> keep existing onboarding_status unless admin passed one
-    }
+    });
   }
 
-  // meta + change history
-  vendor.meta.updated_at = new Date();
-  vendor.meta.change_history = vendor.meta.change_history || [];
-  vendor.meta.change_history.push({
-    updated_by: req.user._id,
-    updated_at: new Date(),
-    changes: [`Status updated to ${vendor.status_info.status}`, `Onboarding_status => ${vendor.onboarding_status}`]
-  });
+  // 🔥 THIS IS THE KEY
+  await VendorB2C.updateOne(
+    { _id: vendor._id },
+    { $set: setUpdates }
+  );
 
+  break;
+}
+
+    // ❌ REJECTED
+    case 'rejected':
+      vendor.isActive = true;
+      vendor.meta.vendor_portal_access = false;
+      vendor.rejection_reason = rejection_reason || 'Rejected by admin';
+      break;
+
+    // ⛔ SUSPENDED
+    case 'suspended':
+      vendor.isActive = false;
+      vendor.meta.vendor_portal_access = false;
+      break;
+
+    // 🟡 REGISTERED
+    case 'registered':
+    default:
+      vendor.isActive = true;
+      vendor.meta.vendor_portal_access = false;
+      break;
+  }
+
+  // =========================
+  // META AUDIT
+  // =========================
+  vendor.meta.updated_at = new Date();
+
+
+  // ✅ SAVE
   await vendor.save();
 
-  logger.info(`Vendor status updated: ${vendor._id}, status: ${vendor.status_info.status}, onboarding_status: ${vendor.onboarding_status}`);
+  // ✅ RESPONSE
   res.status(StatusCodes.OK).json({
     success: true,
-    message: 'Vendor status updated',
-    vendor: {
+    message: `Vendor ${status} successfully`,
+    data: {
       id: vendor._id,
-      onboarding_status: vendor.onboarding_status,
-      status_info: vendor.status_info
+      status: vendor.status,
+      isActive: vendor.isActive,
+      vendor_portal_access: vendor.meta.vendor_portal_access
     }
   });
 });

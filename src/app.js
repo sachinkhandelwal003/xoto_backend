@@ -65,7 +65,7 @@ app.use('/setting/tax', require('../src/modules/auth/routes/tax/tax.routes'));
 app.use('/setting/currency', require('../src/modules/auth/routes/currency/currency.routes'));
 
 app.use('/auth', require('../src/modules/auth/routes/auth.routes'));
-app.use('/vendor/b2c', require('../src/modules/auth/routes/vendor/vendorb2c.routes'));
+app.use('/vendor', require('../src/modules/auth/routes/vendor/vendorb2c.routes'));
 app.use('/vendor/b2b', require('../src/modules/auth/routes/vendor/vendorb2b.routes'));
 app.use('/business', require('../src/modules/auth/routes/freelancer/freelancerbusiness.routes'));
 

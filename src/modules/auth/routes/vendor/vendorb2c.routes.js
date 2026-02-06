@@ -5,7 +5,6 @@ const { protect, authorize, protectVendorb2c } = require('../../../../middleware
 const { checkPermission } = require('../../../../middleware/permission');
 const upload = require('../../../../middleware/multer');
 const {
-  validateCreateVendor,
   validateVendorId,
   validateUpdateVendor,
   validateGetAllVendors,
@@ -48,8 +47,7 @@ router.get(
 );
 
 router.post(
-  '/',
-  validateCreateVendor,
+  '/register',
   vendorController.createVendor
 );
 
@@ -91,9 +89,6 @@ router.delete(
 router.put(
   '/:id/status',
   protect,
-  authorize({ minLevel: 5 }),
-  checkPermission('Vendors', 'update'),
-  validateUpdateVendorStatus,
   vendorController.updateVendorStatus
 );
 
