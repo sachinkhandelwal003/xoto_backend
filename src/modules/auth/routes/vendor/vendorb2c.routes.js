@@ -40,9 +40,6 @@ router.put(
 router.get(
   '/',
   protect,
-  authorize({ minLevel: 5 }),
-  checkPermission('Vendors', 'read'),
-  validateGetAllVendors,
   vendorController.getAllVendors
 );
 

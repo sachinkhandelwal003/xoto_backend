@@ -160,6 +160,8 @@ export const getAllProducts = async (req, res) => {
         let search = req.query.search || "";
         let category_id = req.query.category_id || "";
         let brand_id = req.query.brand_id || "";
+            let vendor_id = req.query.vendor_id || "";   // ✅ NEW
+
         let min_price = req.query.min_price ? Number(req.query.min_price) : 0;
         let max_price = req.query.max_price ? Number(req.query.max_price) : 0;
 
@@ -174,12 +176,20 @@ export const getAllProducts = async (req, res) => {
         if (category_id) {
             query.category = category_id;
         }
-
+  
         /* 🏷 Brand */
         if (brand_id) {
             query.brandName = brand_id;
         }
 
+
+        /* 🧑‍💼 Vendor filter */
+    if (vendor_id) {
+            query.vendorId = vendor_id; // vendor products
+
+    }
+
+    
         /* 💰 Price filter (NO aggregation, NO expr) */
         if (min_price || max_price) {
             let priceConditions = [];
@@ -208,9 +218,10 @@ export const getAllProducts = async (req, res) => {
         }
 
         let products = await Product.find(query)
+            .sort({ createdAt: -1 }) // 👈 NEWEST FIRST
             .limit(limit)
             .skip(skip)
-            .populate("category brandName")
+            .populate("category brandName vendorId")
             .lean();
 
         /* 🎨 Colors */
@@ -243,6 +254,79 @@ export const getAllProducts = async (req, res) => {
             message: error.message
         });
     }
+};
+
+const calculateMargin = (basePrice, marginType, marginValue) => {
+  let marginAmount = 0;
+
+  if (marginType === "percentage") {
+    marginAmount = (basePrice * marginValue) / 100;
+  } else {
+    marginAmount = marginValue;
+  }
+
+  return {
+    marginAmount,
+    salePrice: basePrice + marginAmount
+  };
+};
+
+
+export const addProductMargin = async (req, res) => {
+  try {
+    const { productId, marginType, marginValue } = req.body;
+
+    if (!productId || !marginType || marginValue === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "productId, marginType and marginValue are required"
+      });
+    }
+
+    const product = await Product.findById(productId);
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+
+    // Vendor base price
+    const basePrice = product.price || 0;
+
+    const { marginAmount, salePrice } = calculateMargin(
+      basePrice,
+      marginType,
+      Number(marginValue)
+    );
+
+    product.marginType = marginType;
+    product.marginValue = Number(marginValue);
+    product.marginAmount = marginAmount;
+    product.salePrice = salePrice;
+
+    await product.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Margin added successfully",
+      data: {
+        productId: product._id,
+        basePrice,
+        marginType,
+        marginValue,
+        marginAmount,
+        salePrice
+      }
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 };
 
 
@@ -357,33 +441,45 @@ export const createCategory = async (req, res) => {
         });
     }
 };
-
 export const createProducts = async (req, res) => {
-    try {
+  try {
+    const { product, colours = [], vendorId = null } = req.body;
 
-        let newproduct = await Product.create({ ...req.body.product });
+    // 1️⃣ Create product with vendorId merged
+    const newProduct = await Product.create({
+      ...product,
+      vendorId: vendorId || null
+    });
 
-        let colors = req.body.colours
+    // 2️⃣ Handle colours only if present
+    let coloursData = [];
+    if (Array.isArray(colours) && colours.length > 0) {
+      const newColors = colours.map(c => ({
+        ...c,
+        product: newProduct._id
+      }));
 
-        let newColors = colors.map(c => {
-            return { ...c, product: newproduct._id }
-        })
-
-        let coloursData = await ProductColour.insertMany(newColors);
-
-        return res.status(201).json({
-            success: true,
-            message: "Category created successfully",
-            Brand: { newproduct, coloursData }
-        });
-
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: error.message
-        });
+      coloursData = await ProductColour.insertMany(newColors);
     }
+
+    return res.status(201).json({
+      success: true,
+            message: "Category created successfully",
+      data: {
+        product: newProduct,
+        colours: coloursData
+      }
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 };
+
+
 
 export const updateProductById = async (req, res) => {
     try {

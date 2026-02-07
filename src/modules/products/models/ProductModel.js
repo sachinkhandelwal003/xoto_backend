@@ -2,6 +2,11 @@ const mongoose = require("mongoose");
 
 const ProductSchema = new mongoose.Schema(
   {
+    vendorId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "VendorB2C",
+      default: null,
+    },
     name: {
       type: String,
       required: false,
@@ -12,6 +17,7 @@ const ProductSchema = new mongoose.Schema(
       default:"",
       required:false
     },
+      
     category: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
@@ -55,6 +61,27 @@ const ProductSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
+    marginType: {
+  type: String,
+  enum: ["fixed", "percentage"],
+  default: "fixed"
+},
+
+marginValue: {
+  type: Number,
+  default: 0
+},
+
+marginAmount: {
+  type: Number,
+  default: 0
+},
+
+salePrice: {
+  type: Number,
+  default: 0
+}
+,
 
     returnPolicyDays: {
       type: Number,
