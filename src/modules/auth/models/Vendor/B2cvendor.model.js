@@ -35,22 +35,22 @@ const storeDetailsSchema = new mongoose.Schema({
 }, { _id: false });
 
 const registrationSchema = new mongoose.Schema({
-  pan_number: { type: String, uppercase: true, trim: true },
-  gstin: { type: String, uppercase: true, trim: true },
-  business_license_number: { type: String, trim: true },
-  shop_act_license: { type: String, trim: true }
+  trn_number: { type: String, uppercase: true, trim: true },
+  trade_license_number: { type: String, uppercase: true, trim: true },
+
 }, { _id: false });
 
 const bankDetailsSchema = new mongoose.Schema({
   bank_account_number: { type: String, trim: true },
-  ifsc_code: { type: String, uppercase: true, trim: true },
+  iban: { type: String, uppercase: true, trim: true },
   account_holder_name: { type: String, trim: true },
+   swift_code: {
+    type: String,
+    trim: true,
+    uppercase: true,
+  },
   bank_name: { type: String, trim: true },
-  branch_name: { type: String, trim: true },
-  upi_id: { type: String, trim: true },
-preferred_currency: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Currency'  }}, { _id: false });
+  branch_name: { type: String, trim: true } });
 
 const contactSchema = new mongoose.Schema({
   name: { type: String, trim: true },
@@ -77,13 +77,11 @@ const documentSchema = new mongoose.Schema({
 }, { _id: false });
 
 const documentsSchema = new mongoose.Schema({
-  identity_proof: { type: documentSchema },
-  address_proof: { type: documentSchema },
-  pan_card: { type: documentSchema },
-  gst_certificate: { type: documentSchema },
-  cancelled_cheque: { type: documentSchema },
-  shop_act_license: { type: documentSchema }
-}, { _id: false });
+  trade_license: { type: documentSchema },
+  vat_certificate: { type: documentSchema },
+  emirates_id: { type: documentSchema },
+  bank_letter: { type: documentSchema },
+  moa_document: { type: documentSchema }}, { _id: false });
 
 const operationsSchema = new mongoose.Schema({
   delivery_modes: [{ type: String, trim: true }],
