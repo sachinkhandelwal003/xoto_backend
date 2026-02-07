@@ -239,6 +239,8 @@ exports.createVendor = asyncHandler(async (req, res) => {
     first_name,
     last_name,
     email,
+    is_mobile_verified,
+  is_email_verified,
     mobile,
     password,
     confirmPassword,
@@ -288,7 +290,8 @@ exports.createVendor = asyncHandler(async (req, res) => {
     role: vendorRole._id,
 
     status: 'registered',
-
+is_mobile_verified: is_mobile_verified === true,
+  is_email_verified: is_email_verified === true,
     store_details: {
       ...store_details,
       categories: store_details.categories.map(
@@ -325,25 +328,18 @@ exports.createVendor = asyncHandler(async (req, res) => {
 // controllers/vendor/b2cvendor.controller.js
 
 exports.getAllVendors = asyncHandler(async (req, res) => {
-  const { page, limit, status, onboarding_status, vendorId } = req.query;
+  const { page, limit, status, vendorId } = req.query;
 
   /**
    * ---------------------------------------------------------
-   * 1. GET SINGLE VENDOR (FULL DETAIL)
-   * -----------------------------------------------------
+   * 1. GET SINGLE VENDOR
+   * ---------------------------------------------------------
    */
   if (vendorId) {
     const vendor = await VendorB2C.findById(vendorId)
-      .select("-password -meta.change_history")
       .populate("store_details.categories", "name slug icon")
       .populate("bank_details.preferred_currency", "code name symbol")
       .populate("role", "name")
-      .populate("documents.identity_proof")
-      .populate("documents.address_proof")
-      .populate("documents.pan_card")
-      .populate("documents.gst_certificate")
-      .populate("documents.cancelled_cheque")
-      .populate("documents.shop_act_license")
       .lean();
 
     if (!vendor) {
@@ -366,85 +362,54 @@ exports.getAllVendors = asyncHandler(async (req, res) => {
    */
   const query = {};
 
-  if (status !== undefined) {
-    const statusArray = status
-      .split(",")
-      .map((s) => parseInt(s.trim()))
-      .filter((n) => [0, 1, 2].includes(n));
+  if (status) {
+    const allowedStatus = ['registered', 'approved', 'rejected', 'suspended'];
 
-    if (statusArray.length > 0) {
-      query["status_info.status"] = { $in: statusArray };
-    }
-  }
+    const statuses = status
+      .split(',')
+      .map(s => s.trim())
+      .filter(s => allowedStatus.includes(s));
 
-  if (onboarding_status) {
-    const validStatuses = [
-      "registered",
-      "profile_incomplete",
-      "profile_submitted",
-      "under_review",
-      "approved",
-      "rejected",
-      "suspended",
-    ];
-
-    const statuses = onboarding_status
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => validStatuses.includes(s));
-
-    if (statuses.length > 0) {
-      query.onboarding_status = { $in: statuses };
+    if (statuses.length) {
+      query.status = { $in: statuses };
     }
   }
 
   /**
    * ---------------------------------------------------------
-   * 3. PAGINATION CHECK
+   * 3. PAGINATION SETUP
    * ---------------------------------------------------------
    */
-  const noPagination = !page && !limit;
-
-  let vendors;
-  let total;
+  const pageNum = page ? Math.max(1, parseInt(page)) : null;
+  const limitNum = limit ? Math.min(100, Math.max(1, parseInt(limit))) : null;
+  const usePagination = pageNum && limitNum;
 
   /**
    * ---------------------------------------------------------
-   * 4. COMMON QUERY (USED BY BOTH PAGINATED & NON-PAGINATED)
+   * 4. FETCH TOTAL COUNT (ALWAYS)
    * ---------------------------------------------------------
    */
-  const populateQuery = VendorB2C.find(query)
-    .select("-password -meta.change_history")
+  const totalVendors = await VendorB2C.countDocuments(query);
+
+  /**
+   * ---------------------------------------------------------
+   * 5. FETCH DATA
+   * ---------------------------------------------------------
+   */
+  let vendorsQuery = VendorB2C.find(query)
     .populate("store_details.categories", "name slug icon")
     .populate("bank_details.preferred_currency", "code name symbol")
     .populate("role", "name")
-    .populate("documents.identity_proof")
-    .populate("documents.address_proof")
-    .populate("documents.pan_card")
-    .populate("documents.gst_certificate")
-    .populate("documents.cancelled_cheque")
-    .populate("documents.shop_act_license")
     .sort({ createdAt: -1 })
     .lean();
 
-  /**
-   * ---------------------------------------------------------
-   * 5. FETCH ALL OR PAGINATED
-   * ---------------------------------------------------------
-   */
-  if (noPagination) {
-    vendors = await populateQuery;
-    total = vendors.length;
-  } else {
-    const pageNum = Math.max(1, parseInt(page));
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
-
-    vendors = await populateQuery
+  if (usePagination) {
+    vendorsQuery = vendorsQuery
       .skip((pageNum - 1) * limitNum)
       .limit(limitNum);
-
-    total = await VendorB2C.countDocuments(query);
   }
+
+  const vendors = await vendorsQuery;
 
   /**
    * ---------------------------------------------------------
@@ -454,19 +419,21 @@ exports.getAllVendors = asyncHandler(async (req, res) => {
   res.status(StatusCodes.OK).json({
     success: true,
     count: vendors.length,
-    pagination: noPagination
-      ? null
-      : {
-          current_page: parseInt(page),
-          limit: parseInt(limit),
-          total_vendors: total,
-          total_pages: Math.ceil(total / limit),
-          has_next: parseInt(page) < Math.ceil(total / limit),
-          has_prev: parseInt(page) > 1,
-        },
+
+    pagination: usePagination
+      ? {
+          current_page: pageNum,
+          limit: limitNum,
+          total_vendors: totalVendors,
+          total_pages: Math.ceil(totalVendors / limitNum),
+          
+        }
+      : null,
+
     vendors,
   });
 });
+
 
 
 
