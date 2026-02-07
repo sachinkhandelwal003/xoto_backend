@@ -338,7 +338,6 @@ exports.getAllVendors = asyncHandler(async (req, res) => {
   if (vendorId) {
     const vendor = await VendorB2C.findById(vendorId)
       .populate("store_details.categories", "name slug icon")
-      .populate("bank_details.preferred_currency", "code name symbol")
       .populate("role", "name")
       .lean();
 
@@ -398,7 +397,6 @@ exports.getAllVendors = asyncHandler(async (req, res) => {
    */
   let vendorsQuery = VendorB2C.find(query)
     .populate("store_details.categories", "name slug icon")
-    .populate("bank_details.preferred_currency", "code name symbol")
     .populate("role", "name")
     .sort({ createdAt: -1 })
     .lean();
