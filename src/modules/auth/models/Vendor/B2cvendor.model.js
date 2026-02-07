@@ -60,6 +60,7 @@ const contactSchema = new mongoose.Schema({
   whatsapp: { type: String, trim: true }
 }, { _id: false });
 
+// contacts
 const contactsSchema = new mongoose.Schema({
   primary_contact: { type: contactSchema},
   support_contact: { type: contactSchema }
