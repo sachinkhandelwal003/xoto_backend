@@ -1,55 +1,45 @@
 import Agent from "../models/agent.js"; 
 
+import Otp from "../models/Otp.js"; 
+import sendOtpEmail from "../services/sendOTP.js"; 
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 // ==============================
-// 1. SEND OTP FOR SIGNUP
+// 1. SEND OTP (Optional: Agar aapko abhi bhi frontend pe button rakhna hai)
 // ==============================
 const sendSignupOtp = async (req, res) => {
     try {
         const { email } = req.body;
+        if (!email) return res.status(400).json({ success: false, message: "Email is required" });
 
-        if (!email) {
-            return res.status(400).json({ success: false, message: "Email is required" });
-        }
-
-        // Check if Agent already exists
         const existingAgent = await Agent.findOne({ email });
         if (existingAgent) {
             return res.status(400).json({ success: false, message: "Agent already registered with this email" });
         }
 
-        // Generate 6 digit OTP
         const otp = Math.floor(100000 + Math.random() * 900000);
-
-        // Save OTP to DB
         await Otp.create({
             email,
             otp,
             purpose: "agent_signup",
-            expiresAt: Date.now() + 5 * 60 * 1000 // 5 Minutes expiry
+            expiresAt: Date.now() + 5 * 60 * 1000
         });
 
-        // Send Email
         await sendOtpEmail(email, otp);
 
-        return res.status(200).json({
-            success: true,
-            message: "OTP sent successfully to your email"
-        });
-
+        return res.status(200).json({ success: true, message: "OTP sent successfully" });
     } catch (error) {
         return res.status(500).json({ success: false, message: error.message });
     }
 };
 
 // ==============================
-// 2. AGENT SIGNUP (WITH FILE UPLOAD & OTP)
+// 2. AGENT SIGNUP (WITHOUT OTP VALIDATION)
 // ==============================
 const agentSignup = async (req, res) => {
     try {
-        // Text fields from req.body
+        // Text fields from req.body (OTP hata diya hai)
         let { 
             first_name, 
             last_name, 
@@ -58,30 +48,25 @@ const agentSignup = async (req, res) => {
             phone_number, 
             country_code,
             operating_city, 
-            specialization,
-            otp 
+            specialization 
         } = req.body;
 
-        // --- VALIDATIONS ---
-        if (!email || !password || !phone_number || !first_name || !otp) {
+        // --- VALIDATIONS (OTP check removed) ---
+        if (!email || !password || !phone_number || !first_name) {
             return res.status(400).json({
                 success: false,
-                message: "Please fill all required fields including OTP"
+                message: "Please fill all required fields"
             });
         }
 
-        // --- OTP VERIFICATION ---
-        const otpRecord = await Otp.findOne({ 
-            email, 
-            otp, 
-            purpose: "agent_signup" 
-        });
-
-        if (!otpRecord) {
-            return res.status(400).json({ success: false, message: "Invalid or Expired OTP" });
+        // --- DUPLICATE CHECKS ---
+        // Check Email
+        const existingAgent = await Agent.findOne({ email });
+        if (existingAgent) {
+            return res.status(400).json({ success: false, message: "Agent already registered with this email" });
         }
 
-        // --- DUPLICATE CHECKS ---
+        // Check Phone
         let phoneNumberAlreadyExist = await Agent.findOne({ phone_number: phone_number });
         if (phoneNumberAlreadyExist) {
             return res.status(400).json({
@@ -90,11 +75,8 @@ const agentSignup = async (req, res) => {
             });
         }
 
-        // --- FILE HANDLING (NEW ADDITION) ---
-        // req.files object mein saari uploaded files hongi
+        // --- FILE HANDLING ---
         const files = req.files || {};
-
-        // S3 use kar rahe ho to '.location', Local upload hai to '.path'
         const profile_photo_url = files['profile_photo'] ? files['profile_photo'][0].location : "";
         const id_proof_url = files['id_proof'] ? files['id_proof'][0].location : "";
         const rera_certificate_url = files['rera_certificate'] ? files['rera_certificate'][0].location : "";
@@ -112,19 +94,16 @@ const agentSignup = async (req, res) => {
             country_code,
             operating_city,
             specialization,
-            isVerified: true, // OTP Verified hai isliye true
+            isVerified: false, // OTP nahi le rahe, isliye verification FALSE rakha hai (Admin verify karega ya email link se hoga)
             // Save File URLs
             profile_photo: profile_photo_url,
             id_proof: id_proof_url,
             rera_certificate: rera_certificate_url
         });
 
-        // --- CLEANUP OTP ---
-        await Otp.deleteMany({ email, purpose: "agent_signup" });
-
         return res.status(201).json({
             success: true,
-            message: "Agent account created and verified successfully",
+            message: "Agent account created successfully",
             data: newAgent
         });
 
@@ -149,13 +128,11 @@ const agentLogin = async (req, res) => {
         }
 
         let agent = await Agent.findOne({ email: email });
-
         if (!agent) {
             return res.status(400).json({ success: false, message: "Invalid credentials" });
         }
 
         let password_match = await bcrypt.compare(password, agent.password);
-
         if (!password_match) {
             return res.status(400).json({ success: false, message: "Invalid credentials" });
         }
@@ -186,10 +163,7 @@ const agentLogin = async (req, res) => {
 const updateAgent = async (req, res) => {
     try {
         let { id } = req.query; 
-
-        if (!id) {
-            return res.status(400).json({ success: false, message: "Agent ID is required" });
-        }
+        if (!id) return res.status(400).json({ success: false, message: "Agent ID is required" });
 
         let updateData = { ...req.body };
 
@@ -212,9 +186,7 @@ const updateAgent = async (req, res) => {
             { new: true }
         ).select("-password");
 
-        if (!agent) {
-            return res.status(404).json({ success: false, message: "Agent not found" });
-        }
+        if (!agent) return res.status(404).json({ success: false, message: "Agent not found" });
 
         return res.status(200).json({
             success: true,
@@ -233,14 +205,12 @@ const updateAgent = async (req, res) => {
 const getAllAgents = async (req, res) => {
     try {
         let agents = await Agent.find({}).sort({ createdAt: -1 }).select("-password");
-
         return res.status(200).json({
             success: true,
             message: "Agents fetched successfully",
             count: agents.length,
             data: agents
         });
-
     } catch (error) {
         return res.status(500).json({ success: false, message: error.message });
     }
