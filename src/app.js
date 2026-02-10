@@ -15,6 +15,7 @@ const app = express();
 const Notification = require("../src/modules/Notification/Routes/NotificationRoutes.js").default
 const PropertyLead = require("./modules/auth/routes/consult/propertyLead.route").default
 const ProfileData = require("./modules/profile/routes/index.js").default
+const agentRoutes = require('./modules/Agent/routes/index.js');
 
 // Middleware
 app.use(cors());
@@ -45,6 +46,7 @@ app.use('/enquiry', require('./modules/auth/routes/consult/enquiry.routes'));
 app.use('/property/lead', require('./modules/auth/routes/consult/propertyLead.route'));
 app.use('/agency', agencyRoutes);
 app.use('/mortgages', mortgageRoutes);
+app.use('/agent', agentRoutes);
 app.use('/landing/lead', (req, res, next) => {
   console.log('request came on /landing/lead');
   next();
@@ -68,6 +70,7 @@ app.use('/auth', require('../src/modules/auth/routes/auth.routes'));
 app.use('/vendor', require('../src/modules/auth/routes/vendor/vendorb2c.routes'));
 app.use('/vendor/b2b', require('../src/modules/auth/routes/vendor/vendorb2b.routes'));
 app.use('/business', require('../src/modules/auth/routes/freelancer/freelancerbusiness.routes'));
+
 
 
 // landscapping freelacer
