@@ -1,64 +1,65 @@
 import Agent from "../models/agent.js"; 
-
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
-// ==============================
-// 1. SEND OTP (Optional)
-// ==============================
-const sendSignupOtp = async (req, res) => {
-    try {
-        const { email } = req.body;
-        if (!email) return res.status(400).json({ success: false, message: "Email is required" });
-
-        const existingAgent = await Agent.findOne({ email });
-        if (existingAgent) {
-            return res.status(400).json({ success: false, message: "Agent already registered with this email" });
-        }
-
-        const otp = Math.floor(100000 + Math.random() * 900000);
-        await Otp.create({
-            email,
-            otp,
-            purpose: "agent_signup",
-            expiresAt: Date.now() + 5 * 60 * 1000
-        });
-
-        await sendOtpEmail(email, otp);
-
-        return res.status(200).json({ success: true, message: "OTP sent successfully" });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
-    }
-};
-
 
 // ==============================
-// AGENT SIGNUP (Fixing City)
+// 1. AGENT SIGNUP (With Duplicate Check)
 // ==============================
 const agentSignup = async (req, res) => {
     try {
         let { 
             first_name, last_name, email, password, 
             phone_number, country_code, 
-            operating_city, // <--- Ye request se aa raha hai (e.g., "Jaipur")
-            specialization,
-            country 
+            operating_city, specialization, country 
         } = req.body;
 
-        // ... Validations & Duplicate Checks ...
+        // 1. Basic Empty Validation
+        if (!email || !password || !phone_number || !first_name) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Please fill all required fields" 
+            });
+        }
+
+        // 👇 VALIDATION 1: EMAIL CHECK
+        const existingEmail = await Agent.findOne({ email });
+        if (existingEmail) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Email already registered. Please login." 
+            });
+        }
+
+        // 👇 VALIDATION 2: PHONE CHECK
+        const existingPhone = await Agent.findOne({ phone_number });
+        if (existingPhone) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Phone number already exists. Use a different number." 
+            });
+        }
+
+        // File Handling
+        const files = req.files || {};
+        const profile_photo_url =
+            files['profile_photo']?.[0]?.location ||
+            req.body.profile_photo ||
+            "";
+
+        const id_proof_url =
+            files['id_proof']?.[0]?.location ||
+            req.body.id_proof ||
+            "";
+
+        const rera_certificate_url =
+            files['rera_certificate']?.[0]?.location ||
+            req.body.rera_certificate ||
+            "";
 
         const fullName = `${first_name} ${last_name}`;
-        
-        // ... File Handling ...
-        const files = req.files || {};
-        const profile_photo_url = files['profile_photo'] ? files['profile_photo'][0].location : (req.body.profile_photo || "");
-        const id_proof_url = files['id_proof'] ? files['id_proof'][0].location : (req.body.id_proof || "");
-        const rera_certificate_url = files['rera_certificate'] ? files['rera_certificate'][0].location : (req.body.rera_certificate || "");
+        const new_password = await bcrypt.hash(password, 10);
 
-        let new_password = await bcrypt.hash(password, 10);
-
-        // --- CREATE AGENT ---
         const newAgent = await Agent.create({
             first_name,
             last_name,
@@ -67,16 +68,12 @@ const agentSignup = async (req, res) => {
             password: new_password,
             phone_number,
             country_code,
-            
-            operating_city: operating_city, // Ye Schema field hai
-            
-            // 👇 YEH LINE ADD KAREIN (City fix karne ke liye)
-            city: operating_city, // operating_city ki value ko 'city' me copy kiya
-            
+            operating_city,
+            city: operating_city,
             country: country || "India",
             specialization,
             status: "pending",
-            isVerified: false, 
+            isVerified: false,
             profile_photo: profile_photo_url,
             id_proof: id_proof_url,
             rera_certificate: rera_certificate_url
@@ -89,38 +86,57 @@ const agentSignup = async (req, res) => {
         });
 
     } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+        if (error.code === 11000) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Duplicate Key Error: Email or Phone already exists in database." 
+            });
+        }
+        return res.status(500).json({ 
+            success: false, 
+            message: error.message 
+        });
     }
 };
 
+
 // ==============================
-// 3. AGENT LOGIN
+// 2. AGENT LOGIN
 // ==============================
 const agentLogin = async (req, res) => {
     try {
-        let { email, password } = req.body;
+        const { email, password } = req.body;
 
         if (!email || !password) {
-            return res.status(400).json({ success: false, message: "Email and Password are required" });
+            return res.status(400).json({ 
+                success: false, 
+                message: "Email and Password are required" 
+            });
         }
 
-        let agent = await Agent.findOne({ email: email });
+        const agent = await Agent.findOne({ email });
         if (!agent) {
-            return res.status(400).json({ success: false, message: "Invalid credentials" });
+            return res.status(400).json({ 
+                success: false, 
+                message: "Invalid credentials" 
+            });
         }
 
-        let password_match = await bcrypt.compare(password, agent.password);
+        const password_match = await bcrypt.compare(password, agent.password);
         if (!password_match) {
-            return res.status(400).json({ success: false, message: "Invalid credentials" });
+            return res.status(400).json({ 
+                success: false, 
+                message: "Invalid credentials" 
+            });
         }
 
         const token = jwt.sign(
             { agentId: agent._id, role: "AGENT" },
-            process.env.JWT_SECRET || "your_jwt_secret",
+            process.env.JWT_SECRET,
             { expiresIn: "30d" }
         );
 
-        let agentData = agent.toObject();
+        const agentData = agent.toObject();
         delete agentData.password;
 
         return res.status(200).json({
@@ -130,60 +146,114 @@ const agentLogin = async (req, res) => {
         });
 
     } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+        return res.status(500).json({ 
+            success: false, 
+            message: error.message 
+        });
     }
 };
 
+
 // ==============================
-// 4. UPDATE AGENT
+// 3. UPDATE AGENT
 // ==============================
 const updateAgent = async (req, res) => {
-    try {
-        let { id } = req.query; 
-        if (!id) return res.status(400).json({ success: false, message: "Agent ID is required" });
+  try {
+    const { id } = req.query;
 
-        let updateData = { ...req.body };
-
-        // Password hash if updating
-        if (updateData.password) {
-            updateData.password = await bcrypt.hash(updateData.password, 10);
-        }
-
-        // Name update logic
-        if (updateData.first_name || updateData.last_name) {
-             const currentAgent = await Agent.findById(id);
-             if(currentAgent) {
-                 const fName = updateData.first_name || currentAgent.first_name;
-                 const lName = updateData.last_name || currentAgent.last_name;
-                 updateData.name = `${fName} ${lName}`;
-             }
-        }
-
-        let agent = await Agent.findOneAndUpdate(
-            { _id: id }, 
-            updateData, 
-            { new: true }
-        ).select("-password");
-
-        if (!agent) return res.status(404).json({ success: false, message: "Agent not found" });
-
-        return res.status(200).json({
-            success: true,
-            message: "Agent updated successfully",
-            data: agent
-        });
-
-    } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Agent ID is required"
+      });
     }
+
+    const currentAgent = await Agent.findById(id);
+    if (!currentAgent) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found"
+      });
+    }
+
+    const allowedFields = [
+      "first_name",
+      "last_name",
+      "email",
+      "phone_number",
+      "operating_city",
+      "specialization",
+      "country"
+    ];
+
+    let updateData = {};
+
+    allowedFields.forEach((field) => {
+      if (req.body[field]) {
+        updateData[field] = req.body[field];
+      }
+    });
+
+    if (req.body.password) {
+      updateData.password = await bcrypt.hash(req.body.password, 10);
+    }
+
+    if (updateData.first_name || updateData.last_name) {
+      const f = updateData.first_name || currentAgent.first_name;
+      const l = updateData.last_name || currentAgent.last_name;
+      updateData.name = `${f} ${l}`;
+    }
+
+    if (updateData.operating_city) {
+      updateData.city = updateData.operating_city;
+    }
+
+    const files = req.files || {};
+    const getFile = (key) =>
+      files[key]?.[0]?.location ||
+      files[key]?.[0]?.path ||
+      "";
+
+    if (files.profile_photo) {
+      updateData.profile_photo = getFile("profile_photo");
+    }
+    if (files.id_proof) {
+      updateData.id_proof = getFile("id_proof");
+    }
+    if (files.rera_certificate) {
+      updateData.rera_certificate = getFile("rera_certificate");
+    }
+
+    const updatedAgent = await Agent.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true }
+    ).select("-password");
+
+    res.status(200).json({
+      success: true,
+      message: "Agent updated successfully",
+      data: updatedAgent
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 };
 
+
 // ==============================
-// 5. GET ALL AGENTS
+// 4. GET ALL AGENTS
 // ==============================
 const getAllAgents = async (req, res) => {
     try {
-        let agents = await Agent.find({}).sort({ createdAt: -1 }).select("-password");
+        const agents = await Agent.find({})
+            .sort({ createdAt: -1 })
+            .select("-password");
+
         return res.status(200).json({
             success: true,
             message: "Agents fetched successfully",
@@ -191,14 +261,92 @@ const getAllAgents = async (req, res) => {
             data: agents
         });
     } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+        return res.status(500).json({ 
+            success: false, 
+            message: error.message 
+        });
     }
 };
 
+// ==============================
+// GET AGENT BY ID
+// ==============================
+const getAgentById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Agent ID is required"
+      });
+    }
+
+    const agent = await Agent.findById(id).select("-password");
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: agent
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+// ==============================
+// DELETE AGENT
+// ==============================
+const deleteAgent = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Agent ID is required"
+      });
+    }
+
+    const deletedAgent = await Agent.findByIdAndDelete(id);
+
+    if (!deletedAgent) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Agent deleted successfully"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
 export { 
-    sendSignupOtp, 
     agentSignup, 
     agentLogin, 
     updateAgent, 
-    getAllAgents 
+    getAllAgents,
+    getAgentById,
+    deleteAgent
 };
