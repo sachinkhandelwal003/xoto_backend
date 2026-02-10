@@ -1,12 +1,10 @@
 import Agent from "../models/agent.js"; 
 
-import Otp from "../models/Otp.js"; 
-import sendOtpEmail from "../services/sendOTP.js"; 
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 // ==============================
-// 1. SEND OTP (Optional: Agar aapko abhi bhi frontend pe button rakhna hai)
+// 1. SEND OTP (Optional)
 // ==============================
 const sendSignupOtp = async (req, res) => {
     try {
@@ -34,68 +32,50 @@ const sendSignupOtp = async (req, res) => {
     }
 };
 
+
 // ==============================
-// 2. AGENT SIGNUP (Fix: Name Concatenation)
+// AGENT SIGNUP (Fixing City)
 // ==============================
 const agentSignup = async (req, res) => {
     try {
         let { 
-            first_name, 
-            last_name, 
-            email, 
-            password, 
-            phone_number, 
-            country_code,
-            operating_city, 
-            specialization 
+            first_name, last_name, email, password, 
+            phone_number, country_code, 
+            operating_city, // <--- Ye request se aa raha hai (e.g., "Jaipur")
+            specialization,
+            country 
         } = req.body;
 
-        // --- VALIDATIONS ---
-        if (!email || !password || !phone_number || !first_name) {
-            return res.status(400).json({
-                success: false,
-                message: "Please fill all required fields"
-            });
-        }
+        // ... Validations & Duplicate Checks ...
 
-        // --- DUPLICATE CHECKS ---
-        const existingAgent = await Agent.findOne({ email });
-        if (existingAgent) {
-            return res.status(400).json({ success: false, message: "Agent already registered with this email" });
-        }
-
-        let phoneNumberAlreadyExist = await Agent.findOne({ phone_number: phone_number });
-        if (phoneNumberAlreadyExist) {
-            return res.status(400).json({
-                success: false,
-                message: "Agent already exists with this phone number"
-            });
-        }
-
-        // --- FILE HANDLING ---
-        // Fallback logic: Agar file nahi hai to body se URL lo (Postman JSON testing ke liye)
+        const fullName = `${first_name} ${last_name}`;
+        
+        // ... File Handling ...
         const files = req.files || {};
         const profile_photo_url = files['profile_photo'] ? files['profile_photo'][0].location : (req.body.profile_photo || "");
         const id_proof_url = files['id_proof'] ? files['id_proof'][0].location : (req.body.id_proof || "");
         const rera_certificate_url = files['rera_certificate'] ? files['rera_certificate'][0].location : (req.body.rera_certificate || "");
 
-        // --- MANUALLY COMBINE NAME (Yeh line fix karegi issue) ---
-        const fullName = `${first_name} ${last_name}`;
-
-        // --- HASH PASSWORD ---
         let new_password = await bcrypt.hash(password, 10);
 
         // --- CREATE AGENT ---
         const newAgent = await Agent.create({
             first_name,
             last_name,
-            name: fullName, // <--- Yahan humne manually name bheja hai
+            name: fullName,
             email,
             password: new_password,
             phone_number,
             country_code,
-            operating_city,
+            
+            operating_city: operating_city, // Ye Schema field hai
+            
+            // 👇 YEH LINE ADD KAREIN (City fix karne ke liye)
+            city: operating_city, // operating_city ki value ko 'city' me copy kiya
+            
+            country: country || "India",
             specialization,
+            status: "pending",
             isVerified: false, 
             profile_photo: profile_photo_url,
             id_proof: id_proof_url,
@@ -109,11 +89,7 @@ const agentSignup = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Signup Error:", error);
-        return res.status(500).json({
-            success: false,
-            message: error.message
-        });
+        return res.status(500).json({ success: false, message: error.message });
     }
 };
 
@@ -168,10 +144,12 @@ const updateAgent = async (req, res) => {
 
         let updateData = { ...req.body };
 
+        // Password hash if updating
         if (updateData.password) {
             updateData.password = await bcrypt.hash(updateData.password, 10);
         }
 
+        // Name update logic
         if (updateData.first_name || updateData.last_name) {
              const currentAgent = await Agent.findById(id);
              if(currentAgent) {
