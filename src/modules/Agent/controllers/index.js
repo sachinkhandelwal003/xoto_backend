@@ -35,11 +35,10 @@ const sendSignupOtp = async (req, res) => {
 };
 
 // ==============================
-// 2. AGENT SIGNUP (WITHOUT OTP VALIDATION)
+// 2. AGENT SIGNUP (Fix: Name Concatenation)
 // ==============================
 const agentSignup = async (req, res) => {
     try {
-        // Text fields from req.body (OTP hata diya hai)
         let { 
             first_name, 
             last_name, 
@@ -51,7 +50,7 @@ const agentSignup = async (req, res) => {
             specialization 
         } = req.body;
 
-        // --- VALIDATIONS (OTP check removed) ---
+        // --- VALIDATIONS ---
         if (!email || !password || !phone_number || !first_name) {
             return res.status(400).json({
                 success: false,
@@ -60,13 +59,11 @@ const agentSignup = async (req, res) => {
         }
 
         // --- DUPLICATE CHECKS ---
-        // Check Email
         const existingAgent = await Agent.findOne({ email });
         if (existingAgent) {
             return res.status(400).json({ success: false, message: "Agent already registered with this email" });
         }
 
-        // Check Phone
         let phoneNumberAlreadyExist = await Agent.findOne({ phone_number: phone_number });
         if (phoneNumberAlreadyExist) {
             return res.status(400).json({
@@ -76,10 +73,14 @@ const agentSignup = async (req, res) => {
         }
 
         // --- FILE HANDLING ---
+        // Fallback logic: Agar file nahi hai to body se URL lo (Postman JSON testing ke liye)
         const files = req.files || {};
-        const profile_photo_url = files['profile_photo'] ? files['profile_photo'][0].location : "";
-        const id_proof_url = files['id_proof'] ? files['id_proof'][0].location : "";
-        const rera_certificate_url = files['rera_certificate'] ? files['rera_certificate'][0].location : "";
+        const profile_photo_url = files['profile_photo'] ? files['profile_photo'][0].location : (req.body.profile_photo || "");
+        const id_proof_url = files['id_proof'] ? files['id_proof'][0].location : (req.body.id_proof || "");
+        const rera_certificate_url = files['rera_certificate'] ? files['rera_certificate'][0].location : (req.body.rera_certificate || "");
+
+        // --- MANUALLY COMBINE NAME (Yeh line fix karegi issue) ---
+        const fullName = `${first_name} ${last_name}`;
 
         // --- HASH PASSWORD ---
         let new_password = await bcrypt.hash(password, 10);
@@ -88,14 +89,14 @@ const agentSignup = async (req, res) => {
         const newAgent = await Agent.create({
             first_name,
             last_name,
+            name: fullName, // <--- Yahan humne manually name bheja hai
             email,
             password: new_password,
             phone_number,
             country_code,
             operating_city,
             specialization,
-            isVerified: false, // OTP nahi le rahe, isliye verification FALSE rakha hai (Admin verify karega ya email link se hoga)
-            // Save File URLs
+            isVerified: false, 
             profile_photo: profile_photo_url,
             id_proof: id_proof_url,
             rera_certificate: rera_certificate_url
