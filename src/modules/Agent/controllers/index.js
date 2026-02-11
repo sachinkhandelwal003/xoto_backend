@@ -1,186 +1,19 @@
-import Agent from "../models/agent.js"; 
+import Agent from "../models/agent.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
-
-// ==============================
-// 1. AGENT SIGNUP (With Duplicate Check)
-// ==============================
-const agentSignup = async (req, res) => {
-    try {
-        let { 
-            first_name, last_name, email, password, 
-            phone_number, country_code, 
-            operating_city, specialization, country 
-        } = req.body;
-
-        // 1. Basic Empty Validation
-        if (!email || !password || !phone_number || !first_name) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Please fill all required fields" 
-            });
-        }
-
-        // 👇 VALIDATION 1: EMAIL CHECK
-        const existingEmail = await Agent.findOne({ email });
-        if (existingEmail) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Email already registered. Please login." 
-            });
-        }
-
-        // 👇 VALIDATION 2: PHONE CHECK
-        const existingPhone = await Agent.findOne({ phone_number });
-        if (existingPhone) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Phone number already exists. Use a different number." 
-            });
-        }
-
-        // File Handling
-        const files = req.files || {};
-        const profile_photo_url =
-            files['profile_photo']?.[0]?.location ||
-            req.body.profile_photo ||
-            "";
-
-        const id_proof_url =
-            files['id_proof']?.[0]?.location ||
-            req.body.id_proof ||
-            "";
-
-        const rera_certificate_url =
-            files['rera_certificate']?.[0]?.location ||
-            req.body.rera_certificate ||
-            "";
-
-        const fullName = `${first_name} ${last_name}`;
-        const new_password = await bcrypt.hash(password, 10);
-
-        const newAgent = await Agent.create({
-            first_name,
-            last_name,
-            name: fullName,
-            email,
-            password: new_password,
-            phone_number,
-            country_code,
-            operating_city,
-            city: operating_city,
-            country: country || "India",
-            specialization,
-            status: "pending",
-            isVerified: false,
-            profile_photo: profile_photo_url,
-            id_proof: id_proof_url,
-            rera_certificate: rera_certificate_url
-        });
-
-        return res.status(201).json({
-            success: true,
-            message: "Agent account created successfully",
-            data: newAgent
-        });
-
-    } catch (error) {
-        if (error.code === 11000) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Duplicate Key Error: Email or Phone already exists in database." 
-            });
-        }
-        return res.status(500).json({ 
-            success: false, 
-            message: error.message 
-        });
-    }
-};
-
-
-// ==============================
-// 2. AGENT LOGIN
-// ==============================
-const agentLogin = async (req, res) => {
-    try {
-        const { email, password } = req.body;
-
-        if (!email || !password) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Email and Password are required" 
-            });
-        }
-
-        const agent = await Agent.findOne({ email });
-        if (!agent) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Invalid credentials" 
-            });
-        }
-
-        const password_match = await bcrypt.compare(password, agent.password);
-        if (!password_match) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Invalid credentials" 
-            });
-        }
-
-        const token = jwt.sign(
-            { agentId: agent._id, role: "AGENT" },
-            process.env.JWT_SECRET,
-            { expiresIn: "30d" }
-        );
-
-        const agentData = agent.toObject();
-        delete agentData.password;
-
-        return res.status(200).json({
-            success: true,
-            message: "Login successful",
-            data: { user: agentData, token }
-        });
-
-    } catch (error) {
-        return res.status(500).json({ 
-            success: false, 
-            message: error.message 
-        });
-    }
-};
-
-
-// ==============================
-// 3. UPDATE AGENT
-// ==============================
-const updateAgent = async (req, res) => {
+/* =====================================
+   1️⃣ AGENT SIGNUP
+===================================== */
+export const agentSignup = async (req, res) => {
   try {
-    const { id } = req.query;
-
-    if (!id) {
-      return res.status(400).json({
-        success: false,
-        message: "Agent ID is required"
-      });
-    }
-
-    const currentAgent = await Agent.findById(id);
-    if (!currentAgent) {
-      return res.status(404).json({
-        success: false,
-        message: "Agent not found"
-      });
-    }
 
     const allowedFields = [
       "first_name",
       "last_name",
       "email",
       "phone_number",
+      "country_code",
       "operating_city",
       "specialization",
       "country",
@@ -190,58 +23,68 @@ const updateAgent = async (req, res) => {
       
     ];
 
-    let updateData = {};
+    let safeData = {};
 
     allowedFields.forEach((field) => {
-      if (req.body[field]) {
-        updateData[field] = req.body[field];
+      if (req.body[field] !== undefined) {
+        safeData[field] = req.body[field];
       }
     });
 
-    if (req.body.password) {
-      updateData.password = await bcrypt.hash(req.body.password, 10);
+    const { first_name, last_name, email, password, phone_number } = req.body;
+
+    if (!first_name || !email || !password || !phone_number) {
+      return res.status(400).json({
+        success: false,
+        message: "Required fields missing"
+      });
     }
 
-    if (updateData.first_name || updateData.last_name) {
-      const f = updateData.first_name || currentAgent.first_name;
-      const l = updateData.last_name || currentAgent.last_name;
-      updateData.name = `${f} ${l}`;
+    const existingEmail = await Agent.findOne({ email });
+    if (existingEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "Email already registered"
+      });
     }
 
-    if (updateData.operating_city) {
-      updateData.city = updateData.operating_city;
+    const existingPhone = await Agent.findOne({ phone_number });
+    if (existingPhone) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number already exists"
+      });
     }
 
-    const files = req.files || {};
-    const getFile = (key) =>
-      files[key]?.[0]?.location ||
-      files[key]?.[0]?.path ||
-      "";
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    if (files.profile_photo) {
-      updateData.profile_photo = getFile("profile_photo");
-    }
-    if (files.id_proof) {
-      updateData.id_proof = getFile("id_proof");
-    }
-    if (files.rera_certificate) {
-      updateData.rera_certificate = getFile("rera_certificate");
-    }
+    const fullName = `${first_name} ${last_name || ""}`.trim();
 
-    const updatedAgent = await Agent.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true }
-    ).select("-password");
+    const newAgent = await Agent.create({
+      ...safeData,
+      name: fullName,
+      password: hashedPassword,
 
-    res.status(200).json({
+      // Verification & Approval flags
+      is_email_verified: true,      // frontend handled
+      is_mobile_verified: true,
+      status: true,                 // approved (dev mode)
+      onboarding_status: "registered"
+    });
+
+    return res.status(201).json({
       success: true,
-      message: "Agent updated successfully",
-      data: updatedAgent
+      message: "Registration successful. Awaiting admin approval.",
+      agent: {
+        _id: newAgent._id,
+        email: newAgent.email,
+        full_name: newAgent.name,
+        onboarding_status: newAgent.onboarding_status
+      }
     });
 
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -249,42 +92,197 @@ const updateAgent = async (req, res) => {
 };
 
 
-// ==============================
-// 4. GET ALL AGENTS
-// ==============================
-const getAllAgents = async (req, res) => {
-    try {
-        const agents = await Agent.find({})
-            .sort({ createdAt: -1 })
-            .select("-password");
+/* =====================================
+   2️⃣ AGENT LOGIN
+===================================== */
+export const agentLogin = async (req, res) => {
+  try {
 
-        return res.status(200).json({
-            success: true,
-            message: "Agents fetched successfully",
-            count: agents.length,
-            data: agents
-        });
-    } catch (error) {
-        return res.status(500).json({ 
-            success: false, 
-            message: error.message 
-        });
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password required"
+      });
     }
+
+    const agent = await Agent.findOne({ email });
+
+    if (!agent) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid credentials"
+      });
+    }
+
+    const match = await bcrypt.compare(password, agent.password);
+
+    if (!match) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid credentials"
+      });
+    }
+
+    // 🔒 Email Verification Check
+    if (!agent.is_email_verified) {
+      return res.status(403).json({
+        success: false,
+        message: "Please verify your email first"
+      });
+    }
+
+    // 🔒 Mobile Verification Check
+    if (!agent.is_mobile_verified) {
+      return res.status(403).json({
+        success: false,
+        message: "Please verify your mobile number first"
+      });
+    }
+
+    // 🔒 Approval Check
+    if (!agent.status) {
+      return res.status(403).json({
+        success: false,
+        message: "Account not approved"
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        agentId: agent._id,
+        role: "AGENT"
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+
+    const data = agent.toObject();
+    delete data.password;
+
+    return res.status(200).json({
+      success: true,
+      message: "Login successful",
+      data: {
+        user: data,
+        token
+      }
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 };
 
-// ==============================
-// GET AGENT BY ID
-// ==============================
-const getAgentById = async (req, res) => {
+
+/* =====================================
+   3️⃣ UPDATE AGENT
+===================================== */
+export const updateAgent = async (req, res) => {
   try {
-    const { id } = req.params;
+
+    const { id } = req.query;
 
     if (!id) {
       return res.status(400).json({
         success: false,
-        message: "Agent ID is required"
+        message: "Agent ID required"
       });
     }
+
+    const agent = await Agent.findById(id);
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found"
+      });
+    }
+
+    // 🔒 Block update if not verified
+    if (!agent.is_email_verified || !agent.is_mobile_verified) {
+      return res.status(403).json({
+        success: false,
+        message: "Verify email and mobile before updating profile"
+      });
+    }
+
+    if (!req.body || Object.keys(req.body).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Nothing to update"
+      });
+    }
+
+    let updateData = { ...req.body };
+
+    if (updateData.password) {
+      updateData.password = await bcrypt.hash(updateData.password, 10);
+    }
+
+    if (updateData.first_name || updateData.last_name) {
+      const f = updateData.first_name || agent.first_name;
+      const l = updateData.last_name || agent.last_name;
+      updateData.name = `${f} ${l}`;
+    }
+
+    const updated = await Agent.findByIdAndUpdate(
+      id,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    ).select("-password");
+
+    return res.json({
+      success: true,
+      message: "Agent updated successfully",
+      data: updated
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+/* =====================================
+   4️⃣ GET ALL AGENTS
+===================================== */
+export const getAllAgents = async (req, res) => {
+  try {
+
+    const agents = await Agent.find()
+      .sort({ createdAt: -1 })
+      .select("-password");
+
+    return res.json({
+      success: true,
+      count: agents.length,
+      data: agents
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+/* =====================================
+   5️⃣ GET AGENT BY ID
+===================================== */
+export const getAgentById = async (req, res) => {
+  try {
+
+    const { id } = req.params;
 
     const agent = await Agent.findById(id).select("-password");
 
@@ -295,13 +293,13 @@ const getAgentById = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.json({
       success: true,
       data: agent
     });
 
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -309,48 +307,32 @@ const getAgentById = async (req, res) => {
 };
 
 
-// ==============================
-// DELETE AGENT
-// ==============================
-const deleteAgent = async (req, res) => {
+/* =====================================
+   6️⃣ DELETE AGENT
+===================================== */
+export const deleteAgent = async (req, res) => {
   try {
+
     const { id } = req.params;
 
-    if (!id) {
-      return res.status(400).json({
-        success: false,
-        message: "Agent ID is required"
-      });
-    }
+    const deleted = await Agent.findByIdAndDelete(id);
 
-    const deletedAgent = await Agent.findByIdAndDelete(id);
-
-    if (!deletedAgent) {
+    if (!deleted) {
       return res.status(404).json({
         success: false,
         message: "Agent not found"
       });
     }
 
-    res.status(200).json({
+    return res.json({
       success: true,
       message: "Agent deleted successfully"
     });
 
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
   }
-};
-
-
-export { 
-    agentSignup, 
-    agentLogin, 
-    updateAgent, 
-    getAllAgents,
-    getAgentById,
-    deleteAgent
 };

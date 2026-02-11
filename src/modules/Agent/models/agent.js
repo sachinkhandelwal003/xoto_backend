@@ -65,15 +65,25 @@ const AgentSchema = new mongoose.Schema({
   rera_certificate: { type: String, default: "" },
 
   // Status & Verification
-  status: {
-    type: String,
-    enum: ["pending", "approved", "rejected"],
-    default: "pending"
-  },
+  onboarding_status: {
+  type: String,
+  enum: ["registered", "approved", "completed"],
+  default: "registered"
+},
   isVerified: {
     type: Boolean,
     default: false
-  }
+  },
+  is_email_verified: {
+  type: Boolean,
+  default: true   // abhi frontend handle kar raha
+},
+
+is_mobile_verified: {
+  type: Boolean,
+  default: true
+},
+
 
 }, { timestamps: true });
 
