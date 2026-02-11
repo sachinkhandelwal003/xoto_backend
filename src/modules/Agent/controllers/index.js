@@ -183,7 +183,11 @@ const updateAgent = async (req, res) => {
       "phone_number",
       "operating_city",
       "specialization",
-      "country"
+      "country",
+      "profile_photo",
+      "id_proof",
+      "rera_certificate",
+      
     ];
 
     let updateData = {};

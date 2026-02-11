@@ -7,9 +7,7 @@ const AgencySchema = new mongoose.Schema({
     password: {
         type: String, required: false, default: ""
     },
-    otp_verified: {
-        type: Boolean, required: false, default: false
-    },
+
     profile_photo: {
         type: String, required: false, default: ""
     },

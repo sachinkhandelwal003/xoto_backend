@@ -1,16 +1,16 @@
 
 const express = require("express");
-const {agencySignup,verifyOTP,agentLogin,getAllAgents,updateAgencyStatus,updateAgent,agentSignup} = require("../controllers/index.js");
+const {agencySignup,agencyLogin,updateAgency,getAllAgencies,getAgencyById,deleteAgency} = require("../controllers/index.js");
 
 const router = express.Router();
 
 //agency signup
 router.post("/agency-signup",agencySignup)
-router.post("/agency-signup/verify-otp",verifyOTP)
-router.post("/update-agency-status",updateAgencyStatus)
-router.post("/create-agent",agentSignup)
-router.post("/login-agent",agentLogin)
-router.post("/update-agent",updateAgent)
-router.get("/get-all-agents",getAllAgents)
+router.post("/agency-login",agencyLogin)
+router.post("/update-agency",updateAgency)
+router.get("/get-all-agencies",getAllAgencies)
+router.get("/agency/:id",getAgencyById)     
+router.delete("/agency/:id",deleteAgency)  
+
 
 module.exports = router;
