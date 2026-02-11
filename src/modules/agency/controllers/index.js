@@ -108,7 +108,7 @@ export const agencyLogin = async (req, res) => {
 if (agency.onboarding_status !== "approved" && agency.onboarding_status !== "completed") {
   return res.status(403).json({
     success: false,
-    message: "Registration successful. Awaiting admin approval."
+    message: "Registration successful. Awaiting admin approval. "
   });
 }
 
