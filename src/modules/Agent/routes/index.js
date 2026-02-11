@@ -5,9 +5,9 @@ const route = express.Router();
 
 route.post("/agent-signup", agentSignup);
 route.post("/login-agent", agentLogin);
-route.post("/update-agent", updateAgent); // Isme body me "agent_id" bhejna zaruri hai
+route.post("/update-agent", updateAgent); 
 route.get("/get-all-agents", getAllAgents);
-route.get("/agent/:id", getAgentById);     // Get by ID
-route.delete("/agent/:id", deleteAgent);  // Delete
+route.get("/get-agent-details/:id", getAgentById);     
+route.delete("/delete-agent/:id", deleteAgent);  
 
 module.exports = route;

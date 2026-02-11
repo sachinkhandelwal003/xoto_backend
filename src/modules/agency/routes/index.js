@@ -9,8 +9,8 @@ router.post("/agency-signup",agencySignup)
 router.post("/agency-login",agencyLogin)
 router.post("/update-agency",updateAgency)
 router.get("/get-all-agencies",getAllAgencies)
-router.get("/agency/:id",getAgencyById)     
-router.delete("/agency/:id",deleteAgency)  
+router.get("/get-agency-details/:id",getAgencyById)     
+router.delete("/delete-agency/:id",deleteAgency)  
 
 
 module.exports = router;

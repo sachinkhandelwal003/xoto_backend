@@ -2,10 +2,12 @@ import Agency from "../models/index.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
-
-
-const agencySignup = async (req, res) => {
+/* ===========================
+   SIGNUP
+=========================== */
+export const agencySignup = async (req, res) => {
   try {
+
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -15,32 +17,49 @@ const agencySignup = async (req, res) => {
       });
     }
 
-    const existingAgency = await Agency.findOne({ email });
+    // Check existing
+    const exist = await Agency.findOne({ email });
 
-    if (existingAgency) {
+    if (exist) {
       return res.status(400).json({
         success: false,
         message: "Email already registered"
       });
     }
 
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const newAgency = await Agency.create({
+    // Create agency (spread operator)
+    const agency = await Agency.create({
       ...req.body,
+
       password: hashedPassword,
-      subscription_status: "free",
-      is_active: true
+      onboarding_status: "registered",
+      is_active: true,
+      // default system values
+      status: true,               // approved (dev mode)
+      subscription_status: "free"
     });
 
-    const agencyData = newAgency.toObject();
-    delete agencyData.password;
+    const data = agency.toObject();
+    delete data.password;
 
-    return res.status(201).json({
+//     return res.status(201).json({
+//   success: true,
+//   message: "Registration successful. Awaiting admin approval.",
+//   agency: {
+//     _id: agency._id,
+//     email: agency.email,
+//     onboarding_status: agency.onboarding_status
+//   }
+// });
+return res.status(201).json({
       success: true,
-      message: "Agency registered successfully",
-      data: agencyData
-    });
+      message: "Signup successful",
+      data
+    }); 
+
 
   } catch (error) {
     return res.status(500).json({
@@ -51,10 +70,12 @@ const agencySignup = async (req, res) => {
 };
 
 
-
-
-const agencyLogin = async (req, res) => {
+/* ===========================
+   LOGIN
+=========================== */
+export const agencyLogin = async (req, res) => {
   try {
+
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -82,26 +103,36 @@ const agencyLogin = async (req, res) => {
       });
     }
 
-    if (agency.is_active === false) {
-      return res.status(403).json({
-        success: false,
-        message: "Agency account is deactivated"
-      });
-    }
+    // 🔒 Status check (approval)
+  // ADD HERE 👇
+if (agency.onboarding_status !== "approved" && agency.onboarding_status !== "completed") {
+  return res.status(403).json({
+    success: false,
+    message: "Registration successful. Awaiting admin approval. "
+  });
+}
 
+
+    // Token
     const token = jwt.sign(
-      { agencyId: agency._id, role: "AGENCY" },
+      {
+        agencyId: agency._id,
+        role: "AGENCY"
+      },
       process.env.JWT_SECRET,
       { expiresIn: "30d" }
     );
 
-    const agencyData = agency.toObject();
-    delete agencyData.password;
+    const data = agency.toObject();
+    delete data.password;
 
     return res.status(200).json({
       success: true,
       message: "Login successful",
-      data: { user: agencyData, token }
+      data: {
+        user: data,
+        token
+      }
     });
 
   } catch (error) {
@@ -113,18 +144,11 @@ const agencyLogin = async (req, res) => {
 };
 
 
-
-const updateAgency = async (req, res) => {
+/* ===========================
+   UPDATE
+=========================== */
+export const updateAgency = async (req, res) => {
   try {
-
-    // console.log("BODY:", req.body);
-
-    if (!req.body) {
-      return res.status(400).json({
-        success: false,
-        message: "Body missing"
-      });
-    }
 
     const { id } = req.query;
 
@@ -135,64 +159,54 @@ const updateAgency = async (req, res) => {
       });
     }
 
-    const allowedFields = [
-      "email",
-      "mobile_number",
-      "country_code",
-      "password",
-      "profile_photo",
-      "letter_of_authority"
-    ];
-
-    let updateData = {};
-
-    for (let field of allowedFields) {
-      if (req.body[field] !== undefined) {
-        updateData[field] = req.body[field];
-      }
-    }
-
-    if (updateData.password) {
-      updateData.password = await bcrypt.hash(updateData.password, 10);
-    }
-
-    if (Object.keys(updateData).length === 0) {
+    if (!req.body || Object.keys(req.body).length === 0) {
       return res.status(400).json({
         success: false,
         message: "Nothing to update"
       });
     }
 
+    let updateData = { ...req.body }; // ✅ spread
+
+    // Hash password if present
+    if (updateData.password) {
+      updateData.password = await bcrypt.hash(updateData.password, 10);
+    }
+
     const updated = await Agency.findByIdAndUpdate(
       id,
       { $set: updateData },
-      { new: true }
-    );
+      { new: true, runValidators: true }
+    ).select("-password");
 
-    res.json({
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Agency not found"
+      });
+    }
+
+    return res.json({
       success: true,
+      message: "Updated successfully",
       data: updated
     });
 
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({
+  } catch (error) {
+    return res.status(500).json({
       success: false,
-      message: e.message
+      message: error.message
     });
   }
 };
 
 
-
-
-
-
-
-
-
-const getAgencyById = async (req, res) => {
+/* ===========================
+   GET BY ID
+=========================== */
+export const getAgencyById = async (req, res) => {
   try {
+
     const { id } = req.params;
 
     const agency = await Agency.findById(id).select("-password");
@@ -204,7 +218,7 @@ const getAgencyById = async (req, res) => {
       });
     }
 
-    return res.status(200).json({
+    return res.json({
       success: true,
       data: agency
     });
@@ -218,15 +232,17 @@ const getAgencyById = async (req, res) => {
 };
 
 
-
-
-const getAllAgencies = async (req, res) => {
+/* ===========================
+   GET ALL
+=========================== */
+export const getAllAgencies = async (req, res) => {
   try {
-    const agencies = await Agency.find({})
+
+    const agencies = await Agency.find()
       .sort({ createdAt: -1 })
       .select("-password");
 
-    return res.status(200).json({
+    return res.json({
       success: true,
       count: agencies.length,
       data: agencies
@@ -241,10 +257,12 @@ const getAllAgencies = async (req, res) => {
 };
 
 
-
-
-const deleteAgency = async (req, res) => {
+/* ===========================
+   DELETE
+=========================== */
+export const deleteAgency = async (req, res) => {
   try {
+
     const { id } = req.params;
 
     const deleted = await Agency.findByIdAndDelete(id);
@@ -256,9 +274,9 @@ const deleteAgency = async (req, res) => {
       });
     }
 
-    return res.status(200).json({
+    return res.json({
       success: true,
-      message: "Agency deleted successfully"
+      message: "Deleted successfully"
     });
 
   } catch (error) {
@@ -267,15 +285,4 @@ const deleteAgency = async (req, res) => {
       message: error.message
     });
   }
-};
-
-
-
-export {
-  agencySignup,
-  agencyLogin,
-  updateAgency,
-  getAgencyById,
-  getAllAgencies,
-  deleteAgency
 };
