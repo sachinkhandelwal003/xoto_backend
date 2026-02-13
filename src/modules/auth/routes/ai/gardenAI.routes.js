@@ -15,7 +15,7 @@ const upload = multer({
 });
 
 const {
-  generateGardenDesigns
+  generateGardenDesigns   ,addCustomerDesign,getCustomerDesigns
 } = require("../../controllers/ai/gardenAI.controller");
 
 
@@ -37,6 +37,18 @@ router.post(
   protectCustomer,
   generateGardenDesigns
 );
+
+router.post(
+  "/post-customer-liabrary",
+  protectCustomer,
+  addCustomerDesign
+);
+router.get(
+  "/get-customer-liabrary",
+  protectCustomer,
+  getCustomerDesigns
+);
+
 
 router.get(
   "/get-interior-designs",

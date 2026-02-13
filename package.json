@@ -10,7 +10,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.958.0",
+    "@aws-sdk/client-s3": "^3.989.0",
     "@google/generative-ai": "^0.24.1",
     "antd": "^6.0.1",
     "aws-sdk": "^2.1693.0",
@@ -35,6 +35,7 @@
     "multer-s3": "^3.0.1",
     "nodemailer": "^7.0.13",
     "openai": "^6.15.0",
+    "pdfkit": "^0.17.2",
     "replicate": "^1.4.0",
     "twilio": "^5.8.2",
     "winston": "^3.17.0"

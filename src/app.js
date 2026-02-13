@@ -6,6 +6,7 @@ const createError = require('http-errors');
 const logger = require('./config/logger');
 const upload = require("../src/middleware/s3Upload.js").default
 const { uploadFileToS3 } = require("./modules/s3/upload.js");
+const {downloadImageAsPDF} =require("./modules/s3/downloadUpload.js")
 const blogRoutes = require('../src/modules/blogs/routes/index.js').default;
 const mortgageRoutes = require('./modules/mortgages/routes/index.js');
 const agencyRoutes = require('./modules/agency/routes/index.js');
@@ -39,6 +40,8 @@ app.use('/property', require('../src/modules/properties/routes/index.js'));
 app.use('/products', require('../src/modules/products/routes/index.js'));
 app.use('/profile', ProfileData);
 app.post("/upload", upload.single("file"), uploadFileToS3)
+app.get("/download-pdf", downloadImageAsPDF)
+
 app.use('/accountant', require('./modules/auth/routes/accountant/Accountant.routes'));
 app.use('/users', require('./modules/auth/routes/user/user.routes'));
 app.use('/consult', require('./modules/auth/routes/consult/consult.routes'));
