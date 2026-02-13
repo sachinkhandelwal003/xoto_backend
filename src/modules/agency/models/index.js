@@ -1,71 +1,54 @@
 const mongoose = require("mongoose");
 
 const AgencySchema = new mongoose.Schema({
+  agency_name: {
+    type: String,
+    required: true,
+    trim: true
+  },
   email: {
     type: String,
-    required: false,
-    default: "",
+    required: true,
+    unique: true,
+    trim: true
   },
   password: {
     type: String,
-    required: false,
-    default: "",
+    required: true
   },
 
-  profile_photo: {
-    type: String,
-    required: false,
-    default: "",
-  },
-  country_code: {
-    type: String,
-    required: false,
-    default: "",
-  },
-  mobile_number: {
-    type: String,
-    required: false,
-    default: "",
-  },
-  onboarding_status: {
-    type: String,
-    enum: ["registered", "approved", "completed"],
-    default: "registered",
-  },
+  profile_photo: String,
+  country_code: String,
+  mobile_number: String,
+  letter_of_authority: String,
 
-  letter_of_authority: {
-    type: String,
-    required: false,
-    default: "",
-  },
   is_email_verified: {
     type: Boolean,
-    default: true, // frontend hi kar raha hai
+    default: false
   },
 
   is_mobile_verified: {
     type: Boolean,
-    default: true,
+    default: false
   },
 
-  is_admin_approved: {
-    type: Boolean,
-    default: true,
-  },
-
-  status: {
+  onboarding_status: {
     type: String,
-    //   enum: ["pending", "approved", "rejected"],
-    default: true,
+    enum: ["registered", "approved", "rejected"],
+    default: "registered"
   },
 
   subscription_status: {
     type: String,
-    required: false,
-    default: "free",
     enum: ["free", "paid"],
+    default: "free"
   },
-  is_active: { type: Boolean, required: false, default: false },
-});
+
+  is_active: {
+    type: Boolean,
+    default: true
+  }
+
+}, { timestamps: true });
 
 module.exports = mongoose.model("Agency", AgencySchema);
