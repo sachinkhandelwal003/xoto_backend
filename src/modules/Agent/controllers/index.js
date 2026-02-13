@@ -142,7 +142,7 @@ export const agentLogin = async (req, res) => {
     }
 
     // 🔒 Approval Check
-    if (!agent.status) {
+    if (agent.isVerified !== true) {
       return res.status(403).json({
         success: false,
         message: "Account not approved"
