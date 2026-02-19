@@ -6,6 +6,8 @@ const path = require("path");
 const { PutObjectCommand } = require("@aws-sdk/client-s3");
 const s3 = require("../../../../config/s3Client");
 const AIGeneratedImages = require('../../models/user/AIGeneratedImages');
+const CustomerAiLibrary = require('../../models/user/MyLiabrary');
+
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 exports.generateGardenDesigns = async (req, res) => {
@@ -112,6 +114,61 @@ exports.getgardenDesigns = async (req, res) => {
     res.status(500).json({ error: "Failed to get garden designs" });
   }
 };
+
+exports.addCustomerDesign = async (req, res) => {
+  try {
+    const { designType, imageUrl } = req.body;
+    const customerId = req.user._id;
+
+    if (!designType || !imageUrl) {
+      return res.status(400).json({ error: "designType and imageUrl are required" });
+    }
+
+    // Add the image URL to the existing array or create a new document
+    const customerLibrary = await CustomerAiLibrary.findOneAndUpdate(
+      { customerId, designType },
+      { $addToSet: { images: imageUrl } }, // $addToSet prevents duplicates
+      { new: true, upsert: true } // upsert: create if doesn't exist, new: return updated doc
+    );
+
+    res.status(200).json({
+      message: "Design saved successfully",
+      data: customerLibrary
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to save design" });
+  }
+};
+
+
+exports.getCustomerDesigns = async (req, res) => {
+  try {
+    const customerId = req.user._id; // pass customerId in query
+    const designType = req.query.designType; // optional: "landscaping" or "interior"
+
+    if (!customerId) {
+      return res.status(400).json({ error: "customerId is required" });
+    }
+
+    let query = { customerId };
+    if (designType) {
+      query.designType = designType;
+    }
+
+    const customerLibrary = await CustomerAiLibrary.find(query);
+
+    return res.status(200).json({
+      data: customerLibrary
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to get customer designs" });
+  }
+};
+
+
+
 
 exports.getInteriorDesigns = async (req, res) => {
   try {
