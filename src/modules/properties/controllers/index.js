@@ -1,6 +1,8 @@
 import Property from "../models/PropertyModel.js";
 import Developer from "../models/DeveloperModel.js";
 import { Role } from '../../../modules/auth/models/role/role.model.js';
+import { createToken } from '../../../middleware/auth.js';
+import bcrypt from "bcryptjs";
 
 
 // import Agent from "../models/Agent.js";
@@ -8,7 +10,7 @@ import jwt from "jsonwebtoken";
 
 export const createDeveloper = async (req, res) => {
     try {
-        const { name } = req.body;
+        const { name ,password } = req.body;
 
         if (!name) {
             return res.status(400).json({
@@ -37,7 +39,11 @@ export const createDeveloper = async (req, res) => {
                 message: "Role with code 17 not found"
             });
         }        
-        let developer = await Developer.create({ ...req.body,role:roleDoc._id });
+
+
+            const hashedPassword = await bcrypt.hash(password, 10);
+        
+        let developer = await Developer.create({ ...req.body,role:roleDoc._id ,password:hashedPassword });
 
         return res.status(201).json({
             success: true,
@@ -54,49 +60,61 @@ export const createDeveloper = async (req, res) => {
 };
 
 export const loginDeveloper = async (req, res) => {
-    try {
-        const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-        // // check if developer already exists
-        // let developer = await Developer.findOne({ name });
-
-        // if (developer) {
-        //   return res.status(200).json({
-        //     success: true,
-        //     message: "Developer already exists",
-        //     developer
-        //   });
-        // }
-
-        let developer = await Developer.findOne({ email, password });
-
-        if (!developer) {
-            return res.status(201).json({
-                success: true,
-                message: "No developer found",
-                data: null
-            });
-        }
-
-
-            let token = jwt.sign({ email: developer.email, name: developer.name }, process.env.JWT_SECRET, {
-                expiresIn: process.env.JWT_EXPIRE || "30d",
-              });
-
-        return res.status(201).json({
-            success: true,
-            message: "Developer login successfully",
-            data: developer,
-            token
-        });
-
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: error.message
-        });
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password required",
+      });
     }
+
+    const developer = await Developer.findOne({ email })
+      .select("+password")
+      .populate({
+        path: "role",
+        model: Role,
+      });
+
+    if (!developer) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials",
+      });
+    }
+
+    const isMatch = await bcrypt.compare(password, developer.password);
+
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials",
+      });
+    }
+
+    // ✅ Use same token method as agent
+    const token = createToken(developer);
+
+    // Remove password before sending
+    const developerResponse = developer.toObject();
+    delete developerResponse.password;
+
+    return res.status(200).json({
+      success: true,
+      message: "Developer login successful",
+      token,
+      developer: developerResponse,
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
 };
+
 
 
 export const createProperty = async (req, res) => {

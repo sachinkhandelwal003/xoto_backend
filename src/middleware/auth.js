@@ -13,6 +13,8 @@ const Freelancer = require("../modules/auth/models/Freelancer/freelancer.model")
 
 const AllUsers = require("../modules/auth/models/user/user.model");
 const Customer = require("../modules/auth/models/user/customer.model");
+const Agent =require("../modules/Agent/models/agent")
+const Developer =require("../modules/properties/models/DeveloperModel")
 
 const { getUserPermissions } = require("./permission");
 
@@ -133,7 +135,9 @@ exports.protectMulti = async (req, res, next) => {
       business: Business,
       vendorb2b: Vendorb2b,
       vendorb2c: Vendorb2c,
-      customer: Customer   // ⭐ ADDED HERE
+      customer: Customer ,  // ⭐ ADDED HERE,
+        agent: Agent,           // role code 16
+  developer: Developer
     };
 
     const Model = entityMap[type];

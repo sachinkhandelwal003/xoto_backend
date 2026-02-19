@@ -3,17 +3,13 @@ const mongoose = require("mongoose");
 const AgentSchema = new mongoose.Schema({
   first_name: {
     type: String,
-    required: true,
     trim: true
   },
   last_name: {
     type: String,
     trim: true
   },
-  name: {
-    type: String,
-    trim: true
-  },
+  
    role: {
           type: mongoose.Schema.Types.ObjectId,
           ref: 'Role',

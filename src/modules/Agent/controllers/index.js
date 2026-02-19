@@ -2,6 +2,7 @@ import Agent from "../models/agent.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { Role } from '../../../modules/auth/models/role/role.model.js';
+import { createToken } from '../../../middleware/auth.js';
 
 /* =====================================
    1️⃣ AGENT SIGNUP
@@ -10,7 +11,8 @@ export const agentSignup = async (req, res) => {
   try {
 
     const allowedFields = [
-      "name",
+      "first_name",
+            "last_name",
       "email",
       "phone_number",
       "country_code",
@@ -31,14 +33,15 @@ export const agentSignup = async (req, res) => {
       }
     });
 
-    const { name, email, password, phone_number } = req.body;
+    const { last_name,first_name, email, password, phone_number } = req.body;
 
-    if (!name || !email || !password || !phone_number) {
+    if (!first_name || !last_name || !password || !phone_number) {
       return res.status(400).json({
         success: false,
         message: "Required fields missing"
       });
     }
+
  const roleDoc = await Role.findOne({ code: 16 });
         if (!roleDoc) {
             return res.status(404).json({
@@ -64,11 +67,11 @@ export const agentSignup = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const fullName = `${first_name} ${last_name || ""}`.trim();
 
     const newAgent = await Agent.create({
       ...safeData,
-      name: fullName,
+      first_name,
+      last_name,
       password: hashedPassword,
 role:roleDoc._id,
       // Verification & Approval flags
@@ -84,7 +87,6 @@ role:roleDoc._id,
       agent: {
         _id: newAgent._id,
         email: newAgent.email,
-        full_name: newAgent.name,
         onboarding_status: newAgent.onboarding_status
       }
     });
@@ -102,87 +104,74 @@ role:roleDoc._id,
    2️⃣ AGENT LOGIN
 ===================================== */
 export const agentLogin = async (req, res) => {
-  try {
+  const { email, password } = req.body;
 
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password required"
-      });
-    }
-
-    const agent = await Agent.findOne({ email });
-
-    if (!agent) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid credentials"
-      });
-    }
-
-    const match = await bcrypt.compare(password, agent.password);
-
-    if (!match) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid credentials"
-      });
-    }
-
-    // 🔒 Email Verification Check
-    if (!agent.is_email_verified) {
-      return res.status(403).json({
-        success: false,
-        message: "Please verify your email first"
-      });
-    }
-
-    // 🔒 Mobile Verification Check
-    if (!agent.is_mobile_verified) {
-      return res.status(403).json({
-        success: false,
-        message: "Please verify your mobile number first"
-      });
-    }
-
-    // 🔒 Approval Check
-    if (!agent.isVerified) {
-      return res.status(403).json({
-        success: false,
-        message: "Account not approved"
-      });
-    }
-
-    const token = jwt.sign(
-      {
-        agentId: agent._id,
-        role: "AGENT"
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "30d" }
-    );
-
-    const data = agent.toObject();
-    delete data.password;
-
-    return res.status(200).json({
-      success: true,
-      message: "Login successful",
-      data: {
-        user: data,
-        token
-      }
-    });
-
-  } catch (error) {
-    return res.status(500).json({
+  if (!email || !password) {
+    return res.json({
       success: false,
-      message: error.message
+      message: "Email and password required",
     });
   }
+
+  const agent = await Agent.findOne({ email })
+    .select('+password')
+    .populate({
+      path: 'role',
+      model: Role,   // make sure Role is imported
+    });
+
+  if (!agent) {
+    return res.json({
+      success: false,
+      message: "Invalid credentials",
+    });
+  }
+
+  const isMatch = await bcrypt.compare(password, agent.password);
+  if (!isMatch) {
+    return res.json({
+      success: false,
+      message: "Invalid credentials",
+    });
+  }
+
+  // Verification checks
+  if (!agent.is_email_verified) {
+    return res.json({
+      success: false,
+      message: "Please verify your email first",
+    });
+  }
+
+  if (!agent.is_mobile_verified) {
+    return res.json({
+      success: false,
+      message: "Please verify your mobile number first",
+    });
+  }
+
+  if (!agent.isVerified) {
+    return res.json({
+      success: false,
+      message: "Account not approved",
+    });
+  }
+
+  // Generate token
+  const token = createToken(agent);
+
+  // Remove password
+  const agentResponse = agent.toObject();
+  delete agentResponse.password;
+
+  return res.json({
+    success: true,
+    message: "Login successful",
+    token,
+    agent: agentResponse,
+  });
 };
+
 
 
 /* =====================================
