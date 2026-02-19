@@ -1,5 +1,8 @@
 import Property from "../models/PropertyModel.js";
 import Developer from "../models/DeveloperModel.js";
+import { Role } from '../../../modules/auth/models/role/role.model.js';
+
+
 // import Agent from "../models/Agent.js";
 import jwt from "jsonwebtoken";
 
@@ -14,6 +17,8 @@ export const createDeveloper = async (req, res) => {
             });
         }
 
+
+
         // // check if developer already exists
         // let developer = await Developer.findOne({ name });
 
@@ -25,7 +30,14 @@ export const createDeveloper = async (req, res) => {
         //   });
         // }
 
-        let developer = await Developer.create({ ...req.body });
+    const roleDoc = await Role.findOne({ code: 17 });
+        if (!roleDoc) {
+            return res.status(404).json({
+                success: false,
+                message: "Role with code 17 not found"
+            });
+        }        
+        let developer = await Developer.create({ ...req.body,role:roleDoc._id });
 
         return res.status(201).json({
             success: true,

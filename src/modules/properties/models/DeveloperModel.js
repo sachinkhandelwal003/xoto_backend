@@ -8,6 +8,12 @@ const DeveloperSchema = new mongoose.Schema({
     email: { type: String, trim: true, default: "", required: false },
     logo: { type: String, default: "", trim: true, required: false },
     description: { type: String, default: "", trim: true, required: false },
+     role: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Role',
+            required: false,
+            default:null
+          },
     websiteUrl: {
         type: String,
         default: "",

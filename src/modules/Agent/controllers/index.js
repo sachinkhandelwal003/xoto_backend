@@ -1,6 +1,7 @@
 import Agent from "../models/agent.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { Role } from '../../../modules/auth/models/role/role.model.js';
 
 /* =====================================
    1️⃣ AGENT SIGNUP
@@ -39,7 +40,13 @@ export const agentSignup = async (req, res) => {
         message: "Required fields missing"
       });
     }
-
+ const roleDoc = await Role.findOne({ code: 16 });
+        if (!roleDoc) {
+            return res.status(404).json({
+                success: false,
+                message: "Role with code 16 not found"
+            });
+        }  
     const existingEmail = await Agent.findOne({ email });
     if (existingEmail) {
       return res.status(400).json({
@@ -64,7 +71,7 @@ export const agentSignup = async (req, res) => {
       ...safeData,
       name: fullName,
       password: hashedPassword,
-
+role:roleDoc._id,
       // Verification & Approval flags
       is_email_verified: true,      // frontend handled
       is_mobile_verified: true,

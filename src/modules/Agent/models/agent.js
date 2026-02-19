@@ -16,6 +16,13 @@ const AgentSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+   role: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Role',
+          required: false,
+          default:null
+        },
+
   email: {
     type: String,
     required: true,
