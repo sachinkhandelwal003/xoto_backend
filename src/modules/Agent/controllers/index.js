@@ -10,8 +10,7 @@ export const agentSignup = async (req, res) => {
   try {
 
     const allowedFields = [
-      "first_name",
-      "last_name",
+      "name",
       "email",
       "phone_number",
       "country_code",
@@ -32,9 +31,9 @@ export const agentSignup = async (req, res) => {
       }
     });
 
-    const { first_name, last_name, email, password, phone_number } = req.body;
+    const { name, email, password, phone_number } = req.body;
 
-    if (!first_name || !email || !password || !phone_number) {
+    if (!name || !email || !password || !phone_number) {
       return res.status(400).json({
         success: false,
         message: "Required fields missing"

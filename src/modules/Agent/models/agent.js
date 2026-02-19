@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 
 const AgentSchema = new mongoose.Schema({
-  // Personal Info
   first_name: {
     type: String,
     required: true,
@@ -9,7 +8,6 @@ const AgentSchema = new mongoose.Schema({
   },
   last_name: {
     type: String,
-    required: true,
     trim: true
   },
   name: {
@@ -91,14 +89,55 @@ is_mobile_verified: {
   default: true
 },
 
+subscriptionPlan: {
+        type: String,
+        enum: ["free", "paid"],
+        default: "free",
+        required: false
+    },
+
+    subscriptionExpiry: {
+        type: Date,
+        default: null,
+        required: false
+    },
+
+
+    notificationSettings_email: {
+        type: Boolean, default: true,
+        required: false
+    },
+    notificationSettings_sms: {
+        type: Boolean, default: false,
+        required: false
+    },
+    notificationSettings_whatsapp: {
+        type: Boolean, default: true,
+        required: false
+    },
+
+    presentationsGenerated_count: {
+        type: Number,
+        default: 0,
+        required: false
+    },
+
+    leadsCreated_count: {
+        type: Number,
+        default: 0,
+        required: false
+    },
+
+    dealsClosed_count: {
+        type: Number,
+        default: 0,
+        required: false
+    },
+
 
 }, { timestamps: true });
 
-// Auto Name Generation
-AgentSchema.pre("save", function (next) {
-  this.name = `${this.first_name} ${this.last_name}`;
-  next();
-});
+
 
 // Model Export
 module.exports = mongoose.models.Agent || mongoose.model("Agent", AgentSchema);
