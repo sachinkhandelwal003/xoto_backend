@@ -17,7 +17,7 @@ const Notification = require("../src/modules/Notification/Routes/NotificationRou
 const PropertyLead = require("./modules/auth/routes/consult/propertyLead.route").default
 const ProfileData = require("./modules/profile/routes/index.js").default
 const agentRoutes = require('./modules/Agent/routes/index.js');
-
+const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
 // Middleware
 app.use(cors());
 app.use(helmet());
@@ -75,7 +75,8 @@ app.use('/vendor/b2b', require('../src/modules/auth/routes/vendor/vendorb2b.rout
 app.use('/business', require('../src/modules/auth/routes/freelancer/freelancerbusiness.routes'));
 
 
-
+// 
+app.use('/ai/enhance', enhancementRoutes);
 // landscapping freelacer
 
 app.use('/freelancer', require('../src/modules/auth/routes/freelancer/freelancer.routes'));
