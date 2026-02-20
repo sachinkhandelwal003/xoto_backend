@@ -69,7 +69,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// === START SERVER ===
+// === START SERVERfgs ===
 const startServer = async () => {
   try {
     await connectDB();
