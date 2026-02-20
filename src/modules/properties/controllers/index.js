@@ -186,11 +186,13 @@ export const editProperty = async (req, res) => {
 
 export const getAllProperties = async (req, res) => {
     try {
-
         let page = Number(req.query.page) || 1;
         let limit = Number(req.query.limit) || 10;
         let skip = (page - 1) * limit;
         let isFeatured = req.query.isFeatured;
+
+        // ✅ 1. Developer ID filter pakadne ke liye query param add karein
+        const { developerId } = req.query; 
 
         let query = {};
 
@@ -198,10 +200,18 @@ export const getAllProperties = async (req, res) => {
             query.isFeatured = true;
         }
 
-        const property = await Property.find(query).populate("developer").sort({ createdAt: -1 }).limit(limit).skip(skip);
+        // ✅ 2. Agar frontend se developerId bheji gayi hai, toh query mein add karein
+        if (developerId) {
+            query.developer = developerId; 
+        }
+
+        const property = await Property.find(query)
+            .populate("developer")
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .skip(skip);
 
         let total = await Property.countDocuments(query);
-
 
         return res.status(200).json({
             success: true,
