@@ -5,7 +5,7 @@ import { PutObjectCommand } from "@aws-sdk/client-s3";
 import s3 from "../../../config/s3Client.js";
 
 import EnhancementImage from
-"../../ImageEnhancer/Model/Image.js";
+    "../../ImageEnhancer/Model/Image.js";
 
 import OpenAI from "openai";
 
@@ -17,7 +17,7 @@ import OpenAI from "openai";
 
 const client = new OpenAI({
 
-apiKey:process.env.OPENAI_API_KEY
+    apiKey: process.env.OPENAI_API_KEY
 
 });
 
@@ -27,279 +27,279 @@ apiKey:process.env.OPENAI_API_KEY
 // ENHANCE IMAGE
 // =======================================
 
-export const enhanceImage = async (req,res)=>{
+export const enhanceImage = async (req, res) => {
 
-console.log("🚀 XOTO Enhancement Started");
+    console.log("🚀 XOTO Enhancement Started");
 
-try{
+    try {
 
-const imageFile=req.files?.[0];
+        const imageFile = req.files?.[0];
 
-if(!imageFile){
+        if (!imageFile) {
 
-return res.status(400).json({
+            return res.status(400).json({
 
-status:false,
+                status: false,
 
-error:"Image upload nahi hui"
+                error: "Image upload nahi hui"
 
-});
+            });
 
-}
+        }
 
 
-// ==========================
-// 10MB LIMIT
-// ==========================
+        // ==========================
+        // 10MB LIMIT
+        // ==========================
 
-if(imageFile.size >
+        if (imageFile.size >
 
-10*1024*1024){
+            10 * 1024 * 1024) {
 
-return res.status(400).json({
+            return res.status(400).json({
 
-status:false,
+                status: false,
 
-error:"Max 10MB image allowed"
+                error: "Max 10MB image allowed"
 
-});
+            });
 
-}
+        }
 
 
-const user=req.user;
+        const user = req.user;
 
 
-// DEFAULT OPENAI
+        // DEFAULT OPENAI
 
-const {provider="openai"}=
+        const { provider = "openai" } =
 
-req.body;
+            req.body;
 
-let enhancedBuffer;
+        let enhancedBuffer;
 
 
 
-// =======================================
-// OPENAI ENHANCEMENT
-// =======================================
+        // =======================================
+        // OPENAI ENHANCEMENT
+        // =======================================
 
-if(provider==="openai"){
+        if (provider === "openai") {
 
-console.log("🤖 Using OpenAI");
+            console.log("🤖 Using OpenAI");
 
 
-// Convert to AI file
+            // Convert to AI file
 
-const imageForAI =
+            const imageForAI =
 
-await OpenAI.toFile(
+                await OpenAI.toFile(
 
-imageFile.buffer,
+                    imageFile.buffer,
 
-imageFile.originalname,
+                    imageFile.originalname,
 
-{
+                    {
 
-type:imageFile.mimetype
+                        type: imageFile.mimetype
 
-}
+                    }
 
-);
+                );
 
 
-// AI EDIT IMAGE
+            // AI EDIT IMAGE
 
-const response=
+            const response =
 
-await client.images.edit({
+                await client.images.edit({
 
-model:"gpt-image-1",
+                    model: "gpt-image-1",
 
-image:imageForAI,
+                    image: imageForAI,
 
-prompt:
+                    prompt:
 
-"Enhance professionally. Improve lighting, sharpness, clarity and realism.",
+                        "Enhance professionally. Improve lighting, sharpness, clarity and realism.",
 
-size:"1024x1024"
+                    size: "1024x1024"
 
-});
+                });
 
 
-// BUFFER
+            // BUFFER
 
-enhancedBuffer=
+            enhancedBuffer =
 
-Buffer.from(
+                Buffer.from(
 
-response.data[0].b64_json,
+                    response.data[0].b64_json,
 
-"base64"
+                    "base64"
 
-);
+                );
 
-}
+        }
 
 
 
-// =======================================
-// PHOTOROOM OPTIONAL
-// =======================================
+        // =======================================
+        // PHOTOROOM OPTIONAL
+        // =======================================
 
-else if(provider==="photoroom"){
+        else if (provider === "photoroom") {
 
-console.log("📡 Using Photoroom");
+            console.log("📡 Using Photoroom");
 
-const formData=new FormData();
+            const formData = new FormData();
 
-formData.append(
+            formData.append(
 
-"image_file",
+                "image_file",
 
-imageFile.buffer,
+                imageFile.buffer,
 
-{
+                {
 
-filename:imageFile.originalname,
+                    filename: imageFile.originalname,
 
-contentType:imageFile.mimetype
+                    contentType: imageFile.mimetype
 
-}
+                }
 
-);
+            );
 
-const response=
+            const response =
 
-await axios.post(
+                await axios.post(
 
-"https://sdk.photoroom.com/v1/segment",
+                    "https://sdk.photoroom.com/v1/segment",
 
-formData,
+                    formData,
 
-{
+                    {
 
-headers:{
+                        headers: {
 
-...formData.getHeaders(),
+                            ...formData.getHeaders(),
 
-"x-api-key":
+                            "x-api-key":
 
-process.env.PHOTOROOM_API_KEY
+                                process.env.PHOTOROOM_API_KEY
 
-},
+                        },
 
-responseType:"arraybuffer"
+                        responseType: "arraybuffer"
 
-}
+                    }
 
-);
+                );
 
-enhancedBuffer=
+            enhancedBuffer =
 
-Buffer.from(response.data);
+                Buffer.from(response.data);
 
-}
+        }
 
 
 
-// =======================================
-// SAVE TO AWS S3
-// =======================================
+        // =======================================
+        // SAVE TO AWS S3
+        // =======================================
 
-const ext=
+        const ext =
 
-imageFile.mimetype.split("/")[1] || "png";
+            imageFile.mimetype.split("/")[1] || "png";
 
-const fileName=
+        const fileName =
 
-`enhancement/${Date.now()}_xoto.${ext}`;
+            `enhancement/${Date.now()}_xoto.${ext}`;
 
 
-await s3.send(
+        await s3.send(
 
-new PutObjectCommand({
+            new PutObjectCommand({
 
-Bucket:
+                Bucket:
 
-process.env.AWS_S3_BUCKET,
+                    process.env.AWS_S3_BUCKET,
 
-Key:fileName,
+                Key: fileName,
 
-Body:enhancedBuffer,
+                Body: enhancedBuffer,
 
-ContentType:imageFile.mimetype
+                ContentType: imageFile.mimetype
 
-})
+            })
 
-);
+        );
 
 
-const finalImageUrl=
+        const finalImageUrl =
 
-`https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
+            `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
 
 
 
-// =======================================
-// SAVE DATABASE
-// =======================================
+        // =======================================
+        // SAVE DATABASE
+        // =======================================
 
-if(user){
+        if (user) {
 
-await EnhancementImage.create({
+            await EnhancementImage.create({
 
-imageUrl:finalImageUrl,
+                imageUrl: finalImageUrl,
 
-originalImage:imageFile.originalname,
+                originalImage: imageFile.originalname,
 
-userType:"customer",
+                userType: "customer",
 
-userId:user._id,
+                userId: user._id,
 
-designType:"enhancement",
+                designType: "enhancement",
 
-enhancementDetails:{
+                enhancementDetails: {
 
-provider
+                    provider
 
-}
+                }
 
-});
+            });
 
-}
+        }
 
 
 
-// RESPONSE
+        // RESPONSE
 
-res.json({
+        res.json({
 
-status:true,
+            status: true,
 
-imageUrl:finalImageUrl,
+            imageUrl: finalImageUrl,
 
-message:
+            message:
 
-`Image Enhanced using ${provider}`
+                `Image Enhanced using ${provider}`
 
-});
+        });
 
-}
+    }
 
-catch(err){
+    catch (err) {
 
-console.error("❌ Xoto Error:",err);
+        console.error("❌ Xoto Error:", err);
 
-res.status(500).json({
+        res.status(500).json({
 
-status:false,
+            status: false,
 
-error:err.message
+            error: err.message
 
-});
+        });
 
-}
+    }
 
 };
 
@@ -309,43 +309,43 @@ error:err.message
 // SAVE TO LIBRARY
 // =======================================
 
-export const saveToLibrary=async(req,res)=>{
+export const saveToLibrary = async (req, res) => {
 
-try{
+    try {
 
-const saved=
+        const saved =
 
-await EnhancementImage.create({
+            await EnhancementImage.create({
 
-imageUrl:req.body.imageUrl,
+                imageUrl: req.body.imageUrl,
 
-userType:"customer",
+                userType: "customer",
 
-userId:req.user._id,
+                userId: req.user._id,
 
-designType:req.body.designType
+                designType: req.body.designType
 
-});
+            });
 
-res.json({
+        res.json({
 
-status:true,
+            status: true,
 
-data:saved
+            data: saved
 
-});
+        });
 
-}
+    }
 
-catch(err){
+    catch (err) {
 
-res.status(500).json({
+        res.status(500).json({
 
-error:err.message
+            error: err.message
 
-});
+        });
 
-}
+    }
 
 };
 
@@ -355,57 +355,57 @@ error:err.message
 // GET LIBRARY
 // =======================================
 
-export const getLibraryImages=
+export const getLibraryImages =
 
-async(req,res)=>{
+    async (req, res) => {
 
-try{
+        try {
 
-const images=
+            const images =
 
-await EnhancementImage.find({
+                await EnhancementImage.find({
 
-userId:req.user._id
+                    userId: req.user._id
 
-})
+                })
 
-.sort({
+                    .sort({
 
-createdAt:-1
+                        createdAt: -1
 
-});
+                    });
 
-res.json({
+            res.json({
 
-status:true,
+                status: true,
 
-data:[{
+                data: [{
 
-_id:req.user._id,
+                    _id: req.user._id,
 
-images:
+                    images:
 
-images.map(i=>i.imageUrl),
+                        images.map(i => i.imageUrl),
 
-createdAt:new Date()
+                    createdAt: new Date()
 
-}]
+                }]
 
-});
+            });
 
-}
+        }
 
-catch(err){
+        catch (err) {
 
-res.status(500).json({
+            res.status(500).json({
 
-error:err.message
+                error: err.message
 
-});
+            });
 
-}
+        }
 
-};
+    };
 
 
 
@@ -413,46 +413,46 @@ error:err.message
 // COUNT
 // =======================================
 
-export const getEnhancementCount=
+export const getEnhancementCount =
 
-async(req,res)=>{
+    async (req, res) => {
 
-try{
+        try {
 
-const count=
+            const count =
 
-await EnhancementImage
+                await EnhancementImage
 
-.countDocuments({
+                    .countDocuments({
 
-userId:req.user._id
+                        userId: req.user._id
 
-});
+                    });
 
-res.json({
+            res.json({
 
-status:true,
+                status: true,
 
-count,
+                count,
 
-remaining:
+                remaining:
 
-Math.max(0,3-count),
+                    Math.max(0, 3 - count),
 
-limit:3
+                limit: 3
 
-});
+            });
 
-}
+        }
 
-catch(err){
+        catch (err) {
 
-res.status(500).json({
+            res.status(500).json({
 
-error:err.message
+                error: err.message
 
-});
+            });
 
-}
+        }
 
-};
+    };

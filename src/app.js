@@ -4,6 +4,7 @@ const morgan = require('morgan');
 const helmet = require('helmet');
 const createError = require('http-errors');
 const logger = require('./config/logger');
+const Skyimport = require('./modules/ImageEnhancer/Routes/SkyRoutes.js')
 const upload = require("../src/middleware/s3Upload.js").default
 const { uploadFileToS3 } = require("./modules/s3/upload.js");
 const {downloadImageAsPDF} =require("./modules/s3/downloadUpload.js")
@@ -18,6 +19,9 @@ const PropertyLead = require("./modules/auth/routes/consult/propertyLead.route")
 const ProfileData = require("./modules/profile/routes/index.js").default
 const agentRoutes = require('./modules/Agent/routes/index.js');
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
+// console.log("SkyRoutes Check:", SkyRoutes);
+
+// const SkyRoutes = Skyimport.default || Skyimport;
 // Middleware
 app.use(cors());
 app.use(helmet());
@@ -75,8 +79,11 @@ app.use('/vendor/b2b', require('../src/modules/auth/routes/vendor/vendorb2b.rout
 app.use('/business', require('../src/modules/auth/routes/freelancer/freelancerbusiness.routes'));
 
 
-// 
+// image ehncnace,ent 
 app.use('/ai/enhance', enhancementRoutes);
+// sky replacement
+
+app.use('/ai/sky-replacement', Skyimport);
 // landscapping freelacer
 
 app.use('/freelancer', require('../src/modules/auth/routes/freelancer/freelancer.routes'));

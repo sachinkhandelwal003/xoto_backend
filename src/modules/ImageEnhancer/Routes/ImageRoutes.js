@@ -9,8 +9,8 @@ import * as imageController from "../Controllers/ImageController.js";
 
 const router = express.Router();
 
-console.log("🚀 Loading ImageRoutes...");
-console.log("Controller Functions:", Object.keys(imageController));
+// console.log("🚀 Loading ImageRoutes...");
+// console.log("Controller Functions:", Object.keys(imageController));
 
 
 // =====================
@@ -99,6 +99,6 @@ router.get("/test",(req,res)=>{
 });
 
 
-console.log("✅ ImageRoutes Loaded Successfully");
+// console.log("✅ ImageRoutes Loaded Successfully");
 
 export default router;
