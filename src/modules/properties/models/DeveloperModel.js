@@ -56,5 +56,5 @@ const DeveloperSchema = new mongoose.Schema({
     commissionStatus_stats: { type: String, default: "pending", required: false, enum: ["pending", "approved", "paid", "rejected"] }
 }, { timestamps: true });
 
-const Developer = mongoose.model("Developer", DeveloperSchema);
+const Developer = mongoose.model("Developer", DeveloperSchema, "Developers");
 module.exports = Developer;
