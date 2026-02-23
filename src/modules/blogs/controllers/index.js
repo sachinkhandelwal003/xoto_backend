@@ -15,35 +15,55 @@ export const createBlog = async (req, res) => {
     }
 }
 
-
 export const getBlogs = async (req, res) => {
     try {
-
         let page = Number(req.query.page) || 1;
         let limit = Number(req.query.limit) || 10;
         let search = req.query.search || "";
+        let isPublished = req.query.isPublished;   // ✅ NEW
         let skip = (page - 1) * limit;
 
         let query = {};
 
-        if (search != "") {
+        // ✅ Search filter
+        if (search !== "") {
             query.$or = [
                 { title: { $regex: search, $options: "i" } },
                 { content: { $regex: search, $options: "i" } }
-            ]
+            ];
         }
 
-        let allBlogs = await Blog.find(query).sort({ createdAt: -1 }).limit(limit).skip(skip);
+        // ✅ Published filter
+        if (isPublished !== undefined) {
+            query.isPublished = isPublished === "true";
+        }
+
+        let allBlogs = await Blog.find(query)
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .skip(skip);
+
         let total = await Blog.countDocuments(query);
 
-        return res.status(200).json({ success: true, message: "Blogs fetched successfully", data: allBlogs, pagination: { total, page, limit, totalPages: Math.ceil(total / limit) } })
+        return res.status(200).json({
+            success: true,
+            message: "Blogs fetched successfully",
+            data: allBlogs,
+            pagination: {
+                total,
+                page,
+                limit,
+                totalPages: Math.ceil(total / limit)
+            }
+        });
+
     } catch (error) {
         return res.status(500).json({
             success: false,
             message: error.message
         });
     }
-}
+};
 
 export const getBlogsById = async (req, res) => {
     try {
