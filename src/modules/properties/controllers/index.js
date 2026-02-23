@@ -416,7 +416,8 @@ export const getPropertyById = async (req, res) => {
         let id = req.query.id;
 
 
-        const property = await Property.findOne({ _id: id })
+        const property = await Property.findById(id)
+  .populate("developer");
 
 
         return res.status(200).json({
