@@ -6,10 +6,9 @@ const PropertySchema = new mongoose.Schema(
     // BASIC INFO
     // =========================
     developer: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Developer",
-      required: false
-    },
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Developer"
+},
 
     propertyName: {
       type: String,
