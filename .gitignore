@@ -1,0 +1,81 @@
+# -----------------------------------------
+# Node & Dependencies
+# -----------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# PM2 logs
+.pids
+logs/
+*.log
+
+# -----------------------------------------
+# Environment Files (IMPORTANT)
+# -----------------------------------------
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+.env.*
+!.env.example
+
+# -----------------------------------------
+# Build / Cache
+# -----------------------------------------
+dist/
+build/
+.cache/
+.temp/
+.tmp/
+coverage/
+.babelcache.json
+
+# -----------------------------------------
+# OS / IDE / Editor Files
+# -----------------------------------------
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# VSCode
+.vscode/
+.history/
+.idea/
+
+# JetBrains
+*.iml
+*.ipr
+*.iws
+
+# -----------------------------------------
+# Uploads / Temp Storage
+# -----------------------------------------
+uploads/
+temp/
+tmp/
+
+# -----------------------------------------
+# Logs / Debug
+# -----------------------------------------
+*.log
+*.gz
+
+# -----------------------------------------
+# TypeScript
+# -----------------------------------------
+*.tsbuildinfo
+
+# -----------------------------------------
+# Misc
+# -----------------------------------------
+package-lock.json
+yarn.lock
+pnpm-lock.yaml

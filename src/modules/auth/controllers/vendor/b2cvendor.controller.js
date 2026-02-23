@@ -1,0 +1,870 @@
+const winston = require('winston');
+const VendorB2C = require('../../models/Vendor/B2cvendor.model');
+const { StatusCodes } = require('../../../../utils/constants/statusCodes');
+const { APIError } = require('../../../../utils/errorHandler');
+const asyncHandler = require('../../../../utils/asyncHandler');
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const { createToken } = require('../../../../middleware/auth');
+const { Role } = require('../../models/role/role.model');
+const Category = require('../../../ecommerce/B2C/models/category.model'); // Adjust path to your Category model
+// Configure Winston logger
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: 'logs/vendor.log' }),
+    new winston.transports.Console()
+  ]
+});
+
+// Vendor Login
+exports.vendorLogin = asyncHandler(async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+
+    // Find vendor and populate role
+    const vendor = await VendorB2C.findOne({ email })
+      .select('+password')
+      .populate({
+        path: 'role',
+        model: Role,
+      });
+
+    if (!vendor) {
+      throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
+    }
+
+    // Compare hashed password
+    const isMatch = await bcrypt.compare(password, vendor.password);
+    if (!isMatch) {
+      throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
+    }
+
+    // Generate token
+    const token = createToken(vendor);
+
+    // Convert to object & remove password
+    const vendorResponse = vendor.toObject();
+    delete vendorResponse.password;
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: 'Login successful',
+      token,
+      vendor: vendorResponse,
+    });
+  } catch (error) {
+    if (!error.message) error.message = 'Unidentified error';
+    next(error);
+  }
+});
+
+  exports.updateVendorProfile = asyncHandler(async (req, res) => {
+    const vendorId = req.user._id;
+
+    let vendor = await VendorB2C.findById(vendorId);
+    if (!vendor) {
+      throw new APIError("Vendor not found", StatusCodes.NOT_FOUND);
+    }
+
+    const data = req.body;
+
+    /** -----------------------------
+     *  UPDATE BASIC INFORMATION
+     * ----------------------------- */
+    if (data.first_name) vendor.name.first_name = data.first_name.trim();
+    if (data.last_name) vendor.name.last_name = data.last_name.trim();
+
+    /** -----------------------------
+     *  UPDATE STORE DETAILS
+     * ----------------------------- */
+    if (data.store_name) vendor.store_details.store_name = data.store_name;
+    if (data.store_description) vendor.store_details.store_description = data.store_description;
+    if (data.store_type) vendor.store_details.store_type = data.store_type;
+    if (data.store_address) vendor.store_details.store_address = data.store_address;
+    if (data.city) vendor.store_details.city = data.city;
+    if (data.state) vendor.store_details.state = data.state;
+    if (data.country) vendor.store_details.country = data.country;
+    if (data.pincode) vendor.store_details.pincode = data.pincode;
+    if (data.website) vendor.store_details.website = data.website;
+
+    if (data.categories) {
+      vendor.store_details.categories = data.categories.split(",").map(
+        id => new mongoose.Types.ObjectId(id)
+      );
+    }
+
+    vendor.store_details.social_links = {
+      ...vendor.store_details.social_links,
+      ...data.social_links
+    };
+
+    /** -----------------------------
+     *  UPDATE REGISTRATION
+     * ----------------------------- */
+    if (data.pan_number) vendor.registration.pan_number = data.pan_number.toUpperCase();
+    if (data.gstin) vendor.registration.gstin = data.gstin.toUpperCase();
+
+    /** -----------------------------
+     *  UPDATE CONTACTS
+     * ----------------------------- */
+    if (data.primary_contact_name) {
+      vendor.contacts.primary_contact = {
+        name: data.primary_contact_name,
+        designation: data.primary_contact_designation,
+        email: data.primary_contact_email,
+        mobile: data.primary_contact_mobile,
+        whatsapp: data.primary_contact_whatsapp
+      };
+    }
+
+    if (data.support_contact_name) {
+      vendor.contacts.support_contact = {
+        name: data.support_contact_name,
+        designation: data.support_contact_designation,
+        email: data.support_contact_email,
+        mobile: data.support_contact_mobile,
+        whatsapp: data.support_contact_whatsapp
+      };
+    }
+
+    /** -----------------------------
+     *  UPDATE BANK DETAILS
+     * ----------------------------- */
+    vendor.bank_details = {
+      ...vendor.bank_details,
+      ...data
+    };
+
+    /** -----------------------------
+     *  UPDATE OPERATIONS
+     * ----------------------------- */
+    if (data.delivery_modes) {
+      vendor.operations.delivery_modes = data.delivery_modes.split(",");
+    }
+
+    if (data.return_policy) vendor.operations.return_policy = data.return_policy;
+    if (data.avg_delivery_time_days) vendor.operations.avg_delivery_time_days = Number(data.avg_delivery_time_days);
+
+    /** -----------------------------
+     *  UPDATE DOCUMENTS
+     * ----------------------------- */
+    if (req.files?.logo?.[0]) vendor.store_details.logo = req.files.logo[0].path;
+
+    if (req.files?.identity_proof?.[0]) {
+      vendor.documents.identity_proof = {
+        path: req.files.identity_proof[0].path,
+        verified: false
+      };
+    }
+     if (req.files?.pan_card?.[0]) {
+      vendor.documents.pan_card = {
+        path: req.files.pan_card[0].path,
+        verified: false
+      };
+    }
+
+    if (req.files?.address_proof?.[0]) {
+      vendor.documents.address_proof = {
+        path: req.files.address_proof[0].path,
+        verified: false
+      };
+    }
+
+    if (req.files?.gst_certificate?.[0]) {
+      vendor.documents.gst_certificate = {
+        path: req.files.gst_certificate[0].path,
+        verified: false
+      };
+    }
+
+    if (req.files?.cancelled_cheque?.[0]) {
+      vendor.documents.cancelled_cheque = {
+        path: req.files.cancelled_cheque[0].path,
+        verified: false
+      };
+    }
+
+    if (req.files?.shop_act_license?.[0]) {
+      vendor.documents.shop_act_license = {
+        path: req.files.shop_act_license[0].path,
+        verified: false
+      };
+    }
+
+    /** -----------------------------
+     *  CHECK IF PROFILE IS COMPLETE
+     * ----------------------------- */
+
+    const isComplete =
+      vendor.store_details.store_name &&
+      vendor.store_details.store_address &&
+      vendor.store_details.categories?.length > 0 &&
+      vendor.documents.identity_proof?.path &&
+      vendor.documents.address_proof?.path &&
+      vendor.registration.pan_number &&
+      vendor.contacts.primary_contact &&
+      vendor.bank_details.bank_account_number;
+
+    if (isComplete) {
+      vendor.onboarding_status = "profile_submitted"; // Fully done
+    } else {
+      vendor.onboarding_status = "profile_incomplete"; // Still missing fields
+    }
+
+    /** -----------------------------
+     *  META
+     * ----------------------------- */
+    vendor.meta.updated_at = new Date();
+
+    await vendor.save();
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: "Profile updated successfully",
+      onboarding_status: vendor.onboarding_status,
+      data: vendor
+    });
+  });
+
+
+
+
+exports.createVendor = asyncHandler(async (req, res) => {
+  const {
+    first_name,
+    last_name,
+    email,
+    is_mobile_verified,
+  is_email_verified,
+    mobile,
+    password,
+    confirmPassword,
+    store_details,
+    registration,
+    bank_details,
+    contacts,
+    documents,
+    operations,
+    meta
+  } = req.body;
+
+  // 1. Password match
+  if (password !== confirmPassword) {
+    throw new APIError('Passwords do not match', StatusCodes.BAD_REQUEST);
+  }
+
+  // 2. Existing check
+  const existing = await VendorB2C.findOne({
+    $or: [
+      { email: email.toLowerCase() },
+      { 'mobile.number': mobile.number }
+    ]
+  });
+  if (existing) {
+    throw new APIError('Email or Mobile already registered', StatusCodes.CONFLICT);
+  }
+
+  // 3. Role
+  const vendorRole = await Role.findOne({ name: 'Vendor-B2C' });
+  if (!vendorRole) {
+    throw new APIError('Vendor role not found', StatusCodes.INTERNAL_SERVER_ERROR);
+  }
+
+  // 4. Build vendor data (FULL)
+  const vendorData = {
+    name: {
+      first_name: first_name.trim(),
+      last_name: last_name.trim()
+    },
+    email: email.toLowerCase(),
+    password: await bcrypt.hash(password, 12),
+    mobile: {
+      country_code: mobile.country_code || '+91',
+      number: mobile.number
+    },
+    role: vendorRole._id,
+
+    status: 'registered',
+is_mobile_verified: is_mobile_verified === true,
+  is_email_verified: is_email_verified === true,
+    store_details: {
+      ...store_details,
+      categories: store_details.categories.map(
+        id => new mongoose.Types.ObjectId(id)
+      )
+    },
+
+    registration: registration || {},
+    bank_details: bank_details || {},
+    contacts: contacts || {},
+    documents: documents || {},
+    operations: operations || {},
+
+
+    meta: {
+      agreed_to_terms: meta?.agreed_to_terms === true,
+      vendor_portal_access: false
+    }
+  };
+
+  // 5. Create vendor
+  const vendor = await VendorB2C.create(vendorData);
+
+  res.status(StatusCodes.CREATED).json({
+    success: true,
+    message: 'Vendor registered successfully! Awaiting admin approval.',
+    data: vendor
+  });
+});
+
+
+// Get All Vendors
+// Get All Vendors
+// controllers/vendor/b2cvendor.controller.js
+
+exports.getAllVendors = asyncHandler(async (req, res) => {
+  const { page, limit, status, vendorId } = req.query;
+
+  /**
+   * ---------------------------------------------------------
+   * 1. GET SINGLE VENDOR
+   * ---------------------------------------------------------
+   */
+  if (vendorId) {
+    const vendor = await VendorB2C.findById(vendorId)
+      .populate("store_details.categories", "name slug icon")
+      .populate("role", "name")
+      .lean();
+
+    if (!vendor) {
+      return res.status(StatusCodes.NOT_FOUND).json({
+        success: false,
+        message: "Vendor not found",
+      });
+    }
+
+    return res.status(StatusCodes.OK).json({
+      success: true,
+      vendor,
+    });
+  }
+
+  /**
+   * ---------------------------------------------------------
+   * 2. BUILD FILTER QUERY
+   * ---------------------------------------------------------
+   */
+  const query = {};
+
+  if (status) {
+    const allowedStatus = ['registered', 'approved', 'rejected', 'suspended'];
+
+    const statuses = status
+      .split(',')
+      .map(s => s.trim())
+      .filter(s => allowedStatus.includes(s));
+
+    if (statuses.length) {
+      query.status = { $in: statuses };
+    }
+  }
+
+  /**
+   * ---------------------------------------------------------
+   * 3. PAGINATION SETUP
+   * ---------------------------------------------------------
+   */
+  const pageNum = page ? Math.max(1, parseInt(page)) : null;
+  const limitNum = limit ? Math.min(100, Math.max(1, parseInt(limit))) : null;
+  const usePagination = pageNum && limitNum;
+
+  /**
+   * ---------------------------------------------------------
+   * 4. FETCH TOTAL COUNT (ALWAYS)
+   * ---------------------------------------------------------
+   */
+  const totalVendors = await VendorB2C.countDocuments(query);
+
+  /**
+   * ---------------------------------------------------------
+   * 5. FETCH DATA
+   * ---------------------------------------------------------
+   */
+  let vendorsQuery = VendorB2C.find(query)
+    .populate("store_details.categories", "name slug icon")
+    .populate("role", "name")
+    .sort({ createdAt: -1 })
+    .lean();
+
+  if (usePagination) {
+    vendorsQuery = vendorsQuery
+      .skip((pageNum - 1) * limitNum)
+      .limit(limitNum);
+  }
+
+  const vendors = await vendorsQuery;
+
+  /**
+   * ---------------------------------------------------------
+   * 6. RESPONSE
+   * ---------------------------------------------------------
+   */
+  res.status(StatusCodes.OK).json({
+    success: true,
+    count: vendors.length,
+
+    pagination: usePagination
+      ? {
+          current_page: pageNum,
+          limit: limitNum,
+          total_vendors: totalVendors,
+          total_pages: Math.ceil(totalVendors / limitNum),
+          
+        }
+      : null,
+
+    vendors,
+  });
+});
+
+
+
+
+// Get Vendor Profile
+// Get Vendor Profile
+exports.getVendorProfile = asyncHandler(async (req, res) => {
+  const vendor = await VendorB2C.findById(req.user.id)
+    .select('-password')
+      .populate("store_details.categories", "name slug icon")
+    .populate('bank_details.preferred_currency', 'code name symbol')
+    .populate('role', 'name')
+    .lean();
+
+  if (!vendor) {
+    throw new APIError('Vendor not found', StatusCodes.NOT_FOUND);
+  }
+
+  res.status(StatusCodes.OK).json({
+    
+    success: true,
+    message: "Profile fetched successfully",
+    vendor
+  });
+});
+
+
+// Change Password
+exports.changePassword = asyncHandler(async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+
+    if (newPassword !== confirmPassword) {
+      throw new APIError('New passwords do not match', StatusCodes.BAD_REQUEST);
+    }
+
+    const vendor = await VendorB2C.findById(req.user.id).select('+password');
+
+    if (!vendor) {
+      throw new APIError('Vendor not found', StatusCodes.NOT_FOUND);
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, vendor.password);
+    if (!isMatch) {
+      throw new APIError('Current password is incorrect', StatusCodes.UNAUTHORIZED);
+    }
+
+    vendor.password = await bcrypt.hash(newPassword, 10);
+
+    vendor.meta.updated_at = Date.now();
+    vendor.meta.change_history = vendor.meta.change_history || [];
+    vendor.meta.change_history.push({
+      updated_by: req.user._id,
+      updated_at: new Date(),
+      changes: ['Password changed']
+    });
+
+    await vendor.save();
+
+    logger.info(`Password changed for vendor: ${vendor._id}`);
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+  } catch (error) {
+    if (!error.message) error.message = 'Unidentified error';
+    next(error);
+  }
+});
+
+// Update Document
+exports.updateDocument = asyncHandler(async (req, res, next) => {
+  try {
+    const { documentId } = req.params;
+
+    if (!req.file) {
+      throw new APIError('File is required for update', StatusCodes.BAD_REQUEST);
+    }
+
+    const vendor = await VendorB2C.findById(req.user.id);
+
+    if (!vendor) {
+      throw new APIError('Vendor not found', StatusCodes.NOT_FOUND);
+    }
+
+    let document = null;
+    let documentField = null;
+
+    for (const [type, docField] of Object.entries(vendor.documents.toObject())) {
+      if (docField && docField._id?.toString() === documentId) {
+        document = vendor.documents[type];
+        documentField = type;
+        break;
+      }
+    }
+
+    if (!document) {
+      throw new APIError('Document not found', StatusCodes.NOT_FOUND);
+    }
+
+    if (document.verified) {
+      throw new APIError('Cannot update verified document', StatusCodes.FORBIDDEN);
+    }
+
+    document.path = req.file.path;
+    document.uploaded_at = new Date();
+
+    vendor.meta.updated_at = new Date();
+    vendor.meta.change_history = vendor.meta.change_history || [];
+    vendor.meta.change_history.push({
+      updated_by: req.user._id,
+      updated_at: new Date(),
+      changes: [`Document ${documentField} path updated`]
+    });
+
+    await vendor.save();
+
+    logger.info(`Document ${documentId} path updated for vendor: ${vendor._id}`);
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: 'Document path updated successfully',
+      vendor: {
+        id: vendor._id,
+        documents: vendor.documents
+      }
+    });
+  } catch (error) {
+    if (!error.message) error.message = 'Unidentified error';
+    if (error instanceof multer.MulterError) {
+      return next(new APIError('File upload error: ' + error.message, StatusCodes.BAD_REQUEST));
+    } else if (error.message.includes('Only images')) {
+      return next(new APIError(error.message, StatusCodes.BAD_REQUEST));
+    }
+    next(error);
+  }
+});
+
+// Update Vendor
+exports.updateVendor = asyncHandler(async (req, res, next) => {
+  if (!req.user) {
+    logger.warn('Unauthorized vendor update attempt');
+    throw new APIError('Unauthorized: User not found', StatusCodes.UNAUTHORIZED);
+  }
+
+  const vendor = await VendorB2C.findById(req.params.id);
+  if (!vendor) {
+    logger.warn(`Vendor not found for update: ${req.params.id}`);
+    throw new APIError('Vendor not found', StatusCodes.NOT_FOUND);
+  }
+
+  const updatedData = req.body;
+  if (updatedData.email && updatedData.email !== vendor.email) {
+    const existingVendor = await VendorB2C.findOne({ email: updatedData.email });
+    if (existingVendor) {
+      logger.warn(`Update failed: Email already in use - ${updatedData.email}`);
+      throw new APIError('Email already in use', StatusCodes.CONFLICT);
+    }
+  }
+
+  Object.assign(vendor, updatedData);
+  vendor.meta.updated_at = Date.now();
+  vendor.meta.change_history = vendor.meta.change_history || [];
+  vendor.meta.change_history.push({
+    updated_by: req.user._id,
+    updated_at: new Date(),
+    changes: Object.keys(updatedData).map(key => `${key} updated`)
+  });
+
+  const updatedVendor = await vendor.save();
+
+  logger.info(`Vendor updated successfully: ${vendor._id}`);
+  res.status(StatusCodes.OK).json({
+    success: true,
+    message: 'Vendor updated successfully',
+    vendor: {
+      id: updatedVendor._id,
+      email: updatedVendor.email,
+      full_name: updatedVendor.full_name,
+      store_details: updatedVendor.store_details
+    }
+  });
+});
+
+// Delete Vendor
+exports.deleteVendor = asyncHandler(async (req, res, next) => {
+  if (!req.user) {
+    logger.warn('Unauthorized vendor deletion attempt');
+    throw new APIError('Unauthorized: User not found', StatusCodes.UNAUTHORIZED);
+  }
+
+  const vendor = await VendorB2C.findById(req.params.id);
+  if (!vendor) {
+    logger.warn(`Vendor not found for deletion: ${req.params.id}`);
+    throw new APIError('Vendor not found', StatusCodes.NOT_FOUND);
+  }
+
+  vendor.meta.updated_at = new Date();
+  vendor.meta.change_history = vendor.meta.change_history || [];
+  vendor.meta.change_history.push({
+    updated_by: req.user._id,
+    updated_at: new Date(),
+    changes: ['Vendor deleted']
+  });
+
+  await vendor.save();
+  await vendor.deleteOne();
+
+  logger.info(`Vendor deleted successfully: ${vendor._id}`);
+  res.status(StatusCodes.OK).json({
+    success: true,
+    message: 'Vendor deleted successfully'
+  });
+});
+exports.updateVendorStatus = asyncHandler(async (req, res) => {
+  const { status, rejection_reason } = req.body;
+  const allowedStatus = ['registered', 'approved', 'rejected', 'suspended'];
+
+  if (!allowedStatus.includes(status)) {
+    throw new APIError(
+      `Invalid status. Allowed: ${allowedStatus.join(', ')}`,
+      StatusCodes.BAD_REQUEST
+    );
+  }
+
+  const vendor = await VendorB2C.findById(req.params.id);
+  if (!vendor) {
+    throw new APIError('Vendor not found', StatusCodes.NOT_FOUND);
+  }
+
+  // =========================
+  // STATUS HANDLING
+  // =========================
+
+  vendor.status = status;
+
+  switch (status) {
+
+ case 'approved': {
+  vendor.isActive = true;
+  vendor.meta.vendor_portal_access = true;
+
+  const setUpdates = {};
+
+  if (vendor.documents && typeof vendor.documents === 'object') {
+    Object.keys(vendor.documents).forEach(key => {
+      const doc = vendor.documents[key];
+      if (doc && doc.path) {
+        setUpdates[`documents.${key}.verified`] = true;
+        setUpdates[`documents.${key}.verified_at`] = new Date();
+        setUpdates[`documents.${key}.verified_by`] = req.user._id;
+      }
+    });
+  }
+
+  // 🔥 THIS IS THE KEY
+  await VendorB2C.updateOne(
+    { _id: vendor._id },
+    { $set: setUpdates }
+  );
+
+  break;
+}
+
+    // ❌ REJECTED
+    case 'rejected':
+      vendor.isActive = true;
+      vendor.meta.vendor_portal_access = false;
+      vendor.rejection_reason = rejection_reason || 'Rejected by admin';
+      break;
+
+    // ⛔ SUSPENDED
+    case 'suspended':
+      vendor.isActive = false;
+      vendor.meta.vendor_portal_access = false;
+      break;
+
+    // 🟡 REGISTERED
+    case 'registered':
+    default:
+      vendor.isActive = true;
+      vendor.meta.vendor_portal_access = false;
+      break;
+  }
+
+  // =========================
+  // META AUDIT
+  // =========================
+  vendor.meta.updated_at = new Date();
+
+
+  // ✅ SAVE
+  await vendor.save();
+
+  // ✅ RESPONSE
+  res.status(StatusCodes.OK).json({
+    success: true,
+    message: `Vendor ${status} successfully`,
+    data: {
+      id: vendor._id,
+      status: vendor.status,
+      isActive: vendor.isActive,
+      vendor_portal_access: vendor.meta.vendor_portal_access
+    }
+  });
+});
+
+
+// Update Document Verification
+// Update Document Verification (admin)
+exports.updateDocumentVerification = asyncHandler(async (req, res) => {
+  const { vendorId, documentField, verified, reason, suggestion } = req.body;
+  // documentField is name like: identity_proof, address_proof, gst_certificate, pan_card, cancelled_cheque, shop_act_license
+  const REQUIRED_DOCS = ['identity_proof', 'address_proof']; // adjust as per your policy
+
+  if (!vendorId || !documentField || typeof verified === 'undefined') {
+    throw new APIError('vendorId, documentField and verified are required', StatusCodes.BAD_REQUEST);
+  }
+
+  const vendor = await VendorB2C.findById(vendorId);
+  if (!vendor) {
+    throw new APIError('Vendor not found', StatusCodes.NOT_FOUND);
+  }
+
+  // Ensure document field exists on model
+  if (!Object.prototype.hasOwnProperty.call(vendor.documents.toObject(), documentField)) {
+    throw new APIError('Invalid document field', StatusCodes.BAD_REQUEST);
+  }
+
+  const doc = vendor.documents[documentField];
+  if (!doc || !doc.path) {
+    throw new APIError('Document not uploaded', StatusCodes.BAD_REQUEST);
+  }
+
+  // Update verification state
+  doc.verified = !!verified;
+  doc.verified_at = verified ? new Date() : null;
+  doc.verified_by = verified ? req.user._id : null;
+  doc.reason = verified ? null : (reason || doc.reason || 'Document not valid');
+  doc.suggestion = verified ? null : (suggestion || doc.suggestion || 'Please re-upload with correct details');
+
+  // Update meta & history
+  vendor.meta.updated_at = new Date();
+  vendor.meta.change_history = vendor.meta.change_history || [];
+  vendor.meta.change_history.push({
+    updated_by: req.user._id,
+    updated_at: new Date(),
+    changes: [`Document ${documentField} verification set to ${doc.verified ? 'APPROVED' : 'REJECTED'}`]
+  });
+
+  // After updating this document, compute overall document verification status
+  const allRequiredPresent = REQUIRED_DOCS.every(f => vendor.documents[f] && vendor.documents[f].path);
+  const allRequiredVerified = allRequiredPresent && REQUIRED_DOCS.every(f => vendor.documents[f].verified === true);
+
+  // Determine onboarding status transitions:
+  // - If a required doc was rejected -> profile_incomplete
+  // - If all required docs are now verified AND vendor had already submitted profile -> move to 'under_review'
+  if (!doc.verified && REQUIRED_DOCS.includes(documentField)) {
+    vendor.onboarding_status = 'profile_incomplete';
+  } else if (allRequiredVerified) {
+    // If vendor already completed profile fields and had submitted, move to under_review
+    const hasProfileFields =
+      vendor.store_details?.store_name &&
+      vendor.store_details?.store_address &&
+      vendor.store_details?.categories?.length > 0 &&
+      vendor.registration?.pan_number &&
+      vendor.contacts?.primary_contact &&
+      vendor.bank_details?.bank_account_number;
+
+    if (hasProfileFields) {
+      // If vendor was profile_submitted -> proceed to under_review
+      if (vendor.onboarding_status === 'profile_submitted' || vendor.onboarding_status === 'profile_incomplete') {
+        vendor.onboarding_status = 'under_review';
+      }
+      // If admin wants to immediately approve after verifying docs, they can call updateVendorStatus separately with status=1
+    }
+  }
+
+  await vendor.save();
+
+  logger.info(`Document verification updated for vendor: ${vendor._id}, document: ${documentField}, verified: ${doc.verified}`);
+  res.status(StatusCodes.OK).json({
+    success: true,
+    message: doc.verified ? 'Document approved' : 'Document rejected',
+    vendor: {
+      id: vendor._id,
+      onboarding_status: vendor.onboarding_status,
+      documents: vendor.documents
+    }
+  });
+});
+
+
+// Get Change History
+exports.getChangeHistory = asyncHandler(async (req, res, next) => {
+  try {
+    const { vendorId } = req.params;
+    const { page = 1, limit = 10 } = req.query;
+
+    const vendor = await VendorB2C.findById(vendorId)
+      .select('meta.change_history')
+      .lean();
+
+    if (!vendor) {
+      logger.warn(`Vendor not found for change history: ${vendorId}`);
+      throw new APIError('Vendor not found', StatusCodes.NOT_FOUND);
+    }
+
+    const changeHistory = vendor.meta.change_history || [];
+    const total = changeHistory.length;
+
+    // Paginate the change history
+    const startIndex = (page - 1) * limit;
+    const paginatedHistory = changeHistory.slice(startIndex, startIndex + Number(limit));
+
+    logger.info(`Retrieved change history for vendor: ${vendorId}, page: ${page}, limit: ${limit}`);
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: 'Change history retrieved successfully',
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total
+      },
+      change_history: paginatedHistory
+    });
+  } catch (error) {
+    if (error.name === 'CastError') {
+      logger.warn(`Invalid vendor ID format: ${vendorId}`);
+      return res.status(StatusCodes.BAD_REQUEST).json({
+        success: false,
+        message: 'Invalid vendor ID format'
+      });
+    }
+    if (!error.message) error.message = 'Unidentified error';
+    next(error);
+  }
+});
