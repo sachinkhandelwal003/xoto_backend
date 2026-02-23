@@ -30,7 +30,7 @@ exports.replaceSky = async (req, res) => {
       { type: imageFile.mimetype }
     );
 
-    // Dynamic Prompt based on selection
+    // Dynamic Prompt based on selection dfsf
     const promptText = skyType === "dusk" 
       ? "Professional real estate photography. Replace the sky with a cinematic dusk sunset, golden hour lighting, warm orange clouds."
       : "Professional real estate photography. Replace the sky with a clear vibrant blue sunny sky, bright daylight, fluffy white clouds.";
