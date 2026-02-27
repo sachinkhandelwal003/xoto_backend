@@ -21,7 +21,7 @@ const { getUserPermissions } = require("./permission");
 
 
 /* ============================================================
-   CREATE TOKEN
+   CREATE Token
 ============================================================ */
 exports.createToken = (user, type) => {
   const detectedType =
