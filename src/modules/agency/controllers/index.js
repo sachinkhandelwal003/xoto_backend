@@ -1,6 +1,9 @@
-const Agency = require("../models");
+const Agency = require("../models/index.js");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const  { Role } =require('../../../modules/auth/models/role/role.model.js');
+
+const { createToken } = require ('../../../middleware/auth.js');
 
 /* ===========================
    SIGNUP
@@ -39,13 +42,20 @@ const agencySignup = async (req, res) => {
         message: "Email already registered"
       });
     }
-
+ const roleDoc = await Role.findOne({ code: 15 });
+        if (!roleDoc) {
+            return res.status(404).json({
+                success: false,
+                message: "Role with code 15 not found"
+            });
+        }  
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const agency = await Agency.create({
       agency_name,
       email,
       password: hashedPassword,
+      role:roleDoc._id,
       country_code,
       mobile_number,
       profile_photo: profile_photo || "",
@@ -80,7 +90,6 @@ const agencySignup = async (req, res) => {
 =========================== */
 const agencyLogin = async (req, res) => {
   try {
-
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -90,7 +99,7 @@ const agencyLogin = async (req, res) => {
       });
     }
 
-    const agency = await Agency.findOne({ email });
+    const agency = await Agency.findOne({ email }).populate("role");
 
     if (!agency) {
       return res.status(400).json({
@@ -122,25 +131,17 @@ const agencyLogin = async (req, res) => {
       });
     }
 
-    const token = jwt.sign(
-      {
-        agencyId: agency._id,
-        role: "AGENCY"
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "30d" }
-    );
+    // ✅ FIXED HERE
+    const token = createToken(agency, "agency");
 
     const data = agency.toObject();
     delete data.password;
 
     return res.status(200).json({
       success: true,
-      message: "Login successful",
-      data: {
+      token,
+      message: "Login successful",      
         user: data,
-        token
-      }
     });
 
   } catch (error) {
@@ -150,7 +151,6 @@ const agencyLogin = async (req, res) => {
     });
   }
 };
-
 
 /* ===========================
    GET BY ID
