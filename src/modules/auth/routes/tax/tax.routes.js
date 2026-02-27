@@ -18,8 +18,7 @@ const {
 router.post(
   '/',
   protect,
-  authorize({ minLevel: 10 }),
-  checkPermission('Taxes', 'create'),
+  checkPermission('Tax', 'create'),
   validateCreateTax,
   taxController.createTax
 );
@@ -28,8 +27,7 @@ router.post(
 router.put(
   '/:taxId',
   protect,
-  authorize({ minLevel: 10 }),
-  checkPermission('Taxes', 'update'),
+  checkPermission('Tax', 'update'),
   validateUpdateTax,
   taxController.updateTax
 );
@@ -38,8 +36,7 @@ router.put(
 router.delete(
   '/:taxId',
   protect,
-  authorize({ minLevel: 10 }),
-  checkPermission('Taxes', 'delete'),
+  checkPermission('Tax', 'delete'),
   validateSoftDeleteTax,
   taxController.softDeleteTax
 );
@@ -48,8 +45,7 @@ router.delete(
 router.delete(
   '/:taxId/permanent',
   protect,
-  authorize({ minLevel: 10 }),
-  checkPermission('Taxes', 'delete'),
+  checkPermission('Tax', 'delete'),
   validatePermanentDeleteTax,
   taxController.permanentDeleteTax
 );
@@ -58,8 +54,7 @@ router.delete(
 router.put(
   '/:taxId/restore',
   protect,
-  authorize({ minLevel: 10 }),
-  checkPermission('Taxes', 'update'),
+  checkPermission('Tax', 'update'),
   validateRestoreTax,
   taxController.restoreTax
 );
@@ -68,8 +63,7 @@ router.put(
 router.get(
   '/:taxId',
   protect,
-  authorize({ minLevel: 5 }),
-  checkPermission('Taxes', 'read'),
+  checkPermission('Tax', 'read'),
   validateGetTax,
   taxController.getTax
 );
@@ -78,8 +72,7 @@ router.get(
 router.get(
   '/',
   protect,
-  authorize({ minLevel: 5 }),
-  checkPermission('Taxes', 'read'),
+  checkPermission('Tax', 'read'),
   validateGetAllTaxes,
   taxController.getAllTaxes
 );
