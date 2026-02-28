@@ -18,6 +18,7 @@ const Notification = require("../src/modules/Notification/Routes/NotificationRou
 const PropertyLead = require("./modules/auth/routes/consult/propertyLead.route").default
 const ProfileData = require("./modules/profile/routes/index.js").default
 const agentRoutes = require('./modules/Agent/routes/index.js');
+const AgentLead = require('./modules/Agent/routes/Agentroute.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
 // console.log("SkyRoutes Check:", SkyRoutes);
 
@@ -54,6 +55,7 @@ app.use('/property/lead', require('./modules/auth/routes/consult/propertyLead.ro
 app.use('/agency', agencyRoutes);
 app.use('/mortgages', mortgageRoutes);
 app.use('/agent', agentRoutes);
+app.use('/agent/lead', AgentLead);
 app.use('/landing/lead', (req, res, next) => {
   console.log('request came on /landing/lead');
   next();
