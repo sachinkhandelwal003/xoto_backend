@@ -221,7 +221,8 @@ const updateAgency = async (req, res) => {
       "country_code",
       "mobile_number",
       "letter_of_authority",
-      "onboarding_status"
+      "onboarding_status",
+      "is_active"
 
     ];
 
