@@ -222,7 +222,7 @@ const updateAgency = async (req, res) => {
       "mobile_number",
       "letter_of_authority",
       "onboarding_status",
-      "is_active"
+      
 
     ];
 
