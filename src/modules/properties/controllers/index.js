@@ -4,6 +4,7 @@ import Developer from "../models/DeveloperModel.js";
 import Inventory from "../models/Inventory.js";
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { createToken } from '../../../middleware/auth.js';
+import Lead from "../../Agent/models/AgentLeaad.js";
 import bcrypt from "bcryptjs";
 
 
@@ -642,3 +643,26 @@ export const bulkImportInventory = async (req, res) => {
     });
   }
 };
+export const getDeveloperLeads = async (req,res)=>{
+  try{
+
+    const { developerId } = req.query;
+
+    const leads = await Lead.find({ isDeleted:false })
+      .populate("agent","first_name last_name email")
+      .populate("project");
+
+    return res.status(200).json({
+      success:true,
+      data:leads
+    });
+
+  }catch(err){
+
+    return res.status(500).json({
+      success:false,
+      message:err.message
+    });
+
+  }
+}
