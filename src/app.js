@@ -5,6 +5,7 @@ const helmet = require('helmet');
 const createError = require('http-errors');
 const logger = require('./config/logger');
 const Skyimport = require('./modules/ImageEnhancer/Routes/SkyRoutes.js')
+const virtualStagingRoutes = require('./modules/ImageEnhancer/Routes/VirtualRoutes.js');
 const upload = require("../src/middleware/s3Upload.js").default
 const { uploadFileToS3 } = require("./modules/s3/upload.js");
 const {downloadImageAsPDF} =require("./modules/s3/downloadUpload.js")
@@ -87,7 +88,7 @@ app.use('/ai/enhance', enhancementRoutes);
 
 app.use('/ai/sky-replacement', Skyimport);
 // landscapping freelacer
-
+app.use('/ai/virtual-staging', virtualStagingRoutes);
 app.use('/freelancer', require('../src/modules/auth/routes/freelancer/freelancer.routes'));
 
 
