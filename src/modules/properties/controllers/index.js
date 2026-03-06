@@ -529,16 +529,11 @@ export const createInventory = async (req, res) => {
 // };
 export const getInventoryByProperty = async (req, res) => {
   try {
+
     const { projectId } = req.query;
 
-    if (!projectId) {
-      return res.status(400).json({
-        success: false,
-        message: "projectId is required"
-      });
-    }
-
-    const units = await Inventory.find({ projectId });
+    const units = await Inventory.find({ projectId })
+      .populate("projectId", "projectName");
 
     return res.status(200).json({
       success: true,
@@ -546,10 +541,12 @@ export const getInventoryByProperty = async (req, res) => {
     });
 
   } catch (error) {
+
     return res.status(500).json({
       success: false,
       message: error.message
     });
+
   }
 };
 export const updateInventory = async (req, res) => {
