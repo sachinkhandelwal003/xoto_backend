@@ -40,6 +40,7 @@ router.get("/get-developer-by-id", getDeveloperrById)
 router.get("/get-property-by-id", getPropertyById)
 router.post("/edit-developer", editDeveloper)
 router.post("/create-inventory", createInventory);
+router.get("/get-inventory-by-property", getInventoryByProperty);
 // router.post("/create-inventory", addInventory);
 router.put("/update-inventory/:id", updateInventory);
 // router.post("/update-inventory", updateInventory);
