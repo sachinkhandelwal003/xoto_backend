@@ -115,6 +115,31 @@ const PropertySchema = new mongoose.Schema(
     },
 
     // =========================
+// COMMISSION
+// =========================
+commissionType: {
+  type: String,
+  enum: ["percentage", "fixed"],
+  default: "percentage"
+},
+
+commissionValue: {
+  type: Number,
+  default: 0
+},
+
+commissionStage: {
+  type: String,
+  enum: ["booking", "contract", "handover"],
+  default: "booking"
+},
+
+commissionNotes: {
+  type: String,
+  default: ""
+},
+
+    // =========================
     // ADDRESS (FLAT)
     // =========================
     buildingNo: String,
