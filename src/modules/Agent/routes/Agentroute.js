@@ -9,8 +9,7 @@ deleteLead,
 getAllLeads
 } = require("../controllers/AgentController.js");
 
-const { protectMulti } =
-require("../../../middleware/auth");
+const { protectMulti } =require("../../../middleware/auth");
 
 const router = express.Router();
 

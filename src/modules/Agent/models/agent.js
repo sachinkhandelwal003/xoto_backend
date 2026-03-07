@@ -129,7 +129,11 @@ subscriptionPlan: {
         default: 0,
         required: false
     },
-
+agency: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Agency",
+  required: true
+}
 
 }, { timestamps: true });
 

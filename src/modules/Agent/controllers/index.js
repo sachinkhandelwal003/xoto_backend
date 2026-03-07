@@ -74,6 +74,8 @@ export const agentSignup = async (req, res) => {
       last_name,
       password: hashedPassword,
 role:roleDoc._id,
+
+  agency: req.user._id,
       // Verification & Approval flags
       is_email_verified: true,      // frontend handled
       is_mobile_verified: true,
@@ -252,7 +254,18 @@ export const updateAgent = async (req, res) => {
 export const getAllAgents = async (req, res) => {
   try {
 
-    const agents = await Agent.find()
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated"
+      });
+    }
+
+    const agencyId = req.user._id;
+
+    const agents = await Agent.find({
+      agency: agencyId
+    })
       .sort({ createdAt: -1 })
       .select("-password");
 
@@ -263,10 +276,14 @@ export const getAllAgents = async (req, res) => {
     });
 
   } catch (error) {
+
+    console.log(error);
+
     return res.status(500).json({
       success: false,
       message: error.message
     });
+
   }
 };
 
