@@ -296,6 +296,109 @@ const deleteAgency = async (req, res) => {
   }
 };
 
+const getAgencyLeads = async (req, res) => {
+
+  try {
+
+    const agencyId = req.user._id;
+
+    const Agent = require("../../Agent/models/agent");
+    const Lead = require("../../Agent/models/AgentLeaad");
+
+    // agency ke agents
+    const agents = await Agent.find({
+      agency: agencyId
+    }).select("_id");
+
+    const agentIds = agents.map(a => a._id);
+
+    // un agents ki leads
+    const leads = await Lead.find({
+      agent: { $in: agentIds }
+    }).populate("agent","first_name last_name email");
+
+    return res.json({
+      success: true,
+      data: leads
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success:false,
+      message:error.message
+    });
+
+  }
+
+};
+
+const assignLead = async (req,res)=>{
+
+  try{
+
+    const { leadId, agentId } = req.body;
+
+    const Lead = require("../../agent/models/AgentLead");
+
+    const updated = await Lead.findByIdAndUpdate(
+      leadId,
+      {
+        agent: agentId,
+        status:"Assigned"
+      },
+      { new:true }
+    );
+
+    return res.json({
+      success:true,
+      message:"Lead assigned successfully",
+      data:updated
+    });
+
+  }catch(error){
+
+    return res.status(500).json({
+      success:false,
+      message:error.message
+    });
+
+  }
+
+};
+
+const updateLeadStatus = async (req,res)=>{
+
+  try{
+
+    const { id } = req.params;
+
+    const { status } = req.body;
+
+    const Lead = require("../../agent/models/AgentLead");
+
+    const updated = await Lead.findByIdAndUpdate(
+      id,
+      { status },
+      { new:true }
+    );
+
+    return res.json({
+      success:true,
+      message:"Lead status updated",
+      data:updated
+    });
+
+  }catch(error){
+
+    return res.status(500).json({
+      success:false,
+      message:error.message
+    });
+
+  }
+
+};
 
 /* ===========================
    EXPORT
@@ -306,5 +409,8 @@ module.exports = {
   getAgencyById,
   getAllAgencies,
   updateAgency,
-  deleteAgency
+  deleteAgency,
+    getAgencyLeads,
+  assignLead,
+  updateLeadStatus
 };

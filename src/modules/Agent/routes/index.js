@@ -1,7 +1,9 @@
 const express = require("express");
 const { agentSignup, agentLogin, updateAgent, getAllAgents, getAgentById, deleteAgent} = require("../controllers/index.js");
+const { protectMulti } =require("../../../middleware/auth");
 
 const route = express.Router();
+route.use(protectMulti);
 
 route.post("/agent-signup", agentSignup);
 route.post("/login-agent", agentLogin);

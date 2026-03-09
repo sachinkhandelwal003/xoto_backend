@@ -3,9 +3,9 @@ const { PutObjectCommand } = require("@aws-sdk/client-s3");
 const s3 = require("../../../config/s3Client");
 const SkyReplacement = require("../../ImageEnhancer/Model/Sky"); 
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// const client = new OpenAI({
+//   apiKey: process.env.OPENAI_API_KEY
+// });
 
 // =======================================
 // REPLACE SKY (UPDATED CONTROLLER)
