@@ -10,14 +10,14 @@ getAllLeads,
 updateLeadStatus
 } = require("../controllers/AgentController.js");
 
-// const { protectMulti } =
-// require("../../../middleware/auth");
+const { protectMulti } =
+require("../../../middleware/auth");
 
 const router = express.Router();
 
 
 // sab routes protect
-// router.use(protectMulti);
+router.use(protectMulti);
 
 router.post("/create-lead",createLead);
 router.get("/get-all-leads",getAllLeads);

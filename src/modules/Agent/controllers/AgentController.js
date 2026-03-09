@@ -8,10 +8,11 @@ CREATE LEAD
 export const createLead = async (req, res) => {
   try {
 
-const agentid = req.body.agent;
-    const { name, email, phone_number } = req.body;
+    const agentId = req.user._id;
 
-    // Required validation
+    const { name, phone_number } = req.body;
+
+    // Basic validation
     if (!name?.first_name || !name?.last_name || !phone_number) {
       return res.status(400).json({
         success: false,
@@ -21,8 +22,11 @@ const agentid = req.body.agent;
 
     // Duplicate check
     const duplicate = await Lead.findOne({
-      $or: [{ email }, { phone_number }],
-      agent: agentid,
+      $or: [
+        { email: req.body.email },
+        { phone_number: req.body.phone_number }
+      ],
+      agent: agentId,
       isDeleted: false
     });
 
@@ -33,11 +37,10 @@ const agentid = req.body.agent;
       });
     }
 
-    // Create lead using spread operator
+    // Spread operator
     const lead = await Lead.create({
       ...req.body,
-      agent: agentid,
-      source: req.body.source || "manual"
+      agent: agentId
     });
 
     return res.status(201).json({
@@ -59,38 +62,197 @@ const agentid = req.body.agent;
 export const getAllLeads = async (req, res) => {
   try {
 
+    // Query params
     const page = Number(req.query.page) || 1;
-    const limit = Number(req.query.limit) || 10;
-    const status = req.query.status;
+    const limit = Number(req.query.limit) || 5;
 
     const skip = (page - 1) * limit;
 
-    let query = {
-      agent: req.user._id,
-      isDeleted:false
-    };
-
-    if(status){
-      query.status = status;
-    }
-
-    const total = await Lead.countDocuments(query);
-
-    const leads = await Lead.find(query)
-      .populate("project","propertyName")
-      .sort({createdAt:-1})
-      .skip(skip)
-      .limit(limit);
-
-    res.status(200).json({
-      success:true,
-      total,
-      page,
-      pages:Math.ceil(total/limit),
-      data:leads
+    // Total count
+    const total = await Lead.countDocuments({
+      agent: req.user._id
     });
 
-  } catch(error){
+    // Paginated data
+    const leads = await Lead.find({
+      agent: req.user._id
+    })
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      data: leads
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/* ======================
+GET LEAD BY ID
+====================== */
+export const getLeadById = async (req, res) => {
+
+  try {
+
+    const id = req.params.id;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid ID"
+      });
+    }
+
+    const lead = await Lead.findOne({
+      _id: id,
+      agent: req.user._id
+    }).populate("agent", "first_name last_name email");
+
+    if (!lead) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found"
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: lead
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+
+};
+
+
+/* ======================
+UPDATE LEAD
+====================== */
+export const updateLead = async (req, res) => {
+
+  try {
+
+    const id = req.params.id;
+
+    const updatedLead = await Lead.findOneAndUpdate(
+      { _id: id, agent: req.user._id },
+      { $set: req.body },
+      { new: true }
+    );
+
+    if (!updatedLead) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found"
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Lead updated successfully",
+      data: updatedLead
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+
+};
+
+
+/* ======================
+DELETE LEAD
+====================== */
+export const deleteLead = async (req, res) => {
+
+  try {
+
+    const deleted = await Lead.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        agent: req.user._id
+      },
+      {
+        isDeleted: true,        // mark deleted
+        deletedAt: new Date()
+      },
+      { new: true }
+    );
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found"
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Lead deleted successfully" // ✅ message show
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+
+};
+
+
+export const updateLeadStatus = async (req, res) => {
+  try {
+
+    const { status } = req.body;
+
+    const lead = await Lead.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        agent: req.user._id
+      },
+      { status },
+      { new: true }
+    );
+
+    if (!lead) {
+      return res.status(404).json({
+        success:false,
+        message:"Lead not found"
+      });
+    }
+
+    res.json({
+      success:true,
+      message:"Status updated",
+      data:lead
+    });
+
+  } catch (error) {
 
     res.status(500).json({
       success:false,
@@ -99,188 +261,3 @@ export const getAllLeads = async (req, res) => {
 
   }
 };
-
-/* ======================
-GET LEAD BY ID
-====================== */
-export const getLeadById = async (req,res)=>{
-  try{
-
-    const id = req.params.id;
-
-    if(!mongoose.Types.ObjectId.isValid(id)){
-      return res.status(400).json({
-        success:false,
-        message:"Invalid ID"
-      });
-    }
-
-    const lead = await Lead.findOne({
-      _id:id,
-      agent:req.user._id,
-      isDeleted:false
-    })
-    .populate("agent","first_name last_name email")
-    .populate("project","propertyName");
-
-    if(!lead){
-      return res.status(404).json({
-        success:false,
-        message:"Lead not found"
-      });
-    }
-
-    return res.json({
-      success:true,
-      data:lead
-    });
-
-  }catch(error){
-
-    return res.status(500).json({
-      success:false,
-      message:error.message
-    });
-
-  }
-};
-
-
-/* ======================
-UPDATE LEAD
-====================== */
-export const updateLead = async (req,res)=>{
-  try{
-
-    const id = req.params.id;
-
-    const updatedLead = await Lead.findOneAndUpdate(
-      {
-        _id:id,
-        agent:req.user._id,
-        isDeleted:false
-      },
-      {$set:req.body},
-      {new:true}
-    );
-
-    if(!updatedLead){
-      return res.status(404).json({
-        success:false,
-        message:"Lead not found"
-      });
-    }
-
-    return res.json({
-      success:true,
-      message:"Lead updated successfully",
-      data:updatedLead
-    });
-
-  }catch(error){
-
-    return res.status(500).json({
-      success:false,
-      message:error.message
-    });
-
-  }
-};
-
-export const updateLeadStatus = async (req,res)=>{
-  try{
-
-    const id = req.params.id;
-    const {status} = req.body;
-
-    const allowedStatus = [
-      "lead",
-      "visit",
-      "deal",
-      "booking",
-      "closed"
-    ];
-
-    if(!allowedStatus.includes(status)){
-      return res.status(400).json({
-        success:false,
-        message:"Invalid status"
-      });
-    }
-
-    const lead = await Lead.findOneAndUpdate(
-      {
-        _id:id,
-        agent:req.user._id
-      },
-      {
-        status
-      },
-      {new:true}
-    );
-
-    if(!lead){
-      return res.status(404).json({
-        success:false,
-        message:"Lead not found"
-      });
-    }
-
-    return res.json({
-      success:true,
-      message:"Lead status updated",
-      data:lead
-    });
-
-  }catch(error){
-
-    return res.status(500).json({
-      success:false,
-      message:error.message
-    });
-
-  }
-};
-
-
-/* ======================
-DELETE LEAD
-====================== */
-export const deleteLead = async (req,res)=>{
-  try{
-
-    const deleted = await Lead.findOneAndUpdate(
-      {
-        _id:req.params.id,
-        agent:req.user._id
-      },
-      {
-        isDeleted:true,
-        deletedAt:new Date()
-      },
-      {new:true}
-    );
-
-    if(!deleted){
-      return res.status(404).json({
-        success:false,
-        message:"Lead not found"
-      });
-    }
-
-    return res.json({
-      success:true,
-      message:"Lead deleted successfully"
-    });
-
-  }catch(error){
-
-    return res.status(500).json({
-      success:false,
-      message:error.message
-    });
-
-  }
-};
-
-
