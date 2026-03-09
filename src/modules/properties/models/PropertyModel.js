@@ -6,9 +6,9 @@ const PropertySchema = new mongoose.Schema(
     // BASIC INFO
     // =========================
     developer: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "Developer"
-},
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Developer"
+    },
 
     propertyName: {
       type: String,
@@ -115,29 +115,29 @@ const PropertySchema = new mongoose.Schema(
     },
 
     // =========================
-// COMMISSION
-// =========================
-commissionType: {
-  type: String,
-  enum: ["percentage", "fixed"],
-  default: "percentage"
-},
+    // COMMISSION
+    // =========================
+    commissionType: {
+      type: String,
+      enum: ["percentage", "fixed"],
+      default: "percentage"
+    },
 
-commissionValue: {
-  type: Number,
-  default: 0
-},
+    commissionValue: {
+      type: Number,
+      default: 0
+    },
 
-commissionStage: {
-  type: String,
-  enum: ["booking", "contract", "handover"],
-  default: "booking"
-},
+    commissionStage: {
+      type: String,
+      enum: ["booking", "contract", "handover"],
+      default: "booking"
+    },
 
-commissionNotes: {
-  type: String,
-  default: ""
-},
+    commissionNotes: {
+      type: String,
+      default: ""
+    },
 
     // =========================
     // ADDRESS (FLAT)
