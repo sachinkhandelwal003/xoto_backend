@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 
 const LeadSchema = new mongoose.Schema({
 
+  // CLIENT INFO
   name:{
     first_name:{
       type:String,
@@ -15,46 +16,112 @@ const LeadSchema = new mongoose.Schema({
   },
 
   email:{
-    type:String,
-    required:true
+    type:String
   },
 
   phone_number:{
     type:String,
     required:true
   },
+
+  // PROPERTY INTEREST
   project:{
     type:mongoose.Schema.Types.ObjectId,
-    ref:"PropertyModel"
+    ref:"Property"
   },
 
+  property_interest:{
+    type:String
+  },
+
+  // CLIENT REQUIREMENT
   requirement_description:{
-    type:String,
-    required:true
+    type:String
   },
 
+  budget:{
+    type:Number
+  },
+
+  preferred_location:{
+    type:String
+  },
+
+  bedrooms:{
+    type:Number
+  },
+
+  property_type:{
+    type:String
+  },
+
+  // AGENT
   agent:{
     type:mongoose.Schema.Types.ObjectId,
     ref:"Agent",
     required:true
   },
 
-  status:{
+  // LEAD SOURCE (FRD requirement)
+  source:{
     type:String,
-    enum:["new","contacted","closed","rejected"],
-    default:"new"
-  },
- // ✅ Soft delete fields
-  isDeleted: {
-    type: Boolean,
-    default: false
+    enum:["manual","presentation","enquiry","site_visit"],
+    default:"manual"
   },
 
-  deletedAt: {
-    type: Date,
-    default: null
+  // PIPELINE STATUS (FRD FLOW)
+  status:{
+    type:String,
+    enum:[
+      "lead",
+      "visit",
+      "deal",
+      "booking",
+      "closed"
+    ],
+    default:"lead"
+  },
+
+  // ACTIVITY TRACKING
+  lastActivity:{
+    type:String,
+    default:"New Lead"
+  },
+
+  followUpDate:{
+    type:Date
+  },
+
+  visitDate:{
+    type:Date
+  },
+
+  visitFeedback:{
+    type:String
+  },
+
+  // DEAL INFO
+  dealValue:{
+    type:Number
+  },
+
+  commission:{
+    type:Number
+  },
+
+  // SOFT DELETE
+  isDeleted:{
+    type:Boolean,
+    default:false
+  },
+
+  deletedAt:{
+    type:Date,
+    default:null
   }
-},{ timestamps:true });
+
+},{timestamps:true});
+
 
 module.exports =
 mongoose.models.Lead ||
