@@ -77,10 +77,16 @@ const LeadSchema = new mongoose.Schema({
       "visit",
       "deal",
       "booking",
-      "closed"
+      "closed",
+      "lost"
     ],
     default:"lead"
   },
+
+  siteVisit:{
+type:mongoose.Schema.Types.ObjectId,
+ref:"SiteVisit"
+},
 
   // ACTIVITY TRACKING
   lastActivity:{
@@ -108,6 +114,7 @@ const LeadSchema = new mongoose.Schema({
   commission:{
     type:Number
   },
+  
 
   // SOFT DELETE
   isDeleted:{

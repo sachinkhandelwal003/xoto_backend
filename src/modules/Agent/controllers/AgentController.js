@@ -1,62 +1,57 @@
 import mongoose from "mongoose";
 import Lead from "../models/AgentLeaad.js";
+import SiteVisit from "../models/SiteVisit.js" 
 
 
 /* ======================
 CREATE LEAD
 ====================== */
-export const createLead = async (req, res) => {
-  try {
+export const createLead = async (req,res)=>{
+try{
 
-    const agentId = req.user._id;
+const agentId = req.body.agent;
 
-    const { name, phone_number } = req.body;
+const { name, phone_number } = req.body;
 
-    // Basic validation
-    if (!name?.first_name || !name?.last_name || !phone_number) {
-      return res.status(400).json({
-        success: false,
-        message: "Required fields missing"
-      });
-    }
+if(!name?.first_name || !name?.last_name || !phone_number){
+return res.status(400).json({
+success:false,
+message:"Required fields missing"
+});
+}
 
-    // Duplicate check
-    const duplicate = await Lead.findOne({
-      $or: [
-        { email: req.body.email },
-        { phone_number: req.body.phone_number }
-      ],
-      agent: agentId,
-      isDeleted: false
-    });
+const duplicate = await Lead.findOne({
+phone_number:phone_number,
+agent:agentId,
+isDeleted:false
+});
 
-    if (duplicate) {
-      return res.status(400).json({
-        success: false,
-        message: "Lead already exists"
-      });
-    }
+if(duplicate){
+return res.status(400).json({
+success:false,
+message:"Lead already exists"
+});
+}
 
-    // Spread operator
-    const lead = await Lead.create({
-      ...req.body,
-      agent: agentId
-    });
+const lead = await Lead.create({
+...req.body,
+agent:agentId
+});
 
-    return res.status(201).json({
-      success: true,
-      message: "Lead created successfully",
-      data: lead
-    });
+return res.status(201).json({
+success:true,
+message:"Lead created successfully",
+data:lead
+});
 
-  } catch (error) {
+}catch(error){
 
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+res.status(500).json({
+success:false,
+message:error.message
+});
 
-  }
+}
 };
 // get all leads
 export const getAllLeads = async (req, res) => {
@@ -69,17 +64,15 @@ export const getAllLeads = async (req, res) => {
     const skip = (page - 1) * limit;
 
     // Total count
-    const total = await Lead.countDocuments({
-      agent: req.user._id
-    });
+    const total = await Lead.countDocuments();
 
     // Paginated data
-    const leads = await Lead.find({
-      agent: req.user._id
-    })
-      .skip(skip)
-      .limit(limit)
-      .sort({ createdAt: -1 });
+    const leads = await Lead.find()
+.populate("agent","first_name last_name email")
+.populate("project","propertyName")
+.skip(skip)
+.limit(limit)
+.sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
@@ -113,10 +106,7 @@ export const getLeadById = async (req, res) => {
       });
     }
 
-    const lead = await Lead.findOne({
-      _id: id,
-      agent: req.user._id
-    }).populate("agent", "first_name last_name email");
+    const lead = await Lead.findById(id).populate("agent", "first_name last_name email");
 
     if (!lead) {
       return res.status(404).json({
@@ -152,7 +142,7 @@ export const updateLead = async (req, res) => {
     const id = req.params.id;
 
     const updatedLead = await Lead.findOneAndUpdate(
-      { _id: id, agent: req.user._id },
+      { _id: id },
       { $set: req.body },
       { new: true }
     );
@@ -190,10 +180,9 @@ export const deleteLead = async (req, res) => {
   try {
 
     const deleted = await Lead.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        agent: req.user._id
-      },
+     {
+  _id: req.params.id
+},
       {
         isDeleted: true,        // mark deleted
         deletedAt: new Date()
@@ -232,9 +221,8 @@ export const updateLeadStatus = async (req, res) => {
 
     const lead = await Lead.findOneAndUpdate(
       {
-        _id: req.params.id,
-        agent: req.user._id
-      },
+  _id: req.params.id
+},
       { status },
       { new: true }
     );
@@ -260,4 +248,166 @@ export const updateLeadStatus = async (req, res) => {
     });
 
   }
+};
+
+export const createSiteVisit = async(req,res)=>{
+
+try{
+
+const visit = await SiteVisit.create({
+
+lead:req.body.lead,
+agent:req.body.agent,
+property:req.body.property,
+developer:req.body.developer,
+
+requestedDate:req.body.visitDate,
+visitTime:req.body.visitTime,
+
+clientName:req.body.clientName,
+clientPhone:req.body.clientPhone,
+
+status:"requested"
+
+});
+
+await Lead.findByIdAndUpdate(
+req.body.lead,
+{
+status:"visit"
+}
+);
+
+res.json({
+success:true,
+data:visit
+});
+
+}catch(error){
+
+res.status(500).json({
+success:false,
+message:error.message
+});
+
+}
+
+};
+
+export const getAllSiteVisits = async (req,res)=>{
+
+try{
+
+const visits = await SiteVisit.find()
+
+.populate("lead")
+.populate("agent","first_name last_name")
+.populate("property","propertyName")
+.populate("developer","name")
+
+.sort({createdAt:-1});
+
+res.json({
+success:true,
+data:visits
+});
+
+}catch(error){
+
+res.status(500).json({
+success:false,
+message:error.message
+});
+
+}
+
+};
+
+export const approveSiteVisit = async(req,res)=>{
+
+try{
+
+const visit = await SiteVisit.findByIdAndUpdate(
+
+req.params.id,
+
+{
+status:"scheduled",
+scheduledDate:req.body.scheduledDate,
+adminApprovedBy:req.body.adminId
+},
+
+{new:true}
+
+);
+
+res.json({
+success:true,
+data:visit
+});
+
+}catch(error){
+
+res.status(500).json({
+success:false,
+message:error.message
+});
+
+}
+
+};
+
+// backend/controllers/leadController.js (ya jahan tumhare baaki controllers hain)
+
+export const updateSiteVisitStatus = async (req, res) => {
+  try {
+    // Frontend se jo status aayega (jaise "completed"), wo yahan aayega
+    const { status } = req.body; 
+
+    const visit = await SiteVisit.findByIdAndUpdate(
+      req.params.id,
+      { status: status }, // Status dynamically update hoga
+      { new: true }
+    );
+
+    if (!visit) {
+      return res.status(404).json({ success: false, message: "Visit not found" });
+    }
+
+    res.json({
+      success: true,
+      message: "Site visit status updated!",
+      data: visit
+    });
+
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getSiteVisitById = async(req,res)=>{
+
+try{
+
+const visit = await SiteVisit.findById(req.params.id)
+
+.populate("lead")
+.populate("agent","first_name last_name")
+.populate("property","propertyName")
+.populate("developer","name");
+
+res.json({
+success:true,
+data:visit
+});
+
+}catch(error){
+
+res.status(500).json({
+success:false,
+message:error.message
+});
+
+}
+
 };
