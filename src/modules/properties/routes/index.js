@@ -22,7 +22,7 @@ const {
   deleteInventory,
   getDeveloperLeads,
   approveProperty,
-  getApprovedProperties,
+  getApprovedProperties,     
 
 } = require("../controllers/index.js");
 const router = Router();
