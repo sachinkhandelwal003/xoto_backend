@@ -663,3 +663,56 @@ export const getDeveloperLeads = async (req,res)=>{
 
   }
 }
+export const approveProperty = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    const property = await Property.findById(id);
+
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found"
+      });
+    }
+
+    property.approvalStatus = "approved";
+
+    await property.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Property approved successfully",
+      data: property
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+export const getApprovedProperties = async (req, res) => {
+  try {
+
+    const properties = await Property.find({
+      approvalStatus: "approved"
+    }).populate("developer");
+
+    return res.status(200).json({
+      success: true,
+      message: "Approved properties fetched successfully",
+      data: properties
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};

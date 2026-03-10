@@ -20,7 +20,9 @@ const {
   getInventoryByProperty,
   updateInventory,
   deleteInventory,
-  getDeveloperLeads
+  getDeveloperLeads,
+  approveProperty,
+  getApprovedProperties,
 
 } = require("../controllers/index.js");
 const router = Router();
@@ -47,6 +49,8 @@ router.put("/update-inventory/:id", updateInventory);
 router.delete("/delete-inventory/:id", deleteInventory);
 router.post("/bulk-import-inventory", bulkImportInventory);
 router.get("/developer-leads", getDeveloperLeads);
+router.put("/approve/:id", approveProperty);
+router.get("/approved", getApprovedProperties);
 
 // router.post("/agent-signup", agentSignup)
 
