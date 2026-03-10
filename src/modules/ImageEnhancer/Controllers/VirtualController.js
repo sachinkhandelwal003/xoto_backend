@@ -333,33 +333,20 @@ Ultra photorealistic Dubai luxury property photography.
 // =======================================
 
 exports.getStagingLibrary = async (req, res) => {
-
     try {
-
         const images = await VirtualStaging
-
-            .find({ userId: req.user._id })
-
+            // ✅ Ab sahi hai, jiss naam se save kiya tha, ussi se fetch kiya
+            .find({ user: req.user._id }) 
             .sort({ createdAt: -1 });
 
         res.json({
-
             status: true,
-
             data: images
-
         });
-
     } catch (err) {
-
         res.status(500).json({
-
             status: false,
-
             error: err.message
-
         });
-
     }
-
 };

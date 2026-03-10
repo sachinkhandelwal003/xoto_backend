@@ -20,7 +20,7 @@ router.get("/get-category-by-id", getCategoryById)
 //products
 router.post("/create-products", createProducts)
 router.get("/get-all-products", getAllProducts)
-router.get("/get-product-by-id", getProductById)
+router.get("/getproduct-by-id", getProductById)
 router.post("/add-margin-products",addProductMargin);
 
 router.post("/delete-product-by-id", deleteProductById)
