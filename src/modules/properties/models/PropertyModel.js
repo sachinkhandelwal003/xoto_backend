@@ -195,6 +195,11 @@ const PropertySchema = new mongoose.Schema(
       default: false,
       required: false
     },
+    approvalStatus: {
+  type: String,
+  enum: ["pending", "approved", "rejected"],
+  default: "pending"
+},
 
     // new fields we are adding 
     handover: {
