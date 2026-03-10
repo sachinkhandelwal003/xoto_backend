@@ -5,7 +5,7 @@ import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { createToken } from '../../../middleware/auth.js';
 
 /* =====================================
-   1️⃣ AGENT SIGNUP
+   :one: AGENT SIGNUP
 ===================================== */
 export const agentSignup = async (req, res) => {
   try {
@@ -22,7 +22,7 @@ export const agentSignup = async (req, res) => {
       "profile_photo",
       "id_proof",
       "rera_certificate",
-      
+
     ];
 
     let safeData = {};
@@ -48,7 +48,7 @@ export const agentSignup = async (req, res) => {
                 success: false,
                 message: "Role with code 16 not found"
             });
-        }  
+        }
     const existingEmail = await Agent.findOne({ email });
     if (existingEmail) {
       return res.status(400).json({
@@ -74,8 +74,6 @@ export const agentSignup = async (req, res) => {
       last_name,
       password: hashedPassword,
 role:roleDoc._id,
-
-  agency: req.user._id,
       // Verification & Approval flags
       is_email_verified: true,      // frontend handled
       is_mobile_verified: true,
@@ -103,7 +101,7 @@ role:roleDoc._id,
 
 
 /* =====================================
-   2️⃣ AGENT LOGIN
+   :two: AGENT LOGIN
 ===================================== */
 export const agentLogin = async (req, res) => {
   const { email, password } = req.body;
@@ -177,7 +175,7 @@ export const agentLogin = async (req, res) => {
 
 
 /* =====================================
-   3️⃣ UPDATE AGENT
+   :three: UPDATE AGENT
 ===================================== */
 export const updateAgent = async (req, res) => {
   try {
@@ -200,7 +198,7 @@ export const updateAgent = async (req, res) => {
       });
     }
 
-    // 🔒 Block update if not verified
+    // :lock: Block update if not verified
     if (!agent.is_email_verified || !agent.is_mobile_verified) {
       return res.status(403).json({
         success: false,
@@ -249,23 +247,12 @@ export const updateAgent = async (req, res) => {
 
 
 /* =====================================
-   4️⃣ GET ALL AGENTS
+   :four: GET ALL AGENTS
 ===================================== */
 export const getAllAgents = async (req, res) => {
   try {
 
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: "User not authenticated"
-      });
-    }
-
-    const agencyId = req.user._id;
-
-    const agents = await Agent.find({
-      agency: agencyId
-    })
+    const agents = await Agent.find()
       .sort({ createdAt: -1 })
       .select("-password");
 
@@ -276,20 +263,16 @@ export const getAllAgents = async (req, res) => {
     });
 
   } catch (error) {
-
-    console.log(error);
-
     return res.status(500).json({
       success: false,
       message: error.message
     });
-
   }
 };
 
 
 /* =====================================
-   5️⃣ GET AGENT BY ID
+   :five: GET AGENT BY ID
 ===================================== */
 export const getAgentById = async (req, res) => {
   try {
@@ -320,7 +303,7 @@ export const getAgentById = async (req, res) => {
 
 
 /* =====================================
-   6️⃣ DELETE AGENT
+   :six: DELETE AGENT
 ===================================== */
 export const deleteAgent = async (req, res) => {
   try {
