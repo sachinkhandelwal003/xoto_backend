@@ -433,3 +433,232 @@ export const getPropertyById = async (req, res) => {
         });
     }
 };
+<<<<<<< main
+=======
+// Inventory Controller
+export const createInventory = async (req, res) => {
+  try {
+    const { developerId, projectId, unitId, area, price, view } = req.body;
+
+    // 🔹 Basic validation
+    if (!developerId || !projectId || !unitId) {
+      return res.status(400).json({
+        success: false,
+        message: "developerId, projectId and unitId are required"
+      });
+    }
+
+    // 🔹 Check developer exists
+    const developerExists = await Developer.findById(developerId);
+    if (!developerExists) {
+      return res.status(404).json({
+        success: false,
+        message: "Developer not found"
+      });
+    }
+
+    // 🔹 Check property exists
+    const propertyExists = await Property.findById(projectId);
+    if (!propertyExists) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found"
+      });
+    }
+
+    // 🔹 Create inventory
+    const inventory = await Inventory.create({
+      developerId,
+      projectId,
+      unitId,
+      area,
+      price,
+      view
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Inventory created successfully",
+      data: inventory
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+// export const addInventory = async (req, res) => {
+//   try {
+//     const developerId = req.user.id; // from JWT
+//     const { projectId, unitId, area, price, view } = req.body;
+
+//     // 1️⃣ Check project belongs to this developer
+//     const project = await Project.findOne({
+//       _id: projectId,
+//       developerId
+//     });
+
+//     if (!project) {
+//       return res.status(403).json({ message: "Unauthorized project" });
+//     }
+
+//     // 2️⃣ Create unit
+//     const inventory = await Inventory.create({
+//       developerId,
+//       projectId,
+//       unitId,
+//       area,
+//       price,
+//       view
+//     });
+
+//     res.status(201).json({
+//       message: "Inventory unit created",
+//       data: inventory
+//     });
+//   } catch (error) {
+//     res.status(500).json({ message: error.message });
+//   }
+// };
+export const getInventoryByProperty = async (req, res) => {
+  try {
+    const { projectId } = req.query;
+
+    if (!projectId) {
+      return res.status(400).json({
+        success: false,
+        message: "projectId is required"
+      });
+    }
+
+    const units = await Inventory.find({ projectId });
+
+    return res.status(200).json({
+      success: true,
+      data: units
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+export const updateInventory = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const unit = await Inventory.findById(id);
+
+    if (!unit) {
+      return res.status(404).json({
+        success: false,
+        message: "Inventory not found"
+      });
+    }
+
+    // Optional: Prevent updating Sold unit
+    if (unit.status === "Sold") {
+      return res.status(400).json({
+        success: false,
+        message: "Sold unit cannot be modified"
+      });
+    }
+
+    Object.assign(unit, req.body);
+    await unit.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Inventory updated successfully",
+      data: unit
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+export const deleteInventory = async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    const deleted = await Inventory.findByIdAndDelete(id);
+
+    return res.status(200).json({
+      success: true,
+      message: "Inventory deleted successfully",
+      data: deleted
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+export const bulkImportInventory = async (req, res) => {
+  try {
+    const { developerId, projectId, units } = req.body;
+
+    if (!developerId || !projectId || !units?.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid data"
+      });
+    }
+
+    const formattedUnits = units.map(unit => ({
+      developerId,
+      projectId,
+      unitId: unit.unitId,
+      area: unit.area,
+      price: unit.price,
+      view: unit.view || "",
+      status: unit.status || "Available"
+    }));
+
+    await Inventory.insertMany(formattedUnits);
+
+    return res.status(201).json({
+      success: true,
+      message: "CSV Imported Successfully"
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+export const getDeveloperLeads = async (req,res)=>{
+  try{
+
+    const { developerId } = req.query;
+
+    const leads = await Lead.find({ isDeleted:false })
+      .populate("agent","first_name last_name email")
+      .populate("project");
+
+    return res.status(200).json({
+      success:true,
+      data:leads
+    });
+
+  }catch(err){
+
+    return res.status(500).json({
+      success:false,
+      message:err.message
+    });
+
+  }
+}
+>>>>>>> local

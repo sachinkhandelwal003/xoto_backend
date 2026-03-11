@@ -42,6 +42,8 @@
       lat: Number,
       lng: Number,
       country: String,
+            profile:String,
+
       state: String,
       city: String,
       area: String,
