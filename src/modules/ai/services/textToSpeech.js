@@ -1,21 +1,16 @@
-// src/services/textToSpeech.js
-import fs from "fs";
 import path from "path";
 import OpenAI from "openai";
 import crypto from "crypto";
-import { fileURLToPath } from "url";
-import dotenv from "dotenv"
+import dotenv from "dotenv";
 
-dotenv.config()
+dotenv.config();
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// 🔥 absolute path to responses folder
+// 🔥 absolute path to responses folder 
+// (__dirname is automatically provided by Node.js/Babel in this setup)
 const responsesDir = path.join(__dirname, "..", "..", "responses");
 
 export async function textToSpeech(text) {

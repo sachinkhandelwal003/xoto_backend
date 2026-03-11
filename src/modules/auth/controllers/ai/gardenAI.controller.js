@@ -10,30 +10,26 @@ const CustomerAiLibrary = require('../../models/user/MyLiabrary');
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// ==========================================
+// 1. GARDEN GENERATION
+// ==========================================
 exports.generateGardenDesigns = async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: "No image uploaded" });
     }
     let user = req.user;
-    // console.log("usertrrrrrrrrrrrrrrrrrrr",user)
     let { styleName, elements, description, userId } = req.body;
     let aiGeneratedImagesCOunt = await AIGeneratedImages.find({ userId: user._id, designType: "landscaping" });
 
-    if (aiGeneratedImagesCOunt.length > 0) {
+    // 🔥 LIMIT CHANGED TO 3 🔥
+    if (aiGeneratedImagesCOunt.length >= 3) {
       return res.status(400).json({
         status: false,
-        message: "If you want to generate more images . Then purchase premium.",
+        message: "You have reached your free limit of 3 designs. Upgrade to premium for more.",
         aiImageGeneration: false
       })
     }
-
-    //     const prompt = `
-    // ${styleName && styleName.length > 0 ? `${styleName} create with these styles and use them.` : ''}
-    // Use these elements as well: ${elements}.
-    // ${description && description.length > 0 ? `Edit according to this description: ${description}` : ''}
-    // `.trim();
-
 
     const prompt = `
 ${styleName && styleName.length > 0 ? `${styleName} create with these styles and use them.` : ''}
@@ -88,8 +84,6 @@ No animation, no illustration, no cartoon style, no CGI, no artificial or styliz
 
     res.json({
       message: "Garden generated successfully",
-      // file: outputPath,
-      // base64: imageBase64, // optional
       imageUrl,
       AiGeneratedImages
     });
@@ -101,9 +95,7 @@ No animation, no illustration, no cartoon style, no CGI, no artificial or styliz
 
 exports.getgardenDesigns = async (req, res) => {
   try {
-
     let user = req.user;
-    // console.log("usertrrrrrrrrrrrrrrrrrrr",user)
     let aiGeneratedImagesCOunt = await AIGeneratedImages.find({ userId: user._id, designType: "landscaping" });
 
     return res.status(200).json({
@@ -124,11 +116,10 @@ exports.addCustomerDesign = async (req, res) => {
       return res.status(400).json({ error: "designType and imageUrl are required" });
     }
 
-    // Add the image URL to the existing array or create a new document
     const customerLibrary = await CustomerAiLibrary.findOneAndUpdate(
       { customerId, designType },
-      { $addToSet: { images: imageUrl } }, // $addToSet prevents duplicates
-      { new: true, upsert: true } // upsert: create if doesn't exist, new: return updated doc
+      { $addToSet: { images: imageUrl } },
+      { new: true, upsert: true } 
     );
 
     res.status(200).json({
@@ -144,8 +135,8 @@ exports.addCustomerDesign = async (req, res) => {
 
 exports.getCustomerDesigns = async (req, res) => {
   try {
-    const customerId = req.user._id; // pass customerId in query
-    const designType = req.query.designType; // optional: "landscaping" or "interior"
+    const customerId = req.user._id; 
+    const designType = req.query.designType; 
 
     if (!customerId) {
       return res.status(400).json({ error: "customerId is required" });
@@ -168,12 +159,9 @@ exports.getCustomerDesigns = async (req, res) => {
 };
 
 
-
-
 exports.getInteriorDesigns = async (req, res) => {
   try {
     let user = req.user;
-    // console.log("usertrrrrrrrrrrrrrrrrrrr",user)
     let aiGeneratedImagesCOunt = await AIGeneratedImages.find({ userId: user._id, designType: "interior" });
 
     return res.status(200).json({
@@ -185,6 +173,10 @@ exports.getInteriorDesigns = async (req, res) => {
   }
 };
 
+
+// ==========================================
+// 2. INTERIOR GENERATION
+// ==========================================
 exports.generateInteriorDesigns = async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
@@ -194,21 +186,20 @@ exports.generateInteriorDesigns = async (req, res) => {
     const user = req.user;
     const { styleName, elements, description, roomType } = req.body;
 
-    // Check if user already has generated interior images
     const aiGeneratedImagesCount = await AIGeneratedImages.find({
       userId: user._id,
       designType: "interior"
     });
 
-    if (aiGeneratedImagesCount.length > 0) {
+    // 🔥 LIMIT CHANGED TO 3 🔥
+    if (aiGeneratedImagesCount.length >= 3) {
       return res.status(400).json({
         status: false,
-        message: "If you want to generate more images, please purchase premium.",
+        message: "You have reached your free limit of 3 designs. Upgrade to premium for more.",
         aiImageGeneration: false
       });
     }
 
-    // Build the AI prompt
     const prompt = `
 ${styleName ? `${styleName} interior design` : 'Interior design'}${roomType ? ` for a ${roomType}` : ''}.
 Use these elements as well: ${elements || 'none'}.
@@ -221,12 +212,10 @@ No animation, no illustration, no cartoon style, no CGI, no artificial or styliz
 Images should look real; no animated images should come.
 `.trim();
 
-    // Convert uploaded files to OpenAI format
     const images = await Promise.all(
       req.files.map(file => toFile(file.buffer, null, { type: file.mimetype }))
     );
 
-    // Call OpenAI image edit API
     const response = await client.images.edit({
       model: "gpt-image-1",
       image: images,
@@ -234,13 +223,11 @@ Images should look real; no animated images should come.
       input_fidelity: "high"
     });
 
-    // Convert Base64 output to buffer
     const imageBase64 = response.data[0].b64_json;
     const imageBuffer = Buffer.from(imageBase64, "base64");
 
     const fileName = `interior/${Date.now()}_interior.png`;
 
-    // Upload to S3
     await s3.send(
       new PutObjectCommand({
         Bucket: process.env.AWS_S3_BUCKET,
@@ -252,15 +239,12 @@ Images should look real; no animated images should come.
 
     const imageUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
 
-    // Save record in DB
     const AiGeneratedImages = await AIGeneratedImages.create({
       imageUrl,
       userType: "customer",
       userId: user._id,
       designType: "interior"
     });
-
-    console.log("AiGeneratedImagesAiGeneratedImagesAiGeneratedImages", AiGeneratedImages)
 
     res.json({
       message: "Interior design generated successfully",
@@ -272,20 +256,3 @@ Images should look real; no animated images should come.
     res.status(500).json({ error: "Failed to generate interior design" });
   }
 };
-
-
-// exports.getAllAIImages = async (req, res) => {
-//   try {
-//     let user = req.user;
-//     console.log("userrrrrrrrrrrrrrrr",user);
-
-//     // let allAIImages =
-
-//     res.json({
-//       message: "Garden generated successfully",
-//     });
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ error: "Failed to generate garden" });
-//   }
-// };
