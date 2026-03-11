@@ -190,27 +190,120 @@ export const editProperty = async (req, res) => {
     }
 };
 
+// export const getAllProperties = async (req, res) => {
+//     try {
+//         let page = Number(req.query.page) || 1;
+//         let limit = Number(req.query.limit) || 10;
+//         let skip = (page - 1) * limit;
+//         let isFeatured = req.query.isFeatured;
+
+//         // ✅ 1. Developer ID filter pakadne ke liye query param add karein
+//         const { developerId } = req.query; 
+
+//         let query = {};
+
+//         if (isFeatured && isFeatured == "true") {
+//             query.isFeatured = true;
+//         }
+
+//         // ✅ 2. Agar frontend se developerId bheji gayi hai, toh query mein add karein
+//         if (developerId) {
+//             query.developer = developerId; 
+//         }
+
+//         const property = await Property.find(query)
+//             .populate("developer")
+//             .sort({ createdAt: -1 })
+//             .limit(limit)
+//             .skip(skip);
+
+//         let total = await Property.countDocuments(query);
+
+//         return res.status(200).json({
+//             success: true,
+//             message: "Properties fetched successfully",
+//             data: property,
+//             pagination: {
+//                 totalPages: Math.ceil(total / limit),
+//                 limit,
+//                 page,
+//                 total: total
+//             }
+//         });
+
+//     } catch (error) {
+//         return res.status(500).json({
+//             success: false,
+//             message: error.message
+//         });
+//     }
+// };
 export const getAllProperties = async (req, res) => {
     try {
         let page = Number(req.query.page) || 1;
         let limit = Number(req.query.limit) || 10;
         let skip = (page - 1) * limit;
-        let isFeatured = req.query.isFeatured;
 
-        // ✅ 1. Developer ID filter pakadne ke liye query param add karein
-        const { developerId } = req.query; 
+        // ✅ 1. Frontend se aane wale saare naye aur purane query params nikaal liye
+        const { 
+            developerId, 
+            isFeatured,
+            keyword,        // Open search (Name, Title, Desc, Location)
+            propertyType,   // Apartment, Villa, etc.
+            purpose,        // Buy, Rent
+            location,       // Dubai Marina, Downtown, etc.
+            bedrooms,       // 1, 2, 3, 4+
+            minPrice,       // Minimum budget
+            maxPrice        // Maximum budget
+        } = req.query; 
 
         let query = {};
 
+        // --- PURANA LOGIC (Bilkul safe hai) ---
         if (isFeatured && isFeatured == "true") {
             query.isFeatured = true;
         }
 
-        // ✅ 2. Agar frontend se developerId bheji gayi hai, toh query mein add karein
         if (developerId) {
             query.developer = developerId; 
         }
 
+        // --- 🔥 NAYA ADVANCED FILTER LOGIC 🔥 ---
+
+        // A. Open-ended Keyword Search (Name, Title, Description, ya Location)
+        if (keyword) {
+            query.$or = [
+                { title: { $regex: keyword, $options: "i" } },
+                { name: { $regex: keyword, $options: "i" } }, // Name se bhi search hoga
+                { description: { $regex: keyword, $options: "i" } },
+                { location: { $regex: keyword, $options: "i" } }
+            ];
+        }
+
+        // B. Exact Matches (Dropdowns)
+        if (propertyType) query.propertyType = propertyType;
+        if (purpose) query.purpose = purpose;
+        
+        // Location ke liye Regex lagaya taaki partial name bhi match ho jaye
+        if (location) query.location = { $regex: location, $options: "i" };
+
+        // C. Bedrooms Filter (Agar "4+" select kiya toh $gte lag jayega)
+        if (bedrooms) {
+            if (String(bedrooms).includes('+')) {
+                query.bedrooms = { $gte: Number(bedrooms.replace('+', '')) };
+            } else {
+                query.bedrooms = Number(bedrooms);
+            }
+        }
+
+        // D. Price Range Slider Filter
+        if (minPrice || maxPrice) {
+            query.price = {};
+            if (minPrice) query.price.$gte = Number(minPrice);
+            if (maxPrice) query.price.$lte = Number(maxPrice);
+        }
+
+        // --- DATABASE QUERY EXECUTED ---
         const property = await Property.find(query)
             .populate("developer")
             .sort({ createdAt: -1 })
@@ -238,7 +331,6 @@ export const getAllProperties = async (req, res) => {
         });
     }
 };
-
 
 export const getAllDevelopers = async (req, res) => {
     try {
