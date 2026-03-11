@@ -4,6 +4,7 @@
   "main": "server.js",
   "scripts": {
 "start": "babel-node server.js",
+"demon": "node server.js",
 "dev": "nodemon server.js"
 
 
