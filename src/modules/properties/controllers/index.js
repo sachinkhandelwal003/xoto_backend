@@ -1,12 +1,15 @@
+import mongoose from "mongoose";
 import Property from "../models/PropertyModel.js";
 import Developer from "../models/DeveloperModel.js";
+import Inventory from "../models/Inventory.js";
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { createToken } from '../../../middleware/auth.js';
+import Lead from "../../Agent/models/AgentLeaad.js";
 import bcrypt from "bcryptjs";
 
 
 // import Agent from "../models/Agent.js";
-import jwt from "jsonwebtoken";
+// import jwt from "jsonwebtoken";
 
 export const createDeveloper = async (req, res) => {
     try {
@@ -133,7 +136,10 @@ export const createProperty = async (req, res) => {
         }
 
 
-        const property = await Property.create({ ...req.body });
+        const property = await Property.create({
+  ...req.body,
+  developer: new mongoose.Types.ObjectId(req.body.developer)
+});
 
         return res.status(201).json({
             success: true,
@@ -184,56 +190,256 @@ export const editProperty = async (req, res) => {
     }
 };
 
+// export const getAllProperties = async (req, res) => {
+//     try {
+//         let page = Number(req.query.page) || 1;
+//         let limit = Number(req.query.limit) || 10;
+//         let skip = (page - 1) * limit;
+//         let isFeatured = req.query.isFeatured;
+
+//         // ✅ 1. Developer ID filter pakadne ke liye query param add karein
+//         const { developerId } = req.query; 
+
+//         let query = {};
+
+//         if (isFeatured && isFeatured == "true") {
+//             query.isFeatured = true;
+//         }
+
+//         // ✅ 2. Agar frontend se developerId bheji gayi hai, toh query mein add karein
+//         if (developerId) {
+//             query.developer = developerId; 
+//         }
+
+//         const property = await Property.find(query)
+//             .populate("developer")
+//             .sort({ createdAt: -1 })
+//             .limit(limit)
+//             .skip(skip);
+
+//         let total = await Property.countDocuments(query);
+
+//         return res.status(200).json({
+//             success: true,
+//             message: "Properties fetched successfully",
+//             data: property,
+//             pagination: {
+//                 totalPages: Math.ceil(total / limit),
+//                 limit,
+//                 page,
+//                 total: total
+//             }
+//         });
+
+//     } catch (error) {
+//         return res.status(500).json({
+//             success: false,
+//             message: error.message
+//         });
+//     }
+// };
+// export const getAllProperties = async (req, res) => {
+//     try {
+//         let page = Number(req.query.page) || 1;
+//         let limit = Number(req.query.limit) || 10;
+//         let skip = (page - 1) * limit;
+
+//         // ✅ 1. Frontend se aane wale saare naye aur purane query params nikaal liye
+//         const { 
+//             developerId, 
+//             isFeatured,
+//             keyword,        // Open search (Name, Title, Desc, Location)
+//             propertyType,   // Apartment, Villa, etc.
+//             purpose,        // Buy, Rent
+//             location,       // Dubai Marina, Downtown, etc.
+//             bedrooms,       // 1, 2, 3, 4+
+//             minPrice,       // Minimum budget
+//             maxPrice        // Maximum budget
+//         } = req.query; 
+
+//         let query = {};
+
+//         // --- PURANA LOGIC (Bilkul safe hai) ---
+//         if (isFeatured && isFeatured == "true") {
+//             query.isFeatured = true;
+//         }
+
+//         if (developerId) {
+//             query.developer = developerId; 
+//         }
+
+//         // --- 🔥 NAYA ADVANCED FILTER LOGIC 🔥 ---
+
+//         // A. Open-ended Keyword Search (Name, Title, Description, ya Location)
+//         if (keyword) {
+//             query.$or = [
+//                 { title: { $regex: keyword, $options: "i" } },
+//                 { name: { $regex: keyword, $options: "i" } }, // Name se bhi search hoga
+//                 { description: { $regex: keyword, $options: "i" } },
+//                 { location: { $regex: keyword, $options: "i" } }
+//             ];
+//         }
+
+//         // B. Exact Matches (Dropdowns)
+//         if (propertyType) query.propertyType = propertyType;
+//         if (purpose) query.purpose = purpose;
+        
+//         // Location ke liye Regex lagaya taaki partial name bhi match ho jaye
+//         if (location) query.location = { $regex: location, $options: "i" };
+
+//         // C. Bedrooms Filter (Agar "4+" select kiya toh $gte lag jayega)
+//         if (bedrooms) {
+//             if (String(bedrooms).includes('+')) {
+//                 query.bedrooms = { $gte: Number(bedrooms.replace('+', '')) };
+//             } else {
+//                 query.bedrooms = Number(bedrooms);
+//             }
+//         }
+
+//         // D. Price Range Slider Filter
+//         if (minPrice || maxPrice) {
+//             query.price = {};
+//             if (minPrice) query.price.$gte = Number(minPrice);
+//             if (maxPrice) query.price.$lte = Number(maxPrice);
+//         }
+
+//         // --- DATABASE QUERY EXECUTED ---
+//         const property = await Property.find(query)
+//             .populate("developer")
+//             .sort({ createdAt: -1 })
+//             .limit(limit)
+//             .skip(skip);
+
+//         let total = await Property.countDocuments(query);
+
+//         return res.status(200).json({
+//             success: true,
+//             message: "Properties fetched successfully",
+//             data: property,
+//             pagination: {
+//                 totalPages: Math.ceil(total / limit),
+//                 limit,
+//                 page,
+//                 total: total
+//             }
+//         });
+
+//     } catch (error) {
+//         return res.status(500).json({
+//             success: false,
+//             message: error.message
+//         });
+//     }
+// };
 export const getAllProperties = async (req, res) => {
     try {
         let page = Number(req.query.page) || 1;
         let limit = Number(req.query.limit) || 10;
         let skip = (page - 1) * limit;
-        let isFeatured = req.query.isFeatured;
 
-        // ✅ 1. Developer ID filter pakadne ke liye query param add karein
-        const { developerId } = req.query; 
+        const { 
+            developerId, 
+            isFeatured,
+            keyword,        
+            propertyType,   
+            purpose,        
+            location,       
+            bedrooms,       
+            minPrice,       
+            maxPrice,
+            bathrooms,      // Naya: Bathrooms filter
+            furnishing      // Naya: Furnished/Unfurnished
+        } = req.query; 
 
-        let query = {};
+        // Initial Query - Base filter (Sirf active properties dikhao)
+        let query = { is_deleted: false };
 
-        if (isFeatured && isFeatured == "true") {
-            query.isFeatured = true;
+        // 1. Featured & Developer Logic
+        if (isFeatured === "true") query.isFeatured = true;
+        if (developerId) query.developer = developerId;
+
+        // 2. 🔥 ADVANCED KEYWORD SEARCH (And Logic)
+        // Hum $and use karenge taaki keyword search aur baaki filters ek saath chalein
+        let andConditions = [];
+
+        if (keyword && keyword.trim() !== "") {
+            const searchRegex = { $regex: keyword, $options: "i" };
+            andConditions.push({
+                $or: [
+                    { title: searchRegex },
+                    { name: searchRegex },
+                    { description: searchRegex },
+                    { location: searchRegex },
+                    { "address.city": searchRegex }, // Agar nested address hai toh
+                    { "address.area": searchRegex }
+                ]
+            });
         }
 
-        // ✅ 2. Agar frontend se developerId bheji gayi hai, toh query mein add karein
-        if (developerId) {
-            query.developer = developerId; 
+        // 3. EXACT MATCH FILTERS
+        if (propertyType) query.propertyType = propertyType;
+        if (purpose) query.purpose = purpose;
+        if (furnishing) query.furnishing = furnishing;
+
+        // 4. LOCATION (Partial Match)
+        if (location && location.trim() !== "") {
+            query.location = { $regex: location, $options: "i" };
         }
 
+        // 5. BEDROOMS & BATHROOMS (Smart Logic)
+        const handleCountFilter = (val) => {
+            if (String(val).includes('+')) {
+                return { $gte: Number(val.replace('+', '')) };
+            }
+            return Number(val);
+        };
+
+        if (bedrooms) query.bedrooms = handleCountFilter(bedrooms);
+        if (bathrooms) query.bathrooms = handleCountFilter(bathrooms);
+
+        // 6. PRICE RANGE
+        if (minPrice || maxPrice) {
+            query.price = {};
+            if (minPrice) query.price.$gte = Number(minPrice);
+            if (maxPrice) query.price.$lte = Number(maxPrice);
+        }
+
+        // Final Query Assembly
+        if (andConditions.length > 0) {
+            query.$and = andConditions;
+        }
+
+        // --- EXECUTION ---
         const property = await Property.find(query)
-            .populate("developer")
+            .populate("developer", "name logo") // Sirf zaroori fields populate karo
             .sort({ createdAt: -1 })
             .limit(limit)
             .skip(skip);
 
-        let total = await Property.countDocuments(query);
+        const total = await Property.countDocuments(query);
 
         return res.status(200).json({
             success: true,
             message: "Properties fetched successfully",
+            count: property.length,
             data: property,
             pagination: {
                 totalPages: Math.ceil(total / limit),
-                limit,
-                page,
-                total: total
+                currentPage: page,
+                totalItems: total,
+                limit
             }
         });
 
     } catch (error) {
+        console.error("Search Error:", error);
         return res.status(500).json({
             success: false,
-            message: error.message
+            message: "Internal Server Error",
+            error: error.message
         });
     }
 };
-
-
 export const getAllDevelopers = async (req, res) => {
     try {
 
@@ -296,7 +502,8 @@ export const getPropertiesById = async (req, res) => {
 
         let id = req.query.id;
 
-        const property = await Property.findById({ _id: id });
+        const property = await Property.findById(id)
+  .populate("developer");
 
         return res.status(200).json({
             success: true,
@@ -433,8 +640,6 @@ export const getPropertyById = async (req, res) => {
         });
     }
 };
-<<<<<<< main
-=======
 // Inventory Controller
 export const createInventory = async (req, res) => {
   try {
@@ -489,51 +694,15 @@ export const createInventory = async (req, res) => {
     });
   }
 };
-// export const addInventory = async (req, res) => {
-//   try {
-//     const developerId = req.user.id; // from JWT
-//     const { projectId, unitId, area, price, view } = req.body;
 
-//     // 1️⃣ Check project belongs to this developer
-//     const project = await Project.findOne({
-//       _id: projectId,
-//       developerId
-//     });
 
-//     if (!project) {
-//       return res.status(403).json({ message: "Unauthorized project" });
-//     }
-
-//     // 2️⃣ Create unit
-//     const inventory = await Inventory.create({
-//       developerId,
-//       projectId,
-//       unitId,
-//       area,
-//       price,
-//       view
-//     });
-
-//     res.status(201).json({
-//       message: "Inventory unit created",
-//       data: inventory
-//     });
-//   } catch (error) {
-//     res.status(500).json({ message: error.message });
-//   }
-// };
 export const getInventoryByProperty = async (req, res) => {
   try {
+
     const { projectId } = req.query;
 
-    if (!projectId) {
-      return res.status(400).json({
-        success: false,
-        message: "projectId is required"
-      });
-    }
-
-    const units = await Inventory.find({ projectId });
+    const units = await Inventory.find({ projectId })
+      .populate("projectId", "projectName");
 
     return res.status(200).json({
       success: true,
@@ -541,10 +710,12 @@ export const getInventoryByProperty = async (req, res) => {
     });
 
   } catch (error) {
+
     return res.status(500).json({
       success: false,
       message: error.message
     });
+
   }
 };
 export const updateInventory = async (req, res) => {
@@ -661,4 +832,56 @@ export const getDeveloperLeads = async (req,res)=>{
 
   }
 }
->>>>>>> local
+export const approveProperty = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    const property = await Property.findById(id);
+
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found"
+      });
+    }
+
+    property.approvalStatus = "approved";
+
+    await property.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Property approved successfully",
+      data: property
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+export const getApprovedProperties = async (req, res) => {
+  try {
+
+    const properties = await Property.find({
+      approvalStatus: "approved"
+    }).populate("developer");
+
+    return res.status(200).json({
+      success: true,
+      message: "Approved properties fetched successfully",
+      data: properties
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};

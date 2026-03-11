@@ -6,9 +6,9 @@ const PropertySchema = new mongoose.Schema(
     // BASIC INFO
     // =========================
     developer: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "Developer"
-},
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Developer"
+    },
 
     propertyName: {
       type: String,
@@ -115,6 +115,31 @@ const PropertySchema = new mongoose.Schema(
     },
 
     // =========================
+    // COMMISSION
+    // =========================
+    commissionType: {
+      type: String,
+      enum: ["percentage", "fixed"],
+      default: "percentage"
+    },
+
+    commissionValue: {
+      type: Number,
+      default: 0
+    },
+
+    commissionStage: {
+      type: String,
+      enum: ["booking", "contract", "handover"],
+      default: "booking"
+    },
+
+    commissionNotes: {
+      type: String,
+      default: ""
+    },
+
+    // =========================
     // ADDRESS (FLAT)
     // =========================
     buildingNo: String,
@@ -170,6 +195,11 @@ const PropertySchema = new mongoose.Schema(
       default: false,
       required: false
     },
+    approvalStatus: {
+  type: String,
+  enum: ["pending", "approved", "rejected"],
+  default: "pending"
+},
 
     // new fields we are adding 
     handover: {

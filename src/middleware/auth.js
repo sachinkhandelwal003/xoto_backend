@@ -14,13 +14,14 @@ const Freelancer = require("../modules/auth/models/Freelancer/freelancer.model")
 const AllUsers = require("../modules/auth/models/user/user.model");
 const Customer = require("../modules/auth/models/user/customer.model");
 const Agent =require("../modules/Agent/models/agent")
+const Agency = require("../modules/agency/models/index")
 const Developer =require("../modules/properties/models/DeveloperModel")
 
 const { getUserPermissions } = require("./permission");
 
 
 /* ============================================================
-   CREATE TOKEN
+   CREATE Token
 ============================================================ */
 exports.createToken = (user, type) => {
   const detectedType =
@@ -137,7 +138,8 @@ exports.protectMulti = async (req, res, next) => {
       vendorb2c: Vendorb2c,
       customer: Customer ,  // ⭐ ADDED HERE,
         agent: Agent,           // role code 16
-  developer: Developer
+  developer: Developer,
+      agency: Agency,         // role code 17
     };
 
     const Model = entityMap[type];

@@ -167,74 +167,49 @@ exports.customerSignup = asyncHandler(async (req, res) => {
     lead
   });
 });
-exports.updateCustomer = asyncHandler(async (req, res) => {
-  // 1. Get Customer ID 
-  // (Assuming ye token se aayega req.user._id mein, ya fir req.query.id se)
-  const customerId = req.user?._id || req.query?.id || req.params?.id;
+exports.updateCustomer = async (req, res) => {
+  try {
 
-  if (!customerId) {
-    throw new APIError("Customer ID is required", StatusCodes.BAD_REQUEST);
-  }
+    const customerId = req.user?._id || req.params?.id;
 
-  // 2. Destructure fields from req.body (jo jo aayega)
-  const { name, email, mobile, location, profilePic } = req.body;
+    if (!customerId) {
+      return res.status(400).json({
+        success: false,
+        message: "Customer ID required"
+      });
+    }
 
-  // 3. Find existing customer
-  const customer = await Customer.findById(customerId);
-  if (!customer || customer.is_deleted) {
-    throw new APIError("Customer not found", StatusCodes.NOT_FOUND);
-  }
+    const updatedCustomer = await Customer.findByIdAndUpdate(
+      customerId,
+      req.body,
+      {
+        new: true,
+        runValidators: true
+      }
+    );
 
-  // 4. Duplicate Check for Email (Agar update ho raha hai)
-  if (email && email.toLowerCase() !== customer.email) {
-    const emailExists = await Customer.findOne({
-      email: email.toLowerCase(),
-      _id: { $ne: customerId }, // Khud ke alawa kisi aur ka na ho
-      is_deleted: false
+    if (!updatedCustomer) {
+      return res.status(404).json({
+        success: false,
+        message: "Customer not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Profile updated",
+      data: updatedCustomer
     });
 
-    if (emailExists) {
-      return res.status(400).json([{ status: 400, message: "Email already in use" }]);
-    }
-  }
+  } catch (error) {
 
-  // 5. Duplicate Check for Mobile (Agar update ho raha hai)
-  if (mobile && mobile.number && mobile.number !== customer.mobile?.number) {
-    const mobileExists = await Customer.findOne({
-      "mobile.number": mobile.number,
-      _id: { $ne: customerId },
-      is_deleted: false
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
 
-    if (mobileExists) {
-      return res.status(400).json([{ status: 400, message: "Mobile number already in use" }]);
-    }
   }
-
-  // 6. Prepare Update Payload (Smart Merge for nested objects)
-  // Spread operator (...) use kiya hai taaki purana data overwrite na ho jaye
-  const updatePayload = {};
-  
-  if (name) updatePayload.name = { ...customer.name, ...name };
-  if (email) updatePayload.email = email.toLowerCase();
-  if (mobile) updatePayload.mobile = { ...customer.mobile, ...mobile };
-  if (location) updatePayload.location = { ...customer.location, ...location };
-  if (profilePic !== undefined) updatePayload.profilePic = profilePic; // Empty string aayi toh bhi update karega
-
-  // 7. Update in DB
-  const updatedCustomer = await Customer.findByIdAndUpdate(
-    customerId,
-    { $set: updatePayload },
-    { new: true, runValidators: true } // new: true -> updated data return karega
-  ).populate("role", "name code");
-
-  // 8. Send Response
-  res.status(StatusCodes.OK).json({
-    success: true,
-    message: "Customer profile updated successfully",
-    customer: updatedCustomer
-  });
-});
+};
 
 exports.createUser = asyncHandler(async (req, res) => {
   const { email, mobile, password, name, role: roleId } = req.body;

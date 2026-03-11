@@ -12,6 +12,13 @@ const AgencySchema = new mongoose.Schema({
     unique: true,
     trim: true
   },
+   
+     role: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Role',
+            required: false,
+            default:null
+          },
   password: {
     type: String,
     required: true

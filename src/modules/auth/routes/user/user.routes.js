@@ -27,7 +27,7 @@ router.post('/register', controller.createUser);
 router.use(protectMulti);
 
 
-router.post('/edit/customer',updateCustomer);
+router.put('/edit/customer',updateCustomer);
 
 router.get('/', controller.getAllUsers);
 router.put('/:id/toggle', validateUserId, controller.toggleStatus);

@@ -21,7 +21,7 @@ const logger = winston.createLogger({
   ]
 });
 
-// Vendor Login fsfsfsfs
+// Vendor Login
 exports.vendorLogin = asyncHandler(async (req, res, next) => {
   try {
     const { email, password } = req.body;

@@ -151,17 +151,53 @@ const getLeadData = async (req, res) => {
 };
 
 
-const createBankProducts = async (req, res) => {
+const createBankProducts = async (req, res) => { 
+  // console.log("Incoming Data:", req.body);
   try {
-
-
-    let bankProduct = await BankMortgageProduct.create({ ...req.body });
-
+    // req.body directly pass kar sakte ho
+    const bankProduct = await BankMortgageProduct.create(req.body);
 
     return res.status(201).json({
       success: true,
       message: "Bank Product created successfully",
       data: bankProduct
+    });
+
+  } catch (error) {
+    
+    if (error.name === "ValidationError") {
+     
+      const errorMessages = Object.values(error.errors).map(err => err.message);
+      
+      return res.status(400).json({
+        success: false,
+        message: errorMessages 
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+
+const getAllBankProducts = async (req, res) => {
+  try {
+
+    let bankProducts = await BankMortgageProduct.find();
+
+    const formattedProducts = bankProducts.map(product => ({
+      id: product._id,
+      ...product.toObject()
+    }));
+
+    return res.status(200).json({
+      success: true,
+      message: "Bank Product fetched successfully",
+      data: formattedProducts
     });
 
   } catch (error) {
@@ -172,17 +208,24 @@ const createBankProducts = async (req, res) => {
   }
 };
 
-const getAllBankProducts = async (req, res) => {
+  const deleteBankProduct = async (req, res) => {
   try {
+    const { id } = req.params;
 
+    const product = await BankMortgageProduct.findById(id);
 
-    let bankProducts = await BankMortgageProduct.find();
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Bank product not found"
+      });
+    }
 
+    await BankMortgageProduct.findByIdAndDelete(id);
 
     return res.status(200).json({
       success: true,
-      message: "Bank Product fetched successfully",
-      data: bankProducts
+      message: "Bank product deleted successfully"
     });
 
   } catch (error) {
@@ -254,4 +297,4 @@ const getAllUaeStates = async (req, res) => {
 
 
 
-module.exports = {productRequirements, UpdateMortgageApplicationPersonalDetails, createMortgageApplication, getLeadData, createBankProducts, getAllBankProducts, getAllUaeStates, UpdateLeadDocuments }
+module.exports = {productRequirements, UpdateMortgageApplicationPersonalDetails, createMortgageApplication, getLeadData, createBankProducts, getAllBankProducts, getAllUaeStates, UpdateLeadDocuments, deleteBankProduct  }

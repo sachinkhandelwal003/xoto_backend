@@ -9,7 +9,7 @@ const AgentSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
-  
+
    role: {
           type: mongoose.Schema.Types.ObjectId,
           ref: 'Role',
@@ -29,7 +29,7 @@ const AgentSchema = new mongoose.Schema({
     required: true,
     minlength: 6
   },
-  
+
   // Phone
   country_code: {
     type: String,
@@ -41,7 +41,7 @@ const AgentSchema = new mongoose.Schema({
     unique: true
   },
 
-  // 👇 YEH RAHA WO FIELD JO MISSING THA
+  // :point_down: YEH RAHA WO FIELD JO MISSING THA
   operating_city: {
     type: String,
     required: true,

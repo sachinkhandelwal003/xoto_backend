@@ -5,7 +5,7 @@ import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { createToken } from '../../../middleware/auth.js';
 
 /* =====================================
-   1️⃣ AGENT SIGNUP
+   :one: AGENT SIGNUP
 ===================================== */
 export const agentSignup = async (req, res) => {
   try {
@@ -22,7 +22,7 @@ export const agentSignup = async (req, res) => {
       "profile_photo",
       "id_proof",
       "rera_certificate",
-      
+
     ];
 
     let safeData = {};
@@ -48,7 +48,7 @@ export const agentSignup = async (req, res) => {
                 success: false,
                 message: "Role with code 16 not found"
             });
-        }  
+        }
     const existingEmail = await Agent.findOne({ email });
     if (existingEmail) {
       return res.status(400).json({
@@ -101,7 +101,7 @@ role:roleDoc._id,
 
 
 /* =====================================
-   2️⃣ AGENT LOGIN
+   :two: AGENT LOGIN
 ===================================== */
 export const agentLogin = async (req, res) => {
   const { email, password } = req.body;
@@ -175,7 +175,7 @@ export const agentLogin = async (req, res) => {
 
 
 /* =====================================
-   3️⃣ UPDATE AGENT
+   :three: UPDATE AGENT
 ===================================== */
 export const updateAgent = async (req, res) => {
   try {
@@ -198,7 +198,7 @@ export const updateAgent = async (req, res) => {
       });
     }
 
-    // 🔒 Block update if not verified
+    // :lock: Block update if not verified
     if (!agent.is_email_verified || !agent.is_mobile_verified) {
       return res.status(403).json({
         success: false,
@@ -247,7 +247,7 @@ export const updateAgent = async (req, res) => {
 
 
 /* =====================================
-   4️⃣ GET ALL AGENTS
+   :four: GET ALL AGENTS
 ===================================== */
 export const getAllAgents = async (req, res) => {
   try {
@@ -272,7 +272,7 @@ export const getAllAgents = async (req, res) => {
 
 
 /* =====================================
-   5️⃣ GET AGENT BY ID
+   :five: GET AGENT BY ID
 ===================================== */
 export const getAgentById = async (req, res) => {
   try {
@@ -303,7 +303,7 @@ export const getAgentById = async (req, res) => {
 
 
 /* =====================================
-   6️⃣ DELETE AGENT
+   :six: DELETE AGENT
 ===================================== */
 export const deleteAgent = async (req, res) => {
   try {

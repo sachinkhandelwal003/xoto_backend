@@ -3,9 +3,9 @@ const { PutObjectCommand } = require("@aws-sdk/client-s3");
 const s3 = require("../../../config/s3Client");
 const SkyReplacement = require("../../ImageEnhancer/Model/Sky"); 
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// const client = new OpenAI({
+//   apiKey: process.env.OPENAI_API_KEY
+// });
 
 // =======================================
 // REPLACE SKY (UPDATED CONTROLLER)
@@ -30,7 +30,7 @@ exports.replaceSky = async (req, res) => {
       { type: imageFile.mimetype }
     );
 
-    // Dynamic Prompt based on selection
+    // Dynamic Prompt based on selection dfsf
     const promptText = skyType === "dusk" 
       ? "Professional real estate photography. Replace the sky with a cinematic dusk sunset, golden hour lighting, warm orange clouds."
       : "Professional real estate photography. Replace the sky with a clear vibrant blue sunny sky, bright daylight, fluffy white clouds.";
@@ -45,44 +45,41 @@ exports.replaceSky = async (req, res) => {
     //   size: "1024x1024",
     //   response_format: "b64_json"
     // });
-  const response = await client.images.edit({
+const response = await client.images.edit({
 
-  model:"gpt-image-1",
+ model:"gpt-image-1",
 
-  prompt: `
-  Only replace the sky.
+ prompt: `
+Only replace the sky.
 
-  Do not modify buildings, trees, windows or structure.
-  Maintain natural lighting direction and shadows.
+Do not modify buildings, trees, windows or structure.
+Maintain natural lighting direction and shadows.
 
-  Professional real estate photography.
+Professional real estate photography.
 
-  ${
-  skyType === "dark"
-  ? `
-Soft natural overcast cloudy sky.
-Light grey rain clouds covering the sky.
-Calm pre-rain weather atmosphere.
-Balanced soft daylight.
-Natural diffused lighting matching the house and surroundings.
-Subtle layered clouds.
-Realistic monsoon weather mood.
-Professional real estate photography style.
-Ultra realistic sky replacement.
-  `
-  : `
-  Bright vibrant daytime blue sky.
-  Soft fluffy white clouds.
-  Natural daylight.
-  Ultra realistic sky replacement.
-  `
-  }
-  `,
+${
+ skyType === "dark"
+ ? `
+ Deep dark blue twilight evening sky.
+ Moody cinematic atmosphere.
+ Navy blue sky after sunset.
+ Soft dramatic clouds.
+ Natural ambient lighting matching the house.
+ Ultra realistic sky replacement.
+ `
+ : `
+ Bright vibrant daytime blue sky.
+ Soft fluffy white clouds.
+ Natural daylight.
+ Ultra realistic sky replacement.
+ `
+}
+`,
 
-  size:"1024x1024",
+ size:"1024x1024",
 
-  image: imageForAI
-  });
+ image: imageForAI
+});
     // Extracting Buffer
     const enhancedBuffer = Buffer.from(
       response.data[0].b64_json,
