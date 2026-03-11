@@ -51,6 +51,7 @@ router.post("/bulk-import-inventory", bulkImportInventory);
 router.get("/developer-leads", getDeveloperLeads);
 router.put("/approve/:id", approveProperty);
 router.get("/approved", getApprovedProperties);
+router.get("/developer-leads/:id", verifyToken, getDeveloperLeadById);
 
 // router.post("/agent-signup", agentSignup)
 

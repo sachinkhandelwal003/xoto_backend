@@ -810,27 +810,34 @@ export const bulkImportInventory = async (req, res) => {
   }
 };
 export const getDeveloperLeads = async (req,res)=>{
-  try{
 
-    const { developerId } = req.query;
+try{
 
-    const leads = await Lead.find({ isDeleted:false })
-      .populate("agent","first_name last_name email")
-      .populate("project");
+const developerId = req.user.id;
 
-    return res.status(200).json({
-      success:true,
-      data:leads
-    });
+const leads = await Lead.find()
+.populate({
+path:"project",
+match:{ developer: developerId }
+})
+.populate("agent","first_name last_name email");
 
-  }catch(err){
+const filteredLeads = leads.filter(l => l.project !== null);
 
-    return res.status(500).json({
-      success:false,
-      message:err.message
-    });
+res.json({
+success:true,
+data:filteredLeads
+});
 
-  }
+}catch(err){
+
+res.status(500).json({
+success:false,
+message:err.message
+});
+
+}
+
 }
 export const approveProperty = async (req, res) => {
   try {
@@ -883,5 +890,35 @@ export const getApprovedProperties = async (req, res) => {
       message: error.message
     });
 
+  }
+};
+
+export const getDeveloperLeadById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Lead ko find karein aur agent & project ki details populate karein
+    const lead = await Lead.findById(id)
+      .populate("agent", "first_name last_name email phone_number")
+      .populate("project", "propertyName title");
+
+    if (!lead) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Lead details fetched successfully",
+      data: lead
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
