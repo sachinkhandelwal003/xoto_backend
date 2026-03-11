@@ -82,6 +82,7 @@ exports.customerSignup = asyncHandler(async (req, res) => {
     email,
     mobile,
     location,
+    profile,
     comingFromAiPage
   } = req.body;
 
@@ -128,6 +129,7 @@ exports.customerSignup = asyncHandler(async (req, res) => {
     mobile,
     role: customerRole._id,
     location,
+    profile,
     isActive: true
   });
 
@@ -165,6 +167,49 @@ exports.customerSignup = asyncHandler(async (req, res) => {
     lead
   });
 });
+exports.updateCustomer = async (req, res) => {
+  try {
+
+    const customerId = req.user?._id || req.params?.id;
+
+    if (!customerId) {
+      return res.status(400).json({
+        success: false,
+        message: "Customer ID required"
+      });
+    }
+
+    const updatedCustomer = await Customer.findByIdAndUpdate(
+      customerId,
+      req.body,
+      {
+        new: true,
+        runValidators: true
+      }
+    );
+
+    if (!updatedCustomer) {
+      return res.status(404).json({
+        success: false,
+        message: "Customer not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Profile updated",
+      data: updatedCustomer
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
 
 exports.createUser = asyncHandler(async (req, res) => {
   const { email, mobile, password, name, role: roleId } = req.body;
