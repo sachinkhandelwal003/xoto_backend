@@ -773,20 +773,18 @@ export const getDeveloperLeads = async (req,res)=>{
 
 try{
 
-const developerId = req.user.id;
+const developerId = req.user?.id || req.user?._id;
 
-const leads = await Lead.find()
-.populate({
-path:"project",
-match:{ developer: developerId }
+const leads = await Lead.find({
+developer: developerId,
+isDeleted:false
 })
-.populate("agent","first_name last_name email");
-
-const filteredLeads = leads.filter(l => l.project !== null);
+.populate("agent","first_name last_name email")
+.populate("project","propertyName");
 
 res.json({
 success:true,
-data:filteredLeads
+data:leads
 });
 
 }catch(err){

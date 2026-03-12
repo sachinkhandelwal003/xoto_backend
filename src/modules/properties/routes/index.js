@@ -26,6 +26,7 @@ const {
   // getDeveloperDashboard,
   approveProperty,
   updatePropertyStatus, 
+    getDeveloperLeadById,
 
 } = require("../controllers/index.js");
 const router = Router();
@@ -57,6 +58,7 @@ router.put("/update-inventory/:id", updateInventory);
 router.delete("/delete-inventory/:id", deleteInventory);
 router.post("/bulk-import-inventory", bulkImportInventory);
 router.get("/developer-leads", getDeveloperLeads);
+router.get("/developer-lead/:id", getDeveloperLeadById);
 // router.put("/property/reject/:id", rejectProperty);
 router.put("/approve/:id", approveProperty);
 router.get("/approved", getApprovedProperties);
