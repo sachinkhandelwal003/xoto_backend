@@ -49,8 +49,9 @@ developerId = property.developer;
 }
 
 const lead = await Lead.create({
-...req.body,
-agent:agentId
+  ...req.body,
+  agent: agentId,
+  developer: developerId
 });
 
 return res.status(201).json({

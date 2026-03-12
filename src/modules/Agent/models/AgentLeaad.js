@@ -29,6 +29,11 @@ const LeadSchema = new mongoose.Schema({
     type:mongoose.Schema.Types.ObjectId,
     ref:"Property"
   },
+  //developer
+  developer:{
+  type:mongoose.Schema.Types.ObjectId,
+  ref:"Developer"
+},
 
   property_interest:{
     type:String
