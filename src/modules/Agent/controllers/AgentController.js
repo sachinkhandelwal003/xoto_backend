@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import Lead from "../models/AgentLeaad.js";
 import SiteVisit from "../models/SiteVisit.js" 
+import Property from "../../properties/models/PropertyModel.js"
 
 
 /* ======================
@@ -11,7 +12,7 @@ try{
 
 const agentId = req.body.agent;
 
-const { name, phone_number } = req.body;
+const { name, phone_number, project } = req.body;
 
 if(!name?.first_name || !name?.last_name || !phone_number){
 return res.status(400).json({
@@ -20,6 +21,7 @@ message:"Required fields missing"
 });
 }
 
+// duplicate check
 const duplicate = await Lead.findOne({
 phone_number:phone_number,
 agent:agentId,
@@ -33,6 +35,19 @@ message:"Lead already exists"
 });
 }
 
+// 🔥 property fetch
+let developerId = null;
+
+if(project){
+
+const property = await Property.findById(project);
+
+if(property){
+developerId = property.developer;
+}
+
+}
+
 const lead = await Lead.create({
 ...req.body,
 agent:agentId
@@ -41,7 +56,8 @@ agent:agentId
 return res.status(201).json({
 success:true,
 message:"Lead created successfully",
-data:lead
+data:lead,
+developer:developerId
 });
 
 }catch(error){
@@ -254,12 +270,25 @@ export const createSiteVisit = async(req,res)=>{
 
 try{
 
+// property fetch
+const property = await Property.findById(req.body.property);
+
+if(!property){
+return res.status(404).json({
+success:false,
+message:"Property not found"
+});
+}
+
+// developer id property से निकलेगी
+const developerId = property.developer;
+
 const visit = await SiteVisit.create({
 
 lead:req.body.lead,
 agent:req.body.agent,
 property:req.body.property,
-developer:req.body.developer,
+developer:developerId,
 
 requestedDate:req.body.visitDate,
 visitTime:req.body.visitTime,

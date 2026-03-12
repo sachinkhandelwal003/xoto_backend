@@ -2,6 +2,8 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../../controllers/user/user.controller');
+const {updateCustomer} = require('../../controllers/user/user.controller');
+
 const { protect, protectMulti } = require('../../../../middleware/auth');
 const {
   validateCreateUser,
@@ -13,7 +15,6 @@ const {
 // Public routes
 router.post('/login', validateLogin, controller.userLogin);
 router.post('/login/customer', controller.customerLogin);
-
 router.post(
   '/signup/customer',
   // validateCustomerSignup,
@@ -24,6 +25,9 @@ router.post('/register', controller.createUser);
 
 // Protected routes
 router.use(protectMulti);
+
+
+router.put('/edit/customer',updateCustomer);
 
 router.get('/', controller.getAllUsers);
 router.put('/:id/toggle', validateUserId, controller.toggleStatus);
