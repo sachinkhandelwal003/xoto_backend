@@ -341,6 +341,7 @@ export const getAllProperties = async (req, res) => {
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const search = req.query.search || "";
+    const developer = req.query.developer || "";
 
     const skip = (page - 1) * limit;
 
@@ -355,6 +356,9 @@ export const getAllProperties = async (req, res) => {
       ];
     }
 
+     if (developer) {
+      query.developer = developer;
+    }
     const properties = await Property.find(query)
       .populate("developer", "name logo")
       .sort({ createdAt: -1 })
@@ -366,7 +370,7 @@ export const getAllProperties = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Properties fetched successfully",
-      count: properties.length,
+      count: total,
       data: properties,
       pagination: {
         totalPages: Math.ceil(total / limit),
@@ -657,26 +661,49 @@ export const createInventory = async (req, res) => {
 
 
 export const getInventoryByProperty = async (req, res) => {
+
   try {
 
-    const { projectId } = req.query;
+    const { projectId } = req.params;
+
+    if (!projectId) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID is required"
+      });
+    }
 
     const units = await Inventory.find({ projectId })
-      .populate("projectId", "projectName");
+
+      .populate("projectId", "projectName")
+
+      // NEW
+      .populate("agentId", "first_name last_name email")
+
+      // NEW
+      .populate("leadId", "clientName email")
+
+      .sort({ createdAt: -1 });
 
     return res.status(200).json({
+
       success: true,
+      count: units.length,
       data: units
+
     });
 
   } catch (error) {
 
     return res.status(500).json({
+
       success: false,
       message: error.message
+
     });
 
   }
+
 };
 export const updateInventory = async (req, res) => {
   try {
@@ -734,6 +761,157 @@ export const deleteInventory = async (req, res) => {
     });
   }
 };
+
+
+//Newly added
+export const reserveUnit = async (req, res) => {
+
+  try {
+
+    const { id } = req.params;
+    const { leadId, agentId } = req.body;
+
+    const unit = await Inventory.findById(id);
+
+    if (!unit) {
+      return res.status(404).json({
+        success:false,
+        message:"Unit not found"
+      });
+    }
+
+    if (unit.status !== "Available") {
+      return res.status(400).json({
+        success:false,
+        message:"Unit not available"
+      });
+    }
+
+    const lead = await Lead.findById(leadId);
+
+    if (!lead) {
+      return res.status(404).json({
+        success:false,
+        message:"Lead not found"
+      });
+    }
+
+    unit.status = "Reserved";
+    unit.leadId = leadId;
+    unit.agentId = agentId;
+    unit.reservedAt = new Date();
+
+    await unit.save();
+
+    return res.json({
+      success:true,
+      message:"Unit reserved successfully",
+      data:unit
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success:false,
+      message:error.message
+    });
+
+  }
+
+};
+export const bookUnit = async (req,res)=>{
+
+ try{
+
+  const { id } = req.params;
+
+  const unit = await Inventory.findById(id);
+
+  if(unit.status !== "Reserved"){
+    return res.status(400).json({
+      success:false,
+      message:"Unit must be reserved first"
+    });
+  }
+
+  unit.status = "Booked";
+  unit.bookedAt = new Date();
+
+  await unit.save();
+
+  res.json({
+    success:true,
+    message:"Unit booked"
+  });
+
+ }catch(err){
+
+  res.status(500).json({
+    success:false,
+    message:err.message
+  });
+
+ }
+
+}
+export const releaseUnit = async (req,res)=>{
+
+ try{
+
+  const { id } = req.params;
+
+  const unit = await Inventory.findById(id);
+
+  unit.status = "Available";
+  unit.agentId = null;
+  unit.leadId = null;
+  unit.reservedAt = null;
+
+  await unit.save();
+
+  res.json({
+    success:true,
+    message:"Unit released"
+  });
+
+ }catch(err){
+
+  res.status(500).json({
+    success:false,
+    message:err.message
+  });
+
+ }
+
+}
+export const getPropertiesByDeveloper = async (req, res) => {
+
+  try {
+
+    const { developerId } = req.params;
+
+    const properties = await Property.find({
+      developer: developerId
+    })
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      data: properties
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+
+};
+
+
 export const bulkImportInventory = async (req, res) => {
   try {
     const { developerId, projectId, units } = req.body;

@@ -31,6 +31,14 @@ const PropertyInventorySchema = new mongoose.Schema(
     type: String
   },
 
+  bedrooms: {
+    type: Number
+  },
+
+  bathrooms: {
+    type: Number
+  },
+
   area: {
     type: Number
   },
@@ -49,15 +57,40 @@ const PropertyInventorySchema = new mongoose.Schema(
 
   status: {
     type: String,
-    enum: ["Available","Booked","Blocked","Sold"],
+    enum: ["Available","Reserved","Booked","Sold"],
     default: "Available"
+  },
+
+  agentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Agent"
+  },
+
+  leadId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Lead"
+  },
+
+  reservedAt: {
+    type: Date
+  },
+
+  bookedAt: {
+    type: Date
+  },
+
+  soldAt: {
+    type: Date
   }
 
 },
 { timestamps:true }
 )
 
-PropertyInventorySchema.index({ projectId: 1, unitId: 1 }, { unique: true });
+PropertyInventorySchema.index(
+  { projectId: 1, unitId: 1 },
+  { unique: true }
+);
 
 const PropertyInventory = mongoose.model(
   "PropertyInventory",
