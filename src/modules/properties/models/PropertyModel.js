@@ -114,14 +114,21 @@ const PropertySchema = new mongoose.Schema(
       required: false
     },
 
-    // =========================
-    // COMMISSION
-    // =========================
-    commissionType: {
-      type: String,
-      enum: ["percentage", "fixed"],
-      default: "percentage"
-    },
+    commissionType:{
+  type:String,
+  enum:["percentage","fixed"],
+  default:"percentage"
+},
+
+commission:{
+  type:Number,
+  required:true
+},
+
+bonusCommission:{
+  type:Number,
+  default:0
+},
 
     commissionValue: {
       type: Number,
@@ -139,14 +146,11 @@ const PropertySchema = new mongoose.Schema(
       default: ""
     },
 
-    // =========================
-    // ADDRESS (FLAT)
-    // =========================
     buildingNo: String,
     street: String,
     area: String,
     city: String,
-    state: String, // Emirate
+    state: String, 
     country: {
       type: String,
       default: "UAE",
@@ -155,9 +159,6 @@ const PropertySchema = new mongoose.Schema(
     postalCode: String,
     googleLocation: String,
 
-    // =========================
-    // MEDIA
-    // =========================
     mainLogo: {
       type: String,
       default: "",
