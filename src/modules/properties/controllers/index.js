@@ -947,34 +947,60 @@ export const bulkImportInventory = async (req, res) => {
     });
   }
 };
-export const getDeveloperLeads = async (req,res)=>{
 
-try{
+export const getDeveloperLeads = async (req, res) => {
+  try {
 
-const developerId = req.user?.id || req.user?._id;
+    const page = Number(req.query.page);
+    const limit = Number(req.query.limit);
+    const developer = req.query.developer;
 
-const leads = await Lead.find({
-developer: developerId,
-isDeleted:false
-})
-.populate("agent","first_name last_name email")
-.populate("project","propertyName");
+    const skip = (page - 1) * limit;
 
-res.json({
-success:true,
-data:leads
-});
+    let query = {};
 
-}catch(err){
+    if (developer) {
+      query.developer = developer;
+    }
 
-res.status(500).json({
-success:false,
-message:err.message
-});
+    // Total count
+    const total = await Lead.countDocuments(query);
 
-}
+    // Paginated data
+    const leads = await Lead.find(query)
+      .populate("agent", "first_name last_name email")
+      .populate("project", "propertyName")
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 });
 
-}
+    res.status(200).json({
+      success: true,
+      message: "Leads fetched successfully",
+      count: leads.length,
+      data: leads,
+      pagination: {
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        totalItems: total,
+        limit
+      }
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+
+
+
+
+
 export const approveProperty = async (req, res) => {
   try {
 
