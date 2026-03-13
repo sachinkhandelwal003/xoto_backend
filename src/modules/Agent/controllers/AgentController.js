@@ -75,8 +75,8 @@ message:error.message
 export const getAllLeads = async (req, res) => {
   try {
 
-    const page = Number(req.query.page) || 1;
-    const limit = Number(req.query.limit) || 5;
+    const page = Number(req.query.page);
+    const limit = Number(req.query.limit);
     const developer = req.query.developer;
 
     const skip = (page - 1) * limit;
