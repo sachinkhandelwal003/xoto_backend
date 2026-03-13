@@ -75,33 +75,40 @@ message:error.message
 export const getAllLeads = async (req, res) => {
   try {
 
-    // Query params
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 5;
-    const developer=req.query.developer
+    const developer = req.query.developer;
 
     const skip = (page - 1) * limit;
 
-    if(developer){
-      query.developer=developer
+    let query = {};
+
+    if (developer) {
+      query.developer = developer;
     }
+
     // Total count
-    const total = await Lead.countDocuments();
+    const total = await Lead.countDocuments(query);
 
     // Paginated data
-    const leads = await Lead.find()
-.populate("agent","first_name last_name email")
-.populate("project","propertyName")
-.skip(skip)
-.limit(limit)
-.sort({ createdAt: -1 });
+    const leads = await Lead.find(query)
+      .populate("agent", "first_name last_name email")
+      .populate("project", "propertyName")
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
-      total,
-      page,
-      pages: Math.ceil(total / limit),
-      data: leads
+      message: "Leads fetched successfully",
+      count: leads.length,
+      data: leads,
+      pagination: {
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        totalItems: total,
+        limit
+      }
     });
 
   } catch (error) {
