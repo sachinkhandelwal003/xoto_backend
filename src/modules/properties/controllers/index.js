@@ -338,9 +338,10 @@ export const editProperty = async (req, res) => {
 export const getAllProperties = async (req, res) => {
   try {
 
-    const page = Number(req.query.page) || 1;
-    const limit = Number(req.query.limit) || 10;
+    const page = Number(req.query.page);
+    const limit = Number(req.query.limit);
     const search = req.query.search || "";
+    const developer = req.query.developer || "";
 
     const skip = (page - 1) * limit;
 
@@ -355,6 +356,9 @@ export const getAllProperties = async (req, res) => {
       ];
     }
 
+     if (developer) {
+      query.developer = developer;
+    }
     const properties = await Property.find(query)
       .populate("developer", "name logo")
       .sort({ createdAt: -1 })
@@ -366,7 +370,7 @@ export const getAllProperties = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Properties fetched successfully",
-      count: properties.length,
+      count: total,
       data: properties,
       pagination: {
         totalPages: Math.ceil(total / limit),
@@ -657,26 +661,49 @@ export const createInventory = async (req, res) => {
 
 
 export const getInventoryByProperty = async (req, res) => {
+
   try {
 
-    const { projectId } = req.query;
+    const { projectId } = req.params;
+
+    if (!projectId) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID is required"
+      });
+    }
 
     const units = await Inventory.find({ projectId })
-      .populate("projectId", "projectName");
+
+      .populate("projectId", "projectName")
+
+      // NEW
+      .populate("agentId", "first_name last_name email")
+
+      // NEW
+      .populate("leadId", "clientName email")
+
+      .sort({ createdAt: -1 });
 
     return res.status(200).json({
+
       success: true,
+      count: units.length,
       data: units
+
     });
 
   } catch (error) {
 
     return res.status(500).json({
+
       success: false,
       message: error.message
+
     });
 
   }
+
 };
 export const updateInventory = async (req, res) => {
   try {
@@ -734,6 +761,157 @@ export const deleteInventory = async (req, res) => {
     });
   }
 };
+
+
+//Newly added
+export const reserveUnit = async (req, res) => {
+
+  try {
+
+    const { id } = req.params;
+    const { leadId, agentId } = req.body;
+
+    const unit = await Inventory.findById(id);
+
+    if (!unit) {
+      return res.status(404).json({
+        success:false,
+        message:"Unit not found"
+      });
+    }
+
+    if (unit.status !== "Available") {
+      return res.status(400).json({
+        success:false,
+        message:"Unit not available"
+      });
+    }
+
+    const lead = await Lead.findById(leadId);
+
+    if (!lead) {
+      return res.status(404).json({
+        success:false,
+        message:"Lead not found"
+      });
+    }
+
+    unit.status = "Reserved";
+    unit.leadId = leadId;
+    unit.agentId = agentId;
+    unit.reservedAt = new Date();
+
+    await unit.save();
+
+    return res.json({
+      success:true,
+      message:"Unit reserved successfully",
+      data:unit
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success:false,
+      message:error.message
+    });
+
+  }
+
+};
+export const bookUnit = async (req,res)=>{
+
+ try{
+
+  const { id } = req.params;
+
+  const unit = await Inventory.findById(id);
+
+  if(unit.status !== "Reserved"){
+    return res.status(400).json({
+      success:false,
+      message:"Unit must be reserved first"
+    });
+  }
+
+  unit.status = "Booked";
+  unit.bookedAt = new Date();
+
+  await unit.save();
+
+  res.json({
+    success:true,
+    message:"Unit booked"
+  });
+
+ }catch(err){
+
+  res.status(500).json({
+    success:false,
+    message:err.message
+  });
+
+ }
+
+}
+export const releaseUnit = async (req,res)=>{
+
+ try{
+
+  const { id } = req.params;
+
+  const unit = await Inventory.findById(id);
+
+  unit.status = "Available";
+  unit.agentId = null;
+  unit.leadId = null;
+  unit.reservedAt = null;
+
+  await unit.save();
+
+  res.json({
+    success:true,
+    message:"Unit released"
+  });
+
+ }catch(err){
+
+  res.status(500).json({
+    success:false,
+    message:err.message
+  });
+
+ }
+
+}
+export const getPropertiesByDeveloper = async (req, res) => {
+
+  try {
+
+    const { developerId } = req.params;
+
+    const properties = await Property.find({
+      developer: developerId
+    })
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      data: properties
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+
+};
+
+
 export const bulkImportInventory = async (req, res) => {
   try {
     const { developerId, projectId, units } = req.body;
@@ -769,34 +947,60 @@ export const bulkImportInventory = async (req, res) => {
     });
   }
 };
-export const getDeveloperLeads = async (req,res)=>{
 
-try{
+export const getDeveloperLeads = async (req, res) => {
+  try {
 
-const developerId = req.user?.id || req.user?._id;
+    const page = Number(req.query.page);
+    const limit = Number(req.query.limit);
+    const developer = req.query.developer;
 
-const leads = await Lead.find({
-developer: developerId,
-isDeleted:false
-})
-.populate("agent","first_name last_name email")
-.populate("project","propertyName");
+    const skip = (page - 1) * limit;
 
-res.json({
-success:true,
-data:leads
-});
+    let query = {};
 
-}catch(err){
+    if (developer) {
+      query.developer = developer;
+    }
 
-res.status(500).json({
-success:false,
-message:err.message
-});
+    // Total count
+    const total = await Lead.countDocuments(query);
 
-}
+    // Paginated data
+    const leads = await Lead.find(query)
+      .populate("agent", "first_name last_name email")
+      .populate("project", "propertyName")
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 });
 
-}
+    res.status(200).json({
+      success: true,
+      message: "Leads fetched successfully",
+      count: leads.length,
+      data: leads,
+      pagination: {
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        totalItems: total,
+        limit
+      }
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+
+
+
+
+
 export const approveProperty = async (req, res) => {
   try {
 
@@ -918,112 +1122,293 @@ export const updatePropertyStatus = async (req, res) => {
 
   }
 };
-// export const getDeveloperDashboard = async (req, res) => {
-//   try {
+export const getDeveloperDashboard = async (req, res) => {
+  try {
 
-//     const { developerId } = req.query;
+    const { developerId } = req.params;
 
-//     if (!developerId) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "developerId is required"
-//       });
-//     }
+    // 1️⃣ Get developer properties
+    const properties = await Property.find({
+      developer: developerId
+    });
 
-//     const totalProjects = await Property.countDocuments({
-//       developer: developerId
-//     });
+    const propertyIds = properties.map(p => p._id);
 
-//     const availableUnits = await Inventory.countDocuments({
-//       developerId,
-//       status: "Available"
-//     });
+    // 2️⃣ Inventory stats
+    const availableUnits = await Inventory.countDocuments({
+      projectId: { $in: propertyIds },
+      status: "Available"
+    });
 
-//     const soldUnits = await Inventory.countDocuments({
-//       developerId,
-//       status: "Sold"
-//     });
+    const bookedUnits = await Inventory.countDocuments({
+      projectId: { $in: propertyIds },
+      status: "Booked"
+    });
 
-//     const bookedUnits = await Inventory.countDocuments({
-//       developerId,
-//       status: "Booked"
-//     });
+    const soldUnits = await Inventory.countDocuments({
+      projectId: { $in: propertyIds },
+      status: "Sold"
+    });
 
-//     const inventoryStatus = [
-//       { name: "Available", value: availableUnits },
-//       { name: "Booked", value: bookedUnits },
-//       { name: "Sold", value: soldUnits }
-//     ];
+    // 3️⃣ Leads from those properties
+    const leads = await Lead.find({
+      project: { $in: propertyIds }
+    });
 
-//     const stats = [
-//       {
-//         label: "Total Projects",
-//         value: totalProjects,
-//         change: 5
-//       },
-//       {
-//         label: "Available Units",
-//         value: availableUnits,
-//         change: 3
-//       },
-//       {
-//         label: "Units Sold",
-//         value: soldUnits,
-//         change: 8
-//       },
-//       {
-//         label: "Commission Pending",
-//         value: 0,
-//         change: -2
-//       }
-//     ];
+    const stats = [
+      {
+        label: "Total Projects",
+        value: properties.length
+      },
+      {
+        label: "Available Units",
+        value: availableUnits
+      },
+      {
+        label: "Units Sold",
+        value: soldUnits
+      }
+    ];
 
-//     const leadsTrend = [
-//       { name: "Mon", leads: 4 },
-//       { name: "Tue", leads: 7 },
-//       { name: "Wed", leads: 6 },
-//       { name: "Thu", leads: 10 },
-//       { name: "Fri", leads: 8 }
-//     ];
+    const inventoryStatus = [
+      { name: "Available", value: availableUnits },
+      { name: "Booked", value: bookedUnits },
+      { name: "Sold", value: soldUnits }
+    ];
 
-//     const unitsSoldMonthly = [
-//       { month: "Jan", units: 2 },
-//       { month: "Feb", units: 4 },
-//       { month: "Mar", units: 3 },
-//       { month: "Apr", units: 5 }
-//     ];
+    const dealFunnel = [
+      { stage: "Leads", count: leads.length },
+      { stage: "Visits", count: leads.filter(l => l.status === "visit").length },
+      { stage: "Bookings", count: leads.filter(l => l.status === "booking").length }
+    ];
 
-//     const dealFunnel = [
-//       { stage: "Leads", count: 20 },
-//       { stage: "Site Visits", count: 12 },
-//       { stage: "Bookings", count: 6 },
-//       { stage: "Deals Closed", count: 3 }
-//     ];
+    res.json({
+      success: true,
+      stats,
+      inventoryStatus,
+      dealFunnel
+    });
 
-//     const recentDeals = [];
+  } catch (error) {
 
-//     const upcomingVisits = [];
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
 
-//     const topProjects = [];
+  }
+};
 
-//     return res.status(200).json({
-//       success: true,
-//       stats,
-//       leadsTrend,
-//       unitsSoldMonthly,
-//       inventoryStatus,
-//       dealFunnel,
-//       recentDeals,
-//       upcomingVisits,
-//       topProjects
-//     });
 
-//   } catch (error) {
+export const getCommissionScheme = async (req,res)=>{
 
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message
-//     });
+try{
 
-//   }
-// };
+const property = await Property.findById(req.params.propertyId)
+.select("commission commissionType bonusCommission propertyName");
+
+if(!property){
+return res.status(404).json({
+success:false,
+message:"Property not found"
+});
+}
+
+res.json({
+success:true,
+data:property
+});
+
+}catch(error){
+
+res.status(500).json({
+success:false,
+message:error.message
+});
+
+}
+
+};
+export const setCommissionScheme = async (req,res)=>{
+
+try{
+
+const { propertyId, type, value, bonus } = req.body;
+
+const property = await Property.findById(propertyId);
+
+if(!property){
+return res.status(404).json({
+success:false,
+message:"Property not found"
+});
+}
+
+property.commissionType = type;
+property.commission = value;
+property.bonusCommission = bonus;
+
+await property.save();
+
+res.json({
+success:true,
+message:"Commission scheme updated",
+data:property
+});
+
+}catch(error){
+
+res.status(500).json({
+success:false,
+message:error.message
+});
+
+}
+
+};
+
+export const getDeveloperCommissions = async (req,res)=>{
+
+try{
+
+const developerId = req.params.developerId;
+
+const commissions = await Lead.find({
+developer: developerId,
+status: { $in:["deal","booking","closed"] }
+})
+.populate("agent","first_name last_name email")
+.populate("project","propertyName")
+.select("agent project dealValue commission createdAt");
+
+res.json({
+success:true,
+data:commissions
+});
+
+}catch(error){
+
+res.status(500).json({
+success:false,
+message:error.message
+});
+
+}
+
+};
+export const updateLeadStatus = async (req, res) => {
+
+  try {
+
+    const { status, dealValue } = req.body;
+
+    const lead = await Lead.findById(req.params.id).populate("project");
+
+    if (!lead) {
+      return res.status(404).json({
+        success:false,
+        message:"Lead not found"
+      });
+    }
+
+    let commissionAmount = 0;
+
+    if(status === "deal" || status === "booking" || status === "closed"){
+
+      const property = await Property.findById(lead.project);
+
+      if(property){
+
+        if(property.commissionType === "percentage"){
+
+          commissionAmount = (dealValue * property.commission) / 100;
+
+        }else{
+
+          commissionAmount = property.commission;
+
+        }
+
+      }
+
+    }
+
+    lead.status = status;
+    lead.dealValue = dealValue;
+    lead.commission = commissionAmount;
+
+    await lead.save();
+
+    res.json({
+      success:true,
+      message:"Status updated",
+      data:lead
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success:false,
+      message:error.message
+    });
+
+  }
+
+};
+
+//revenue
+export const getDeveloperRevenue = async (req,res)=>{
+
+try{
+
+const developerId = req.params.developerId;
+
+const deals = await Lead.find({
+developer: developerId,
+status: { $in:["deal","booking","closed"] }
+})
+.populate("project","propertyName");
+
+let totalRevenue = 0;
+let thisMonthRevenue = 0;
+let pendingPayments = 0;
+
+const currentMonth = new Date().getMonth();
+
+deals.forEach(deal => {
+
+totalRevenue += deal.dealValue || 0;
+
+const dealMonth = new Date(deal.createdAt).getMonth();
+
+if(dealMonth === currentMonth){
+thisMonthRevenue += deal.dealValue || 0;
+}
+
+if(deal.status !== "closed"){
+pendingPayments += deal.dealValue || 0;
+}
+
+});
+
+res.json({
+success:true,
+stats:{
+totalRevenue,
+thisMonthRevenue,
+pendingPayments,
+totalDeals: deals.length
+},
+transactions: deals
+});
+
+}catch(error){
+
+res.status(500).json({
+success:false,
+message:error.message
+});
+
+}
+
+};
