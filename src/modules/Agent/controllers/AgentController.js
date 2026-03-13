@@ -234,15 +234,9 @@ export const deleteLead = async (req, res) => {
 export const updateLeadStatus = async (req, res) => {
   try {
 
-    const { status } = req.body;
+    const { status, dealValue } = req.body;
 
-    const lead = await Lead.findOneAndUpdate(
-      {
-  _id: req.params.id
-},
-      { status },
-      { new: true }
-    );
+    const lead = await Lead.findById(req.params.id).populate("project");
 
     if (!lead) {
       return res.status(404).json({
@@ -250,6 +244,35 @@ export const updateLeadStatus = async (req, res) => {
         message:"Lead not found"
       });
     }
+
+    let commissionAmount = lead.commission;
+
+    // 🔥 Commission calculate only when deal/booking/closed
+    if(status === "deal" || status === "booking" || status === "closed"){
+
+      const property = await Property.findById(lead.project);
+
+      if(property){
+
+        if(property.commissionType === "percentage"){
+
+          commissionAmount = (dealValue * property.commission) / 100;
+
+        }else{
+
+          commissionAmount = property.commission;
+
+        }
+
+      }
+
+    }
+
+    lead.status = status;
+    lead.dealValue = dealValue;
+    lead.commission = commissionAmount;
+
+    await lead.save();
 
     res.json({
       success:true,
@@ -441,3 +464,4 @@ message:error.message
 }
 
 };
+
