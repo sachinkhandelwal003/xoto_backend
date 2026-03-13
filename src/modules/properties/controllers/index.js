@@ -370,7 +370,7 @@ export const getAllProperties = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Properties fetched successfully",
-      count: properties.length,
+      count: total,
       data: properties,
       pagination: {
         totalPages: Math.ceil(total / limit),
