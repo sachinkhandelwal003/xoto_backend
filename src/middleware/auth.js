@@ -23,6 +23,38 @@ const { getUserPermissions } = require("./permission");
 /* ============================================================
    CREATE Token
 ============================================================ */
+// exports.createToken = (user, type) => {
+//   const detectedType =
+//     type ||
+//     (user.constructor?.modelName
+//       ? user.constructor.modelName.toLowerCase()
+//       : "user");
+
+//   const payload = {
+//     id: user._id,
+//     email: user.email,
+//     type: detectedType,
+
+//     role: {
+//       id: user.role?._id || null,
+//       code: user.role?.code,
+//       name: user.role?.name,
+//       isSuperAdmin: user.role?.isSuperAdmin || false,
+//     }
+//   };
+
+//   // ⭐ Only freelancers get status added to the token
+//   if (detectedType === "freelancer") {
+//     payload.status = user.status_info?.status ?? 0;
+//   }
+
+//   return jwt.sign(payload, process.env.JWT_SECRET, {
+//     expiresIn: process.env.JWT_EXPIRE || "30d",
+//   });
+// };
+/* ============================================================
+   CREATE Token
+============================================================ */
 exports.createToken = (user, type) => {
   const detectedType =
     type ||
@@ -43,6 +75,17 @@ exports.createToken = (user, type) => {
     }
   };
 
+  // ⭐ ADDED: Agar user Agent, Agency ya Freelancer hai, toh uska detail bhi token mein daal do
+  if (["agent", "agency", "freelancer", "vendorb2c", "vendorb2b", "developer"].includes(detectedType)) {
+    payload.first_name = user.first_name;
+    payload.last_name = user.last_name;
+    payload.phone_number = user.phone_number;
+    payload.country_code = user.country_code;
+    payload.profile_photo = user.profile_photo;
+    // Agar company logo ho (Developer/Agency ke liye)
+    payload.logo = user.logo; 
+  }
+
   // ⭐ Only freelancers get status added to the token
   if (detectedType === "freelancer") {
     payload.status = user.status_info?.status ?? 0;
@@ -52,7 +95,6 @@ exports.createToken = (user, type) => {
     expiresIn: process.env.JWT_EXPIRE || "30d",
   });
 };
-
 
 
 
