@@ -34,6 +34,12 @@ const {
 
    getPropertiesByDeveloper,
 
+   setCommissionScheme,
+   getCommissionScheme,
+   getDeveloperCommissions,
+   getDeveloperRevenue,
+   getDeveloperDashboard,
+
 } = require("../controllers/index.js");
 
 const router = Router();
@@ -95,5 +101,14 @@ router.post("/inventory/:id/release", releaseUnit);
 router.get("/developer-leads", getDeveloperLeads);
 router.get("/developer-lead/:id", getDeveloperLeadById);
 
+// Commission
+
+router.post("/commission", setCommissionScheme);
+
+router.get("/commission/:propertyId", getCommissionScheme);
+router.get("/developer-commissions/:developerId", getDeveloperCommissions);
+router.get("/developer-revenue/:developerId", getDeveloperRevenue);
+
+router.get("/developer-dashboard/:developerId",getDeveloperDashboard);
 
 module.exports = router;
