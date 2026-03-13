@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Lead from "../models/AgentLeaad.js";
 import SiteVisit from "../models/SiteVisit.js" 
 import Property from "../../properties/models/PropertyModel.js"
+import { query } from "winston";
 
 
 /* ======================
@@ -77,9 +78,13 @@ export const getAllLeads = async (req, res) => {
     // Query params
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 5;
+    const developer=req.query.developer
 
     const skip = (page - 1) * limit;
 
+    if(developer){
+      query.developer=developer
+    }
     // Total count
     const total = await Lead.countDocuments();
 
