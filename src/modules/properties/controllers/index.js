@@ -341,6 +341,7 @@ export const getAllProperties = async (req, res) => {
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const search = req.query.search || "";
+    const developer = req.query.developer || "";
 
     const skip = (page - 1) * limit;
 
@@ -355,6 +356,9 @@ export const getAllProperties = async (req, res) => {
       ];
     }
 
+     if (developer) {
+      query.developer = developer;
+    }
     const properties = await Property.find(query)
       .populate("developer", "name logo")
       .sort({ createdAt: -1 })
