@@ -57,7 +57,7 @@ exports.createPropertyLead = asyncHandler(async (req, res) => {
 
 // Get All
 exports.getAllPropertyLeads = asyncHandler(async (req, res) => {
-  const { page = 1, limit, search, status, type } = req.query;
+  const { page = 1, limit, search, status, type, } = req.query;
   const query = {};
 
   if (status) query.status = status;
