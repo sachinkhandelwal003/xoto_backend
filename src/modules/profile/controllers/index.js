@@ -5,6 +5,7 @@ import Customer from "../../../modules/auth/models/user/customer.model.js"
 import Admin from "../../../modules/auth/models/User.js"
 import Vendor from "../../../modules/auth/models/Vendor/B2cvendor.model.js"
 import Agent from "../../Agent/models/agent.js"
+import Developer from "../../properties/models/DeveloperModel.js"
 
 
 export const getProfileData = async (req, res) => {
@@ -32,6 +33,9 @@ export const getProfileData = async (req, res) => {
         }
  else if (user.role.name == "Agent") {
   data = await Agent.findOne({ _id: user._id }).populate("role");
+}
+ else if (user.role.name == "Developer") {
+  data = await Developer.findOne({ _id: user._id }).populate("role");
 }
 
         return res.status(200).json({
