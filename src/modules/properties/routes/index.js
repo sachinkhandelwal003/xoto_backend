@@ -21,14 +21,23 @@ const {
   updateInventory,
   deleteInventory,
   getDeveloperLeads,
+  getApprovedProperties,
+  // rejectProperty,    
+  // getDeveloperDashboard,
   approveProperty,
-  getApprovedProperties,     
+  updatePropertyStatus, 
+    getDeveloperLeadById,
 
 } = require("../controllers/index.js");
 const router = Router();
 
 router.post("/create-developer", createDeveloper)
 router.post("/login-developer", loginDeveloper)
+
+
+// router.get("/developer-dashboard", getDeveloperDashboard);
+
+
 router.post("/signup-developer", createDeveloper)
 router.post("/create-properties", createProperty)
 router.post("/delete-property", deleteProperty)
@@ -49,12 +58,12 @@ router.put("/update-inventory/:id", updateInventory);
 router.delete("/delete-inventory/:id", deleteInventory);
 router.post("/bulk-import-inventory", bulkImportInventory);
 router.get("/developer-leads", getDeveloperLeads);
+router.get("/developer-lead/:id", getDeveloperLeadById);
+// router.put("/property/reject/:id", rejectProperty);
 router.put("/approve/:id", approveProperty);
 router.get("/approved", getApprovedProperties);
-router.get("/developer-leads/:id", verifyToken, getDeveloperLeadById);
-
+router.put("/update-status/:id", updatePropertyStatus);
 // router.post("/agent-signup", agentSignup)
-
 
 
 module.exports = router; 

@@ -121,38 +121,42 @@ export const loginDeveloper = async (req, res) => {
 
 
 export const createProperty = async (req, res) => {
-    try {
-        const {
-            developer, ...body
-        } = req.body;
+  try {
 
+    const { developer, ...body } = req.body;
 
-        const developerExists = await Developer.findById(developer);
-        if (!developerExists) {
-            return res.status(404).json({
-                success: false,
-                message: "Developer not found"
-            });
-        }
+    const developerExists = await Developer.findById(developer);
 
-
-        const property = await Property.create({
-  ...req.body,
-  developer: new mongoose.Types.ObjectId(req.body.developer)
-});
-
-        return res.status(201).json({
-            success: true,
-            message: "Property created successfully",
-            data: property
-        });
-
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: error.message
-        });
+    if (!developerExists) {
+      return res.status(404).json({
+        success: false,
+        message: "Developer not found"
+      });
     }
+
+    const property = await Property.create({
+      ...body,
+      developer: new mongoose.Types.ObjectId(developer),
+
+      // 🔴 IMPORTANT
+      approvalStatus: "pending",
+  rejectionReason: ""
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Property created successfully and sent for admin approval",
+      data: property
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
 };
 
 export const editProperty = async (req, res) => {
@@ -332,113 +336,54 @@ export const editProperty = async (req, res) => {
 //     }
 // };
 export const getAllProperties = async (req, res) => {
-    try {
-        let page = Number(req.query.page) || 1;
-        let limit = Number(req.query.limit) || 10;
-        let skip = (page - 1) * limit;
+  try {
 
-        const { 
-            developerId, 
-            isFeatured,
-            keyword,        
-            propertyType,   
-            purpose,        
-            location,       
-            bedrooms,       
-            minPrice,       
-            maxPrice,
-            bathrooms,      // Naya: Bathrooms filter
-            furnishing      // Naya: Furnished/Unfurnished
-        } = req.query; 
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const search = req.query.search || "";
 
-        // Initial Query - Base filter (Sirf active properties dikhao)
-        let query = { is_deleted: false };
+    const skip = (page - 1) * limit;
 
-        // 1. Featured & Developer Logic
-        if (isFeatured === "true") query.isFeatured = true;
-        if (developerId) query.developer = developerId;
+    let query = {};
 
-        // 2. 🔥 ADVANCED KEYWORD SEARCH (And Logic)
-        // Hum $and use karenge taaki keyword search aur baaki filters ek saath chalein
-        let andConditions = [];
-
-        if (keyword && keyword.trim() !== "") {
-            const searchRegex = { $regex: keyword, $options: "i" };
-            andConditions.push({
-                $or: [
-                    { title: searchRegex },
-                    { name: searchRegex },
-                    { description: searchRegex },
-                    { location: searchRegex },
-                    { "address.city": searchRegex }, // Agar nested address hai toh
-                    { "address.area": searchRegex }
-                ]
-            });
-        }
-
-        // 3. EXACT MATCH FILTERS
-        if (propertyType) query.propertyType = propertyType;
-        if (purpose) query.purpose = purpose;
-        if (furnishing) query.furnishing = furnishing;
-
-        // 4. LOCATION (Partial Match)
-        if (location && location.trim() !== "") {
-            query.location = { $regex: location, $options: "i" };
-        }
-
-        // 5. BEDROOMS & BATHROOMS (Smart Logic)
-        const handleCountFilter = (val) => {
-            if (String(val).includes('+')) {
-                return { $gte: Number(val.replace('+', '')) };
-            }
-            return Number(val);
-        };
-
-        if (bedrooms) query.bedrooms = handleCountFilter(bedrooms);
-        if (bathrooms) query.bathrooms = handleCountFilter(bathrooms);
-
-        // 6. PRICE RANGE
-        if (minPrice || maxPrice) {
-            query.price = {};
-            if (minPrice) query.price.$gte = Number(minPrice);
-            if (maxPrice) query.price.$lte = Number(maxPrice);
-        }
-
-        // Final Query Assembly
-        if (andConditions.length > 0) {
-            query.$and = andConditions;
-        }
-
-        // --- EXECUTION ---
-        const property = await Property.find(query)
-            .populate("developer", "name logo") // Sirf zaroori fields populate karo
-            .sort({ createdAt: -1 })
-            .limit(limit)
-            .skip(skip);
-
-        const total = await Property.countDocuments(query);
-
-        return res.status(200).json({
-            success: true,
-            message: "Properties fetched successfully",
-            count: property.length,
-            data: property,
-            pagination: {
-                totalPages: Math.ceil(total / limit),
-                currentPage: page,
-                totalItems: total,
-                limit
-            }
-        });
-
-    } catch (error) {
-        console.error("Search Error:", error);
-        return res.status(500).json({
-            success: false,
-            message: "Internal Server Error",
-            error: error.message
-        });
+    // 🔎 Search by property name or developer
+    if (search) {
+      query.$or = [
+        { propertyName: { $regex: search, $options: "i" } },
+        { city: { $regex: search, $options: "i" } },
+        { area: { $regex: search, $options: "i" } }
+      ];
     }
+
+    const properties = await Property.find(query)
+      .populate("developer", "name logo")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Property.countDocuments(query);
+
+    return res.status(200).json({
+      success: true,
+      message: "Properties fetched successfully",
+      count: properties.length,
+      data: properties,
+      pagination: {
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        totalItems: total,
+        limit
+      }
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
 };
 export const getAllDevelopers = async (req, res) => {
     try {
@@ -476,25 +421,40 @@ export const getAllDevelopers = async (req, res) => {
 };
 
 export const MarketPlaceAPI = async (req, res) => {
-    try {
+  try {
 
-        const [properties, featuredPropeties] = await Promise.all([
-            Property.find({}).populate("developer").sort({ createdAt: -1 }).limit(3),
-            Property.find({ isFeatured: true }).populate("developer").sort({ createdAt: -1 }).limit(3)
-        ]);
+    const [properties, featuredPropeties] = await Promise.all([
 
-        return res.status(200).json({
-            success: true,
-            message: "Properties fetched successfully",
-            data: { properties, featuredPropeties },
-        });
+      // 🔴 Only approved properties
+      Property.find({ approvalStatus: "approved" })
+        .populate("developer")
+        .sort({ createdAt: -1 })
+        .limit(3),
 
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
+      Property.find({
+        isFeatured: true,
+        approvalStatus: "approved"
+      })
+        .populate("developer")
+        .sort({ createdAt: -1 })
+        .limit(3)
+
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      message: "Properties fetched successfully",
+      data: { properties, featuredPropeties },
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
 };
 
 export const getPropertiesById = async (req, res) => {
@@ -813,20 +773,18 @@ export const getDeveloperLeads = async (req,res)=>{
 
 try{
 
-const developerId = req.user.id;
+const developerId = req.user?.id || req.user?._id;
 
-const leads = await Lead.find()
-.populate({
-path:"project",
-match:{ developer: developerId }
+const leads = await Lead.find({
+developer: developerId,
+isDeleted:false
 })
-.populate("agent","first_name last_name email");
-
-const filteredLeads = leads.filter(l => l.project !== null);
+.populate("agent","first_name last_name email")
+.populate("project","propertyName");
 
 res.json({
 success:true,
-data:filteredLeads
+data:leads
 });
 
 }catch(err){
@@ -922,3 +880,150 @@ export const getDeveloperLeadById = async (req, res) => {
     });
   }
 };
+export const updatePropertyStatus = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+    const { status, reason } = req.body;
+
+    const property = await Property.findById(id);
+
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found"
+      });
+    }
+
+    property.approvalStatus = status;
+
+    if (status === "rejected") {
+      property.rejectionReason = reason;
+    }
+
+    await property.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Status updated successfully",
+      data: property
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+// export const getDeveloperDashboard = async (req, res) => {
+//   try {
+
+//     const { developerId } = req.query;
+
+//     if (!developerId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "developerId is required"
+//       });
+//     }
+
+//     const totalProjects = await Property.countDocuments({
+//       developer: developerId
+//     });
+
+//     const availableUnits = await Inventory.countDocuments({
+//       developerId,
+//       status: "Available"
+//     });
+
+//     const soldUnits = await Inventory.countDocuments({
+//       developerId,
+//       status: "Sold"
+//     });
+
+//     const bookedUnits = await Inventory.countDocuments({
+//       developerId,
+//       status: "Booked"
+//     });
+
+//     const inventoryStatus = [
+//       { name: "Available", value: availableUnits },
+//       { name: "Booked", value: bookedUnits },
+//       { name: "Sold", value: soldUnits }
+//     ];
+
+//     const stats = [
+//       {
+//         label: "Total Projects",
+//         value: totalProjects,
+//         change: 5
+//       },
+//       {
+//         label: "Available Units",
+//         value: availableUnits,
+//         change: 3
+//       },
+//       {
+//         label: "Units Sold",
+//         value: soldUnits,
+//         change: 8
+//       },
+//       {
+//         label: "Commission Pending",
+//         value: 0,
+//         change: -2
+//       }
+//     ];
+
+//     const leadsTrend = [
+//       { name: "Mon", leads: 4 },
+//       { name: "Tue", leads: 7 },
+//       { name: "Wed", leads: 6 },
+//       { name: "Thu", leads: 10 },
+//       { name: "Fri", leads: 8 }
+//     ];
+
+//     const unitsSoldMonthly = [
+//       { month: "Jan", units: 2 },
+//       { month: "Feb", units: 4 },
+//       { month: "Mar", units: 3 },
+//       { month: "Apr", units: 5 }
+//     ];
+
+//     const dealFunnel = [
+//       { stage: "Leads", count: 20 },
+//       { stage: "Site Visits", count: 12 },
+//       { stage: "Bookings", count: 6 },
+//       { stage: "Deals Closed", count: 3 }
+//     ];
+
+//     const recentDeals = [];
+
+//     const upcomingVisits = [];
+
+//     const topProjects = [];
+
+//     return res.status(200).json({
+//       success: true,
+//       stats,
+//       leadsTrend,
+//       unitsSoldMonthly,
+//       inventoryStatus,
+//       dealFunnel,
+//       recentDeals,
+//       upcomingVisits,
+//       topProjects
+//     });
+
+//   } catch (error) {
+
+//     return res.status(500).json({
+//       success: false,
+//       message: error.message
+//     });
+
+//   }
+// };

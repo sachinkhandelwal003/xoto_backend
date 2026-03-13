@@ -261,7 +261,11 @@ const PropertySchema = new mongoose.Schema(
       type: String,
       default: "",
       required: false
-    }
+    },
+    rejectionReason: {
+  type: String,
+  default: ""
+}
   },
   { timestamps: true }
 );
