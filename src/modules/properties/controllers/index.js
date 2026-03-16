@@ -338,10 +338,9 @@ export const editProperty = async (req, res) => {
 export const getAllProperties = async (req, res) => {
   try {
 
-    const page = Number(req.query.page);
-    const limit = Number(req.query.limit);
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
     const search = req.query.search || "";
-    const developer = req.query.developer || "";
 
     const skip = (page - 1) * limit;
 
@@ -356,9 +355,6 @@ export const getAllProperties = async (req, res) => {
       ];
     }
 
-     if (developer) {
-      query.developer = developer;
-    }
     const properties = await Property.find(query)
       .populate("developer", "name logo")
       .sort({ createdAt: -1 })
@@ -370,7 +366,7 @@ export const getAllProperties = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Properties fetched successfully",
-      count: total,
+      count: properties.length,
       data: properties,
       pagination: {
         totalPages: Math.ceil(total / limit),
@@ -947,60 +943,34 @@ export const bulkImportInventory = async (req, res) => {
     });
   }
 };
+export const getDeveloperLeads = async (req,res)=>{
 
-export const getDeveloperLeads = async (req, res) => {
-  try {
+try{
 
-    const page = Number(req.query.page);
-    const limit = Number(req.query.limit);
-    const developer = req.query.developer;
+const developerId = req.user?.id || req.user?._id;
 
-    const skip = (page - 1) * limit;
+const leads = await Lead.find({
+developer: developerId,
+isDeleted:false
+})
+.populate("agent","first_name last_name email")
+.populate("project","propertyName");
 
-    let query = {};
+res.json({
+success:true,
+data:leads
+});
 
-    if (developer) {
-      query.developer = developer;
-    }
+}catch(err){
 
-    // Total count
-    const total = await Lead.countDocuments(query);
+res.status(500).json({
+success:false,
+message:err.message
+});
 
-    // Paginated data
-    const leads = await Lead.find(query)
-      .populate("agent", "first_name last_name email")
-      .populate("project", "propertyName")
-      .skip(skip)
-      .limit(limit)
-      .sort({ createdAt: -1 });
+}
 
-    res.status(200).json({
-      success: true,
-      message: "Leads fetched successfully",
-      count: leads.length,
-      data: leads,
-      pagination: {
-        totalPages: Math.ceil(total / limit),
-        currentPage: page,
-        totalItems: total,
-        limit
-      }
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-
-
-
-
-
-
+}
 export const approveProperty = async (req, res) => {
   try {
 
