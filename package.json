@@ -3,9 +3,17 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
+<<<<<<< HEAD
     "start": "babel-node server.js",
     "demon": "node server.js",
     "dev": "nodemon server.js"
+=======
+"start": "babel-node server.js",
+"demon": "node server.js",
+  "dev": "nodemon --exec babel-node server.js"
+
+
+>>>>>>> bdd753e6e4050a208f792eea3f527720372cab66
   },
   "author": "",
   "license": "ISC",

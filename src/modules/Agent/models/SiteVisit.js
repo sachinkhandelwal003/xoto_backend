@@ -1,76 +1,41 @@
 const mongoose = require("mongoose");
 
 const SiteVisitSchema = new mongoose.Schema({
+  lead: { type: mongoose.Schema.Types.ObjectId, ref: "Lead", required: true },
+  agent: { type: mongoose.Schema.Types.ObjectId, ref: "Agent", required: true },
+  property: { type: mongoose.Schema.Types.ObjectId, ref: "Property" },
+  developer: { type: mongoose.Schema.Types.ObjectId, ref: "Developer" },
 
-lead:{
-type:mongoose.Schema.Types.ObjectId,
-ref:"Lead",
-required:true
-},
+  requestedDate: { type: Date },
+  scheduledDate: { type: Date },
+  visitTime: { type: String },
 
-agent:{
-type:mongoose.Schema.Types.ObjectId,
-ref:"Agent",
-required:true
-},
+  clientName: { type: String },
+  clientPhone: { type: String },
 
-property:{
-type:mongoose.Schema.Types.ObjectId,
-ref:"Property"
-},
+  status: {
+    type: String,
+    enum: ["requested", "approved", "scheduled", "completed", "cancelled"],
+    default: "requested"
+  },
 
-developer:{
-type:mongoose.Schema.Types.ObjectId,
-ref:"Developer"
-},
+  adminApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Admin" },
 
-requestedDate:{
-type:Date
-},
+  // Feedback
+  feedback: { type: String },
+  interestScore: { type: Number, min: 1, max: 10 },
+  
+  liked: [{ type: String }],
+  disliked: [{ type: String }],
+  objections: [{ type: String }],
+  questions: [{ type: String }]
 
-scheduledDate:{
-type:Date
-},
+}, { timestamps: true });
 
-visitTime:{
-type:String
-},
+// Indexes
+SiteVisitSchema.index({ lead: 1 });
+SiteVisitSchema.index({ agent: 1 });
+SiteVisitSchema.index({ scheduledDate: 1 });
+SiteVisitSchema.index({ status: 1 });
 
-clientName:{
-type:String
-},
-
-clientPhone:{
-type:String
-},
-
-status:{
-type:String,
-enum:[
-"requested",
-"approved",
-"scheduled",
-"completed",
-"cancelled"
-],
-default:"requested"
-},
-
-adminApprovedBy:{
-type:mongoose.Schema.Types.ObjectId,
-ref:"Admin"
-},
-
-feedback:{
-type:String
-},
-
-interestScore:{
-type:Number
-}
-
-},{timestamps:true});
-
-module.exports =
-mongoose.models.SiteVisit ||
-mongoose.model("SiteVisit",SiteVisitSchema);
+module.exports = mongoose.models.SiteVisit || mongoose.model("SiteVisit", SiteVisitSchema);
