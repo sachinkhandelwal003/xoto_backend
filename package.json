@@ -42,6 +42,7 @@
     "pptxgenjs": "^4.0.1",
     "replicate": "^1.4.0",
     "sharp": "^0.34.5",
+    "socket.io": "^4.8.3",
     "twilio": "^5.8.2",
     "winston": "^3.17.0"
   },

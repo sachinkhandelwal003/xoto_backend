@@ -104,6 +104,10 @@ app.use('/attributes', require('../src/modules/ecommerce/B2C/routes/attribute.ro
 app.use('/materials', require('../src/modules/ecommerce/B2C/routes/material.routes'));
 app.use('/brands', require('../src/modules/ecommerce/B2C/routes/brand.routes'));
 
+//  Messages
+
+app.use("/chat", require('../src/modules/chat/routes/chat.routes.js'))
+
 app.use('/categories', require('../src/modules/ecommerce/B2C/routes/category.routes'));
 app.use('/tags', require('../src/modules/ecommerce/B2C/routes/tags.routes'));
 app.use('/blogs', blogRoutes);
