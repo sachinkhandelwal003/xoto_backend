@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import Lead from "../models/AgentLeaad.js";
 import SiteVisit from "../models/SiteVisit.js" 
 import Property from "../../properties/models/PropertyModel.js"
-import { query } from "winston";
+// import { query } from "winston";
 
 
 /* ======================
