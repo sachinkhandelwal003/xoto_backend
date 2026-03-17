@@ -28,7 +28,7 @@ router.post(
       // Generate tracking ID
       const trackingId = Math.random().toString(36).substring(2);
 
-      const BASE_URL = process.env.BASE_URL || "http://localhost:5000";
+      const BASE_URL = process.env.BASE_URL || "https://xoto.ae";
       const shareLink = `${BASE_URL}/api/brochure/track/${trackingId}`;
 
       // Save DB
