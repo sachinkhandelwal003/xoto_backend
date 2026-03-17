@@ -53,7 +53,6 @@ const DeveloperSchema = new mongoose.Schema({
     leadsGenerated_stats: { type: Number, default: 0, required: false },
     unitsSold_stats: { type: Number, default: 0, required: false },
     conversionRate_stats: { type: Number, default: 0, required: false },
-    commissionStatus_stats: { type: String, default: "pending", required: false, enum: ["pending", "approved", "paid", "rejected"] }
 }, { timestamps: true });
 
 const Developer = mongoose.model("Developer", DeveloperSchema, "Developers");

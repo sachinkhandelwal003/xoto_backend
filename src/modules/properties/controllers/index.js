@@ -119,43 +119,109 @@ export const loginDeveloper = async (req, res) => {
 };
 
 
-
 export const createProperty = async (req, res) => {
   try {
+    console.log("Request body:", JSON.stringify(req.body, null, 2));
+    
+    const { developer, units, ...body } = req.body;
+    
+    console.log("Developer ID:", developer);
+    console.log("Units array:", units ? units.length : "No units");
+    console.log("Body fields:", Object.keys(body));
 
-    const { developer, ...body } = req.body;
-
+    // 1. Check if developer exists
     const developerExists = await Developer.findById(developer);
-
     if (!developerExists) {
       return res.status(404).json({
         success: false,
         message: "Developer not found"
       });
     }
+    console.log("Developer found:", developerExists.name);
 
+    // 2. Create the property first
+    console.log("Creating property with data:", {
+      ...body,
+      developer: new mongoose.Types.ObjectId(developer),
+      approvalStatus: "pending"
+    });
+    
     const property = await Property.create({
       ...body,
       developer: new mongoose.Types.ObjectId(developer),
-
-      // 🔴 IMPORTANT
       approvalStatus: "pending",
-  rejectionReason: ""
+      rejectionReason: ""
     });
+    
+    console.log("Property created with ID:", property._id);
 
+    // 3. Create inventory units if provided
+    let createdUnits = [];
+    if (units && Array.isArray(units) && units.length > 0) {
+      console.log(`Processing ${units.length} inventory units...`);
+      
+      // Prepare inventory documents
+      const inventoryUnits = units.map((unit, index) => {
+        console.log(`Unit ${index + 1}:`, unit);
+        
+        return {
+          developerId: developer,
+          projectId: property._id,
+          unitId: unit.unitId,
+          tower: unit.tower || "",
+          floor: unit.floor || 0,
+          unitType: unit.unitType || body.propertyType || "",
+          bedrooms: unit.bedrooms || body.bedrooms || 0,
+          bathrooms: unit.bathrooms || body.bathrooms || 0,
+          area: unit.area || body.builtUpArea_min || 0,
+          price: unit.price || body.price || 0,
+          facing: unit.facing || "",
+          view: unit.view || "",
+          status: "Available",
+          agentId: null,
+          leadId: null
+        };
+      });
+      
+      console.log("Prepared inventory data:", JSON.stringify(inventoryUnits, null, 2));
+
+      // ✅ NOW USING Inventory (matches import)
+      createdUnits = await Inventory.insertMany(inventoryUnits);
+      console.log(`✅ Created ${createdUnits.length} inventory units`);
+    } else {
+      console.log("No units to create");
+    }
+
+    // 4. Return success with property and inventory
     return res.status(201).json({
       success: true,
-      message: "Property created successfully and sent for admin approval",
-      data: property
+      message: createdUnits.length > 0 
+        ? `Property created successfully with ${createdUnits.length} inventory units and sent for admin approval`
+        : "Property created successfully and sent for admin approval (no units added)",
+      data: {
+        property,
+        inventory: createdUnits,
+        totalUnits: createdUnits.length
+      }
     });
 
   } catch (error) {
+    console.error("❌ ERROR in createProperty:", error);
+    
+    // Handle duplicate unitId error
+    if (error.code === 11000) {
+      console.error("Duplicate key error:", error.keyValue);
+      return res.status(400).json({
+        success: false,
+        message: `Duplicate unit ID - ${JSON.stringify(error.keyValue)} already exists`
+      });
+    }
 
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
-
   }
 };
 
@@ -605,9 +671,24 @@ export const getPropertyById = async (req, res) => {
     }
 };
 // Inventory Controller
+// Inventory Controller
 export const createInventory = async (req, res) => {
   try {
-    const { developerId, projectId, unitId, area, price, view } = req.body;
+    const { 
+      developerId, 
+      projectId, 
+      unitId, 
+      tower,
+      floor,
+      unitType,
+      bedrooms,
+      bathrooms,
+      area, 
+      price,
+      facing,
+      view,
+      status = "Available"  // Default to Available if not provided
+    } = req.body;
 
     // 🔹 Basic validation
     if (!developerId || !projectId || !unitId) {
@@ -635,14 +716,39 @@ export const createInventory = async (req, res) => {
       });
     }
 
-    // 🔹 Create inventory
+    // 🔹 Check for duplicate unitId in same project
+    const existingUnit = await Inventory.findOne({
+      projectId,
+      unitId
+    });
+
+    if (existingUnit) {
+      return res.status(400).json({
+        success: false,
+        message: `Unit ID ${unitId} already exists in this project`
+      });
+    }
+
+    // 🔹 Create inventory with ALL schema fields
     const inventory = await Inventory.create({
       developerId,
       projectId,
       unitId,
-      area,
-      price,
-      view
+      tower: tower || "",
+      floor: floor || 0,
+      unitType: unitType || "",
+      bedrooms: bedrooms || 0,
+      bathrooms: bathrooms || 0,
+      area: area || 0,
+      price: price || 0,
+      facing: facing || "",
+      view: view || "",
+      status,  // "Available" by default
+      agentId: null,
+      leadId: null,
+      reservedAt: null,
+      bookedAt: null,
+      soldAt: null
     });
 
     return res.status(201).json({
@@ -652,6 +758,14 @@ export const createInventory = async (req, res) => {
     });
 
   } catch (error) {
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: `Unit ID ${error.keyValue.unitId} already exists`
+      });
+    }
+
     return res.status(500).json({
       success: false,
       message: error.message
@@ -659,12 +773,17 @@ export const createInventory = async (req, res) => {
   }
 };
 
-
 export const getInventoryByProperty = async (req, res) => {
-
   try {
-
     const { projectId } = req.params;
+    
+    // Get pagination parameters from query
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    
+    // Get filter parameters
+    const { unitType, status, minPrice, maxPrice, bedrooms } = req.query;
 
     if (!projectId) {
       return res.status(400).json({
@@ -673,41 +792,214 @@ export const getInventoryByProperty = async (req, res) => {
       });
     }
 
-    const units = await Inventory.find({ projectId })
+    // Build filter query
+    let filterQuery = { projectId };
 
-      .populate("projectId", "projectName")
+    // Filter by Unit Type (BHK format)
+    if (unitType) {
+      const bhkPattern = unitType.replace(/\s+/g, '').toUpperCase();
+      filterQuery.unitType = { $regex: new RegExp(bhkPattern, 'i') };
+    }
 
-      // NEW
-      .populate("agentId", "first_name last_name email")
+    // Filter by Status
+    if (status) {
+      filterQuery.status = status;
+    }
 
-      // NEW
-      .populate("leadId", "clientName email")
+    // Filter by Bedrooms
+    if (bedrooms) {
+      if (bedrooms === '5+') {
+        filterQuery.bedrooms = { $gte: 5 };
+      } else {
+        filterQuery.bedrooms = parseInt(bedrooms);
+      }
+    }
 
-      .sort({ createdAt: -1 });
+    // Filter by Price Range
+    if (minPrice || maxPrice) {
+      filterQuery.price = {};
+      if (minPrice) filterQuery.price.$gte = parseInt(minPrice);
+      if (maxPrice) filterQuery.price.$lte = parseInt(maxPrice);
+    }
+
+    // ✅ GET COMPLETE STATISTICS
+    const [
+      total,
+      units,
+      unitTypeStats,
+      statusStats,
+      bedroomStats
+    ] = await Promise.all([
+      // Total count with filters
+      Inventory.countDocuments(filterQuery),
+      
+      // Paginated units
+      Inventory.find(filterQuery)
+        .populate("projectId", "propertyName")
+        .populate("agentId", "first_name last_name email")
+        .populate("leadId", "first_name last_name email")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      
+      // ✅ UNIT TYPE WISE STATS (1BHK, 2BHK, etc.)
+      Inventory.aggregate([
+        { $match: { projectId: new mongoose.Types.ObjectId(projectId) } },
+        { 
+          $group: {
+            _id: { 
+              $toUpper: { 
+                $trim: { 
+                  input: { $ifNull: ["$unitType", "Unknown"] } 
+                } 
+              }
+            },
+            total: { $sum: 1 },
+            available: {
+              $sum: { $cond: [{ $eq: ["$status", "Available"] }, 1, 0] }
+            },
+            reserved: {
+              $sum: { $cond: [{ $eq: ["$status", "Reserved"] }, 1, 0] }
+            },
+            booked: {
+              $sum: { $cond: [{ $eq: ["$status", "Booked"] }, 1, 0] }
+            },
+            sold: {
+              $sum: { $cond: [{ $eq: ["$status", "Sold"] }, 1, 0] }
+            },
+            minPrice: { $min: "$price" },
+            maxPrice: { $max: "$price" },
+            avgPrice: { $avg: "$price" }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ]),
+      
+      // ✅ STATUS WISE STATS (Overall)
+      Inventory.aggregate([
+        { $match: { projectId: new mongoose.Types.ObjectId(projectId) } },
+        {
+          $group: {
+            _id: "$status",
+            count: { $sum: 1 },
+            totalValue: { $sum: "$price" }
+          }
+        }
+      ]),
+      
+      // ✅ BEDROOM WISE STATS
+      Inventory.aggregate([
+        { $match: { projectId: new mongoose.Types.ObjectId(projectId) } },
+        {
+          $group: {
+            _id: "$bedrooms",
+            count: { $sum: 1 },
+            totalValue: { $sum: "$price" }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ])
+    ]);
+
+    // Format unit type stats for easier consumption
+    const formattedUnitTypeStats = {};
+    unitTypeStats.forEach(stat => {
+      const type = stat._id || "Unknown";
+      formattedUnitTypeStats[type] = {
+        total: stat.total,
+        available: stat.available,
+        reserved: stat.reserved,
+        booked: stat.booked,
+        sold: stat.sold,
+        pricing: {
+          min: stat.minPrice,
+          max: stat.maxPrice,
+          avg: Math.round(stat.avgPrice)
+        }
+      };
+    });
+
+    // Format status stats
+    const formattedStatusStats = {
+      Available: 0,
+      Reserved: 0,
+      Booked: 0,
+      Sold: 0,
+      totalValue: 0
+    };
+    
+    statusStats.forEach(stat => {
+      formattedStatusStats[stat._id] = stat.count;
+      formattedStatusStats.totalValue += stat.totalValue || 0;
+    });
 
     return res.status(200).json({
-
       success: true,
-      count: units.length,
-      data: units
-
+      message: "Inventory fetched successfully",
+      data: {
+        units,
+        pagination: {
+          currentPage: page,
+          totalPages: Math.ceil(total / limit),
+          totalItems: total,
+          itemsPerPage: limit,
+        },
+        filters: {
+          unitType: unitType || null,
+          status: status || null,
+          minPrice: minPrice || null,
+          maxPrice: maxPrice || null,
+          bedrooms: bedrooms || null
+        },
+        // ✅ COMPREHENSIVE STATISTICS
+        stats: {
+          // Overall counts
+          overall: {
+            totalUnits: total,
+            totalValue: formattedStatusStats.totalValue,
+            byStatus: formattedStatusStats
+          },
+          // Unit type wise breakdown (1BHK, 2BHK, etc.)
+          byUnitType: formattedUnitTypeStats,
+          // Bedroom wise breakdown
+          byBedroom: bedroomStats.reduce((acc, curr) => {
+            acc[curr._id || 0] = {
+              count: curr.count,
+              totalValue: curr.totalValue
+            };
+            return acc;
+          }, {}),
+          // Quick stats array for charts
+          // charts: {
+          //   unitTypeDistribution: unitTypeStats.map(stat => ({
+          //     name: stat._id,
+          //     value: stat.total,
+          //     available: stat.available,
+          //     reserved: stat.reserved,
+          //     booked: stat.booked,
+          //     sold: stat.sold
+          //   })),
+          //   statusDistribution: statusStats.map(stat => ({
+          //     name: stat._id,
+          //     value: stat.count
+          //   }))
+          // }
+        }
+      }
     });
 
   } catch (error) {
-
+    console.error("Error in getInventoryByProperty:", error);
     return res.status(500).json({
-
       success: false,
       message: error.message
-
     });
-
   }
-
 };
 export const updateInventory = async (req, res) => {
   try {
     const { id } = req.params;
+    const updateData = req.body;
 
     const unit = await Inventory.findById(id);
 
@@ -718,7 +1010,7 @@ export const updateInventory = async (req, res) => {
       });
     }
 
-    // Optional: Prevent updating Sold unit
+    // Prevent updating Sold unit
     if (unit.status === "Sold") {
       return res.status(400).json({
         success: false,
@@ -726,16 +1018,47 @@ export const updateInventory = async (req, res) => {
       });
     }
 
-    Object.assign(unit, req.body);
+    // Prevent changing unitId if it already exists in same project
+    if (updateData.unitId && updateData.unitId !== unit.unitId) {
+      const existingUnit = await Inventory.findOne({
+        projectId: unit.projectId,
+        unitId: updateData.unitId,
+        _id: { $ne: id } // Exclude current unit
+      });
+
+      if (existingUnit) {
+        return res.status(400).json({
+          success: false,
+          message: `Unit ID ${updateData.unitId} already exists in this project`
+        });
+      }
+    }
+
+    // Update fields
+    Object.assign(unit, updateData);
     await unit.save();
+
+    // Populate references for response
+    const updatedUnit = await Inventory.findById(id)
+      .populate("projectId", "propertyName")
+      .populate("agentId", "first_name last_name email")
+      .populate("leadId", "first_name last_name email");
 
     return res.status(200).json({
       success: true,
       message: "Inventory updated successfully",
-      data: unit
+      data: updatedUnit
     });
 
   } catch (error) {
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: `Unit ID ${error.keyValue.unitId} already exists`
+      });
+    }
+
     return res.status(500).json({
       success: false,
       message: error.message
