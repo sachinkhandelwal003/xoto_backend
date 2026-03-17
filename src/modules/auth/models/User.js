@@ -24,6 +24,12 @@ const UserSchema = new mongoose.Schema({
     enum: [0, 1], // 0 = inactive, 1 = active
     default: 1
   },
+  platformFreePercentageCommission: {  // Better naming convention
+    type: Number,  // lowercase 'n'
+    default: 2,     // Default 2% as we discussed
+    min: 0,
+    max: 100
+},
   isActive: {
     type: Boolean,
     default: true
