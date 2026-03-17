@@ -14,6 +14,9 @@ getSiteVisitById,
 approveSiteVisit,
 updateSiteVisitStatus
 } = require("../controllers/AgentController.js");
+const { getPropertySuggestions } = require("../controllers/aiSuggestionController.js");
+// const { createLeadInterest, getLeadInterests } = require("../controllers/LeadInterestController.js");
+
 
 // const { protectMulti } =
 // require("../../../middleware/auth");
@@ -31,6 +34,9 @@ router.post("/update-lead/:id",updateLead);
 router.post("/update-status/:id",updateLeadStatus);
 router.delete("/delete-lead/:id",deleteLead);
 
+router.post("/ai-suggestions", getPropertySuggestions);
+// router.post("/lead-interests", createLeadInterest);
+// router.get("/lead-interests/:leadId", getLeadInterests);
 
 //  Site Visit
 router.post("/create-site-visit", createSiteVisit )

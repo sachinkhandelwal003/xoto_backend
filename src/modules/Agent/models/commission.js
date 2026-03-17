@@ -1,84 +1,46 @@
 const mongoose = require("mongoose");
 
 const CommissionSchema = new mongoose.Schema({
+  deal: { type: mongoose.Schema.Types.ObjectId, ref: "Deal", required: true },
+  property: { type: mongoose.Schema.Types.ObjectId, ref: "Property", required: true },
+  developer: { type: mongoose.Schema.Types.ObjectId, ref: "Developer" },
+  agent: { type: mongoose.Schema.Types.ObjectId, ref: "Agent", required: true },
+  lead: { type: mongoose.Schema.Types.ObjectId, ref: "Lead" },
 
-  // PROPERTY
-  property:{
-    type:mongoose.Schema.Types.ObjectId,
-    ref:"Property",
-    required:true
+  propertyPrice: { type: Number },
+  commissionType: { type: String, enum: ["fixed", "percentage"], default: "percentage" },
+  commissionValue: { type: Number },
+  totalCommission: { type: Number },
+
+  milestonePayments: [{
+    milestone: { type: String, enum: ["contract_signed", "handover_completed"] },
+    percentage: Number,
+    amount: Number,
+    status: { type: String, enum: ["pending", "paid"], default: "pending" },
+    paidAt: Date
+  }],
+
+  status: {
+    type: String,
+    enum: ["pending", "approved", "partial", "paid", "rejected"],
+    default: "pending"
   },
 
-  // DEVELOPER
-  developer:{
-    type:mongoose.Schema.Types.ObjectId,
-    ref:"Developer"
+  paymentDetails: {
+    method: { type: String, enum: ["bank_transfer", "crypto", "cheque"] },
+    transactionId: String,
+    invoiceUrl: String,
+    paidAt: Date
   },
 
-  // AGENT
-  agent:{
-    type:mongoose.Schema.Types.ObjectId,
-    ref:"Agent",
-    required:true
-  },
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: Date
 
-  // LEAD
-  lead:{
-    type:mongoose.Schema.Types.ObjectId,
-    ref:"Lead"
-  },
+}, { timestamps: true });
 
-  // PROPERTY PRICE
-  propertyPrice:{
-    type:Number
-  },
+CommissionSchema.index({ deal: 1 });
+CommissionSchema.index({ agent: 1 });
+CommissionSchema.index({ developer: 1 });
+CommissionSchema.index({ status: 1 });
 
-  // COMMISSION CONFIG
-  commissionType:{
-    type:String,
-    enum:["fixed","percentage"],
-    default:"percentage"
-  },
-
-  commissionValue:{
-    type:Number
-  },
-
-  // FINAL COMMISSION
-  commissionAmount:{
-    type:Number
-  },
-
-  // STATUS
-  status:{
-    type:String,
-    enum:[
-      "pending",
-      "approved",
-      "paid"
-    ],
-    default:"pending"
-  },
-
-  // PAYMENT DATE
-  paidAt:{
-    type:Date
-  },
-
-  // SOFT DELETE
-  isDeleted:{
-    type:Boolean,
-    default:false
-  },
-
-  deletedAt:{
-    type:Date,
-    default:null
-  }
-
-},{timestamps:true});
-
-
-module.exports =
-mongoose.models.Commission ||
-mongoose.model("Commission",CommissionSchema);
+module.exports = mongoose.models.Commission || mongoose.model("Commission", CommissionSchema);

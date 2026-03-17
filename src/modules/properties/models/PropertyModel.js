@@ -116,7 +116,7 @@ const PropertySchema = new mongoose.Schema(
 
     commissionType:{
   type:String,
-  enum:["percentage","fixed"],
+  enum:["percentage"],
   default:"percentage"
 },
 
@@ -125,15 +125,15 @@ commission:{
   required:true
 },
 
-bonusCommission:{
-  type:Number,
-  default:0
-},
+// bonusCommission:{
+//   type:Number,
+//   default:0
+// },
 
-    commissionValue: {
-      type: Number,
-      default: 0
-    },
+    // commissionValue: {
+    //   type: Number,
+    //   default: 0
+    // },
 
     commissionStage: {
       type: String,
@@ -218,11 +218,7 @@ bonusCommission:{
       required: false,
       default: ""
     },
-    description: {
-      type: String,
-      required: false,
-      default: ""
-    },
+  
     downPayment: { // this will be in percentage
       type: Number,
       required: false,
