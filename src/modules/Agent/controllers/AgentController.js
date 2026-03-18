@@ -198,14 +198,7 @@ export const getLeadById = async (req, res) => {
         is_active: true,
         is_deleted: false 
       })
-        .populate({
-          path: "property",
-          select: "propertyName price bedrooms bathrooms area city propertyType mainLogo handover amenities",
-          populate: {
-            path: "developer",
-            select: "name"
-          }
-        })
+        .populate("property")
         .populate("developer", "name")
         .populate("site_visit")
         .sort({ 
