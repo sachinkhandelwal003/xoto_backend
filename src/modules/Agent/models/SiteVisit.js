@@ -8,18 +8,34 @@ const SiteVisitSchema = new mongoose.Schema({
   agent: { type: mongoose.Schema.Types.ObjectId, ref: "Agent", required: true },
   property: { type: mongoose.Schema.Types.ObjectId, ref: "Property" },
   developer: { type: mongoose.Schema.Types.ObjectId, ref: "Developer" },
-  
-  // Link to LeadInterest (optional but recommended)
   interestId: { type: mongoose.Schema.Types.ObjectId, ref: "LeadInterest" },
 
   // =========================
-  // SCHEDULING
+  // SCHEDULING - WITH AM/PM SUPPORT
   // =========================
   requestedDate: { type: Date, default: Date.now },
-  scheduledDate: { type: Date },
-  visitTime: { type: String },
-  actualVisitDate: { type: Date }, // When they actually came
-  duration: { type: Number }, // minutes spent on site
+  scheduledDate: { type: Date }, // Full date object
+  
+  // 🔥 AM/PM TIME FIELD - Store time in 12-hour format
+  visitTime: { 
+    type: String,
+    required: false,
+    validate: {
+      validator: function(v) {
+        if (!v) return true; // Allow empty
+        // Format: "02:30 PM" or "2:30 PM"
+        return /^(0?[1-9]|1[0-2]):[0-5][0-9] (AM|PM)$/.test(v);
+      },
+      message: props => `${props.value} is not valid! Use format: 02:30 PM`
+    }
+  },
+  
+  // Helper fields
+  time12hr: { type: String }, // "02:30 PM"
+  time24hr: { type: String }, // "14:30"
+  
+  actualVisitDate: { type: Date },
+  duration: { type: Number },
   completedAt: { type: Date },
 
   // =========================
@@ -29,7 +45,7 @@ const SiteVisitSchema = new mongoose.Schema({
   clientPhone: { type: String },
 
   // =========================
-  // STATUS (FR-A50)
+  // STATUS
   // =========================
   status: {
     type: String,
@@ -38,7 +54,7 @@ const SiteVisitSchema = new mongoose.Schema({
   },
 
   // =========================
-  // REMINDER TRACKING (FR-A51)
+  // REMINDER TRACKING
   // =========================
   reminders: [{
     type: { type: String, enum: ["email", "sms", "whatsapp", "push"] },
@@ -49,7 +65,7 @@ const SiteVisitSchema = new mongoose.Schema({
 
   reminderPreferences: {
     sendReminder: { type: Boolean, default: true },
-    reminderHours: { type: [Number], default: [24, 2] }, // Send 24h and 2h before
+    reminderHours: { type: [Number], default: [24, 2] },
     preferredMethods: { type: [String], enum: ["email", "sms", "whatsapp"], default: ["sms", "whatsapp"] }
   },
 
@@ -57,7 +73,7 @@ const SiteVisitSchema = new mongoose.Schema({
   nextReminderAt: Date,
 
   // =========================
-  // CANCELLATION TRACKING
+  // CANCELLATION
   // =========================
   cancellationReason: { type: String },
   cancelledAt: { type: Date },
@@ -65,12 +81,13 @@ const SiteVisitSchema = new mongoose.Schema({
   cancelledByModel: { type: String, enum: ["Agent", "Admin", "Lead"] },
 
   // =========================
-  // RESCHEDULE TRACKING
+  // RESCHEDULE
   // =========================
   rescheduledFrom: { type: mongoose.Schema.Types.ObjectId, ref: "SiteVisit" },
   rescheduledCount: { type: Number, default: 0 },
   previousDates: [{
     date: Date,
+    time: String,
     reason: String,
     rescheduledAt: Date,
     rescheduledBy: { type: mongoose.Schema.Types.ObjectId, refPath: 'rescheduledByModel' },
@@ -84,7 +101,7 @@ const SiteVisitSchema = new mongoose.Schema({
   approvedAt: Date,
 
   // =========================
-  // FEEDBACK (FR-A52)
+  // FEEDBACK
   // =========================
   feedback: { type: String },
   interestScore: { type: Number, min: 1, max: 10 },
@@ -94,46 +111,92 @@ const SiteVisitSchema = new mongoose.Schema({
   objections: [{ type: String }],
   questions: [{ type: String }],
 
-  // =========================
-  // NOTES
-  // =========================
   notes: String,
   internalNotes: String,
 
 }, { timestamps: true });
 
 // =========================
-// INDEXES
-// =========================
-SiteVisitSchema.index({ lead: 1 });
-SiteVisitSchema.index({ agent: 1 });
-SiteVisitSchema.index({ property: 1 });
-SiteVisitSchema.index({ scheduledDate: 1 });
-SiteVisitSchema.index({ status: 1 });
-SiteVisitSchema.index({ nextReminderAt: 1 });
-
-// =========================
 // VIRTUAL FIELDS
 // =========================
+SiteVisitSchema.virtual("formattedDateTime").get(function() {
+  if (!this.scheduledDate) return "Not scheduled";
+  const date = new Date(this.scheduledDate);
+  const dateStr = date.toLocaleDateString('en-GB'); // DD/MM/YYYY
+  return `${dateStr} at ${this.time12hr || this.visitTime || date.toLocaleTimeString()}`;
+});
+
 SiteVisitSchema.virtual("hoursUntilVisit").get(function() {
   if (!this.scheduledDate) return null;
   const now = new Date();
-  const visitTime = new Date(this.scheduledDate);
-  const diffMs = visitTime - now;
+  const diffMs = this.scheduledDate - now;
   return Math.round(diffMs / (1000 * 60 * 60));
 });
 
-SiteVisitSchema.virtual("needsReminder").get(function() {
-  if (!this.scheduledDate || this.status !== "scheduled") return false;
-  if (this.lastReminderSentAt) {
-    const hoursSinceLastReminder = (new Date() - this.lastReminderSentAt) / (1000 * 60 * 60);
-    if (hoursSinceLastReminder < 12) return false;
+SiteVisitSchema.virtual("minutesUntilVisit").get(function() {
+  if (!this.scheduledDate) return null;
+  const now = new Date();
+  const diffMs = this.scheduledDate - now;
+  return Math.round(diffMs / (1000 * 60));
+});
+
+// =========================
+// PRE-SAVE HOOK - Handle AM/PM time
+// =========================
+SiteVisitSchema.pre('save', function(next) {
+  // Case 1: If scheduledDate is set but no visitTime, extract time
+  if (this.scheduledDate && !this.visitTime) {
+    const date = new Date(this.scheduledDate);
+    let hours = date.getHours();
+    const minutes = date.getMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12; // 0 should be 12
+    this.time12hr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+    this.time24hr = `${date.getHours().toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+    this.visitTime = this.time12hr;
   }
   
-  const hoursUntil = this.hoursUntilVisit;
-  return this.reminderPreferences.reminderHours.some(h => 
-    Math.abs(hoursUntil - h) < 1
-  );
+  // Case 2: If visitTime is provided (with AM/PM), update scheduledDate
+  if (this.visitTime && this.scheduledDate) {
+    const date = new Date(this.scheduledDate);
+    const [time, modifier] = this.visitTime.split(' ');
+    let [hours, minutes] = time.split(':');
+    
+    // Convert to 24-hour format
+    if (modifier === 'PM' && hours !== '12') {
+      hours = parseInt(hours, 10) + 12;
+    }
+    if (modifier === 'AM' && hours === '12') {
+      hours = 0;
+    }
+    
+    date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+    this.scheduledDate = date;
+    this.time12hr = this.visitTime;
+    this.time24hr = `${date.getHours().toString().padStart(2, '0')}:${minutes}`;
+  }
+  
+  // Case 3: If only date and time string provided separately
+  if (this.scheduledDate && this.visitTime && !this.time12hr) {
+    const date = new Date(this.scheduledDate);
+    const [time, modifier] = this.visitTime.split(' ');
+    let [hours, minutes] = time.split(':');
+    
+    if (modifier === 'PM' && hours !== '12') {
+      hours = parseInt(hours, 10) + 12;
+    }
+    if (modifier === 'AM' && hours === '12') {
+      hours = 0;
+    }
+    
+    date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+    this.scheduledDate = date;
+    this.time12hr = this.visitTime;
+    this.time24hr = `${date.getHours().toString().padStart(2, '0')}:${minutes}`;
+  }
+  
+  next();
 });
 
 // =========================
@@ -157,81 +220,18 @@ SiteVisitSchema.methods.scheduleReminders = async function() {
   return this.save();
 };
 
-SiteVisitSchema.methods.markReminderSent = function(reminderIndex) {
-  if (this.reminders && this.reminders[reminderIndex]) {
-    this.reminders[reminderIndex].sentAt = new Date();
-    this.reminders[reminderIndex].status = "sent";
-    this.lastReminderSentAt = new Date();
-    
-    if (this.reminders[reminderIndex + 1]) {
-      this.nextReminderAt = this.reminders[reminderIndex + 1].scheduledFor;
-    } else {
-      this.nextReminderAt = null;
-    }
-  }
-  return this.save();
-};
-
-SiteVisitSchema.methods.cancel = function(reason, cancelledBy) {
-  this.status = "cancelled";
-  this.cancellationReason = reason;
-  this.cancelledAt = new Date();
-  this.cancelledBy = cancelledBy?._id || cancelledBy;
-  this.cancelledByModel = cancelledBy?.constructor?.modelName || "Agent";
-  return this.save();
-};
-
-SiteVisitSchema.methods.reschedule = function(newDate, reason, rescheduledBy) {
-  this.previousDates.push({
-    date: this.scheduledDate,
-    reason: reason,
-    rescheduledAt: new Date(),
-    rescheduledBy: rescheduledBy?._id || rescheduledBy,
-    rescheduledByModel: rescheduledBy?.constructor?.modelName || "Agent"
-  });
-
-  this.scheduledDate = newDate;
-  this.status = "scheduled";
-  this.rescheduledCount += 1;
-  
-  return this.scheduleReminders();
-};
-
-SiteVisitSchema.methods.complete = function(feedbackData) {
-  this.status = "completed";
-  this.completedAt = new Date();
-  this.actualVisitDate = this.scheduledDate;
-  
-  if (feedbackData) {
-    this.feedback = feedbackData.feedback;
-    this.interestScore = feedbackData.interestScore;
-    this.liked = feedbackData.liked || [];
-    this.disliked = feedbackData.disliked || [];
-    this.objections = feedbackData.objections || [];
-    this.questions = feedbackData.questions || [];
-  }
-  
-  return this.save();
+SiteVisitSchema.methods.formatTime = function() {
+  return this.time12hr || this.visitTime || "Time not set";
 };
 
 // =========================
-// STATIC METHODS
+// INDEXES
 // =========================
-SiteVisitSchema.statics.findVisitsNeedingReminders = function() {
-  const now = new Date();
-  return this.find({
-    status: "scheduled",
-    nextReminderAt: { $lte: now },
-    "reminders.status": { $ne: "sent" }
-  }).populate("lead agent");
-};
-
-SiteVisitSchema.statics.findUpcomingForLead = function(leadId) {
-  return this.find({
-    lead: leadId,
-    status: { $in: ["scheduled", "approved"] },
-    scheduledDate: { $gte: new Date() }
-  }).sort({ scheduledDate: 1 });
-};
+SiteVisitSchema.index({ lead: 1 });
+SiteVisitSchema.index({ agent: 1 });
+SiteVisitSchema.index({ property: 1 });
+SiteVisitSchema.index({ scheduledDate: 1 });
+SiteVisitSchema.index({ status: 1 });
+SiteVisitSchema.index({ nextReminderAt: 1 });
 
 module.exports = mongoose.models.SiteVisit || mongoose.model("SiteVisit", SiteVisitSchema);

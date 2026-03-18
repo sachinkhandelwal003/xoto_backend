@@ -399,9 +399,19 @@ export const updateLeadStatus = async (req, res) => {
 /* ======================
 CREATE SITE VISIT (FR-A50)
 ====================== */
+/* ======================
+CREATE SITE VISIT WITH AM/PM TIME
+====================== */
 export const createSiteVisit = async (req, res) => {
   try {
-    const { lead: leadId, property: propertyId, interestId } = req.body;
+    const { 
+      lead: leadId, 
+      property: propertyId, 
+      interestId,
+      scheduledDate,
+      visitTime, // This will be like "02:30 PM"
+      visitDate 
+    } = req.body;
 
     // Check lead exists
     const lead = await Lead.findById(leadId);
@@ -421,19 +431,24 @@ export const createSiteVisit = async (req, res) => {
       });
     }
 
-    // Get developer from property
-    const developerId = property.developer;
+    // Create date object from scheduledDate or visitDate
+    let finalScheduledDate = scheduledDate || visitDate;
+    
+    // If we have both date and time, combine them
+    if (finalScheduledDate && visitTime) {
+      // Model will handle combining in pre-save hook
+    }
 
     // Create site visit
     const visit = await SiteVisit.create({
       lead: leadId,
       agent: req.body.agent || lead.agent,
       property: propertyId,
-      developer: developerId,
+      developer: property.developer,
       interestId: interestId || null,
-      requestedDate: req.body.visitDate || new Date(),
-      scheduledDate: req.body.scheduledDate,
-      visitTime: req.body.visitTime,
+      requestedDate: new Date(),
+      scheduledDate: finalScheduledDate,
+      visitTime: visitTime, // "02:30 PM" format
       clientName: req.body.clientName || `${lead.name.first_name} ${lead.name.last_name}`,
       clientPhone: req.body.clientPhone || lead.phone_number,
       status: "requested",
@@ -447,7 +462,7 @@ export const createSiteVisit = async (req, res) => {
     // Schedule reminders
     await visit.scheduleReminders();
 
-    // Update lead status to "visit"
+    // Update lead status
     await Lead.findByIdAndUpdate(
       leadId,
       {
@@ -469,7 +484,11 @@ export const createSiteVisit = async (req, res) => {
     res.json({
       success: true,
       message: "Site visit created successfully",
-      data: visit
+      data: {
+        ...visit.toObject(),
+        formattedTime: visit.formatTime(),
+        formattedDateTime: visit.formattedDateTime
+      }
     });
 
   } catch (error) {
@@ -497,7 +516,7 @@ export const getAllSiteVisits = async (req, res) => {
     const visits = await SiteVisit.find(query)
       .populate("lead", "name email phone_number")
       .populate("agent", "first_name last_name email")
-      .populate("property", "propertyName price")
+      .populate("property")
       .populate("developer", "name")
       .populate("adminApprovedBy", "email")
       .skip(skip)
@@ -532,7 +551,7 @@ export const getSiteVisitById = async (req, res) => {
     const visit = await SiteVisit.findById(req.params.id)
       .populate("lead")
       .populate("agent", "first_name last_name email")
-      .populate("property", "propertyName price")
+      .populate("property")
       .populate("developer", "name")
       .populate("interestId");
 
