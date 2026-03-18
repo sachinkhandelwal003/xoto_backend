@@ -48,6 +48,8 @@ router.post(
           'brochure.sent': true,
           'brochure.sent_at': new Date(),
           'brochure.file_url': fileUrl,
+                conversion_stage: "brochure_sent",  // ✅ STAGE UPDATED TO "brochure_sent"
+
           $inc: { engagement_score: 20 }
         });
       }
@@ -107,6 +109,8 @@ router.get('/track/:trackingId', async (req, res) => {
         {
           'brochure.viewed': true,
           'brochure.viewed_at': new Date(),
+                  conversion_stage: "viewed",  // ✅ STAGE UPDATED TO "viewed"
+
           $inc: { engagement_score: 15 }
         }
       );
@@ -120,6 +124,33 @@ router.get('/track/:trackingId', async (req, res) => {
     res.status(500).send('Error tracking brochure');
   }
 });
+
+// ✅ STEP 4: Get all brochures for a specific lead
+router.get('/lead/:leadId', async (req, res) => {
+  try {
+    const { leadId } = req.params;
+    
+    const brochures = await Brochure.find({ leadId })
+          .populate('leadId', "name budget status email")
+      .populate('propertyId')
+      .populate('interestId')
+      .sort({ createdAt: -1 }); // Newest first
+
+    res.json({
+      success: true,
+      count: brochures.length,
+      data: brochures
+    });
+
+  } catch (error) {
+    console.error('Error fetching brochures:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
 
 // ✅ STEP 3: Get brochure stats
 router.get('/stats/:brochureId', async (req, res) => {
