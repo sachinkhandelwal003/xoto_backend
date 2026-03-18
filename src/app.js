@@ -9,6 +9,7 @@ const virtualStagingRoutes = require('./modules/ImageEnhancer/Routes/VirtualRout
 const upload = require("../src/middleware/s3Upload.js").default
 const { uploadFileToS3 } = require("./modules/s3/upload.js");
 const {downloadImageAsPDF} =require("./modules/s3/downloadUpload.js")
+const aiRoutes = require('./modules/Agent/routes/AIroutes.js');
 const blogRoutes = require('../src/modules/blogs/routes/index.js').default;
 const mortgageRoutes = require('./modules/mortgages/routes/index.js');
 const agencyRoutes = require('./modules/agency/routes/index.js');
@@ -98,7 +99,8 @@ app.use('/freelancer', require('../src/modules/auth/routes/freelancer/freelancer
 
 app.use('/freelancer/projects/invoice', require('../src/modules/auth/routes/freelancer/invoice.route'));
 app.use('/otp', otpRoutes);
-
+// agent AI features
+app.use('/aiii', aiRoutes);
 
 app.use('/attributes', require('../src/modules/ecommerce/B2C/routes/attribute.routes'));
 app.use('/materials', require('../src/modules/ecommerce/B2C/routes/material.routes'));
