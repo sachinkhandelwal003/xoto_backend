@@ -109,6 +109,7 @@ app.use('/brands', require('../src/modules/ecommerce/B2C/routes/brand.routes'));
 //  Messages
 
 app.use("/chat", require('../src/modules/chat/routes/chat.routes.js'))
+app.use("/chat-request", require('../src/modules/chat/routes/chatRequest.routes.js'))
 
 app.use('/categories', require('../src/modules/ecommerce/B2C/routes/category.routes'));
 app.use('/tags', require('../src/modules/ecommerce/B2C/routes/tags.routes'));
