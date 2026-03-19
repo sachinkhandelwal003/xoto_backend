@@ -11,7 +11,10 @@ const upload = multer({
       const fileName = `properties/${Date.now()}-${file.originalname}`;
       cb(null, fileName);
     }
-  })
+  }),
+  limits: {
+    fileSize: 50 * 1024 * 1024 // 50MB
+  }
 });
 
 // AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_REGION,AWS_S3_BUCKET
