@@ -43,6 +43,8 @@ const DeveloperSchema = new mongoose.Schema({
     documents: [
         { type: String, default: "", trim: true, required: false }
     ],
+      resetPasswordToken: { type: String, default: null },
+    resetPasswordExpires: { type: Date, default: null },
 
     isVerifiedByAdmin: {
         type: Boolean,

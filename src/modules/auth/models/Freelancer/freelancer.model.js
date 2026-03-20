@@ -23,6 +23,8 @@ const service_schema = new mongoose.Schema({
     required: true
   },
 
+
+
   subcategories: [
     {
       type: {
@@ -153,7 +155,10 @@ const freelancer_schema = new mongoose.Schema({
 
   isActive: { type: Boolean, default: true },
   is_deleted: { type: Boolean, default: false },
-  deleted_at: Date
+  deleted_at: Date,
+
+  resetPasswordToken: { type: String, default: null },
+resetPasswordExpires: { type: Date, default: null },
 }, {
   timestamps: true,
   toJSON: { virtuals: true },
