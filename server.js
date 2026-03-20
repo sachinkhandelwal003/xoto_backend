@@ -46,14 +46,14 @@ io.on('connection', (socket) => {
   });
 
   // 3. Send message 
-  socket.on('send_message', async (data) => {
+socket.on('send_message', async (data) => {
   try {
     const { leadId, senderId, senderType, senderName, receiverId, message } = data;
 
     console.log('send_message data:', data);
 
     if (!leadId || !senderId || !receiverId) {
-      socket.emit('message_error', { error: 'Missing fields' });
+      socket.emit('message_error', { error: 'Missing required fields' });
       return;
     }
 
@@ -68,8 +68,7 @@ io.on('connection', (socket) => {
       lead:       leadId,
     });
 
-    // console.log('✅ Message saved:', saved._id);
-    // console.log('Online users:', onlineUsers);
+    console.log('✅ Message saved:', saved._id);
 
     const payload = {
       _id:        saved._id,
@@ -81,18 +80,18 @@ io.on('connection', (socket) => {
       createdAt:  saved.createdAt,
     };
 
+    // Send to receiver
     const receiverSocket = onlineUsers[receiverId];
-    // console.log('Receiver socket:', receiverSocket);
-
     if (receiverSocket) {
       io.to(receiverSocket).emit('receive_message', payload);
     }
 
-    // ✅ Sender ko SIRF EK BAAR bhejo
+    // Send to sender
     socket.emit('receive_message', payload);
 
   } catch (err) {
-    // console.error('Message save error:', err);
+    console.error('Message save error:', err);
+    socket.emit('message_error', { error: err.message });
   }
 });
 
@@ -104,11 +103,59 @@ io.on('connection', (socket) => {
       }
     });
   });
+  // Approve hone pe agent ko notify karo
+socket.on('approve_chat_request', ({ agentId, requestId, agentName }) => {
+  const agentSocket = onlineUsers[agentId];
+  if (agentSocket) {
+    io.to(agentSocket).emit('chat_request_approved', {
+      requestId,
+      message: "Tumhari chat request approve ho gayi!",
+    });
+  }
 });
-// ────────────────────────────────────────────────────────────
+
+// Reject hone pe agent ko notify karo
+socket.on('reject_chat_request', ({ agentId, requestId, reason }) => {
+  const agentSocket = onlineUsers[agentId];
+  if (agentSocket) {
+    io.to(agentSocket).emit('chat_request_rejected', {
+      requestId,
+      reason,
+      message: "Tumhari chat request reject ho gayi.",
+    });
+  }
+});
+
+
+// Admin ne approve kiya — Agent AUR Developer dono ko notify karo
+socket.on("approve_chat_request", ({ agentId, requestId, developerId }) => {
+  // Agent ko notify karo
+  const agentSocket = onlineUsers[agentId];
+  if (agentSocket) {
+    io.to(agentSocket).emit("chat_request_approved", { requestId });
+  }
+
+  // ✅ Developer ko bhi notify karo
+  if (developerId) {
+    const developerSocket = onlineUsers[developerId];
+    if (developerSocket) {
+      io.to(developerSocket).emit("chat_approved_for_developer", { requestId });
+    }
+  }
+});
+
+// Admin ne reject kiya — Agent ko notify karo
+socket.on("reject_chat_request", ({ agentId, requestId, reason }) => {
+  const agentSocket = onlineUsers[agentId];
+  if (agentSocket) {
+    io.to(agentSocket).emit("chat_request_rejected", { requestId, reason });
+  }
+});
+});
+//   ────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 5000;
-
+ 
 app.use(cors({
   origin: ['https://xoto.ae', 'http://localhost:5173'],
   credentials: true

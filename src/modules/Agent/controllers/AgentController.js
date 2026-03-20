@@ -399,9 +399,19 @@ export const updateLeadStatus = async (req, res) => {
 /* ======================
 CREATE SITE VISIT (FR-A50)
 ====================== */
+/* ======================
+CREATE SITE VISIT WITH AM/PM TIME
+====================== */
 export const createSiteVisit = async (req, res) => {
   try {
-    const { lead: leadId, property: propertyId } = req.body;
+    const { 
+      lead: leadId, 
+      property: propertyId, 
+      interestId,
+      scheduledDate,
+      visitTime, // This will be like "02:30 PM"
+      visitDate 
+    } = req.body;
 
     // Check lead exists
     const lead = await Lead.findById(leadId);
@@ -421,39 +431,68 @@ export const createSiteVisit = async (req, res) => {
       });
     }
 
-    // Get developer from property
-    const developerId = property.developer;
+    // Create date object from scheduledDate or visitDate
+    let finalScheduledDate = scheduledDate || visitDate;
+    
+    // If we have both date and time, combine them
+    if (finalScheduledDate && visitTime) {
+      // Model will handle combining in pre-save hook
+    }
 
     // Create site visit
     const visit = await SiteVisit.create({
       lead: leadId,
       agent: req.body.agent || lead.agent,
       property: propertyId,
-      developer: developerId,
-      requestedDate: req.body.visitDate || new Date(),
-      visitTime: req.body.visitTime,
+      developer: property.developer,
+      interestId: interestId || null,
+      requestedDate: new Date(),
+      scheduledDate: finalScheduledDate,
+      visitTime: visitTime, // "02:30 PM" format
       clientName: req.body.clientName || `${lead.name.first_name} ${lead.name.last_name}`,
       clientPhone: req.body.clientPhone || lead.phone_number,
-      status: "requested"
+      status: "requested",
+      reminderPreferences: {
+        sendReminder: true,
+        reminderHours: [24, 2],
+        preferredMethods: ["sms", "whatsapp"]
+      }
     });
 
-    // Update lead status to "visit"
+    // Schedule reminders
+    await visit.scheduleReminders();
+
+    // Update lead status
     await Lead.findByIdAndUpdate(
       leadId,
       {
         status: "visit",
-        siteVisit: visit._id,
         lastActivity: "Site visit requested"
       }
     );
 
+    // Update LeadInterest if interestId provided
+    if (interestId) {
+      await LeadInterest.findByIdAndUpdate(interestId, {
+        site_visit_requested: true,
+        site_visit: visit._id,
+        site_visit_requested_at: new Date(),
+        $inc: { engagement_score: 30 }
+      });
+    }
+
     res.json({
       success: true,
       message: "Site visit created successfully",
-      data: visit
+      data: {
+        ...visit.toObject(),
+        formattedTime: visit.formatTime(),
+        formattedDateTime: visit.formattedDateTime
+      }
     });
 
   } catch (error) {
+    console.error("Error creating site visit:", error);
     res.status(500).json({
       success: false,
       message: error.message
@@ -466,18 +505,34 @@ GET ALL SITE VISITS
 ====================== */
 export const getAllSiteVisits = async (req, res) => {
   try {
-    const visits = await SiteVisit.find({})
-      .populate("lead")
+    const { page = 1, limit = 10, status, agentId } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    let query = {};
+    if (status) query.status = status;
+    if (agentId) query.agent = agentId;
+
+    const total = await SiteVisit.countDocuments(query);
+    const visits = await SiteVisit.find(query)
+      .populate("lead", "name email phone_number")
       .populate("agent", "first_name last_name email")
-      .populate("property", "propertyName")
+      .populate("property")
       .populate("developer", "name")
       .populate("adminApprovedBy", "email")
+      .skip(skip)
+      .limit(parseInt(limit))
       .sort({ createdAt: -1 });
 
     res.json({
       success: true,
       count: visits.length,
-      data: visits
+      total,
+      data: visits,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / limit)
+      }
     });
 
   } catch (error) {
@@ -496,8 +551,9 @@ export const getSiteVisitById = async (req, res) => {
     const visit = await SiteVisit.findById(req.params.id)
       .populate("lead")
       .populate("agent", "first_name last_name email")
-      .populate("property", "propertyName price")
-      .populate("developer", "name");
+      .populate("property")
+      .populate("developer", "name")
+      .populate("interestId");
 
     if (!visit) {
       return res.status(404).json({
@@ -506,9 +562,14 @@ export const getSiteVisitById = async (req, res) => {
       });
     }
 
+    // Add virtual fields
+    const visitObj = visit.toObject();
+    visitObj.hoursUntilVisit = visit.hoursUntilVisit;
+    visitObj.needsReminder = visit.needsReminder;
+
     res.json({
       success: true,
-      data: visit
+      data: visitObj
     });
 
   } catch (error) {
@@ -529,7 +590,8 @@ export const approveSiteVisit = async (req, res) => {
       {
         status: "scheduled",
         scheduledDate: req.body.scheduledDate,
-        adminApprovedBy: req.body.adminId
+        adminApprovedBy: req.body.adminId,
+        approvedAt: new Date()
       },
       { new: true }
     );
@@ -540,6 +602,9 @@ export const approveSiteVisit = async (req, res) => {
         message: "Site visit not found"
       });
     }
+
+    // Reschedule reminders with new date
+    await visit.scheduleReminders();
 
     res.json({
       success: true,
@@ -562,7 +627,7 @@ export const updateSiteVisitStatus = async (req, res) => {
   try {
     const { status, feedback, interestScore, liked, disliked, objections } = req.body;
     
-    const validStatuses = ["requested", "approved", "scheduled", "completed", "cancelled"];
+    const validStatuses = ["requested", "approved", "scheduled", "completed", "cancelled", "no_show"];
     
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
@@ -571,19 +636,7 @@ export const updateSiteVisitStatus = async (req, res) => {
       });
     }
 
-    const visit = await SiteVisit.findByIdAndUpdate(
-      req.params.id,
-      { 
-        status,
-        feedback,
-        interestScore,
-        liked,
-        disliked,
-        objections
-      },
-      { new: true }
-    );
-
+    const visit = await SiteVisit.findById(req.params.id);
     if (!visit) {
       return res.status(404).json({
         success: false,
@@ -591,17 +644,47 @@ export const updateSiteVisitStatus = async (req, res) => {
       });
     }
 
-    // If visit completed, update lead with feedback
+    // Handle different status updates
     if (status === "completed") {
-      await Lead.findByIdAndUpdate(
-        visit.lead,
-        {
-          visitFeedback: feedback,
-          lastActivity: "Site visit completed",
-          // If high interest, move to deal stage
-          ...(interestScore >= 7 && { status: "deal" })
+      await visit.complete({ feedback, interestScore, liked, disliked, objections });
+      
+      // Update lead based on interest score
+      if (interestScore >= 7) {
+        await Lead.findByIdAndUpdate(visit.lead, {
+          status: "deal",
+          lastActivity: "Site visit completed - High interest"
+        });
+
+        // Update LeadInterest if exists
+        if (visit.interestId) {
+          await LeadInterest.findByIdAndUpdate(visit.interestId, {
+            conversion_stage: "site_visit_completed",
+            $inc: { engagement_score: 40 }
+          });
         }
-      );
+      } else {
+        await Lead.findByIdAndUpdate(visit.lead, {
+          lastActivity: "Site visit completed - Moderate interest"
+        });
+      }
+    } 
+    else if (status === "cancelled") {
+      visit.status = "cancelled";
+      visit.cancellationReason = feedback || "Cancelled";
+      visit.cancelledAt = new Date();
+      await visit.save();
+
+      // Update lead status back to lead
+      await Lead.findByIdAndUpdate(visit.lead, {
+        status: "lead",
+        lastActivity: "Site visit cancelled"
+      });
+    }
+    else {
+      // Simple status update
+      visit.status = status;
+      if (feedback) visit.feedback = feedback;
+      await visit.save();
     }
 
     res.json({
@@ -619,13 +702,45 @@ export const updateSiteVisitStatus = async (req, res) => {
 };
 
 /* ======================
+RESCHEDULE SITE VISIT
+====================== */
+export const rescheduleSiteVisit = async (req, res) => {
+  try {
+    const { newDate, reason, rescheduledBy } = req.body;
+
+    const visit = await SiteVisit.findById(req.params.id);
+    if (!visit) {
+      return res.status(404).json({
+        success: false,
+        message: "Site visit not found"
+      });
+    }
+
+    await visit.reschedule(new Date(newDate), reason, rescheduledBy);
+
+    res.json({
+      success: true,
+      message: "Site visit rescheduled successfully",
+      data: visit
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/* ======================
 GET SITE VISITS BY LEAD
 ====================== */
 export const getSiteVisitsByLead = async (req, res) => {
   try {
     const visits = await SiteVisit.find({ lead: req.params.leadId })
-      .populate("property", "propertyName")
-      .sort({ createdAt: -1 });
+      .populate("property", "propertyName price")
+      .populate("agent", "first_name last_name")
+      .sort({ scheduledDate: -1 });
 
     res.json({
       success: true,
@@ -651,9 +766,8 @@ export const getSiteVisitsByAgent = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const total = await SiteVisit.countDocuments({ agent: req.params.agentId });
-
     const visits = await SiteVisit.find({ agent: req.params.agentId })
-      .populate("lead")
+      .populate("lead", "name")
       .populate("property", "propertyName")
       .skip(skip)
       .limit(limit)
@@ -679,41 +793,27 @@ export const getSiteVisitsByAgent = async (req, res) => {
 };
 
 /* ======================
-CANCEL SITE VISIT
+CHECK REMINDERS (Cron Job)
 ====================== */
-export const cancelSiteVisit = async (req, res) => {
+export const checkReminders = async (req, res) => {
   try {
-    const { reason } = req.body;
+    const visitsNeedingReminders = await SiteVisit.findVisitsNeedingReminders();
+    const remindersSent = [];
 
-    const visit = await SiteVisit.findByIdAndUpdate(
-      req.params.id,
-      {
-        status: "cancelled",
-        feedback: reason || "Cancelled by agent/client"
-      },
-      { new: true }
-    );
-
-    if (!visit) {
-      return res.status(404).json({
-        success: false,
-        message: "Site visit not found"
-      });
-    }
-
-    // Update lead status back to lead
-    await Lead.findByIdAndUpdate(
-      visit.lead,
-      {
-        status: "lead",
-        lastActivity: "Site visit cancelled"
+    for (const visit of visitsNeedingReminders) {
+      const reminderIndex = visit.reminders.findIndex(r => r.status === "pending");
+      if (reminderIndex !== -1) {
+        // Here you would actually send the reminder via SMS/Email/WhatsApp
+        console.log(`Sending reminder for visit ${visit._id}`);
+        await visit.markReminderSent(reminderIndex);
+        remindersSent.push(visit._id);
       }
-    );
+    }
 
     res.json({
       success: true,
-      message: "Site visit cancelled",
-      data: visit
+      message: `Processed ${remindersSent.length} reminders`,
+      data: remindersSent
     });
 
   } catch (error) {
