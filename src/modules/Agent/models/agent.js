@@ -102,6 +102,10 @@ const AgentSchema = new mongoose.Schema({
     default: true
   },
 
+  // Forgot or reset password
+resetPasswordToken: { type: String, default: null },
+resetPasswordExpires: { type: Date, default: null },
+
   // =========================
   // SUBSCRIPTION (Keep for later)
   // =========================

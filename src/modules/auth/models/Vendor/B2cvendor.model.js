@@ -151,6 +151,8 @@ status: {
   operations: { type: operationsSchema, default: {} },
   performance: { type: performanceSchema, default: {} },
     isActive: { type: Boolean, default: true },
+    resetPasswordToken: { type: String, default: null },
+resetPasswordExpires: { type: Date, default: null },
   meta: { type: metaSchema, required: true }
 },
 {

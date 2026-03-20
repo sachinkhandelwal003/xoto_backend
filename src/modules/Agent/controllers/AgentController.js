@@ -125,7 +125,7 @@ export const getAllLeads = async (req, res) => {
 
     // Paginated data
     const leads = await Lead.find(query)
-      .populate("agent", "first_name last_name email")
+      .populate("agent", "first_name last_name email phone_number")
       .populate("project", "propertyName")
       .populate("developer", "name")
       .skip(skip)
