@@ -20,9 +20,9 @@ router.use(protectMulti);
 
 // Get all
 router.get('/',
-  authorize({ roles: ['SuperAdmin', 'Admin', 'Manager'] }),
-  checkPermission('PropertyLeads', 'view'),
-  validateGetPropertyLeads,
+  // authorize({ roles: ['SuperAdmin', 'Admin', 'Manager'] }),
+  // checkPermission('PropertyLeads', 'view'),
+  // validateGetPropertyLeads,
   controller.getAllPropertyLeads
 );
 
@@ -32,7 +32,7 @@ router.get('/:id', validatePropertyLeadId, controller.getPropertyLead);
 
 // Update
 router.put('/:id',
-  authorize({ roles: ['SuperAdmin', 'Admin', 'Manager'] }),
+  // authorize({ roles: ['SuperAdmin', 'Admin', 'Manager'] }),
   validatePropertyLeadId,
   validateUpdatePropertyLead,
   controller.updatePropertyLead
@@ -43,7 +43,7 @@ router.put('/:id/contacted', validatePropertyLeadId, controller.markAsContacted)
 
 // Delete
 router.delete('/:id',
-  authorize({ roles: ['SuperAdmin', 'Admin'] }),
+  // authorize({ roles: ['SuperAdmin', 'Admin'] }),
   validatePropertyLeadId,
   controller.deletePropertyLead
 );
