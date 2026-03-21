@@ -27,7 +27,9 @@ const PurchaseSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       required: false,
       default: null
-    }
+    },
+    payment_method: { type: String, default: "cod" },
+delivery_address: { type: Object, default: null },
   },
   { timestamps: true }
 );
