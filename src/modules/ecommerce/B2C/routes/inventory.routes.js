@@ -2,6 +2,19 @@ const express = require("express");
 const router = express.Router();
 const InventoryService = require("../../services/inventory.service");
 
+router.get("/get-vendor-inventory", async (req, res) => {
+  try {
+    const { vendor_id, search } = req.query;
+
+    // 🔸 Inventory + Product join (example)
+    const data = await InventoryService.getVendorInventory(vendor_id, search);
+
+    res.json({ data });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 // 🔹 Add Stock
 router.post("/add", async (req, res) => {
   try {
