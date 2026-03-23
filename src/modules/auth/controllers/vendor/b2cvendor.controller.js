@@ -26,7 +26,6 @@ exports.vendorLogin = asyncHandler(async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
-    // Find vendor and populate role
     const vendor = await VendorB2C.findOne({ email })
       .select('+password')
       .populate({
@@ -38,16 +37,22 @@ exports.vendorLogin = asyncHandler(async (req, res, next) => {
       throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
     }
 
-    // Compare hashed password
     const isMatch = await bcrypt.compare(password, vendor.password);
     if (!isMatch) {
       throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
     }
 
-    // Generate token
+    // 🔴 BLOCK LOGIN IF NOT APPROVED
+    if (vendor.status !== "approved") {
+      return res.status(StatusCodes.FORBIDDEN).json({
+        success: false,
+        message: "Your account is not approved yet",
+      });
+    }
+
+    // ✅ ALLOW LOGIN
     const token = createToken(vendor);
 
-    // Convert to object & remove password
     const vendorResponse = vendor.toObject();
     delete vendorResponse.password;
 
@@ -57,6 +62,7 @@ exports.vendorLogin = asyncHandler(async (req, res, next) => {
       token,
       vendor: vendorResponse,
     });
+
   } catch (error) {
     if (!error.message) error.message = 'Unidentified error';
     next(error);
