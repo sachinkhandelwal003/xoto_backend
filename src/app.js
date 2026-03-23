@@ -21,6 +21,7 @@ const PropertyLead = require("./modules/auth/routes/consult/propertyLead.route")
 const ProfileData = require("./modules/profile/routes/index.js").default
 const agentRoutes = require('./modules/Agent/routes/index.js');
 const brochureRoutes = require('./modules/Agent/routes/brochureRoutes.js');
+const customerHistoryRoutes = require('../src/modules/history/routes/customerHistory.routes.js');
 
 const AgentLead = require('./modules/Agent/routes/Agentroute.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
@@ -117,6 +118,14 @@ app.use('/categories', require('../src/modules/ecommerce/B2C/routes/category.rou
 app.use('/tags', require('../src/modules/ecommerce/B2C/routes/tags.routes'));
 app.use('/blogs', blogRoutes);
 app.use('/vendor/warehouses', require('../src/modules/ecommerce/B2C/routes/warehouse.routes'));
+
+// History
+app.use('/customer-history', customerHistoryRoutes);
+
+
+
+
+
 // notifications
 app.use('/notifications', Notification);
 // 404 Handler

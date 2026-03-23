@@ -8,6 +8,7 @@ const { createToken } = require('../../../../middleware/auth');
 const { Role } = require('../../models/role/role.model');
 const Customer = require('../../models/user/customer.model')
 const PropertyLead = require("../../models/consultant/propertyLead.model")
+const { trackCustomerActivity } = require('../../../../utils/trackCustomerActivity'); 
 const mongoose = require('mongoose');
 
 exports.userLogin = asyncHandler(async (req, res) => {
@@ -66,6 +67,19 @@ exports.customerLogin = asyncHandler(async (req, res) => {
 
   // Generate Token
   const token = createToken(customer);
+
+    await trackCustomerActivity({
+    customerId: customer._id,
+    action: "LOGIN",
+    description: `Customer logged in  ${mobile?.number}`,
+    metadata: {
+      country_code: mobile?.country_code,
+      number: mobile?.number,
+    },
+    status: "success",
+    req: req
+  });
+
 
   res.json({
     success: true,
