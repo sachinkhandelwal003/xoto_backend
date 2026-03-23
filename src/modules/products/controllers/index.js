@@ -557,90 +557,119 @@ export const updateProductById = async (req, res) => {
 };
 
 export const addToCart = async (req, res) => {
-    try {
+  try {
+    const { productId, customerId, productColorId, quantity = 1 } = req.body;
+    console.log("ADD TO CART REQUEST:", { productId, customerId, quantity });
 
-        // now we will add this prudtc in the cart Items of users
-        ////productId,customerId,productColorId,price,quantity
-        const { productId, customerId, productColorId } = req.body;
-        let alreadyExist = await EcommerceCartItem.findOne({ productId, customerId, productColorId })
-
-        if (alreadyExist) {
-            return res.status(400).json({
-                message: "This product already exists in your cart"
-            })
-        }
-
-        let cartproduct = await EcommerceCartItem.create({ ...req.body });
-
-        return res.status(201).json({
-            success: true,
-            message: "Product added to cart successfully",
-            data: cartproduct
-        });
-
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: error.message
-        });
+    if (!productId || !customerId) {
+      return res.status(400).json({
+        success: false,
+        message: "productId and customerId are required"
+      });
     }
+
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+
+    const price = product.discountedPrice > 0 
+      ? product.discountedPrice 
+      : product.price;
+
+    // ✅ Sirf unconverted items check karo
+    let alreadyExist = await EcommerceCartItem.findOne({ 
+      productId, 
+      customerId, 
+      productColorId,
+      converted_to_deal: false  // 👈 KEY FIX
+    });
+
+    if (alreadyExist) {
+      alreadyExist.quantity += Number(quantity);
+      await alreadyExist.save();
+      return res.status(200).json({
+        success: true,
+        message: "Cart quantity updated",
+        data: alreadyExist
+      });
+    }
+
+    // ✅ Naya item create hoga — converted_to_deal default false rahega
+    let cartproduct = await EcommerceCartItem.create({ 
+      productId,
+      customerId,
+      productColorId,
+      quantity: Number(quantity),
+      price,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Product added to cart successfully",
+      data: cartproduct
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 };
 
 export const PurchaseCartItems = async (req, res) => {
-    try {
+  try {
+    const { customerId } = req.query;
 
-        // Purchase schema
+    let allEcommerceItems = await EcommerceCartItem.find({ 
+      customerId,
+      converted_to_deal: false  // ✅ Already purchased items exclude karo
+    });
 
-        // EcommerceCartitems:[]
-        // total_price:
-        // customer_id:
-        // status:[]
-        // payment_id: Transaction_id
-
-
-        const { customerId } = req.query;
-        let allEcommerceItems = await EcommerceCartItem.find({ customerId })
-
-        if (allEcommerceItems.length == 0) {
-            return res.status(400).json({
-                message: "No Items available in cart"
-            })
-        }
-
-        
-        let EcommerceCartitems = [];
-        let total_price = 0;
-
-        let customer_id = allEcommerceItems[0].customerId;
-
-        let status = "paid"
-        let payment_id = null;
-
-        allEcommerceItems = await Promise.all(allEcommerceItems.map(async (a) => {
-
-            total_price += Number(a.price)
-            EcommerceCartitems.push(a._id);
-
-            await EcommerceCartItem.findByIdAndUpdate(a._id,{converted_to_deal:true})
-            return a;
-        }))
-
-        let purchase = await Purchase.create({
-            EcommerceCartitems,payment_id,status,customer_id,total_price
-        })
-
-        return res.status(201).json({
-            success: true,
-            message: "Purchased successfully",
-            data: purchase
-        });
-
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: error.message
-        });
+    if (allEcommerceItems.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No items available in cart"
+      });
     }
+
+    let EcommerceCartitems = [];
+    let total_price = 0;
+    let customer_id = allEcommerceItems[0].customerId;
+
+    await Promise.all(allEcommerceItems.map(async (a) => {
+      // ✅ Quantity se multiply karo
+      total_price += Number(a.price) * Number(a.quantity || 1);
+      EcommerceCartitems.push(a._id);
+      await EcommerceCartItem.findByIdAndUpdate(a._id, { 
+        converted_to_deal: true 
+      });
+    }));
+
+    let purchase = await Purchase.create({
+      EcommerceCartitems,
+      payment_id: null,
+      status: "paid",
+      customer_id,
+      total_price
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Purchased successfully",
+      data: purchase
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 };
 
 export const getBrandByID = async (req, res) => {
@@ -1078,4 +1107,132 @@ export const getPropertyById = async (req, res) => {
             message: error.message
         });
     }
+};
+
+
+export const getCartItems = async (req, res) => {
+  try {
+    const { customerId } = req.query;
+
+    if (!customerId) {
+      return res.status(400).json({
+        success: false,
+        message: "customerId is required"
+      });
+    }
+
+    const cartItems = await EcommerceCartItem.find({ 
+      customerId,
+      converted_to_deal: false  // purchased items exclude
+    }).populate("productId productColorId");
+
+    const totalPrice = cartItems.reduce((acc, item) => {
+      return acc + (Number(item.price) * Number(item.quantity || 1));
+    }, 0);
+
+    return res.status(200).json({
+      success: true,
+      message: "Cart fetched successfully",
+      data: {
+        items: cartItems,
+        totalPrice,
+        totalItems: cartItems.length
+      }
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+export const removeFromCart = async (req, res) => {
+  try {
+    const { cartItemId } = req.query;
+
+    const deleted = await EcommerceCartItem.findByIdAndDelete(cartItemId);
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Cart item not found"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Item removed from cart",
+      data: deleted
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+export const updateCartQuantity = async (req, res) => {
+  try {
+    const { cartItemId, quantity } = req.body;
+
+    if (!cartItemId || !quantity) {
+      return res.status(400).json({
+        success: false,
+        message: "cartItemId and quantity are required"
+      });
+    }
+
+    if (Number(quantity) <= 0) {
+      // Quantity 0 ya negative → item delete karo
+      await EcommerceCartItem.findByIdAndDelete(cartItemId);
+      return res.status(200).json({
+        success: true,
+        message: "Item removed from cart"
+      });
+    }
+
+    const updated = await EcommerceCartItem.findByIdAndUpdate(
+      cartItemId,
+      { quantity: Number(quantity) },
+      { new: true }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Cart quantity updated",
+      data: updated
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+export const clearCart = async (req, res) => {
+  try {
+    const { customerId } = req.query;
+
+    await EcommerceCartItem.deleteMany({ 
+      customerId,
+      converted_to_deal: false
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Cart cleared successfully"
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 };

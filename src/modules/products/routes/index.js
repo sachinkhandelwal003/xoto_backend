@@ -1,6 +1,14 @@
 const Router = require("express");
-const { addToCart, PurchaseCartItems,createBrand,addProductMargin, deleteProductById, getProductById, getAllProducts, createProducts, createCategory, getCategoryById, getAllBrands, getBrandByID, editBrandByID, editCategory, deleteCategoryByID, deleteBrandBYID, getAllCategory, updateProductById } = require("../controllers/index.js")
+const { addToCart, PurchaseCartItems,getCartItems, removeFromCart, clearCart,  updateCartQuantity,  createBrand,addProductMargin, deleteProductById, getProductById, getAllProducts, createProducts, createCategory, getCategoryById, getAllBrands, getBrandByID, editBrandByID, editCategory, deleteCategoryByID, deleteBrandBYID, getAllCategory, updateProductById } = require("../controllers/index.js")
+const {
+  cashOnDelivery,
+  createTabbySession,
+  createTamaraSession,
+  paymentSuccess,
+} = require("../controllers/payment.controller.js")
+const { protectCustomer } = require("../../../middleware/auth.js");
 const router = Router();
+
 
 //brand
 router.post("/create-brand", createBrand)
@@ -26,10 +34,20 @@ router.post("/add-margin-products",addProductMargin);
 router.post("/delete-product-by-id", deleteProductById)
 router.post("/edit-product-by-id", updateProductById)
 
-router.post("/add-to-cart-by-customer", addToCart)
-router.post("/purchase-cart-items", PurchaseCartItems)
-// router.post("/get-all-cart-products", getAllCartItems)
+router.post('/cart/add', protectCustomer, addToCart);
+router.get('/cart/get', protectCustomer, getCartItems);
+router.delete('/cart/remove', protectCustomer, removeFromCart);
+router.put('/cart/update', protectCustomer, updateCartQuantity);
+router.delete('/cart/clear', protectCustomer, clearCart);
+router.post('/cart/purchase', protectCustomer, PurchaseCartItems);
 // router.post("/get-all-cartItems-by-customerId", getAllCartItemsByCartId)
+
+// Payment routes
+router.post("/cart/cod", protectCustomer, cashOnDelivery);
+router.post("/cart/tabby-session", protectCustomer, createTabbySession);
+router.post("/cart/tamara-session", protectCustomer, createTamaraSession);
+router.get("/cart/payment/success", paymentSuccess);
+
 
 
 // router.get("/get-all-category", getAllCategory)
