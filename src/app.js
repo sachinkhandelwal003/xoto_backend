@@ -40,6 +40,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Database connection
 require('./config/database');
 // app.use('/uploads',express.static(path.join(__dirname, '..', 'uploads')));
+app.use('/uploads', express.static('uploads'));
 app.use('/estimates', require('./modules/auth/routes/leads/estimate.routes'));
 app.use('/customer', customer);
 app.use('/ai', require('./modules/auth/routes/ai/gardenAI.routes'));

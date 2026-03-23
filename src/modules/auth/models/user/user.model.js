@@ -27,6 +27,10 @@ email: {
       required: true,
       select: false,
     },
+    logo: { 
+    type: String, 
+    default: "" 
+  },
     role: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Role',
