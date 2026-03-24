@@ -14,7 +14,7 @@ const getModelByRole = (roleName) => {
         case "Freelancer": return Freelancer;
         case "Customer": return Customer;
         case "SuperAdmin": return Admin;
-                case "Admin": return Admin;
+      case "Admin": return Admin;
         case "Vendor-B2C": return Vendor;
         case "Agent": return Agent;
         case "Developer": return Developer;
