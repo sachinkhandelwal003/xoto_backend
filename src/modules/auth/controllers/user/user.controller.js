@@ -485,3 +485,46 @@ exports.restoreUser = asyncHandler(async (req, res) => {
     },
   });
 });
+
+exports.getAllCustomers = asyncHandler(async (req, res) => {
+  let { page = 1, limit = 10, search = "" } = req.query;
+  page = Number(page);
+  limit = Number(limit);
+
+  const query = { is_deleted: false };
+
+  if (search) {
+    const regex = new RegExp(search, "i");
+    query.$or = [
+      { "name.first_name": regex },
+      { "name.last_name": regex },
+      { email: regex },
+    ];
+  }
+
+  const skip = (page - 1) * limit;
+
+  const [customers, total] = await Promise.all([
+    Customer.find(query)
+      .populate("role", "name code")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    Customer.countDocuments(query),
+  ]);
+
+  res.json({
+    success: true,
+    data: customers,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  });
+});
+
+exports.toggleCustomerStatus = asyncHandler(async (req, res) => {
+  const customer = await Customer.findById(req.params.id);
+  if (!customer) throw new APIError('Customer not found', StatusCodes.NOT_FOUND);
+  customer.isActive = !customer.isActive;
+  await customer.save();
+  res.json({ success: true, message: `Customer ${customer.isActive ? 'activated' : 'deactivated'}`, isActive: customer.isActive });
+});

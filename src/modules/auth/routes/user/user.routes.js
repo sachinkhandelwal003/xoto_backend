@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../../controllers/user/user.controller');
-const {updateCustomer} = require('../../controllers/user/user.controller');
+const {updateCustomer,getAllCustomers,toggleCustomerStatus} = require('../../controllers/user/user.controller');
 
 const { protect, protectMulti } = require('../../../../middleware/auth');
 const {
@@ -28,7 +28,8 @@ router.use(protectMulti);
 
 
 router.put('/edit/customer',updateCustomer);
-
+router.get('/customers', getAllCustomers);
+router.put('/customers/:id/toggle', toggleCustomerStatus);
 router.get('/', controller.getAllUsers);
 router.put('/:id/toggle', validateUserId, controller.toggleStatus);
 router.delete('/:id', validateUserId, controller.softDelete);

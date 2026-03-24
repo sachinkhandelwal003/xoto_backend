@@ -21,6 +21,7 @@ const PropertyLead = require("./modules/auth/routes/consult/propertyLead.route")
 const ProfileData = require("./modules/profile/routes/index.js").default
 const agentRoutes = require('./modules/Agent/routes/index.js');
 const brochureRoutes = require('./modules/Agent/routes/brochureRoutes.js');
+const inventoryRoutes = require("./modules/ecommerce/B2C/routes/inventory.routes");
 
 const AgentLead = require('./modules/Agent/routes/Agentroute.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
@@ -83,7 +84,7 @@ app.use('/permission-action', require('../src/modules/auth/routes/permission/act
 app.use('/module', require('../src/modules/auth/routes/module/module.routes'));
 app.use('/setting/tax', require('../src/modules/auth/routes/tax/tax.routes'));
 app.use('/setting/currency', require('../src/modules/auth/routes/currency/currency.routes'));
-
+app.use("/inventory", inventoryRoutes);
 app.use('/auth', require('../src/modules/auth/routes/auth.routes'));
 app.use('/vendor', require('../src/modules/auth/routes/vendor/vendorb2c.routes'));
 app.use('/vendor/b2b', require('../src/modules/auth/routes/vendor/vendorb2b.routes'));
