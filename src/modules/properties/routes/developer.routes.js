@@ -6,7 +6,6 @@ const {
   loginDeveloper,
   editDeveloper,
   getDeveloperrById,
- // getDeveloperrById,,
   getAllDevelopers,
   deleteDeveloper,
   
@@ -28,6 +27,10 @@ const {
   // Admin - Agreement Upload
   adminUploadAgreement,
   
+  // Admin - Agreement Verification (NEW)
+  verifyAgreement,
+  requestAgreementChanges,
+  
   // Admin - Engagement Plan
   setEngagementPlan,
   
@@ -40,16 +43,16 @@ const { protect, protectMulti } = require('../../../middleware/auth');
 
 const router = Router();
 
-
-router.post("/create-developer", createDeveloper);
-router.post("/login-developer", loginDeveloper);
-
-router.use(protectMulti);
-
 // =========================
 // PUBLIC ROUTES
 // =========================
+router.post("/create-developer", createDeveloper);
+router.post("/login-developer", loginDeveloper);
 
+// =========================
+// PROTECTED ROUTES (All routes below require auth)
+// =========================
+router.use(protectMulti);
 
 // =========================
 // DEVELOPER ROUTES (AUTHENTICATED)
@@ -64,14 +67,26 @@ router.get("/agreement", getAgreement);
 // =========================
 // ADMIN ROUTES
 // =========================
+
+// Developer Management
 router.get("/get-all-developers", getAllDevelopers);
 router.get("/get-developer-by-id", getDeveloperrById);
 router.post("/edit-developer", editDeveloper);
 router.post("/delete-developer-by-id", deleteDeveloper);
-router.get("/admin/stats", getDeveloperStats);
-router.put("/admin/review-kyc/:id", reviewKYC);
-router.put("/admin/upload-agreement/:id", adminUploadAgreement);
-router.put("/admin/set-plan/:id", setEngagementPlan);
 router.put("/admin/suspend/:id", toggleAccountStatus);
+
+// Stats
+router.get("/admin/stats", getDeveloperStats);
+
+// KYC Management
+router.put("/admin/review-kyc/:id", reviewKYC);
+
+// Agreement Management
+router.put("/admin/upload-agreement/:id", adminUploadAgreement);
+router.put("/admin/verify-agreement/:id", verifyAgreement);           // ✅ NEW - Approve agreement
+router.post("/admin/request-changes/:id", requestAgreementChanges);   // ✅ NEW - Request changes
+
+// Engagement Plan
+router.put("/admin/set-plan/:id", setEngagementPlan);
 
 module.exports = router;

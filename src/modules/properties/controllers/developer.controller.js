@@ -325,16 +325,23 @@ export const uploadAgreement = async (req, res) => {
         developer.agreementDocuments = docsWithUploader;
         developer.agreementSigned = true;
         developer.agreementSignedAt = new Date();
-        developer.onboardingStatus = 'completed';
-        developer.onboardingCompletedAt = new Date();
-        developer.accountStatus = 'active';
-        
+        developer.agreementStatus = 'pending_review';  // Set to pending review
+        developer.onboardingStatus = 'agreement_pending';  // Wait for admin verification
+        developer.accountStatus = 'pending';  // Still pending until admin verifies
+
         await developer.save();
+
+        // TODO: Send notification to admin
 
         return res.status(200).json({
             success: true,
-            message: "Agreement uploaded successfully. Account activated!",
-            data: developer
+            message: "Agreement uploaded successfully. Waiting for admin verification.",
+            data: {
+                agreementDocuments: developer.agreementDocuments,
+                agreementStatus: developer.agreementStatus,
+                onboardingStatus: developer.onboardingStatus,
+                accountStatus: developer.accountStatus
+            }
         });
 
     } catch (error) {
@@ -345,22 +352,178 @@ export const uploadAgreement = async (req, res) => {
     }
 };
 
+
+/**
+ * @route   PUT /api/developer/admin/verify-agreement/:id
+ * @desc    Admin verifies and approves agreement
+ */
+export const verifyAgreement = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { remarks } = req.body;
+
+        const developer = await Developer.findById(id);
+        if (!developer) {
+            return res.status(404).json({
+                success: false,
+                message: "Developer not found"
+            });
+        }
+
+        // Check if agreement is uploaded
+        if (!developer.agreementSigned) {
+            return res.status(400).json({
+                success: false,
+                message: "No agreement uploaded yet"
+            });
+        }
+
+        // Update agreement verification status
+        developer.agreementStatus = 'verified';
+        developer.agreementVerified = true;
+        developer.agreementVerifiedAt = new Date();
+        developer.agreementVerifiedBy = req.user._id;
+        developer.agreementRemarks = remarks || "Agreement verified successfully";
+        developer.agreementLastReviewedAt = new Date();
+        developer.agreementLastReviewedBy = req.user._id;
+        
+        // Complete onboarding and activate account
+        developer.onboardingStatus = 'completed';
+        developer.onboardingCompletedAt = new Date();
+        developer.accountStatus = 'active';
+        developer.isVerifiedByAdmin = true;
+
+        await developer.save();
+
+        // TODO: Send notification to developer
+
+        return res.status(200).json({
+            success: true,
+            message: "Agreement verified successfully. Account activated!",
+            data: {
+                agreementStatus: developer.agreementStatus,
+                agreementVerified: developer.agreementVerified,
+                agreementVerifiedAt: developer.agreementVerifiedAt,
+                onboardingStatus: developer.onboardingStatus,
+                accountStatus: developer.accountStatus
+            }
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+
+
+/**
+ * @route   POST /api/developer/admin/request-changes/:id
+ * @desc    Admin requests changes to agreement (developer needs to re-upload)
+ */
+export const requestAgreementChanges = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { message, remarks } = req.body;
+
+        if (!message) {
+            return res.status(400).json({
+                success: false,
+                message: "Please provide feedback message for developer"
+            });
+        }
+
+        const developer = await Developer.findById(id);
+        if (!developer) {
+            return res.status(404).json({
+                success: false,
+                message: "Developer not found"
+            });
+        }
+
+        // Check if agreement is uploaded
+        if (!developer.agreementSigned) {
+            return res.status(400).json({
+                success: false,
+                message: "No agreement uploaded yet"
+            });
+        }
+
+        // Store admin feedback
+        developer.agreementFeedback = {
+            message: message,
+            remarks: remarks || "",
+            requestedAt: new Date(),
+            requestedBy: req.user._id
+        };
+        
+        // Reset agreement status
+        developer.agreementStatus = 'changes_requested';
+        developer.agreementVerified = false;
+        developer.agreementSigned = false;  // Require new upload
+        developer.agreementDocuments = [];  // Clear old documents
+        
+        // Keep onboarding status as agreement_pending
+        developer.onboardingStatus = 'agreement_pending';
+        developer.accountStatus = 'pending';
+
+        await developer.save();
+
+        // TODO: Send notification to developer with feedback
+
+        return res.status(200).json({
+            success: true,
+            message: "Changes requested. Developer notified to re-upload agreement.",
+            data: {
+                feedback: developer.agreementFeedback,
+                agreementStatus: developer.agreementStatus,
+                onboardingStatus: developer.onboardingStatus,
+                accountStatus: developer.accountStatus
+            }
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+
+
 /**
  * @route   GET /api/developer/agreement
  * @desc    Get developer agreement documents
  */
+/**
+ * @route   GET /api/developer/agreement
+ * @desc    Developer gets their agreement documents
+ */
 export const getAgreement = async (req, res) => {
     try {
         const developer = await Developer.findById(req.user._id).select(
-            'agreementDocuments agreementSigned agreementSignedAt'
+            'agreementDocuments agreementSigned agreementSignedAt agreementStatus onboardingStatus accountStatus'
         );
+
+        if (!developer) {
+            return res.status(404).json({
+                success: false,
+                message: "Developer not found"
+            });
+        }
 
         return res.status(200).json({
             success: true,
             data: {
                 agreementDocuments: developer.agreementDocuments,
                 agreementSigned: developer.agreementSigned,
-                agreementSignedAt: developer.agreementSignedAt
+                agreementSignedAt: developer.agreementSignedAt,
+                agreementStatus: developer.agreementStatus,
+                onboardingStatus: developer.onboardingStatus,
+                accountStatus: developer.accountStatus
             }
         });
 
@@ -570,6 +733,10 @@ export const reviewKYC = async (req, res) => {
  * @route   PUT /api/developer/admin/upload-agreement/:id
  * @desc    Admin: Upload agreement documents on behalf of developer
  */
+/**
+ * @route   PUT /api/developer/admin/upload-agreement/:id
+ * @desc    Admin uploads agreement on behalf of developer
+ */
 export const adminUploadAgreement = async (req, res) => {
     try {
         const { id } = req.params;
@@ -600,16 +767,21 @@ export const adminUploadAgreement = async (req, res) => {
         developer.agreementDocuments = docsWithUploader;
         developer.agreementSigned = true;
         developer.agreementSignedAt = new Date();
-        developer.onboardingStatus = 'completed';
-        developer.onboardingCompletedAt = new Date();
-        developer.accountStatus = 'active';
+        developer.agreementStatus = 'pending_review';
+        developer.onboardingStatus = 'agreement_pending';
+        developer.accountStatus = 'pending';
 
         await developer.save();
 
         return res.status(200).json({
             success: true,
-            message: "Agreement uploaded and developer activated",
-            data: developer
+            message: "Agreement uploaded. Waiting for admin verification.",
+            data: {
+                agreementDocuments: developer.agreementDocuments,
+                agreementStatus: developer.agreementStatus,
+                onboardingStatus: developer.onboardingStatus,
+                accountStatus: developer.accountStatus
+            }
         });
 
     } catch (error) {

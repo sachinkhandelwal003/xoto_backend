@@ -391,6 +391,45 @@ const DeveloperSchema = new mongoose.Schema(
             }
         ],
         
+        // Agreement status tracking
+agreementStatus: {
+    type: String,
+    enum: ['not_uploaded', 'pending_review', 'verified', 'changes_requested'],
+    default: 'not_uploaded'
+},
+
+agreementVerified: {
+    type: Boolean,
+    default: false
+},
+agreementVerifiedAt: {
+    type: Date,
+    default: null
+},
+agreementVerifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+},
+agreementRemarks: {
+    type: String,
+    default: ""
+},
+agreementLastReviewedAt: {
+    type: Date,
+    default: null
+},
+agreementLastReviewedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+},
+agreementFeedback: {
+    message: { type: String, default: "" },
+    remarks: { type: String, default: "" },
+    requestedAt: { type: Date, default: null },
+    requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }
+},
         agreementSigned: { 
             type: Boolean, 
             default: false 
