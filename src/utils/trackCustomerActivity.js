@@ -1,6 +1,3 @@
-// ─────────────────────────────────────────────────────────────
-// src/utils/trackCustomerActivity.js
-// ─────────────────────────────────────────────────────────────
 const CustomerActivityHistory = require("../modules/history/models/CustomerActivityHistory.js");
 
 // ── Device detection ─────────────────────────────────────────

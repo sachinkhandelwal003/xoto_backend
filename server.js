@@ -8,8 +8,8 @@ const createError = require('http-errors');
 const cors     = require('cors');
 const connectDB = require('./src/config/database');
 const path     = require('path');
-const Message  = require('./src/modules/chat/models/Message.model'); // ← ADD
-const { getRoomId } = require('./src/modules/chat/controllers/chat.controller'); // ← ADD
+const Message  = require('./src/modules/chat/models/Message.model'); 
+const { getRoomId } = require('./src/modules/chat/controllers/chat.controller'); 
 
 const app    = express();
 const server = http.createServer(app);    

@@ -1,7 +1,10 @@
 import EcommerceCartItem from "../models/EcommerceCart.js";
 import Purchase from "../models/Purchase.js";
 import axios from "axios";
-const sendEmail = require("../../../utils/sendEmail.js");               
+const sendEmail = require("../../../utils/sendEmail.js");
+import { trackCustomerActivity } from "../../../utils/trackCustomerActivity.js";
+
+              
 
 
 // ─────────────────────────────────────────────────
