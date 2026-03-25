@@ -12,7 +12,7 @@ const {
   // Developer Profile (Authenticated)
   getMyProfile,
   updateMyProfile,
-  
+  approvePlan ,
   // Developer KYC
   submitKYC,
   getKYCStatus,
@@ -85,6 +85,7 @@ router.put("/admin/review-kyc/:id", reviewKYC);
 router.put("/admin/upload-agreement/:id", adminUploadAgreement);
 router.put("/admin/verify-agreement/:id", verifyAgreement);           // ✅ NEW - Approve agreement
 router.post("/admin/request-changes/:id", requestAgreementChanges);   // ✅ NEW - Request changes
+router.put("/admin/approve-plan/:id", approvePlan);  // ← Admin approves plan after payment
 
 // Engagement Plan
 router.put("/admin/set-plan/:id", setEngagementPlan);

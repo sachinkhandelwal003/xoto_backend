@@ -171,7 +171,7 @@ export const updateMyProfile = async (req, res) => {
         const allowedUpdates = [
             'name', 'phone_number', 'country_code', 'logo', 'description',
             'websiteUrl', 'country', 'city', 'address', 'reraNumber',
-            'operatingYears', 'authorizedPersonName', 'officialEmailId'
+            'operatingYears', 'authorizedPersonName', 'officialEmailId','selectedPlan'
         ];
         
         const updateData = {};
@@ -256,6 +256,70 @@ export const submitKYC = async (req, res) => {
     }
 };
 
+
+
+/**
+ * @route   PUT /api/developer/admin/approve-plan/:id
+ * @desc    Admin approves developer's selected plan (after payment)
+ */
+export const approvePlan = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { paymentStatus, invoiceUrl } = req.body;
+
+        const developer = await Developer.findById(id);
+        if (!developer) {
+            return res.status(404).json({
+                success: false,
+                message: "Developer not found"
+            });
+        }
+
+        if (!developer.requestedPlan) {
+            return res.status(400).json({
+                success: false,
+                message: "No plan requested by developer"
+            });
+        }
+
+        // Set price based on plan
+        let price = 0;
+        if (developer.requestedPlan === 'basic') price = 500;
+        if (developer.requestedPlan === 'premium') price = 1500;
+
+        // Activate the plan
+        developer.engagementPlan = {
+            type: developer.requestedPlan,
+            price: price,
+            startDate: new Date(),
+            endDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)),
+            paymentStatus: paymentStatus || 'unpaid',
+            paymentDate: paymentStatus === 'paid' ? new Date() : null,
+            invoiceUrl: invoiceUrl || "",
+            activatedBy: req.user._id,
+            activatedAt: new Date()
+        };
+        
+        developer.planRequestStatus = 'approved';
+
+        await developer.save();
+
+        return res.status(200).json({
+            success: true,
+            message: `Plan ${developer.requestedPlan} activated successfully`,
+            data: {
+                engagementPlan: developer.engagementPlan,
+                planRequestStatus: developer.planRequestStatus
+            }
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
 /**
  * @route   GET /api/developer/kyc/status
  * @desc    Get developer KYC status
