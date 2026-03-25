@@ -380,8 +380,18 @@ export const getAgreement = async (req, res) => {
  * @route   GET /api/developer/admin/all
  * @desc    Admin: Get all developers
  */
+/**
+ * @route   GET /api/developer/get-all-developers
+ * @desc    Get all developers with pagination and simple status summary
+ */
 export const getAllDevelopers = async (req, res) => {
     try {
+        // ========== PAGINATION ==========
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+        
+        // ========== SEARCH & FILTERS ==========
         let search = req.query.search || "";
         let status = req.query.status;
         let onboardingStatus = req.query.onboardingStatus;
@@ -401,15 +411,37 @@ export const getAllDevelopers = async (req, res) => {
         if (onboardingStatus) query.onboardingStatus = onboardingStatus;
         if (kycStatus) query.kycStatus = kycStatus;
 
+        // ========== GET TOTAL COUNT ==========
+        const total = await Developer.countDocuments(query);
+        
+        // ========== GET DEVELOPERS WITH PAGINATION ==========
         const developers = await Developer.find(query)
             .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
             .select('-password');
-
+        
+        // ========== SIMPLE STATUS SUMMARY (Total, Active, Pending, Suspended) ==========
+        const statusSummary = {
+            total: await Developer.countDocuments(),
+            active: await Developer.countDocuments({ accountStatus: 'active' }),
+            pending: await Developer.countDocuments({ accountStatus: 'pending' }),
+            suspended: await Developer.countDocuments({ accountStatus: 'suspended' })
+        };
+        
+        // ========== RESPONSE ==========
         return res.status(200).json({
             success: true,
             message: "Developers fetched successfully",
             data: developers,
-            count: developers.length
+            count: developers.length,
+            pagination: {
+                totalPages: Math.ceil(total / limit),
+                currentPage: page,
+                totalItems: total,
+                limit: limit
+            },
+            summary: statusSummary
         });
 
     } catch (error) {
@@ -419,7 +451,6 @@ export const getAllDevelopers = async (req, res) => {
         });
     }
 };
-
 /**
  * @route   GET /api/developer/admin/stats
  * @desc    Admin: Get developer onboarding stats
@@ -458,6 +489,28 @@ export const getDeveloperStats = async (req, res) => {
     }
 };
 
+
+export const getDeveloperrById = async (req, res) => {
+    try {
+        let id = req.query.id;
+
+
+        const developer = await Developer.findOne({ _id: id })
+
+
+        return res.status(200).json({
+            success: true,
+            message: "Developer fetched",
+            data: developer
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
 /**
  * @route   PUT /api/developer/admin/review-kyc/:id
  * @desc    Admin: Approve or reject developer KYC

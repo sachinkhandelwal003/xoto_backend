@@ -5,7 +5,8 @@ const {
   createDeveloper,
   loginDeveloper,
   editDeveloper,
- // getDeveloperrById,
+  getDeveloperrById,
+ // getDeveloperrById,,
   getAllDevelopers,
   deleteDeveloper,
   
@@ -64,7 +65,7 @@ router.get("/agreement", getAgreement);
 // ADMIN ROUTES
 // =========================
 router.get("/get-all-developers", getAllDevelopers);
-//router.get("/get-developer-by-id", getDeveloperrById);
+router.get("/get-developer-by-id", getDeveloperrById);
 router.post("/edit-developer", editDeveloper);
 router.post("/delete-developer-by-id", deleteDeveloper);
 router.get("/admin/stats", getDeveloperStats);
