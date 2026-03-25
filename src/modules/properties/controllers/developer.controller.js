@@ -617,7 +617,7 @@ export const getAllDevelopers = async (req, res) => {
         const page = Number(req.query.page) || 1;
         const limit = Number(req.query.limit) || 10;
         const skip = (page - 1) * limit;
-        
+
         // ========== SEARCH & FILTERS ==========
         let search = req.query.search || "";
         let status = req.query.status;
@@ -640,22 +640,19 @@ export const getAllDevelopers = async (req, res) => {
 
         // ========== GET TOTAL COUNT ==========
         const total = await Developer.countDocuments(query);
-        
-        // ========== GET DEVELOPERS WITH PAGINATION ==========
+
+        // ✅ FIXED COUNTS
+        const active = await Developer.countDocuments({ accountStatus: 'active' });
+        const pending = await Developer.countDocuments({ accountStatus: 'pending' });
+        const suspended = await Developer.countDocuments({ accountStatus: 'suspended' });
+
+        // ========== GET DEVELOPERS ==========
         const developers = await Developer.find(query)
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
             .select('-password');
-        
-        // ========== SIMPLE STATUS SUMMARY (Total, Active, Pending, Suspended) ==========
-        const statusSummary = {
-            total: await Developer.countDocuments(),
-            active: await Developer.countDocuments({ accountStatus: 'active' }),
-            pending: await Developer.countDocuments({ accountStatus: 'pending' }),
-            suspended: await Developer.countDocuments({ accountStatus: 'suspended' })
-        };
-        
+
         // ========== RESPONSE ==========
         return res.status(200).json({
             success: true,
@@ -666,9 +663,11 @@ export const getAllDevelopers = async (req, res) => {
                 totalPages: Math.ceil(total / limit),
                 currentPage: page,
                 totalItems: total,
-                limit: limit
-            },
-            summary: statusSummary
+                limit: limit,
+                    active,
+                pending,
+                suspended
+            }
         });
 
     } catch (error) {
