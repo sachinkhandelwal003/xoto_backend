@@ -22,6 +22,7 @@ const ProfileData = require("./modules/profile/routes/index.js").default
 const agentRoutes = require('./modules/Agent/routes/index.js');
 const brochureRoutes = require('./modules/Agent/routes/brochureRoutes.js');
 const customerHistoryRoutes = require('../src/modules/history/routes/customerHistory.routes.js');
+const inventoryRoutes = require("./modules/ecommerce/B2C/routes/inventory.routes");
 
 const AgentLead = require('./modules/Agent/routes/Agentroute.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
@@ -50,6 +51,8 @@ app.use('/dashboard', require('./modules/auth/routes/dashboardview/dashboard.rou
 
 app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/projectfreelancer.route'));
 app.use('/property', require('../src/modules/properties/routes/index.js'));
+app.use('/developer', require('../src/modules/properties/routes/developer.routes.js'));  //for testing route
+
 app.use('/products', require('../src/modules/products/routes/index.js'));
 app.use('/profile', ProfileData);
 app.post("/upload", upload.single("file"), uploadFileToS3)
@@ -84,7 +87,7 @@ app.use('/permission-action', require('../src/modules/auth/routes/permission/act
 app.use('/module', require('../src/modules/auth/routes/module/module.routes'));
 app.use('/setting/tax', require('../src/modules/auth/routes/tax/tax.routes'));
 app.use('/setting/currency', require('../src/modules/auth/routes/currency/currency.routes'));
-
+app.use("/inventory", inventoryRoutes);
 app.use('/auth', require('../src/modules/auth/routes/auth.routes'));
 app.use('/vendor', require('../src/modules/auth/routes/vendor/vendorb2c.routes'));
 app.use('/vendor/b2b', require('../src/modules/auth/routes/vendor/vendorb2b.routes'));

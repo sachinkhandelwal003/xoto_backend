@@ -14,6 +14,7 @@ const getModelByRole = (roleName) => {
         case "Freelancer": return Freelancer;
         case "Customer": return Customer;
         case "SuperAdmin": return Admin;
+      case "Admin": return Admin;
         case "Vendor-B2C": return Vendor;
         case "Agent": return Agent;
         case "Developer": return Developer;
@@ -45,6 +46,9 @@ export const getProfileData = async (req, res) => {
         return res.status(500).json({ message: "Error fetching data", error: error.message });
     }
 };
+
+
+
 
 export const updateProfileData = async (req, res) => {
     try {

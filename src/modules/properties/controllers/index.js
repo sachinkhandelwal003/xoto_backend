@@ -8,50 +8,58 @@ import Lead from "../../Agent/models/AgentLeaad.js";
 import bcrypt from "bcryptjs";
 
 
-// import Agent from "../models/Agent.js";
-// import jwt from "jsonwebtoken";
-
+// * @desc    Developer registration (first step)
+//  */
 export const createDeveloper = async (req, res) => {
     try {
-        const { name ,password } = req.body;
+        const { name, email, password, phone_number, country_code } = req.body;
 
-        if (!name) {
+        // Validation
+        if (!name || !email || !password) {
             return res.status(400).json({
                 success: false,
-                message: "Developer name is required"
+                message: "Name, email and password are required"
             });
         }
 
+        // Check if developer already exists
+        let existingDeveloper = await Developer.findOne({ email });
+        if (existingDeveloper) {
+            return res.status(400).json({
+                success: false,
+                message: "Developer with this email already exists"
+            });
+        }
 
-
-        // // check if developer already exists
-        // let developer = await Developer.findOne({ name });
-
-        // if (developer) {
-        //   return res.status(200).json({
-        //     success: true,
-        //     message: "Developer already exists",
-        //     developer
-        //   });
-        // }
-
-    const roleDoc = await Role.findOne({ code: 17 });
+        // Get role for developer (code 17)
+        const roleDoc = await Role.findOne({ code: 17 });
         if (!roleDoc) {
             return res.status(404).json({
                 success: false,
-                message: "Role with code 17 not found"
+                message: "Role configuration not found"
             });
-        }        
+        }
 
+        // Hash password
+        const hashedPassword = await bcrypt.hash(password, 10);
 
-            const hashedPassword = await bcrypt.hash(password, 10);
-        
-        let developer = await Developer.create({ ...req.body,role:roleDoc._id ,password:hashedPassword });
+        // Create developer
+        const developer = await Developer.create({
+            name,
+            email,
+            password: hashedPassword,
+            phone_number: phone_number || "",
+            country_code: country_code || "+971",
+            role: roleDoc._id,
+            accountStatus: "pending",
+            onboardingStatus: "new",
+            kycStatus: "not_submitted"
+        });
 
         return res.status(201).json({
             success: true,
-            message: "Developer signup successfully",
-            developer
+            message: "Developer registered successfully. Please complete KYC.",
+            data: developer
         });
 
     } catch (error) {
@@ -61,6 +69,7 @@ export const createDeveloper = async (req, res) => {
         });
     }
 };
+
 
 export const loginDeveloper = async (req, res) => {
   try {
