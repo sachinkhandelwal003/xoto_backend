@@ -121,107 +121,86 @@ export const loginDeveloper = async (req, res) => {
 
 export const createProperty = async (req, res) => {
   try {
-    console.log("Request body:", JSON.stringify(req.body, null, 2));
-    
-    const { developer, units, ...body } = req.body;
-    
-    console.log("Developer ID:", developer);
-    console.log("Units array:", units ? units.length : "No units");
-    console.log("Body fields:", Object.keys(body));
 
-    // 1. Check if developer exists
-    const developerExists = await Developer.findById(developer);
-    if (!developerExists) {
-      return res.status(404).json({
+    const data = req.body;
+
+    // ✅ 0. LISTING TYPE VALIDATION
+    if (!data.listingType || !["secondary", "developer"].includes(data.listingType)) {
+      return res.status(400).json({
         success: false,
-        message: "Developer not found"
+        message: "listingType must be 'secondary' or 'developer'"
       });
     }
-    console.log("Developer found:", developerExists.name);
 
-    // 2. Create the property first
-    console.log("Creating property with data:", {
-      ...body,
-      developer: new mongoose.Types.ObjectId(developer),
-      approvalStatus: "pending"
-    });
-    
-    const property = await Property.create({
-      ...body,
-      developer: new mongoose.Types.ObjectId(developer),
-      approvalStatus: "pending",
-      rejectionReason: ""
-    });
-    
-    console.log("Property created with ID:", property._id);
+    // =====================================================
+    // 🔵 SECONDARY (AGENT FLOW - PDF)
+    // =====================================================
+    if (data.listingType === "secondary") {
 
-    // 3. Create inventory units if provided
-    let createdUnits = [];
-    if (units && Array.isArray(units) && units.length > 0) {
-      console.log(`Processing ${units.length} inventory units...`);
+      // ✅ PROJECT VALIDATION
+      if (data.projectType === "new") {
+        if (!data.projectName || !data.developerName) {
+          return res.status(400).json({
+            success: false,
+            message: "Project name & developer name required"
+          });
+        }
+      }
+
+      // ✅ COMMISSION VALIDATION
+      if (data.shareCommission && !data.commission) {
+        return res.status(400).json({
+          success: false,
+          message: "Commission % required"
+        });
+      }
+
+      // ✅ STATUS (GOES TO ADMIN)
+      data.approvalStatus = "pending";
+
+      // ✅ CREATED BY AGENT
+      data.createdBy = req.user._id;
+data.developer = req.user._id;
+
+      // ❌ REMOVE DEV FIELDS
       
-      // Prepare inventory documents
-      const inventoryUnits = units.map((unit, index) => {
-        console.log(`Unit ${index + 1}:`, unit);
-        
-        return {
-          developerId: developer,
-          projectId: property._id,
-          unitId: unit.unitId,
-          tower: unit.tower || "",
-          floor: unit.floor || 0,
-          unitType: unit.unitType || body.propertyType || "",
-          bedrooms: unit.bedrooms || body.bedrooms || 0,
-          bathrooms: unit.bathrooms || body.bathrooms || 0,
-          area: unit.area || body.builtUpArea_min || 0,
-          price: unit.price || body.price || 0,
-          facing: unit.facing || "",
-          view: unit.view || "",
-          status: "Available",
-          agentId: null,
-          leadId: null
-        };
-      });
-      
-      console.log("Prepared inventory data:", JSON.stringify(inventoryUnits, null, 2));
-
-      // ✅ NOW USING Inventory (matches import)
-      createdUnits = await Inventory.insertMany(inventoryUnits);
-      console.log(`✅ Created ${createdUnits.length} inventory units`);
-    } else {
-      console.log("No units to create");
+      delete data.units;
     }
 
-    // 4. Return success with property and inventory
+    if (data.listingType === "developer") {
+
+      // ✅ REQUIRE DEVELOPER ID
+     data.developer = req.user._id;   
+  data.createdBy = req.user._id;
+
+      // ✅ AUTO APPROVED
+      data.approvalStatus = "approved";
+
+      // ✅ OPTIONAL: SET CREATED BY
+      data.createdBy = req.user?._id;
+    }
+
+    // =====================================================
+    // ✅ CREATE PROPERTY
+    // =====================================================
+    const property = await Property.create(data);
+
     return res.status(201).json({
       success: true,
-      message: createdUnits.length > 0 
-        ? `Property created successfully with ${createdUnits.length} inventory units and sent for admin approval`
-        : "Property created successfully and sent for admin approval (no units added)",
-      data: {
-        property,
-        inventory: createdUnits,
-        totalUnits: createdUnits.length
-      }
+      message:
+        data.listingType === "secondary"
+          ? "Property submitted for admin approval"
+          : "Property created successfully",
+      data: property
     });
 
   } catch (error) {
-    console.error("❌ ERROR in createProperty:", error);
-    
-    // Handle duplicate unitId error
-    if (error.code === 11000) {
-      console.error("Duplicate key error:", error.keyValue);
-      return res.status(400).json({
-        success: false,
-        message: `Duplicate unit ID - ${JSON.stringify(error.keyValue)} already exists`
-      });
-    }
 
     return res.status(500).json({
       success: false,
-      message: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      message: error.message
     });
+
   }
 };
 
@@ -410,19 +389,33 @@ export const getAllProperties = async (req, res) => {
 
     const skip = (page - 1) * limit;
 
-    let query = {};
+    // ✅ CORRECT QUERY (DUAL FLOW SUPPORT)
+    let query = {
+      $or: [
+        { listingType: "developer" },
+        { listingType: "secondary", approvalStatus: "approved" }
+      ]
+    };
 
-    // 🔎 Search by property name or developer
+    // 🔎 SEARCH FILTER
     if (search) {
-      query.$or = [
-        { propertyName: { $regex: search, $options: "i" } },
-        { city: { $regex: search, $options: "i" } },
-        { area: { $regex: search, $options: "i" } }
+      query.$and = [
+        {
+          $or: [
+            { projectName: { $regex: search, $options: "i" } },
+            { city: { $regex: search, $options: "i" } },
+            { areaName: { $regex: search, $options: "i" } }
+          ]
+        }
       ];
     }
 
     const properties = await Property.find(query)
-      .populate("developer", "name logo")
+      .populate({
+  path: "developer",
+  select: "name logo",
+  strictPopulate: false
+})
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -449,6 +442,47 @@ export const getAllProperties = async (req, res) => {
       message: error.message
     });
 
+  }
+};
+export const getPropertiesByStatus = async (req, res) => {
+  try {
+
+    const { status } = req.query;
+
+    let query = {};
+
+    if (status) {
+      query.approvalStatus = status;
+    }
+
+    const properties = await Property.find(query)
+      .sort({ createdAt: -1 });
+
+    return res.json({
+      success: true,
+      data: properties
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+export const getMyProperties = async (req, res) => {
+  try {
+
+    console.log("USER ID:", req.user._id);
+
+    const properties = await Property.find({
+  createdBy: req.user._id.toString()   // 🔥 FIX
+});
+
+    return res.json({
+      success: true,
+      data: properties || []
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };
 export const getAllDevelopers = async (req, res) => {
@@ -1381,7 +1415,14 @@ export const updatePropertyStatus = async (req, res) => {
   try {
 
     const { id } = req.params;
-    const { status, reason } = req.body;
+    const { approvalStatus, reason } = req.body;
+
+    if (!["approved", "rejected", "pending"].includes(approvalStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status value"
+      });
+    }
 
     const property = await Property.findById(id);
 
@@ -1392,17 +1433,19 @@ export const updatePropertyStatus = async (req, res) => {
       });
     }
 
-    property.approvalStatus = status;
+    property.approvalStatus = approvalStatus;
 
-    if (status === "rejected") {
-      property.rejectionReason = reason;
+    if (approvalStatus === "rejected") {
+      property.rejectionReason = reason || "Rejected by admin";
+    } else {
+      property.rejectionReason = "";
     }
 
     await property.save();
 
     return res.status(200).json({
       success: true,
-      message: "Status updated successfully",
+      message: `Property ${approvalStatus} successfully`,
       data: property
     });
 
