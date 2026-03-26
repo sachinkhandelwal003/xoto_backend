@@ -33,102 +33,192 @@ exports.createOffPlanProperty = async (req, res) => {
             });
         }
 
+        // ✅ EXTRACT ALL FIELDS FROM JSON
         const {
-            propertyName,
-            description,
-            propertyType,
+            // Basic Info
+            propertySubType,
             transactionType,
-            location,
-            completionDate,
-            projectStatus,
-            buildings,
-            unitTypes,
+            propertyName,
+            developerName,
+            description,
+            
+            // Unit Details
+            unitType,
+            bedroomType,
+            bedrooms,
+            bathrooms,
+            
+            // Dimensions
+            builtUpArea,
+            builtUpArea_min,
+            builtUpArea_max,
+            builtUpAreaUnit,
+            
+            // Price
+            price,
             price_min,
             price_max,
             currency,
-            commission,
-            amenities,
-            facilities,
-            paymentPlan,
-            eoiAmount,
-            resaleConditions,
+            
+            // Location (Direct fields)
+            area,
+            city,
+            country,
+            coordinates,
+            proximity,
+            
+            // Media
             mainLogo,
             photos,
             videoUrl,
-            brochure
+            brochure,
+            
+            // Amenities
+            amenities,
+            facilities,
+            
+            // Features
+            hasView,
+            viewType,
+            parkingSpaces,
+            furnishing,
+            ownershipType,
+            availableFrom,
+            
+            // Off-Plan Specific
+            totalUnits,
+            completionDate,
+            projectStatus,
+            floors,
+            serviceChargeInfo,
+            readinessProgress,
+            
+            // Payment
+            paymentPlan,
+            eoiAmount,
+            resaleConditions,
+            
+            // Commission
+            commission,
+            shareCommission,
+            shareCommissionPercentage,
+            
+            // Status
+            isFeatured,
+            showContactOnlyVerified,
+            
+            // Project Option
+            projectOption,
+            existingProjectId,
+            unitNumber,
+            floorNumber
         } = req.body;
 
-        // Validation
-        if (!propertyName || !location || !description) {
+        // ✅ FIXED VALIDATION - Check area directly
+        if (!propertyName || !area || !description) {
             return res.status(400).json({
                 success: false,
-                message: "Property name, location and description are required"
+                message: "Property name, area and description are required"
             });
         }
 
-        // Create property
-      const property = await Property.create({
-  developer: developerId,
-  propertySubType: "off_plan",
-  transactionType: transactionType || "sell",
-  propertyType: propertyType || "residential",
-
-  propertyName,
-  description,
-  developerName: developer.name,
-
-  // ✅ FIXED LOCATION
-  area: location?.area || "",
-  city: location?.city || "Dubai",
-  country: location?.country || "UAE",
-  coordinates: location?.coordinates || {},
-  proximity: location?.proximity || {},
-
-  // ✅ FIXED REQUIRED FIELDS
-  unitType: unitTypes?.[0]?.type || "apartment",
-
-  // ✅ DATE FIX
-  completionDate: {
-    quarter: completionDate?.quarter,
-    year: completionDate?.year,
-    fullDate: completionDate?.fullDate
-      ? new Date(completionDate.fullDate)
-      : null
-  },
-
-  projectStatus: projectStatus || "presale",
-
-  buildings: buildings || [],
-  unitTypes: unitTypes || [],
-
-  price_min: price_min || 0,
-  price_max: price_max || 0,
-  currency: currency || "AED",
-
-  commission: commission || 0,
-  amenities: amenities || [],
-  facilities: facilities || {},
-
-  paymentPlan: paymentPlan || [],
-  eoiAmount: eoiAmount || 0,
-  resaleConditions: resaleConditions || "Not specified",
-
-  mainLogo: mainLogo || "",
-
-  // ✅ SAFE PHOTOS
-  photos: {
-    architecture: photos?.architecture || [],
-    interior: photos?.interior || [],
-    lobby: photos?.lobby || [],
-    other: photos?.other || []
-  },
-
-  videoUrl: videoUrl || "",
-  brochure: brochure || "",
-
-  approvalStatus: "pending",
-  listingStatus: "pending"
-});
+        // ✅ CREATE PROPERTY WITH ALL FIELDS
+        const property = await Property.create({
+            // Creator Info
+            developer: developerId,
+            
+            // Property Type
+            propertySubType: propertySubType || "off_plan",
+            transactionType: transactionType || "sell",
+            
+            // Project Info
+            projectOption: projectOption || "new",
+            existingProjectId: existingProjectId || null,
+            propertyName: propertyName,
+            developerName: developerName || developer.name,
+            
+            // Unit Details
+            unitNumber: unitNumber || "",
+            floorNumber: floorNumber || 0,
+            unitType: unitType || "apartment",
+            bedroomType: bedroomType || "2bed",
+            bedrooms: bedrooms || 0,
+            bathrooms: bathrooms || 0,
+            
+            // Dimensions
+            builtUpArea: builtUpArea || 0,
+            builtUpArea_min: builtUpArea_min || 0,
+            builtUpArea_max: builtUpArea_max || 0,
+            builtUpAreaUnit: builtUpAreaUnit || "sqft",
+            
+            // Price
+            price: price || 0,
+            price_min: price_min || 0,
+            price_max: price_max || 0,
+            currency: currency || "AED",
+            
+            // Location (Direct fields)
+            area: area || "",
+            city: city || "Dubai",
+            country: country || "UAE",
+            coordinates: coordinates || { lat: null, lng: null },
+            proximity: proximity || {},
+            
+            // Media
+            mainLogo: mainLogo || "",
+            photos: {
+                architecture: photos?.architecture || [],
+                interior: photos?.interior || [],
+                lobby: photos?.lobby || [],
+                other: photos?.other || []
+            },
+            videoUrl: videoUrl || "",
+            brochure: brochure || "",
+            
+            // Description
+            description: description,
+            
+            // Amenities
+            amenities: amenities || [],
+            facilities: facilities || {},
+            
+            // Features
+            hasView: hasView || false,
+            viewType: viewType || [],
+            parkingSpaces: parkingSpaces || 0,
+            furnishing: furnishing || "unfurnished",
+            ownershipType: ownershipType || "freehold",
+            availableFrom: availableFrom || null,
+            
+            // Off-Plan Specific
+            totalUnits: totalUnits || 0,
+            completionDate: {
+                quarter: completionDate?.quarter || null,
+                year: completionDate?.year || null,
+                fullDate: completionDate?.fullDate ? new Date(completionDate.fullDate) : null
+            },
+            projectStatus: projectStatus || "presale",
+            floors: floors || 0,
+            serviceChargeInfo: serviceChargeInfo || "No info",
+            readinessProgress: readinessProgress || "0%",
+            
+            // Payment
+            paymentPlan: paymentPlan || [],
+            eoiAmount: eoiAmount || 0,
+            resaleConditions: resaleConditions || "Not specified",
+            
+            // Commission
+            commission: commission || 0,
+            shareCommission: shareCommission || false,
+            shareCommissionPercentage: shareCommissionPercentage || 0,
+            
+            // Status
+            isFeatured: isFeatured || false,
+            showContactOnlyVerified: showContactOnlyVerified !== undefined ? showContactOnlyVerified : true,
+            approvalStatus: "pending",
+            listingStatus: "pending",
+            isAvailable: true
+        });
 
         return res.status(201).json({
             success: true,
