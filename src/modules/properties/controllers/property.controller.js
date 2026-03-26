@@ -298,7 +298,6 @@ exports.createSecondaryProperty = async (req, res) => {
     try {
         const agentId = req.user._id;
 
-        // Check if agent is verified
         const agent = await Agent.findById(agentId);
         if (!agent) {
             return res.status(404).json({
@@ -345,11 +344,19 @@ exports.createSecondaryProperty = async (req, res) => {
             shareCommissionPercentage
         } = req.body;
 
-        // Validation
-        if (!area || !price || !description) {
+        // ✅ FIXED VALIDATION - For existing project, area will be auto-filled
+        if (!price || !description) {
             return res.status(400).json({
                 success: false,
-                message: "Location, price and description are required"
+                message: "Price and description are required"
+            });
+        }
+
+        // ✅ For new project, area is required
+        if (projectOption !== "existing" && !area) {
+            return res.status(400).json({
+                success: false,
+                message: "Location is required for new project"
             });
         }
 
@@ -363,7 +370,12 @@ exports.createSecondaryProperty = async (req, res) => {
             if (existingProject) {
                 finalPropertyName = existingProject.propertyName;
                 finalDeveloperName = existingProject.developerName;
-                finalLocation = existingProject.location;
+                finalLocation = {
+                    area: existingProject.area,
+                    city: existingProject.city || "Dubai",
+                    country: existingProject.country || "UAE",
+                    coordinates: existingProject.coordinates || {}
+                };
             }
         }
 
