@@ -1,125 +1,271 @@
 const mongoose = require("mongoose");
 
 const PropertySchema = new mongoose.Schema(
-{
-  // =========================
-  // PROJECT DETAILS (PDF STEP 1)
-  // =========================
-  projectType: {
-    type: String,
-    enum: ["existing", "new"],
-    required: true
-  },
+  {
+    // =========================
+    // BASIC INFO
+    // =========================
+    developer: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Developer"
+    },
 
-  projectName: {
-    type: String,
-    trim: true,
-    required: true
-  },
+    propertyName: {
+      type: String,
+      required: false,
+      trim: true,
+      default: ""
+    },
 
-  developerName: {
-    type: String,
-    trim: true,
-    required: true
-  },
+    description: {
+      type: String,
+      trim: true,
+      required: false,
+      default: ""
+    },
 
-  location: {
-    type: String,
-    required: true
-  },
+    // =========================
+    // PROPERTY TYPE
+    // =========================
+    transactionType: {
+      type: String,
+      enum: ["rent", "sell"],
+      required: false,
+      default: "rent"
+    },
+    propertySubType: {
+      type: String,
+      enum: ["off_plan", "ready", "resale"],
+      required: false,
+      default: "off_plan"
+    },
+    bedrooms: {
+      type: Number,
+      required: false,
+      default: 0
+    },
 
-  // =========================
-  // PROPERTY INFO
-  // =========================
-  unitType: {
-    type: String,
-    enum: ["Apartment", "Villa", "Townhouse", "Duplex", "Penthouse"],
-    required: true
-  },
+    bathrooms: {
+      type: Number,
+      required: false,
+      default: 0
+    },
 
-  bedrooms: {
-    type: String,
-    enum: ["Studio", "1", "2", "3", "4", "5", "6", "7", "8+"],
-    required: true
-  },
+    // =========================
+    // DIMENSIONS
+    // =========================
+    length: {
+      type: Number,
+      required: false,
+      default: 0
+    },
 
-  price: {
-    type: Number,
-    required: true
-  },
+    lengthUnit: {
+      type: String,
+      enum: ["ft", "m"],
+      default: "ft",
+      required: false
+    },
 
-  area: {
-    type: Number,
-    required: true
-  },
+    breadth: {
+      type: Number,
+      required: false,
+      default: 0
+    },
 
-  description: {
-    type: String,
-    default: ""
-  },
+    breadthUnit: {
+      type: String,
+      enum: ["ft", "m"],
+      default: "ft",
+      required: false
+    },
 
-  photos: {
-    type: [String],
-    required: true
-  },
+    builtUpArea_min: { // this is the min size
+      type: Number,
+      required: false,
+      default: 0
+    },
 
-  // =========================
-  // COMMISSION (PDF IMPORTANT)
-  // =========================
-  shareCommission: {
-    type: Boolean,
-    required: true
-  },
+    builtUpArea_max: { // this is the max size
+      type: Number,
+      required: false,
+      default: 0
+    },
 
-  commission: {
-    type: Number,
-    default: 0
-  },
+    builtUpAreaUnit: {
+      type: String,
+      enum: ["sqft", "sqm"],
+      default: "sqft",
+      required: false
+    },
 
-  // =========================
-  // LOCATION DETAILS
-  // =========================
-  buildingNo: String,
-  street: String,
-  areaName: String,
-  city: String,
-  state: String,
-  country: {
-    type: String,
-    default: "UAE"
-  },
-  googleLocation: String,
+    // =========================
+    // PRICE
+    // =========================
+    price: {
+      type: Number,
+      required: false,
+      default: 0
+    },
 
-  // =========================
-  // STATUS FLOW (PDF STEP 2 & 3)
-  // =========================
-  approvalStatus: {
-    type: String,
-    enum: ["pending", "approved", "rejected"],
-    default: "pending"
-  },
+    currency: {
+      type: String,
+      default: "AED",
+      required: false
+    },
 
-  rejectionReason: {
-    type: String,
-    default: ""
-  },
+    commissionType:{
+  type:String,
+  enum:["percentage"],
+  default:"percentage"
+},
 
-  createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User"
-  },
-  listingType: {
+commission:{
+  type:Number,
+  required:true
+},
+
+// bonusCommission:{
+//   type:Number,
+//   default:0
+// },
+
+    // commissionValue: {
+    //   type: Number,
+    //   default: 0
+    // },
+
+    commissionStage: {
+      type: String,
+      enum: ["booking", "contract", "handover"],
+      default: "booking"
+    },
+
+    commissionNotes: {
+      type: String,
+      default: ""
+    },
+
+    buildingNo: String,
+    street: String,
+    area: String,
+    city: String,
+    state: String,
+    country: {
+      type: String,
+      default: "UAE",
+      required: false
+    },
+    postalCode: String,
+    googleLocation: String,
+
+    mainLogo: {
+      type: String,
+      default: "",
+      required: false
+    },
+
+    photos: {
+      type: [String],
+      default: [],
+      required: false
+    },
+
+    brochure: {
+      type: String,
+      default: "",
+      required: false
+    },
+
+    // =========================
+    // STATUS
+    // =========================
+    isAvailable: {
+      type: Boolean,
+      default: true,
+      required: false
+    },
+
+    notReadyYet: {
+      type: Boolean,
+      default: false,
+      required: false
+    },
+    isFeatured: {
+      type: Boolean,
+      default: false,
+      required: false
+    },
+    approvalStatus: {
   type: String,
-  enum: ["developer", "secondary"],
-  required: true
+  enum: ["pending", "approved", "rejected"],
+  default: "pending"
 },
-developer: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "Developer",   // matches Developer model
-  default: null
-},
-},
-{ timestamps: true }
+
+    // new fields we are adding
+    handover: {
+      type: String,
+      default: "",
+      required: false
+    },
+    unitType: {
+      type: [String],
+      required: false,
+      default: []
+    },
+    propertyType: {
+      type: String,
+      required: false,
+      default: ""
+    },
+
+    downPayment: { // this will be in percentage
+      type: Number,
+      required: false,
+      default: 0
+    },
+    paymentPlan_initialPercentage: {
+      type: Number,
+      required: false,
+      default: 0
+    },
+    paymentPlan_laterPercentage: {
+      type: Number,
+      required: false,
+      default: 0
+    },
+    price_min: {
+      type: Number,
+      required: false,
+      default: 0
+    },
+    price_max: {
+      type: Number,
+      required: false,
+      default: 0
+    },
+    amenities: {
+      type: [String],
+      default: [],
+      required: false
+    },
+    location_highlights: {
+      type: [String],
+      default: [],
+      required: false
+    },
+    about_developer: {
+      type: String,
+      default: "",
+      required: false
+    },
+    rejectionReason: {
+  type: String,
+  default: ""
+}
+  },
+  { timestamps: true }
 );
 
-module.exports = mongoose.model("Property", PropertySchema);
+const Property = mongoose.model("Property", PropertySchema, "Property");
+module.exports = Property;
