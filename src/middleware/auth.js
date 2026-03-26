@@ -257,7 +257,7 @@ exports.authorize = ({ roles = [], minLevel } = {}) => {
       if (
         roles.length &&
         !roles.includes(role.code) &&
-        !roles.includes(role.name)
+        !roles.includes(role.name?.toLowerCase()) // 🔥 FIX
       )
         throw new APIError("Role not allowed", StatusCodes.FORBIDDEN);
 
