@@ -150,6 +150,8 @@ exports.protectVendorb2b = protectBase(Vendorb2b, "Vendor B2B");
 exports.protectVendorb2c = protectBase(Vendorb2c, "Vendor-B2C");
 exports.protectCustomer = protectBase(Customer, "Customer");
 
+exports.protectAgent = protectBase(Agent, "Agent");
+exports.protectDeveloper = protectBase(Developer, "Developer");
 
 
 /* ============================================================

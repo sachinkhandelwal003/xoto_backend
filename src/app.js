@@ -51,6 +51,7 @@ app.use('/dashboard', require('./modules/auth/routes/dashboardview/dashboard.rou
 app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/projectfreelancer.route'));
 app.use('/property', require('../src/modules/properties/routes/index.js'));
 app.use('/developer', require('../src/modules/properties/routes/developer.routes.js'));  //for testing route
+app.use('/properties', require('../src/modules/properties/routes/property.routes.js'));  //for testing route
 
 app.use('/products', require('../src/modules/products/routes/index.js'));
 app.use('/profile', ProfileData);
