@@ -54,7 +54,7 @@ No animation, no illustration, no cartoon style, no CGI, no artificial or styliz
       model: "gpt-image-1",
       image: images,
       prompt,
-      input_fidelity: "high", // can be "medium" or "high",
+      input_fidelity: "medium", // can be "medium" or "high",
     });
 
     // Convert Base64 output to buffer
