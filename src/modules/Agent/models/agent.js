@@ -48,6 +48,7 @@ const AgentSchema = new mongoose.Schema(
       ref: "Agency",
       default: null
     },
+    
 
     agentType: {
       type: String,

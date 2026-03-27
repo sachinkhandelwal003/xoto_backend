@@ -9,7 +9,7 @@ const {
   getAgentById,
   deleteAgent,
   approveAgent,
-  rejectAgent
+  rejectAgent,getAgencyAgentById,getAgencyAgents
 } = require("../controllers/index");
 
 const route = express.Router();
@@ -25,6 +25,9 @@ route.post("/login-agent", agentLogin);
 // =========================
 route.get("/get-all-agents", protectMulti, getAllAgents);
 route.get("/get-agent-details/:id", protectMulti, getAgentById);
+route.get("/get-agent-details/agency/:id", protectMulti, getAgencyAgentById);
+route.get("/get-all-agents/agency", protectMulti, getAgencyAgents);
+
 route.post("/update-agent", protectMulti, updateAgent);
 route.delete("/delete-agent/:id", protectMulti, deleteAgent);
 route.put("/approve-agent/:id", protectMulti, approveAgent);

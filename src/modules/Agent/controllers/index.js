@@ -272,20 +272,33 @@ export const updateAgent = async (req, res) => {
   }
 };
 
+// controllers/agent.controller.js
+
 /* =====================================
-   :four: GET ALL AGENTS
+   GET ALL AGENTS - ADMIN ONLY (Independent Agents)
 ===================================== */
 export const getAllAgents = async (req, res) => {
   try {
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const skip = (page - 1) * limit;
-    const agentType = req.query.agentType;
     const onboarding_status = req.query.onboarding_status;
+    const search = req.query.search;
 
-    let query = {};
-    if (agentType) query.agentType = agentType;
-    if (onboarding_status) query.onboarding_status = onboarding_status;
+    // ✅ Admin sees ONLY independent agents
+    let query = { agentType: "independent" };
+
+    if (onboarding_status) {
+      query.onboarding_status = onboarding_status;
+    }
+
+    if (search) {
+      query.$or = [
+        { first_name: { $regex: search, $options: 'i' } },
+        { last_name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
+    }
 
     const total = await Agent.countDocuments(query);
     const agents = await Agent.find(query)
@@ -295,8 +308,19 @@ export const getAllAgents = async (req, res) => {
       .select('-password')
       .populate('agency', 'agency_name');
 
+    // Stats for independent agents only
+    const stats = {
+      total: await Agent.countDocuments({ agentType: "independent" }),
+      pending: await Agent.countDocuments({ agentType: "independent", onboarding_status: 'pending' }),
+      approved: await Agent.countDocuments({ agentType: "independent", onboarding_status: 'approved' }),
+      rejected: await Agent.countDocuments({ agentType: "independent", onboarding_status: 'rejected' }),
+      active: await Agent.countDocuments({ agentType: "independent", is_active: true }),
+      inactive: await Agent.countDocuments({ agentType: "independent", is_active: false })
+    };
+
     return res.status(200).json({
       success: true,
+      message: "Independent agents fetched successfully",
       count: agents.length,
       total: total,
       pagination: {
@@ -305,6 +329,7 @@ export const getAllAgents = async (req, res) => {
         totalItems: total,
         limit
       },
+      stats: stats,
       data: agents
     });
 
@@ -317,20 +342,21 @@ export const getAllAgents = async (req, res) => {
 };
 
 /* =====================================
-   :five: GET AGENT BY ID
+   GET AGENT BY ID - ADMIN
 ===================================== */
 export const getAgentById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const agent = await Agent.findById(id)
+    // ✅ Admin can see independent agents only
+    const agent = await Agent.findOne({ _id: id, agentType: "independent" })
       .select("-password")
       .populate('agency', 'agency_name');
 
     if (!agent) {
       return res.status(404).json({
         success: false,
-        message: "Agent not found"
+        message: "Independent agent not found"
       });
     }
 
@@ -347,6 +373,117 @@ export const getAgentById = async (req, res) => {
   }
 };
 
+
+
+
+
+
+
+// controllers/agency.controller.js
+
+/* =====================================
+   GET ALL AGENTS UNDER AGENCY (Agency Owner)
+===================================== */
+export const getAgencyAgents = async (req, res) => {
+  try {
+    const agencyId = req.user._id;
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const { status, search, isVerified } = req.query;
+
+    // ✅ Agency sees ONLY agents under this agency
+    let query = { agency: agencyId, agentType: "agency_agent" };
+
+    if (status) {
+      query.onboarding_status = status;
+    }
+
+    if (isVerified !== undefined) {
+      query.isVerified = isVerified === 'true';
+    }
+
+    if (search) {
+      query.$or = [
+        { first_name: { $regex: search, $options: 'i' } },
+        { last_name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const total = await Agent.countDocuments(query);
+    const agents = await Agent.find(query)
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    // Stats for this agency only
+    const stats = {
+      total: await Agent.countDocuments({ agency: agencyId, agentType: "agency_agent" }),
+      approved: await Agent.countDocuments({ agency: agencyId, agentType: "agency_agent", onboarding_status: 'approved' }),
+      pending: await Agent.countDocuments({ agency: agencyId, agentType: "agency_agent", onboarding_status: 'pending' }),
+      rejected: await Agent.countDocuments({ agency: agencyId, agentType: "agency_agent", onboarding_status: 'rejected' }),
+      verified: await Agent.countDocuments({ agency: agencyId, agentType: "agency_agent", isVerified: true }),
+      notVerified: await Agent.countDocuments({ agency: agencyId, agentType: "agency_agent", isVerified: false })
+    };
+
+    return res.status(200).json({
+      success: true,
+      message: "Agency agents fetched successfully",
+      data: agents,
+      count: agents.length,
+      pagination: {
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        totalItems: total,
+        limit
+      },
+      stats: stats
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/* =====================================
+   GET SINGLE AGENT UNDER AGENCY
+===================================== */
+export const getAgencyAgentById = async (req, res) => {
+  try {
+    const agencyId = req.user._id;
+    const { agentId } = req.params;
+
+    // ✅ Agency sees only their own agent
+    const agent = await Agent.findOne({ 
+      _id: agentId, 
+      agency: agencyId, 
+      agentType: "agency_agent" 
+    }).select('-password');
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found under this agency"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: agent
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
 /* =====================================
    :six: DELETE AGENT
 ===================================== */
