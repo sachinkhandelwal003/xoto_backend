@@ -167,6 +167,10 @@ exports.customerSignup = asyncHandler(async (req, res) => {
     lead
   });
 });
+
+
+
+
 exports.updateCustomer = async (req, res) => {
   try {
 

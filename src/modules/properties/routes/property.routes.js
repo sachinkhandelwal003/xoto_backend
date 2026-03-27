@@ -51,13 +51,13 @@ router.delete("/developer/property/:id", protectMulti, deleteProperty);
 router.post("/agent/property/create-secondary", protectMulti, createSecondaryProperty);
 router.get("/agent/property/secondary", protectMulti, getAgentProperties);
 // Get single property by ID (agent's own property)
-router.get("/agent/property/secondary:id", protectMulti, getAgentPropertyById);
+router.get("/agent/property/secondary/:id", protectMulti, getAgentPropertyById);
 
 // Update agent's property
-router.put("/agent/property/secondary:id", protectMulti, updateAgentProperty);
+router.put("/agent/property/secondary/:id", protectMulti, updateAgentProperty);
 
 // Delete agent's property
-router.delete("/agent/property/secondary:id", protectMulti, deleteAgentProperty);
+router.delete("/agent/property/secondary/:id", protectMulti, deleteAgentProperty);
 // In your routes file
 router.get("/admin/property/all", protectMulti, getAllProperties);
 // =========================
