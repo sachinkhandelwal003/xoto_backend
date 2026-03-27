@@ -1,19 +1,48 @@
-
 const express = require("express");
-const {agencySignup,agencyLogin,updateAgency,getAllAgencies,getAgencyById,deleteAgency,getAgencyLeads,assignLead,updateLeadStatus   } = require("../controllers/index.js");
 const { protectMulti } = require("../../../middleware/auth");
+
+const {
+  agencySignup,
+  agencyLogin,
+  getAgencyById,
+  getAllAgencies,
+  updateAgency,
+  deleteAgency,
+  approveAgency,
+  rejectAgency,
+  getAgencyProfile,
+  updateAgencyProfile,
+  getAgencyAgents,
+  addAgentToAgency,
+  removeAgentFromAgency
+} = require("../controllers/index");
+
 const router = express.Router();
 
-//agency signup
-router.post("/agency-signup",agencySignup)
-router.post("/agency-login",agencyLogin)
-router.put("/update/:id", updateAgency);
-router.get("/get-all-agencies",getAllAgencies)
-router.get("/get-agency-details/:id",getAgencyById)     
-router.delete("/delete-agency/:id",deleteAgency)  
-router.get("/get-leads", protectMulti, getAgencyLeads);
-router.post("/assign-lead", protectMulti, assignLead);
-router.put("/update-lead-status/:id", protectMulti, updateLeadStatus);
+// =========================
+// PUBLIC ROUTES
+// =========================
+router.post("/agency-signup", agencySignup);
+router.post("/agency-login", agencyLogin);
 
+// =========================
+
+// AGENCY PROTECTED ROUTES (Agency Owner)
+// =========================
+router.get("/agency/me", protectMulti, getAgencyProfile);
+router.put("/agency/profile", protectMulti, updateAgencyProfile);
+router.get("/agency/agents", protectMulti, getAgencyAgents);
+router.post("/agency/add-agent", protectMulti, addAgentToAgency);
+router.post("/agency/remove-agent", protectMulti, removeAgentFromAgency);
+
+// =========================
+// ADMIN ROUTES
+// =========================
+router.get("/get-all-agencies", protectMulti, getAllAgencies);
+router.get("/get-agency-details/:id", protectMulti, getAgencyById);
+router.put("/update-agency/:id", protectMulti, updateAgency);
+router.delete("/delete-agency/:id", protectMulti, deleteAgency);
+router.put("/approve-agency/:id", protectMulti, approveAgency);
+router.put("/reject-agency/:id", protectMulti, rejectAgency);
 
 module.exports = router;

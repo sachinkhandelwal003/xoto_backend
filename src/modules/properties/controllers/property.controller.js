@@ -148,21 +148,286 @@ exports.createOffPlanProperty = async (req, res) => {
  * @route   GET /api/developer/property/offplan
  * @desc    Developer gets all their off-plan properties
  */
+/**
+ * @route   GET /api/developer/properties
+ * @desc    Developer gets all their off-plan properties with filters
+ */
 exports.getDeveloperProperties = async (req, res) => {
     try {
         const developerId = req.user._id;
+        
+        // ========== PAGINATION ==========
         const page = Number(req.query.page) || 1;
         const limit = Number(req.query.limit) || 10;
         const skip = (page - 1) * limit;
-
-        const query = { developer: developerId, propertySubType: "off_plan" };
-
+        
+        // ========== FILTERS ==========
+        const {
+            // Status Filters
+            approvalStatus,      // pending, approved, rejected
+            listingStatus,       // pending, active, rejected, inactive
+            projectStatus,       // presale, under_construction, ready, sold_out
+            
+            // Property Details
+            propertyName,        // Search by property name
+            unitType,            // apartment, villa, townhouse, duplex, penthouse
+            bedroomType,         // studio, 1bed, 2bed, 3bed, 4bed, 5bed, 6bed, 7bed, 8plus
+            bedrooms,            // Number of bedrooms
+            bathrooms,           // Number of bathrooms
+            
+            // Price Filters
+            minPrice,            // Minimum price
+            maxPrice,            // Maximum price
+            
+            // Area Filters
+            minArea,             // Minimum built-up area
+            maxArea,             // Maximum built-up area
+            
+            // Location
+            area,                // Area name (e.g., Downtown Dubai)
+            city,               // City name
+            
+            // Features
+            hasView,             // true, false
+            furnishing,          // furnished, semi_furnished, unfurnished
+            parkingSpaces,       // Number of parking spaces
+            
+            // Completion
+            completionYear,      // Year of completion
+            completionQuarter,   // Q1, Q2, Q3, Q4
+            
+            // Commission
+            minCommission,       // Minimum commission percentage
+            maxCommission,       // Maximum commission percentage
+            
+            // Search
+            search,              // Search in propertyName, description, area
+            
+            // Sort
+            sortBy,              // price, createdAt, updatedAt, commission
+            sortOrder           // asc, desc
+        } = req.query;
+        
+        // ========== BUILD QUERY ==========
+        let query = { 
+            developer: developerId, 
+            propertySubType: "off_plan" 
+        };
+        
+        // Status Filters
+        if (approvalStatus) {
+            query.approvalStatus = approvalStatus;
+        }
+        
+        if (listingStatus) {
+            query.listingStatus = listingStatus;
+        }
+        
+        if (projectStatus) {
+            query.projectStatus = projectStatus;
+        }
+        
+        // Property Details Filters
+        if (propertyName) {
+            query.propertyName = { $regex: propertyName, $options: "i" };
+        }
+        
+        if (unitType) {
+            query.unitType = unitType;
+        }
+        
+        if (bedroomType) {
+            query.bedroomType = bedroomType;
+        }
+        
+        if (bedrooms) {
+            query.bedrooms = Number(bedrooms);
+        }
+        
+        if (bathrooms) {
+            query.bathrooms = Number(bathrooms);
+        }
+        
+        // Price Filters (using price_min and price_max range)
+        if (minPrice || maxPrice) {
+            query.$or = [
+                { price_min: {} },
+                { price_max: {} }
+            ];
+            
+            if (minPrice) {
+                query.$or[0].price_min.$gte = Number(minPrice);
+                query.$or[1].price_max.$gte = Number(minPrice);
+            }
+            if (maxPrice) {
+                query.$or[0].price_min.$lte = Number(maxPrice);
+                query.$or[1].price_max.$lte = Number(maxPrice);
+            }
+        }
+        
+        // Area Filters
+        if (minArea || maxArea) {
+            query.builtUpArea_min = {};
+            if (minArea) query.builtUpArea_min.$gte = Number(minArea);
+            if (maxArea) query.builtUpArea_min.$lte = Number(maxArea);
+        }
+        
+        // Location Filters
+        if (area) {
+            query.area = { $regex: area, $options: "i" };
+        }
+        
+        if (city) {
+            query.city = { $regex: city, $options: "i" };
+        }
+        
+        // Features Filters
+        if (hasView !== undefined) {
+            query.hasView = hasView === 'true';
+        }
+        
+        if (furnishing) {
+            query.furnishing = furnishing;
+        }
+        
+        if (parkingSpaces) {
+            query.parkingSpaces = Number(parkingSpaces);
+        }
+        
+        // Completion Filters
+        if (completionYear) {
+            query["completionDate.year"] = Number(completionYear);
+        }
+        
+        if (completionQuarter) {
+            query["completionDate.quarter"] = completionQuarter;
+        }
+        
+        // Commission Filters
+        if (minCommission || maxCommission) {
+            query.commission = {};
+            if (minCommission) query.commission.$gte = Number(minCommission);
+            if (maxCommission) query.commission.$lte = Number(maxCommission);
+        }
+        
+        // Search (text search in multiple fields)
+        if (search) {
+            query.$and = [
+                { ...query },
+                {
+                    $or: [
+                        { propertyName: { $regex: search, $options: "i" } },
+                        { description: { $regex: search, $options: "i" } },
+                        { area: { $regex: search, $options: "i" } },
+                        { developerName: { $regex: search, $options: "i" } }
+                    ]
+                }
+            ];
+            delete query.$and[0].$and;
+        }
+        
+        // ========== GET TOTAL COUNT ==========
         const total = await Property.countDocuments(query);
+        
+        // ========== BUILD SORT ==========
+        let sort = { createdAt: -1 };
+        
+        if (sortBy) {
+            const order = sortOrder === 'asc' ? 1 : -1;
+            if (sortBy === 'price') {
+                sort = { price_min: order };
+            } else if (sortBy === 'commission') {
+                sort = { commission: order };
+            } else if (sortBy === 'createdAt') {
+                sort = { createdAt: order };
+            } else if (sortBy === 'updatedAt') {
+                sort = { updatedAt: order };
+            } else if (sortBy === 'propertyName') {
+                sort = { propertyName: order };
+            }
+        }
+        
+        // ========== GET PROPERTIES ==========
         const properties = await Property.find(query)
-            .sort({ createdAt: -1 })
+            .sort(sort)
             .skip(skip)
             .limit(limit);
-
+        
+        // ========== GET STATISTICS FOR DEVELOPER ==========
+        const stats = {
+            total: await Property.countDocuments({ developer: developerId, propertySubType: "off_plan" }),
+            
+            // Approval Status Stats
+            pending: await Property.countDocuments({ 
+                developer: developerId, 
+                propertySubType: "off_plan",
+                approvalStatus: "pending" 
+            }),
+            approved: await Property.countDocuments({ 
+                developer: developerId, 
+                propertySubType: "off_plan",
+                approvalStatus: "approved" 
+            }),
+            rejected: await Property.countDocuments({ 
+                developer: developerId, 
+                propertySubType: "off_plan",
+                approvalStatus: "rejected" 
+            }),
+            
+            // Listing Status Stats
+            active: await Property.countDocuments({ 
+                developer: developerId, 
+                propertySubType: "off_plan",
+                listingStatus: "active" 
+            }),
+            inactive: await Property.countDocuments({ 
+                developer: developerId, 
+                propertySubType: "off_plan",
+                listingStatus: "inactive" 
+            }),
+            
+            // Project Status Stats
+            presale: await Property.countDocuments({ 
+                developer: developerId, 
+                propertySubType: "off_plan",
+                projectStatus: "presale" 
+            }),
+            underConstruction: await Property.countDocuments({ 
+                developer: developerId, 
+                propertySubType: "off_plan",
+                projectStatus: "under_construction" 
+            }),
+            ready: await Property.countDocuments({ 
+                developer: developerId, 
+                propertySubType: "off_plan",
+                projectStatus: "ready" 
+            }),
+            soldOut: await Property.countDocuments({ 
+                developer: developerId, 
+                propertySubType: "off_plan",
+                projectStatus: "sold_out" 
+            }),
+            
+            // Featured
+            featured: await Property.countDocuments({ 
+                developer: developerId, 
+                propertySubType: "off_plan",
+                isFeatured: true 
+            }),
+            
+            // Total Units Stats
+            totalUnits: await Property.aggregate([
+                { $match: { developer: developerId, propertySubType: "off_plan" } },
+                { $group: { _id: null, total: { $sum: "$totalUnits" } } }
+            ]),
+            
+            // Sold Units Stats
+            soldUnits: await Property.aggregate([
+                { $match: { developer: developerId, propertySubType: "off_plan" } },
+                { $group: { _id: null, total: { $sum: "$soldUnits" } } }
+            ])
+        };
+        
         return res.status(200).json({
             success: true,
             data: properties,
@@ -171,10 +436,21 @@ exports.getDeveloperProperties = async (req, res) => {
                 totalPages: Math.ceil(total / limit),
                 currentPage: page,
                 totalItems: total,
-                limit
+                limit: limit,
+                hasNextPage: page < Math.ceil(total / limit),
+                hasPrevPage: page > 1
+            },
+            stats: stats,
+            filters: {
+                approvalStatus: approvalStatus || "all",
+                listingStatus: listingStatus || "all",
+                projectStatus: projectStatus || "all",
+                search: search || "",
+                sortBy: sortBy || "createdAt",
+                sortOrder: sortOrder || "desc"
             }
         });
-
+        
     } catch (error) {
         return res.status(500).json({
             success: false,
@@ -443,31 +719,311 @@ exports.createSecondaryProperty = async (req, res) => {
  * @route   GET /api/agent/property/secondary
  * @desc    Agent gets all their secondary properties
  */
+/**
+ * @route   GET /api/agent/properties
+ * @desc    Agent gets all properties (own secondary + approved off-plan)
+ */
 exports.getAgentProperties = async (req, res) => {
     try {
         const agentId = req.user._id;
+        
+        // ========== PAGINATION ==========
         const page = Number(req.query.page) || 1;
         const limit = Number(req.query.limit) || 10;
         const skip = (page - 1) * limit;
-
-        const query = { agent: agentId, propertySubType: "secondary" };
-
-        const total = await Property.countDocuments(query);
-        const properties = await Property.find(query)
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit);
-
+        
+        // ========== FILTERS ==========
+        const {
+            // Property Type Filter
+            propertyType,        // 'secondary', 'off_plan', 'all'
+            
+            // Status Filters
+            approvalStatus,      // pending, approved, rejected (for secondary only)
+            listingStatus,       // pending, active, rejected, inactive
+            
+            // Property Details
+            propertyName,        // Search by property name
+            unitType,            // apartment, villa, townhouse, duplex, penthouse
+            bedroomType,         // studio, 1bed, 2bed, 3bed, 4bed, 5bed, 6bed, 7bed, 8plus
+            bedrooms,            // Number of bedrooms
+            
+            // Price Filters
+            minPrice,            // Minimum price
+            maxPrice,            // Maximum price
+            
+            // Area Filters
+            minArea,             // Minimum built-up area
+            maxArea,             // Maximum built-up area
+            
+            // Location
+            area,                // Area name (e.g., Downtown Dubai)
+            city,               // City name
+            
+            // Features
+            hasView,             // true, false
+            furnishing,          // furnished, semi_furnished, unfurnished
+            parkingSpaces,       // Number of parking spaces
+            
+            // Commission
+            shareCommission,     // true, false (for secondary only)
+            
+            // Search
+            search,              // Search in propertyName, description, area
+            
+            // Sort
+            sortBy,              // price, createdAt, updatedAt
+            sortOrder           // asc, desc
+        } = req.query;
+        
+        // ========== BUILD QUERIES ==========
+        
+        // Query 1: Agent's own secondary properties
+        let secondaryQuery = { 
+            agent: agentId, 
+            propertySubType: "secondary" 
+        };
+        
+        // Query 2: Approved off-plan properties (from developers)
+        let offplanQuery = { 
+            propertySubType: "off_plan",
+            approvalStatus: "approved",
+            listingStatus: "active"
+        };
+        
+        // ========== APPLY FILTERS TO BOTH QUERIES ==========
+        
+        // Status Filters (only for secondary)
+        if (approvalStatus && propertyType !== 'off_plan') {
+            secondaryQuery.approvalStatus = approvalStatus;
+        }
+        
+        if (listingStatus && propertyType !== 'off_plan') {
+            secondaryQuery.listingStatus = listingStatus;
+        }
+        
+        // Common Filters for both
+        const commonFilters = {};
+        
+        if (propertyName) {
+            commonFilters.propertyName = { $regex: propertyName, $options: "i" };
+        }
+        
+        if (unitType) {
+            commonFilters.unitType = unitType;
+        }
+        
+        if (bedroomType) {
+            commonFilters.bedroomType = bedroomType;
+        }
+        
+        if (bedrooms) {
+            commonFilters.bedrooms = Number(bedrooms);
+        }
+        
+        // Price Filters
+        if (minPrice || maxPrice) {
+            commonFilters.price = {};
+            if (minPrice) commonFilters.price.$gte = Number(minPrice);
+            if (maxPrice) commonFilters.price.$lte = Number(maxPrice);
+        }
+        
+        // Area Filters (for secondary, builtUpArea; for off-plan, use builtUpArea_min/max)
+        if (minArea || maxArea) {
+            // For secondary: use builtUpArea
+            secondaryQuery.builtUpArea = {};
+            if (minArea) secondaryQuery.builtUpArea.$gte = Number(minArea);
+            if (maxArea) secondaryQuery.builtUpArea.$lte = Number(maxArea);
+            
+            // For off-plan: use builtUpArea_min
+            offplanQuery.builtUpArea_min = {};
+            if (minArea) offplanQuery.builtUpArea_min.$gte = Number(minArea);
+            if (maxArea) offplanQuery.builtUpArea_min.$lte = Number(maxArea);
+        }
+        
+        // Location Filters
+        if (area) {
+            commonFilters.area = { $regex: area, $options: "i" };
+        }
+        
+        if (city) {
+            commonFilters.city = { $regex: city, $options: "i" };
+        }
+        
+        // Features Filters
+        if (hasView !== undefined) {
+            commonFilters.hasView = hasView === 'true';
+        }
+        
+        if (furnishing) {
+            commonFilters.furnishing = furnishing;
+        }
+        
+        if (parkingSpaces) {
+            commonFilters.parkingSpaces = Number(parkingSpaces);
+        }
+        
+        // Commission Filter (only for secondary)
+        if (shareCommission !== undefined && propertyType !== 'off_plan') {
+            secondaryQuery.shareCommission = shareCommission === 'true';
+        }
+        
+        // Search Filter
+        if (search) {
+            const searchRegex = { $regex: search, $options: "i" };
+            commonFilters.$or = [
+                { propertyName: searchRegex },
+                { description: searchRegex },
+                { area: searchRegex },
+                { developerName: searchRegex }
+            ];
+        }
+        
+        // Apply common filters to both queries
+        Object.assign(secondaryQuery, commonFilters);
+        Object.assign(offplanQuery, commonFilters);
+        
+        // ========== DETERMINE WHICH PROPERTIES TO FETCH ==========
+        let properties = [];
+        let total = 0;
+        
+        const type = propertyType || 'all';
+        
+        if (type === 'secondary' || type === 'all') {
+            const secondaryTotal = await Property.countDocuments(secondaryQuery);
+            const secondaryProperties = await Property.find(secondaryQuery)
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit);
+            
+            properties.push(...secondaryProperties);
+            total += secondaryTotal;
+        }
+        
+        if (type === 'off_plan' || type === 'all') {
+            const offplanTotal = await Property.countDocuments(offplanQuery);
+            const offplanProperties = await Property.find(offplanQuery)
+                .populate('developer', 'name logo email')
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit);
+            
+            properties.push(...offplanProperties);
+            total += offplanTotal;
+        }
+        
+        // Sort combined results
+        if (sortBy) {
+            const order = sortOrder === 'asc' ? 1 : -1;
+            properties.sort((a, b) => {
+                if (sortBy === 'price') {
+                    const priceA = a.price || a.price_min || 0;
+                    const priceB = b.price || b.price_min || 0;
+                    return (priceA - priceB) * order;
+                }
+                return (new Date(a.createdAt) - new Date(b.createdAt)) * order;
+            });
+        }
+        
+        // Apply pagination to combined results
+        const paginatedProperties = properties.slice(skip, skip + limit);
+        
+        // ========== GET STATISTICS ==========
+        const stats = {
+            // Secondary stats
+            secondaryTotal: await Property.countDocuments({ agent: agentId, propertySubType: "secondary" }),
+            secondaryPending: await Property.countDocuments({ 
+                agent: agentId, 
+                propertySubType: "secondary",
+                approvalStatus: "pending" 
+            }),
+            secondaryApproved: await Property.countDocuments({ 
+                agent: agentId, 
+                propertySubType: "secondary",
+                approvalStatus: "approved" 
+            }),
+            secondaryRejected: await Property.countDocuments({ 
+                agent: agentId, 
+                propertySubType: "secondary",
+                approvalStatus: "rejected" 
+            }),
+            secondaryActive: await Property.countDocuments({ 
+                agent: agentId, 
+                propertySubType: "secondary",
+                listingStatus: "active" 
+            }),
+            
+            // Off-plan stats
+            offplanTotal: await Property.countDocuments({ 
+                propertySubType: "off_plan",
+                approvalStatus: "approved",
+                listingStatus: "active"
+            }),
+            
+            // Featured
+            featuredSecondary: await Property.countDocuments({ 
+                agent: agentId, 
+                propertySubType: "secondary",
+                isFeatured: true 
+            }),
+            featuredOffplan: await Property.countDocuments({ 
+                propertySubType: "off_plan",
+                approvalStatus: "approved",
+                listingStatus: "active",
+                isFeatured: true 
+            })
+        };
+        
         return res.status(200).json({
             success: true,
-            data: properties,
-            count: properties.length,
+            data: paginatedProperties,
+            count: paginatedProperties.length,
+            totalItems: total,
             pagination: {
                 totalPages: Math.ceil(total / limit),
                 currentPage: page,
                 totalItems: total,
-                limit
+                limit: limit,
+                hasNextPage: page < Math.ceil(total / limit),
+                hasPrevPage: page > 1
+            },
+            stats: stats,
+            filters: {
+                propertyType: type,
+                approvalStatus: approvalStatus || "all",
+                listingStatus: listingStatus || "all",
+                search: search || ""
             }
+        });
+        
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+exports.getAgentPropertyById = async (req, res) => {
+    try {
+        const agentId = req.user._id;
+        const { id } = req.params;
+
+        const property = await Property.findOne({ 
+            _id: id, 
+            agent: agentId, 
+            propertySubType: "secondary" 
+        });
+
+        if (!property) {
+            return res.status(404).json({
+                success: false,
+                message: "Property not found or you don't have permission"
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: property
         });
 
     } catch (error) {
@@ -477,6 +1033,100 @@ exports.getAgentProperties = async (req, res) => {
         });
     }
 };
+
+
+
+exports.updateAgentProperty = async (req, res) => {
+    try {
+        const agentId = req.user._id;
+        const { id } = req.params;
+
+        const property = await Property.findOne({ 
+            _id: id, 
+            agent: agentId, 
+            propertySubType: "secondary" 
+        });
+
+        if (!property) {
+            return res.status(404).json({
+                success: false,
+                message: "Property not found or you don't have permission"
+            });
+        }
+
+        // Only allow updating if property is not approved yet
+        if (property.approvalStatus === 'approved') {
+            return res.status(403).json({
+                success: false,
+                message: "Approved properties cannot be modified. Please contact admin."
+            });
+        }
+
+        const updatedProperty = await Property.findByIdAndUpdate(
+            id,
+            { ...req.body },
+            { new: true, runValidators: true }
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Property updated successfully",
+            data: updatedProperty
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+/**
+ * @route   DELETE /api/agent/property/:id
+ * @desc    Agent deletes their secondary property
+ */
+exports.deleteAgentProperty = async (req, res) => {
+    try {
+        const agentId = req.user._id;
+        const { id } = req.params;
+
+        const property = await Property.findOne({ 
+            _id: id, 
+            agent: agentId, 
+            propertySubType: "secondary" 
+        });
+
+        if (!property) {
+            return res.status(404).json({
+                success: false,
+                message: "Property not found or you don't have permission"
+            });
+        }
+
+        // Only allow deletion if property is not approved yet
+        if (property.approvalStatus === 'approved') {
+            return res.status(403).json({
+                success: false,
+                message: "Approved properties cannot be deleted. Please contact admin."
+            });
+        }
+
+        await Property.findByIdAndDelete(id);
+
+        return res.status(200).json({
+            success: true,
+            message: "Property deleted successfully"
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
 
 // =========================
 // ADMIN PROPERTY APPROVAL

@@ -1,187 +1,241 @@
 const mongoose = require("mongoose");
 
-const AgentSchema = new mongoose.Schema({
-  // =========================
-  // PERSONAL INFO
-  // =========================
-  first_name: {
-    type: String,
-    trim: true
-  },
-  last_name: {
-    type: String,
-    trim: true
-  },
+const AgentSchema = new mongoose.Schema(
+  {
+    // =========================
+    // PERSONAL INFO
+    // =========================
+    first_name: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    last_name: {
+      type: String,
+      required: true,
+      trim: true
+    },
 
-  // =========================
-  // AUTH & ROLE
-  // =========================
-  role: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Role',
-    required: false,
-    default: null
-  },
+    // =========================
+    // AUTH & ROLE
+    // =========================
+    role: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Role",
+      default: null
+    },
 
-  email: {
-    type: String,
-    required: true,
-    lowercase: true,
-    unique: true,
-    trim: true
-  },
-  
-  password: {
-    type: String,
-    required: true,
-    minlength: 6
-  },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true
+    },
 
-  // =========================
-  // CONTACT
-  // =========================
-  country_code: {
-    type: String,
-    default: "+971"
-  },
-  
-  phone_number: {
-    type: String,
-    required: true,
-    unique: true
-  },
+    password: {
+      type: String,
+      required: true,
+      minlength: 6,
+      select: false
+    },
 
-  operating_city: {
-    type: String,
-    required: true,
-    trim: true
-  },
+    // =========================
+    // AGENCY RELATIONSHIP
+    // =========================
+    agency: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Agency",
+      default: null
+    },
 
-  country: {
-    type: String,
-    default: ""
-  },
+    agentType: {
+      type: String,
+      enum: ["independent", "agency_agent"],
+      default: "independent"
+    },
 
-  // =========================
-  // PROFESSIONAL
-  // =========================
-  specialization: {
-    type: String,
-    required: true,
-    trim: true
-  },
+    // =========================
+    // CONTACT
+    // =========================
+    country_code: {
+      type: String,
+      default: "+971"
+    },
 
-  // =========================
-  // DOCUMENTS
-  // =========================
-  profile_photo: { type: String, default: "" },
-  id_proof: { type: String, default: "" },
-  rera_certificate: { type: String, default: "" },
+    phone_number: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true
+    },
 
-  // =========================
-  // STATUS & VERIFICATION
-  // =========================
-  onboarding_status: {
-    type: String,
-    enum: ["registered", "approved", "completed"],
-    default: "registered"
-  },
-  
-  isVerified: {
-    type: Boolean,
-    default: false
-  },
-  
-  is_email_verified: {
-    type: Boolean,
-    default: true
-  },
+    operating_city: {
+      type: String,
+      required: true,
+      trim: true
+    },
 
-  is_mobile_verified: {
-    type: Boolean,
-    default: true
-  },
+    country: {
+      type: String,
+      default: "UAE"
+    },
 
-  // Forgot or reset password
-resetPasswordToken: { type: String, default: null },
-resetPasswordExpires: { type: Date, default: null },
+    // =========================
+    // PROFESSIONAL
+    // =========================
+    specialization: {
+      type: String,
+      required: true,
+      trim: true
+    },
 
-  // =========================
-  // SUBSCRIPTION (Keep for later)
-  // =========================
-  subscriptionPlan: {
-    type: String,
-    enum: ["free", "paid"],
-    default: "free",
-    required: false
-  },
+    experience_years: {
+      type: Number,
+      default: 0
+    },
 
-  subscriptionExpiry: {
-    type: Date,
-    default: null,
-    required: false
-  },
+    rera_number: {
+      type: String,
+      default: ""
+    },
 
-  // =========================
-  // NOTIFICATION SETTINGS (Keep for later)
-  // =========================
-  notificationSettings_email: {
-    type: Boolean, 
-    default: true,
-    required: false
-  },
-  
-  notificationSettings_sms: {
-    type: Boolean, 
-    default: false,
-    required: false
-  },
-  
-  notificationSettings_whatsapp: {
-    type: Boolean, 
-    default: true,
-    required: false
-  },
+    // =========================
+    // DOCUMENTS
+    // =========================
+    profile_photo: {
+      type: String,
+      default: ""
+    },
 
-  // =========================
-  // STATS FIELDS
-  // =========================
-  presentationsGenerated_count: {
-    type: Number,
-    default: 0,
-    required: false
+    id_proof: {
+      type: String,
+      default: ""
+    },
+
+    rera_certificate: {
+      type: String,
+      default: ""
+    },
+
+    // =========================
+    // STATUS & VERIFICATION
+    // =========================
+    onboarding_status: {
+      type: String,
+      enum: ["registered", "pending", "approved", "rejected"],
+      default: "registered"
+    },
+
+    isVerified: {
+      type: Boolean,
+      default: false
+    },
+
+    is_email_verified: {
+      type: Boolean,
+      default: false
+    },
+
+    is_mobile_verified: {
+      type: Boolean,
+      default: false
+    },
+
+    is_active: {
+      type: Boolean,
+      default: true
+    },
+
+    rejection_reason: {
+      type: String,
+      default: ""
+    },
+
+    status: {
+      type: Boolean,
+      default: true
+    },
+
+    // =========================
+    // PASSWORD RESET
+    // =========================
+    resetPasswordToken: {
+      type: String,
+      default: null
+    },
+
+    resetPasswordExpires: {
+      type: Date,
+      default: null
+    },
+
+    // =========================
+    // COMMISSION (for agency agents)
+    // =========================
+    commission_percentage: {
+      type: Number,
+      default: 0,
+      description: "Agent's share from agency commission"
+    },
+
+    // =========================
+    // STATS FIELDS
+    // =========================
+    presentationsGenerated_count: {
+      type: Number,
+      default: 0
+    },
+
+    leadsCreated_count: {
+      type: Number,
+      default: 0
+    },
+
+    dealsClosed_count: {
+      type: Number,
+      default: 0
+    },
+
+    totalCommission_earned: {
+      type: Number,
+      default: 0
+    },
+
+    pendingCommission: {
+      type: Number,
+      default: 0
+    }
+
   },
-
-  leadsCreated_count: {
-    type: Number,
-    default: 0,
-    required: false
-  },
-
-  dealsClosed_count: {
-    type: Number,
-    default: 0,
-    required: false
-  }
-
-}, { timestamps: true });
+  { timestamps: true }
+);
 
 // =========================
-// INDEXES (Optional but recommended)
+// INDEXES
 // =========================
 AgentSchema.index({ email: 1 });
 AgentSchema.index({ phone_number: 1 });
-AgentSchema.index({ operating_city: 1 });
+AgentSchema.index({ agency: 1 });
+AgentSchema.index({ agentType: 1 });
 AgentSchema.index({ onboarding_status: 1 });
+AgentSchema.index({ isVerified: 1 });
+
+// =========================
+// VIRTUAL: Full Name
+// =========================
+AgentSchema.virtual("full_name").get(function () {
+  return `${this.first_name} ${this.last_name}`;
+});
 
 // =========================
 // REMOVE PASSWORD FROM RESPONSE
 // =========================
-AgentSchema.methods.toJSON = function() {
+AgentSchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.password;
+  delete obj.__v;
   return obj;
 };
 
-// Model Export
-module.exports = mongoose.models.Agent || mongoose.model("Agent", AgentSchema);
+module.exports = mongoose.model("Agent", AgentSchema);
