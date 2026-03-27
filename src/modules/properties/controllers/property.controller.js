@@ -443,33 +443,282 @@ exports.createSecondaryProperty = async (req, res) => {
  * @route   GET /api/agent/property/secondary
  * @desc    Agent gets all their secondary properties
  */
+/**
+ * @route   GET /api/agent/properties
+ * @desc    Agent gets all properties (own secondary + approved off-plan)
+ */
 exports.getAgentProperties = async (req, res) => {
     try {
         const agentId = req.user._id;
+        
+        // ========== PAGINATION ==========
         const page = Number(req.query.page) || 1;
         const limit = Number(req.query.limit) || 10;
         const skip = (page - 1) * limit;
-
-        const query = { agent: agentId, propertySubType: "secondary" };
-
-        const total = await Property.countDocuments(query);
-        const properties = await Property.find(query)
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit);
-
+        
+        // ========== FILTERS ==========
+        const {
+            // Property Type Filter
+            propertyType,        // 'secondary', 'off_plan', 'all'
+            
+            // Status Filters
+            approvalStatus,      // pending, approved, rejected (for secondary only)
+            listingStatus,       // pending, active, rejected, inactive
+            
+            // Property Details
+            propertyName,        // Search by property name
+            unitType,            // apartment, villa, townhouse, duplex, penthouse
+            bedroomType,         // studio, 1bed, 2bed, 3bed, 4bed, 5bed, 6bed, 7bed, 8plus
+            bedrooms,            // Number of bedrooms
+            
+            // Price Filters
+            minPrice,            // Minimum price
+            maxPrice,            // Maximum price
+            
+            // Area Filters
+            minArea,             // Minimum built-up area
+            maxArea,             // Maximum built-up area
+            
+            // Location
+            area,                // Area name (e.g., Downtown Dubai)
+            city,               // City name
+            
+            // Features
+            hasView,             // true, false
+            furnishing,          // furnished, semi_furnished, unfurnished
+            parkingSpaces,       // Number of parking spaces
+            
+            // Commission
+            shareCommission,     // true, false (for secondary only)
+            
+            // Search
+            search,              // Search in propertyName, description, area
+            
+            // Sort
+            sortBy,              // price, createdAt, updatedAt
+            sortOrder           // asc, desc
+        } = req.query;
+        
+        // ========== BUILD QUERIES ==========
+        
+        // Query 1: Agent's own secondary properties
+        let secondaryQuery = { 
+            agent: agentId, 
+            propertySubType: "secondary" 
+        };
+        
+        // Query 2: Approved off-plan properties (from developers)
+        let offplanQuery = { 
+            propertySubType: "off_plan",
+            approvalStatus: "approved",
+            listingStatus: "active"
+        };
+        
+        // ========== APPLY FILTERS TO BOTH QUERIES ==========
+        
+        // Status Filters (only for secondary)
+        if (approvalStatus && propertyType !== 'off_plan') {
+            secondaryQuery.approvalStatus = approvalStatus;
+        }
+        
+        if (listingStatus && propertyType !== 'off_plan') {
+            secondaryQuery.listingStatus = listingStatus;
+        }
+        
+        // Common Filters for both
+        const commonFilters = {};
+        
+        if (propertyName) {
+            commonFilters.propertyName = { $regex: propertyName, $options: "i" };
+        }
+        
+        if (unitType) {
+            commonFilters.unitType = unitType;
+        }
+        
+        if (bedroomType) {
+            commonFilters.bedroomType = bedroomType;
+        }
+        
+        if (bedrooms) {
+            commonFilters.bedrooms = Number(bedrooms);
+        }
+        
+        // Price Filters
+        if (minPrice || maxPrice) {
+            commonFilters.price = {};
+            if (minPrice) commonFilters.price.$gte = Number(minPrice);
+            if (maxPrice) commonFilters.price.$lte = Number(maxPrice);
+        }
+        
+        // Area Filters (for secondary, builtUpArea; for off-plan, use builtUpArea_min/max)
+        if (minArea || maxArea) {
+            // For secondary: use builtUpArea
+            secondaryQuery.builtUpArea = {};
+            if (minArea) secondaryQuery.builtUpArea.$gte = Number(minArea);
+            if (maxArea) secondaryQuery.builtUpArea.$lte = Number(maxArea);
+            
+            // For off-plan: use builtUpArea_min
+            offplanQuery.builtUpArea_min = {};
+            if (minArea) offplanQuery.builtUpArea_min.$gte = Number(minArea);
+            if (maxArea) offplanQuery.builtUpArea_min.$lte = Number(maxArea);
+        }
+        
+        // Location Filters
+        if (area) {
+            commonFilters.area = { $regex: area, $options: "i" };
+        }
+        
+        if (city) {
+            commonFilters.city = { $regex: city, $options: "i" };
+        }
+        
+        // Features Filters
+        if (hasView !== undefined) {
+            commonFilters.hasView = hasView === 'true';
+        }
+        
+        if (furnishing) {
+            commonFilters.furnishing = furnishing;
+        }
+        
+        if (parkingSpaces) {
+            commonFilters.parkingSpaces = Number(parkingSpaces);
+        }
+        
+        // Commission Filter (only for secondary)
+        if (shareCommission !== undefined && propertyType !== 'off_plan') {
+            secondaryQuery.shareCommission = shareCommission === 'true';
+        }
+        
+        // Search Filter
+        if (search) {
+            const searchRegex = { $regex: search, $options: "i" };
+            commonFilters.$or = [
+                { propertyName: searchRegex },
+                { description: searchRegex },
+                { area: searchRegex },
+                { developerName: searchRegex }
+            ];
+        }
+        
+        // Apply common filters to both queries
+        Object.assign(secondaryQuery, commonFilters);
+        Object.assign(offplanQuery, commonFilters);
+        
+        // ========== DETERMINE WHICH PROPERTIES TO FETCH ==========
+        let properties = [];
+        let total = 0;
+        
+        const type = propertyType || 'all';
+        
+        if (type === 'secondary' || type === 'all') {
+            const secondaryTotal = await Property.countDocuments(secondaryQuery);
+            const secondaryProperties = await Property.find(secondaryQuery)
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit);
+            
+            properties.push(...secondaryProperties);
+            total += secondaryTotal;
+        }
+        
+        if (type === 'off_plan' || type === 'all') {
+            const offplanTotal = await Property.countDocuments(offplanQuery);
+            const offplanProperties = await Property.find(offplanQuery)
+                .populate('developer', 'name logo email')
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit);
+            
+            properties.push(...offplanProperties);
+            total += offplanTotal;
+        }
+        
+        // Sort combined results
+        if (sortBy) {
+            const order = sortOrder === 'asc' ? 1 : -1;
+            properties.sort((a, b) => {
+                if (sortBy === 'price') {
+                    const priceA = a.price || a.price_min || 0;
+                    const priceB = b.price || b.price_min || 0;
+                    return (priceA - priceB) * order;
+                }
+                return (new Date(a.createdAt) - new Date(b.createdAt)) * order;
+            });
+        }
+        
+        // Apply pagination to combined results
+        const paginatedProperties = properties.slice(skip, skip + limit);
+        
+        // ========== GET STATISTICS ==========
+        const stats = {
+            // Secondary stats
+            secondaryTotal: await Property.countDocuments({ agent: agentId, propertySubType: "secondary" }),
+            secondaryPending: await Property.countDocuments({ 
+                agent: agentId, 
+                propertySubType: "secondary",
+                approvalStatus: "pending" 
+            }),
+            secondaryApproved: await Property.countDocuments({ 
+                agent: agentId, 
+                propertySubType: "secondary",
+                approvalStatus: "approved" 
+            }),
+            secondaryRejected: await Property.countDocuments({ 
+                agent: agentId, 
+                propertySubType: "secondary",
+                approvalStatus: "rejected" 
+            }),
+            secondaryActive: await Property.countDocuments({ 
+                agent: agentId, 
+                propertySubType: "secondary",
+                listingStatus: "active" 
+            }),
+            
+            // Off-plan stats
+            offplanTotal: await Property.countDocuments({ 
+                propertySubType: "off_plan",
+                approvalStatus: "approved",
+                listingStatus: "active"
+            }),
+            
+            // Featured
+            featuredSecondary: await Property.countDocuments({ 
+                agent: agentId, 
+                propertySubType: "secondary",
+                isFeatured: true 
+            }),
+            featuredOffplan: await Property.countDocuments({ 
+                propertySubType: "off_plan",
+                approvalStatus: "approved",
+                listingStatus: "active",
+                isFeatured: true 
+            })
+        };
+        
         return res.status(200).json({
             success: true,
-            data: properties,
-            count: properties.length,
+            data: paginatedProperties,
+            count: paginatedProperties.length,
+            totalItems: total,
             pagination: {
                 totalPages: Math.ceil(total / limit),
                 currentPage: page,
                 totalItems: total,
-                limit
+                limit: limit,
+                hasNextPage: page < Math.ceil(total / limit),
+                hasPrevPage: page > 1
+            },
+            stats: stats,
+            filters: {
+                propertyType: type,
+                approvalStatus: approvalStatus || "all",
+                listingStatus: listingStatus || "all",
+                search: search || ""
             }
         });
-
+        
     } catch (error) {
         return res.status(500).json({
             success: false,
