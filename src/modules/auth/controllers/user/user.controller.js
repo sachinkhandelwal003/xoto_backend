@@ -76,6 +76,97 @@ exports.customerLogin = asyncHandler(async (req, res) => {
 });
 
 
+// exports.customerSignup = asyncHandler(async (req, res) => {
+//   const {
+//     name,
+//     email,
+//     mobile,
+//     location,
+//     profile,
+//     comingFromAiPage
+//   } = req.body;
+
+//   // 🔴 Required fields check
+//   if (!name?.first_name || !name?.last_name || !email || !mobile?.number) {
+//     throw new APIError(
+//       "First name, last name, email, and mobile number are required",
+//       StatusCodes.BAD_REQUEST
+//     );
+//   }
+//   console.log("mobileeeeeeeeeeeeeeeeeee", mobile)
+
+//   // 🔍 Get Customer role
+//   const customerRole = await Role.findOne({ name: "Customer" });
+//   if (!customerRole) {
+//     throw new APIError("Customer role not found", StatusCodes.NOT_FOUND);
+//   }
+
+//   // 🔁 Check existing customer (email or mobile)
+//   const existingCustomer = await Customer.findOne({
+//     $or: [
+//       { email: email.toLowerCase() },
+//       { mobile: mobile }
+//       // { "mobile.number": mobile.number },
+//       // { "mobile.country_code": mobile.country_code }
+//     ],
+//     is_deleted: false
+//   });
+
+//   if (existingCustomer) {
+//     console.log("existingCustomerexistingCustomer", existingCustomer)
+//     return res.status(400).json([
+//       {
+//         status: 500,
+//         message: "Customer already exists with this email or mobile number"
+//       }
+//     ])
+//   }
+
+//   // 🧾 Create customer
+//   const customer = await Customer.create({
+//     name,
+//     email: email.toLowerCase(),
+//     mobile,
+//     role: customerRole._id,
+//     location,
+//     profile,
+//     isActive: true
+//   });
+
+//   await customer.populate("role", "name code");
+
+
+//   let lead = {};
+//   if (comingFromAiPage === true) {
+
+//     let new_location = location && typeof (location) == "object" ? Object.values(location).filter(Boolean).join(', ') : ""
+//     let payload = {
+//       type: 'ai_enquiry', // or 'enquiry' (your choice)
+//       name,
+//       email: email.toLowerCase(),
+//       mobile,
+//       location: new_location,
+//       preferred_contact: 'whatsapp',
+//       status: 'submit'
+//     }
+
+
+
+
+//     lead = await PropertyLead.create(payload);
+//   }
+
+//   // 🔐 Generate token
+//   const token = createToken(customer);
+
+//   res.status(StatusCodes.CREATED).json({
+//     success: true,
+//     message: "Customer registered successfully",
+//     token,
+//     customer,
+//     lead
+//   });
+// });
 exports.customerSignup = asyncHandler(async (req, res) => {
   const {
     name,
@@ -93,7 +184,7 @@ exports.customerSignup = asyncHandler(async (req, res) => {
       StatusCodes.BAD_REQUEST
     );
   }
-  console.log("mobileeeeeeeeeeeeeeeeeee", mobile)
+  console.log("mobileeeeeeeeeeeeeeeeeee", mobile);
 
   // 🔍 Get Customer role
   const customerRole = await Role.findOne({ name: "Customer" });
@@ -105,21 +196,39 @@ exports.customerSignup = asyncHandler(async (req, res) => {
   const existingCustomer = await Customer.findOne({
     $or: [
       { email: email.toLowerCase() },
-      { mobile: mobile }
-      // { "mobile.number": mobile.number },
-      // { "mobile.country_code": mobile.country_code }
+      { "mobile.number": mobile.number } // 🔥 Object match ki jagah direct number match jyada safe hai
     ],
     is_deleted: false
   });
 
+  // ✅ Yahan humne specific errors generate karne ka logic lagaya hai
   if (existingCustomer) {
-    console.log("existingCustomerexistingCustomer", existingCustomer)
-    return res.status(400).json([
-      {
-        status: 500,
-        message: "Customer already exists with this email or mobile number"
-      }
-    ])
+    console.log("existingCustomerexistingCustomer", existingCustomer);
+
+    let validationErrors = [];
+
+    // Check agar Email match hua
+    if (existingCustomer.email === email.toLowerCase()) {
+      validationErrors.push({
+        field: "email",
+        message: "Customer already exists with this email address"
+      });
+    }
+
+    // Check agar Mobile Number match hua
+    if (existingCustomer.mobile && existingCustomer.mobile.number === mobile.number) {
+      validationErrors.push({
+        field: "mobile",
+        message: "Customer already exists with this mobile number"
+      });
+    }
+
+    // Ab smart format me error frontend ko bhej do
+    return res.status(400).json({
+      success: false,
+      message: "Validation failed",
+      errors: validationErrors
+    });
   }
 
   // 🧾 Create customer
@@ -135,11 +244,9 @@ exports.customerSignup = asyncHandler(async (req, res) => {
 
   await customer.populate("role", "name code");
 
-
   let lead = {};
   if (comingFromAiPage === true) {
-
-    let new_location = location && typeof (location) == "object" ? Object.values(location).filter(Boolean).join(', ') : ""
+    let new_location = location && typeof (location) == "object" ? Object.values(location).filter(Boolean).join(', ') : "";
     let payload = {
       type: 'ai_enquiry', // or 'enquiry' (your choice)
       name,
@@ -148,10 +255,7 @@ exports.customerSignup = asyncHandler(async (req, res) => {
       location: new_location,
       preferred_contact: 'whatsapp',
       status: 'submit'
-    }
-
-
-
+    };
 
     lead = await PropertyLead.create(payload);
   }
@@ -167,6 +271,7 @@ exports.customerSignup = asyncHandler(async (req, res) => {
     lead
   });
 });
+
 exports.updateCustomer = async (req, res) => {
   try {
 

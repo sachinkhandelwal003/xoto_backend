@@ -240,13 +240,100 @@ exports.vendorLogin = asyncHandler(async (req, res, next) => {
 
 
 
+// exports.createVendor = asyncHandler(async (req, res) => {
+//   const {
+//     first_name,
+//     last_name,
+//     email,
+//     is_mobile_verified,
+//   is_email_verified,
+//     mobile,
+//     password,
+//     confirmPassword,
+//     store_details,
+//     registration,
+//     bank_details,
+//     contacts,
+//     documents,
+//     operations,
+//     meta
+//   } = req.body;
+
+//   // 1. Password match
+//   if (password !== confirmPassword) {
+//     throw new APIError('Passwords do not match', StatusCodes.BAD_REQUEST);
+//   }
+
+//   // 2. Existing check
+//   const existing = await VendorB2C.findOne({
+//     $or: [
+//       { email: email.toLowerCase() },
+//       { 'mobile.number': mobile.number }
+//     ]
+//   });
+//   if (existing) {
+//     throw new APIError('Email or Mobile already registered', StatusCodes.CONFLICT);
+//   }
+
+//   // 3. Role
+//   const vendorRole = await Role.findOne({ name: 'Vendor-B2C' });
+//   if (!vendorRole) {
+//     throw new APIError('Vendor role not found', StatusCodes.INTERNAL_SERVER_ERROR);
+//   }
+
+//   // 4. Build vendor data (FULL)
+//   const vendorData = {
+//     name: {
+//       first_name: first_name.trim(),
+//       last_name: last_name.trim()
+//     },
+//     email: email.toLowerCase(),
+//     password: await bcrypt.hash(password, 12),
+//     mobile: {
+//       country_code: mobile.country_code || '+91',
+//       number: mobile.number
+//     },
+//     role: vendorRole._id,
+
+//     status: 'registered',
+// is_mobile_verified: is_mobile_verified === true,
+//   is_email_verified: is_email_verified === true,
+//     store_details: {
+//       ...store_details,
+//       categories: store_details.categories.map(
+//         id => new mongoose.Types.ObjectId(id)
+//       )
+//     },
+
+//     registration: registration || {},
+//     bank_details: bank_details || {},
+//     contacts: contacts || {},
+//     documents: documents || {},
+//     operations: operations || {},
+
+
+//     meta: {
+//       agreed_to_terms: meta?.agreed_to_terms === true,
+//       vendor_portal_access: false
+//     }
+//   };
+
+//   // 5. Create vendor
+//   const vendor = await VendorB2C.create(vendorData);
+
+//   res.status(StatusCodes.CREATED).json({
+//     success: true,
+//     message: 'Vendor registered successfully! Awaiting admin approval.',
+//     data: vendor
+//   });
+// });
 exports.createVendor = asyncHandler(async (req, res) => {
   const {
     first_name,
     last_name,
     email,
     is_mobile_verified,
-  is_email_verified,
+    is_email_verified,
     mobile,
     password,
     confirmPassword,
@@ -271,8 +358,33 @@ exports.createVendor = asyncHandler(async (req, res) => {
       { 'mobile.number': mobile.number }
     ]
   });
+
+  // ✅ Yahan humne specific errors generate karne ka logic lagaya hai
   if (existing) {
-    throw new APIError('Email or Mobile already registered', StatusCodes.CONFLICT);
+    let validationErrors = [];
+
+    // Check agar Email match hua
+    if (existing.email === email.toLowerCase()) {
+      validationErrors.push({
+        field: "email",
+        message: "Vendor already exists with this email address"
+      });
+    }
+
+    // Check agar Mobile Number match hua
+    if (existing.mobile && existing.mobile.number === mobile.number) {
+      validationErrors.push({
+        field: "mobile",
+        message: "Vendor already exists with this mobile number"
+      });
+    }
+
+    // Smart format me error frontend ko bhej do
+    return res.status(400).json({
+      success: false,
+      message: "Validation failed",
+      errors: validationErrors
+    });
   }
 
   // 3. Role
@@ -296,8 +408,8 @@ exports.createVendor = asyncHandler(async (req, res) => {
     role: vendorRole._id,
 
     status: 'registered',
-is_mobile_verified: is_mobile_verified === true,
-  is_email_verified: is_email_verified === true,
+    is_mobile_verified: is_mobile_verified === true,
+    is_email_verified: is_email_verified === true,
     store_details: {
       ...store_details,
       categories: store_details.categories.map(
@@ -310,7 +422,6 @@ is_mobile_verified: is_mobile_verified === true,
     contacts: contacts || {},
     documents: documents || {},
     operations: operations || {},
-
 
     meta: {
       agreed_to_terms: meta?.agreed_to_terms === true,
@@ -327,7 +438,6 @@ is_mobile_verified: is_mobile_verified === true,
     data: vendor
   });
 });
-
 
 // Get All Vendors
 // Get All Vendors
