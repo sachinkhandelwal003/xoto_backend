@@ -54,39 +54,21 @@ const { protectMulti, authorize } = require("../../../middleware/auth.js");
 router.post("/developer/create", createDeveloper);
 router.post("/developer/login", loginDeveloper);
 
-router.get("/developer/all", getAllDevelopers);
-router.get("/developer/:id", getDeveloperrById);
+router.get("/get-all-developers", getAllDevelopers);
+router.get("/get-developer-by-id", getDeveloperrById);
+router.post("/edit-developer", editDeveloper);
+router.post("/delete-developer-by-id", deleteDeveloper);
 
-router.put(
-  "/developer/:id",
-  protectMulti,
-  authorize({ roles: ["admin"] }),
-  editDeveloper
-);
 
-router.delete(
-  "/developer/:id",
-  protectMulti,
-  authorize({ roles: ["admin"] }),
-  deleteDeveloper
-);
+// ---------------- PROPERTYdfaf ----------------
 
-/* =========================================================
-   🔹 PROPERTY ROUTES
-========================================================= */
+router.post("/create-properties", createProperty);
+router.post("/edit-property", editProperty);
+router.post("/delete-property", deleteProperty);
 
-// ✅ CREATE
-router.post(
-  "/",
-  protectMulti,
-  authorize({ roles: ["agent", "admin", "developer"] }),
-  createProperty
-);
+router.get("/get-all-properties", getAllProperties);
+router.get("/get-property-by-id", getPropertyById);
 
-// ✅ GET ALL (PUBLIC)
-router.get("/", getAllProperties);
-
-// ✅ MARKETPLACE
 router.get("/marketplace", MarketPlaceAPI);
 
 // ✅ MY PROPERTIES
