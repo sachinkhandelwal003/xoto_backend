@@ -388,7 +388,6 @@ exports.createSecondaryProperty = async (req, res) => {
     try {
         const agentId = req.user._id;
 
-        // Check if agent is verified
         const agent = await Agent.findById(agentId);
         if (!agent) {
             return res.status(404).json({
@@ -435,11 +434,19 @@ exports.createSecondaryProperty = async (req, res) => {
             shareCommissionPercentage
         } = req.body;
 
-        // Validation
-        if (!area || !price || !description) {
+        // ✅ FIXED VALIDATION - For existing project, area will be auto-filled
+        if (!price || !description) {
             return res.status(400).json({
                 success: false,
-                message: "Location, price and description are required"
+                message: "Price and description are required"
+            });
+        }
+
+        // ✅ For new project, area is required
+        if (projectOption !== "existing" && !area) {
+            return res.status(400).json({
+                success: false,
+                message: "Location is required for new project"
             });
         }
 
@@ -453,7 +460,12 @@ exports.createSecondaryProperty = async (req, res) => {
             if (existingProject) {
                 finalPropertyName = existingProject.propertyName;
                 finalDeveloperName = existingProject.developerName;
-                finalLocation = existingProject.location;
+                finalLocation = {
+                    area: existingProject.area,
+                    city: existingProject.city || "Dubai",
+                    country: existingProject.country || "UAE",
+                    coordinates: existingProject.coordinates || {}
+                };
             }
         }
 
@@ -555,6 +567,131 @@ exports.getAgentProperties = async (req, res) => {
         });
     }
 };
+
+exports.getAgentPropertyById = async (req, res) => {
+    try {
+        const agentId = req.user._id;
+        const { id } = req.params;
+
+        const property = await Property.findOne({ 
+            _id: id, 
+            agent: agentId, 
+            propertySubType: "secondary" 
+        });
+
+        if (!property) {
+            return res.status(404).json({
+                success: false,
+                message: "Property not found or you don't have permission"
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: property
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+
+
+exports.updateAgentProperty = async (req, res) => {
+    try {
+        const agentId = req.user._id;
+        const { id } = req.params;
+
+        const property = await Property.findOne({ 
+            _id: id, 
+            agent: agentId, 
+            propertySubType: "secondary" 
+        });
+
+        if (!property) {
+            return res.status(404).json({
+                success: false,
+                message: "Property not found or you don't have permission"
+            });
+        }
+
+        // Only allow updating if property is not approved yet
+        if (property.approvalStatus === 'approved') {
+            return res.status(403).json({
+                success: false,
+                message: "Approved properties cannot be modified. Please contact admin."
+            });
+        }
+
+        const updatedProperty = await Property.findByIdAndUpdate(
+            id,
+            { ...req.body },
+            { new: true, runValidators: true }
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Property updated successfully",
+            data: updatedProperty
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+/**
+ * @route   DELETE /api/agent/property/:id
+ * @desc    Agent deletes their secondary property
+ */
+exports.deleteAgentProperty = async (req, res) => {
+    try {
+        const agentId = req.user._id;
+        const { id } = req.params;
+
+        const property = await Property.findOne({ 
+            _id: id, 
+            agent: agentId, 
+            propertySubType: "secondary" 
+        });
+
+        if (!property) {
+            return res.status(404).json({
+                success: false,
+                message: "Property not found or you don't have permission"
+            });
+        }
+
+        // Only allow deletion if property is not approved yet
+        if (property.approvalStatus === 'approved') {
+            return res.status(403).json({
+                success: false,
+                message: "Approved properties cannot be deleted. Please contact admin."
+            });
+        }
+
+        await Property.findByIdAndDelete(id);
+
+        return res.status(200).json({
+            success: true,
+            message: "Property deleted successfully"
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
 
 // =========================
 // ADMIN PROPERTY APPROVAL
