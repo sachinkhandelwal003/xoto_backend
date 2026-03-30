@@ -927,9 +927,20 @@ exports.getAgentProperties = async (req, res) => {
         
         if (type === 'off_plan' || type === 'all') {
             const offplanTotal = await Property.countDocuments(offplanQuery);
-            const offplanProperties = await Property.find(offplanQuery)
-                .populate('developer', 'name logo email')
-                .sort({ createdAt: -1 })
+           const offplanProperties = await Property.find(offplanQuery)
+                .populate({
+                    path: "developer",
+                    select: "name email logo phone_number websiteUrl accountStatus"
+                })
+                .populate({
+                    path: "agent",
+                    select: "name email phone_number profileImage isVerified"
+                })
+                .populate({
+                    path: "agency",
+                    select: "agency_name email mobile_number logo"
+                })
+                .sort(sortBy === 'price' ? { price_min: sortOrder === 'asc' ? 1 : -1 } : { createdAt: -1 })
                 .skip(skip)
                 .limit(limit);
             
@@ -1031,14 +1042,10 @@ exports.getAgentProperties = async (req, res) => {
 
 exports.getAgentPropertyById = async (req, res) => {
     try {
-        const agentId = req.user._id;
         const { id } = req.params;
 
         const property = await Property.findOne({ 
-            _id: id, 
-            agent: agentId, 
-            propertySubType: "secondary" 
-        });
+            _id: id        });
 
         if (!property) {
             return res.status(404).json({

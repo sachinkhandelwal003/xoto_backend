@@ -157,9 +157,17 @@ socket.on("reject_chat_request", ({ agentId, requestId, reason }) => {
 const PORT = process.env.PORT || 5000;
  
 app.use(cors({
-  origin: ['https://xoto.ae', 'http://localhost:5173'],
+  origin: [
+    'https://xoto.ae',
+    'https://www.xoto.ae',   // ✅ ADD THIS (VERY IMPORTANT)
+    'http://localhost:5173'
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // ✅ ADD
+  allowedHeaders: ['Content-Type', 'Authorization'],   // ✅ ADD
   credentials: true
 }));
+
+
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(morgan('combined'));
