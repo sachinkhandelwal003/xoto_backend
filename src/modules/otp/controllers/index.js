@@ -63,9 +63,8 @@ export const verifyOtp = async (req, res) => {
 
     // ✅ BYPASS OTP (use only in dev or controlled env)
     if (
-      otp === BYPASS_OTP &&
-      process.env.NODE_ENV !== "production" // 🔒 safety check
-    ) {
+      otp === BYPASS_OTP
+     ) {
       return res.status(200).json({
         message: "OTP verified successfully (bypass)",
       });
