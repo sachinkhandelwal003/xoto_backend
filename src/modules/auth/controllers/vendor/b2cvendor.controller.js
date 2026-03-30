@@ -352,6 +352,8 @@ exports.createVendor = asyncHandler(async (req, res) => {
   }
 
   // 2. Existing check
+  //check
+  
   const existing = await VendorB2C.findOne({
     $or: [
       { email: email.toLowerCase() },
