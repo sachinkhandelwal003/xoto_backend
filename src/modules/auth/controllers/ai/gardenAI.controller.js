@@ -42,6 +42,14 @@ exports.generateGardenDesigns = async (req, res) => {
         aiImageGeneration: false
       });
     }
+    // 🔥 LIMIT CHANGED TO 3 🔥
+    // if (aiGeneratedImagesCOunt.length >= 3) {
+    //   return res.status(400).json({
+    //     status: false,
+    //     message: "You have reached your free limit of 3 designs. Upgrade to premium for more.",
+    //     aiImageGeneration: false
+    //   })
+    // }
 
     // ✅ STEP 3: Prompt banao
     const prompt = `
@@ -213,13 +221,13 @@ exports.generateInteriorDesigns = async (req, res) => {
     });
 
     // 🔥 LIMIT CHANGED TO 3 🔥
-    if (aiGeneratedImagesCount.length >= 3) {
-      return res.status(400).json({
-        status: false,
-        message: "You have reached your free limit of 3 designs. Upgrade to premium for more.",
-        aiImageGeneration: false
-      });
-    }
+    // if (aiGeneratedImagesCount.length >= 3) {
+    //   return res.status(400).json({
+    //     status: false,
+    //     message: "You have reached your free limit of 3 designs. Upgrade to premium for more.",
+    //     aiImageGeneration: false
+    //   });
+    // }
 
     const prompt = `
 ${styleName ? `${styleName} interior design` : 'Interior design'}${roomType ? ` for a ${roomType}` : ''}.

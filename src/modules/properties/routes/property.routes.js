@@ -31,7 +31,7 @@ const {
     reserveUnit,
     bookUnit,
     releaseUnit,
-    markAsSold
+    markAsSold,getSingleInventory
 } = require("../controllers/inventory.controller");
 
 const router = Router();
@@ -60,12 +60,16 @@ router.put("/agent/property/secondary/:id", protectMulti, updateAgentProperty);
 router.delete("/agent/property/secondary/:id", protectMulti, deleteAgentProperty);
 // In your routes file
 router.get("/admin/property/all", protectMulti, getAllProperties);
+router.get("/admin/property/:id", protectMulti, getPropertyById);
+
 // =========================
 // INVENTORY ROUTES (Developer)
 // =========================
 router.post("/developer/inventory/create", protectMulti, createInventory);
 router.post("/developer/inventory/bulk-import", protectMulti, bulkImportInventory);
-router.get("/developer/inventory/:propertyId", protectMulti, getInventoryByProperty);
+
+router.get("/inventory/:propertyId", protectMulti, getInventoryByProperty);
+router.get("/inventory/unit/:unitId", protectMulti, getSingleInventory);
 router.put("/developer/inventory/:id", protectMulti, updateInventory);
 router.delete("/developer/inventory/:id", protectMulti, deleteInventory);
 
@@ -83,5 +87,7 @@ router.post("/inventory/:id/sold", protectMulti, markAsSold);
 // router.get("/admin/property/all", protectMulti, getAllProperties);
 router.put("/admin/property/approve/:id", protectMulti, approveProperty);
 router.put("/admin/property/reject/:id", protectMulti, rejectProperty);
+router.get("/admin/property/:id", protectMulti, getPropertyById);
+
 
 module.exports = router;
