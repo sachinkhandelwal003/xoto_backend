@@ -1,16 +1,16 @@
-const Agency = require("../models/index.js");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const  { Role } =require('../../../modules/auth/models/role/role.model.js');
+import Agency from "../models/index.js";
+import Agent from "../../Agent/models/agent.js";
+import bcrypt from "bcryptjs";
+import { Role } from '../../../modules/auth/models/role/role.model.js';
+import { createToken } from '../../../middleware/auth.js';
 
-const { createToken } = require ('../../../middleware/auth.js');
 
-/* ===========================
-   SIGNUP
-=========================== */
-const agencySignup = async (req, res) => {
+
+/* =====================================
+   :one: AGENCY SIGNUP
+===================================== */
+export const agencySignup = async (req, res) => {
   try {
-
     const {
       agency_name,
       email,
@@ -18,50 +18,54 @@ const agencySignup = async (req, res) => {
       country_code,
       mobile_number,
       profile_photo,
-      letter_of_authority
+      logo,
+      trade_license,
+      letter_of_authority,
+      address,
+      city
     } = req.body;
 
-    if (
-      !agency_name ||
-      !email ||
-      !password ||
-      !country_code ||
-      !mobile_number
-    ) {
+    if (!agency_name || !email || !password || !mobile_number) {
       return res.status(400).json({
         success: false,
-        message: "All required fields must be provided"
+        message: "Agency name, email, password and mobile number are required"
       });
     }
 
-    const existing = await Agency.findOne({ email });
-
+    const existing = await Agency.findOne({ $or: [{ email }, { mobile_number }] });
     if (existing) {
       return res.status(400).json({
         success: false,
-        message: "Email already registered"
+        message: "Email or mobile number already registered"
       });
     }
- const roleDoc = await Role.findOne({ code: 15 });
-        if (!roleDoc) {
-            return res.status(404).json({
-                success: false,
-                message: "Role with code 15 not found"
-            });
-        }  
+
+    const roleDoc = await Role.findOne({ code: 15 });
+    if (!roleDoc) {
+      return res.status(404).json({
+        success: false,
+        message: "Role with code 15 not found"
+      });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const agency = await Agency.create({
       agency_name,
       email,
       password: hashedPassword,
-      role:roleDoc._id,
-      country_code,
+      role: roleDoc._id,
+      country_code: country_code || "+971",
       mobile_number,
       profile_photo: profile_photo || "",
+      logo: logo || "",
+      trade_license: trade_license || "",
       letter_of_authority: letter_of_authority || "",
-      onboarding_status: "registered",
-      subscription_status: "free",
+      address: address || "",
+      city: city || "",
+      onboarding_status: "pending",
+      agents: [],
+      totalAgents: 0,
       is_active: true,
       is_email_verified: false,
       is_mobile_verified: false
@@ -72,23 +76,22 @@ const agencySignup = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: "Signup successful. Awaiting admin approval.",
+      message: "Agency registered successfully. Waiting for admin approval.",
       data
     });
 
-  } catch (err) {
+  } catch (error) {
     return res.status(500).json({
       success: false,
-      message: err.message
+      message: error.message
     });
   }
 };
 
-
-/* ===========================
-   LOGIN
-=========================== */
-const agencyLogin = async (req, res) => {
+/* =====================================
+   :two: AGENCY LOGIN
+===================================== */
+export const agencyLogin = async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -99,19 +102,20 @@ const agencyLogin = async (req, res) => {
       });
     }
 
-    const agency = await Agency.findOne({ email }).populate("role");
+    const agency = await Agency.findOne({ email })
+      .select('+password')
+      .populate('role');
 
     if (!agency) {
-      return res.status(400).json({
+      return res.status(401).json({
         success: false,
         message: "Invalid credentials"
       });
     }
 
     const match = await bcrypt.compare(password, agency.password);
-
     if (!match) {
-      return res.status(400).json({
+      return res.status(401).json({
         success: false,
         message: "Invalid credentials"
       });
@@ -131,17 +135,15 @@ const agencyLogin = async (req, res) => {
       });
     }
 
-    // ✅ FIXED HERE
     const token = createToken(agency, "agency");
-
     const data = agency.toObject();
     delete data.password;
 
     return res.status(200).json({
       success: true,
       token,
-      message: "Login successful",      
-        user: data,
+      message: "Login successful",
+      user: data,
     });
 
   } catch (error) {
@@ -152,15 +154,16 @@ const agencyLogin = async (req, res) => {
   }
 };
 
-/* ===========================
-   GET BY ID
-=========================== */
-const getAgencyById = async (req, res) => {
+/* =====================================
+   :three: GET AGENCY BY ID
+===================================== */
+export const getAgencyById = async (req, res) => {
   try {
-
     const { id } = req.params;
 
-    const agency = await Agency.findById(id).select("-password");
+    const agency = await Agency.findById(id)
+      .select("-password")
+      .populate('agents', 'first_name last_name email phone_number profile_photo isVerified onboarding_status');
 
     if (!agency) {
       return res.status(404).json({
@@ -169,7 +172,7 @@ const getAgencyById = async (req, res) => {
       });
     }
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       data: agency
     });
@@ -182,20 +185,36 @@ const getAgencyById = async (req, res) => {
   }
 };
 
-
-/* ===========================
-   GET ALL
-=========================== */
-const getAllAgencies = async (req, res) => {
+/* =====================================
+   :four: GET ALL AGENCIES
+===================================== */
+export const getAllAgencies = async (req, res) => {
   try {
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const onboarding_status = req.query.onboarding_status;
 
-    const agencies = await Agency.find()
+    let query = {};
+    if (onboarding_status) query.onboarding_status = onboarding_status;
+
+    const total = await Agency.countDocuments(query);
+    const agencies = await Agency.find(query)
       .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
       .select("-password");
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       count: agencies.length,
+      total: total,
+      pagination: {
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        totalItems: total,
+        limit
+      },
       data: agencies
     });
 
@@ -207,23 +226,25 @@ const getAllAgencies = async (req, res) => {
   }
 };
 
-
-/* ===========================
-   UPDATE
-=========================== */
-const updateAgency = async (req, res) => {
+/* =====================================
+   :five: UPDATE AGENCY
+===================================== */
+export const updateAgency = async (req, res) => {
   try {
-
     const { id } = req.params;
 
     const allowedFields = [
+      "agency_name",
       "profile_photo",
+      "logo",
       "country_code",
       "mobile_number",
+      "address",
+      "city",
+      "trade_license",
       "letter_of_authority",
       "onboarding_status",
       "is_active"
-
     ];
 
     let updateData = {};
@@ -251,9 +272,9 @@ const updateAgency = async (req, res) => {
       });
     }
 
-    return res.json({
+    return res.status(200).json({
       success: true,
-      message: "Updated successfully",
+      message: "Agency updated successfully",
       data: updated
     });
 
@@ -265,14 +286,15 @@ const updateAgency = async (req, res) => {
   }
 };
 
-
-/* ===========================
-   DELETE
-=========================== */
-const deleteAgency = async (req, res) => {
+/* =====================================
+   :six: DELETE AGENCY
+===================================== */
+export const deleteAgency = async (req, res) => {
   try {
-
     const { id } = req.params;
+
+    // Remove agency reference from all agents
+    await Agent.updateMany({ agency: id }, { $set: { agency: null, agentType: "independent", onboarding_status: "pending", isVerified: false } });
 
     const deleted = await Agency.findByIdAndDelete(id);
 
@@ -283,7 +305,7 @@ const deleteAgency = async (req, res) => {
       });
     }
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       message: "Agency deleted successfully"
     });
@@ -296,121 +318,326 @@ const deleteAgency = async (req, res) => {
   }
 };
 
-const getAgencyLeads = async (req, res) => {
-
+/* =====================================
+   :seven: APPROVE AGENCY
+===================================== */
+export const approveAgency = async (req, res) => {
   try {
+    const { id } = req.params;
 
-    const agencyId = req.user._id;
+    const agency = await Agency.findById(id);
+    if (!agency) {
+      return res.status(404).json({
+        success: false,
+        message: "Agency not found"
+      });
+    }
 
-    const Agent = require("../../Agent/models/agent");
-    const Lead = require("../../Agent/models/AgentLeaad");
+    agency.onboarding_status = "approved";
+    await agency.save();
 
-    // agency ke agents
-    const agents = await Agent.find({
-      agency: agencyId
-    }).select("_id");
+    // Auto-approve all agents under this agency
+    await Agent.updateMany(
+      { agency: id },
+      { $set: { onboarding_status: "approved", isVerified: true } }
+    );
 
-    const agentIds = agents.map(a => a._id);
-
-    // un agents ki leads
-    const leads = await Lead.find({
-      agent: { $in: agentIds }
-    }).populate("agent","first_name last_name email");
-
-    return res.json({
+    return res.status(200).json({
       success: true,
-      data: leads
+      message: "Agency approved successfully. All agents under this agency are now active.",
+      data: agency
     });
 
   } catch (error) {
-
     return res.status(500).json({
-      success:false,
-      message:error.message
+      success: false,
+      message: error.message
     });
-
   }
-
 };
 
-const assignLead = async (req,res)=>{
-
-  try{
-
-    const { leadId, agentId } = req.body;
-
-    const Lead = require("../../agent/models/AgentLead");
-
-    const updated = await Lead.findByIdAndUpdate(
-      leadId,
-      {
-        agent: agentId,
-        status:"Assigned"
-      },
-      { new:true }
-    );
-
-    return res.json({
-      success:true,
-      message:"Lead assigned successfully",
-      data:updated
-    });
-
-  }catch(error){
-
-    return res.status(500).json({
-      success:false,
-      message:error.message
-    });
-
-  }
-
-};
-
-const updateLeadStatus = async (req,res)=>{
-
-  try{
-
+/* =====================================
+   :eight: REJECT AGENCY
+===================================== */
+export const rejectAgency = async (req, res) => {
+  try {
     const { id } = req.params;
+    const { rejection_reason } = req.body;
 
-    const { status } = req.body;
+    const agency = await Agency.findById(id);
+    if (!agency) {
+      return res.status(404).json({
+        success: false,
+        message: "Agency not found"
+      });
+    }
 
-    const Lead = require("../../agent/models/AgentLead");
+    agency.onboarding_status = "rejected";
+    agency.rejection_reason = rejection_reason || "Not specified";
+    await agency.save();
 
-    const updated = await Lead.findByIdAndUpdate(
-      id,
-      { status },
-      { new:true }
-    );
-
-    return res.json({
-      success:true,
-      message:"Lead status updated",
-      data:updated
+    return res.status(200).json({
+      success: true,
+      message: "Agency rejected",
+      data: agency
     });
 
-  }catch(error){
-
+  } catch (error) {
     return res.status(500).json({
-      success:false,
-      message:error.message
+      success: false,
+      message: error.message
     });
-
   }
-
 };
 
-/* ===========================
-   EXPORT
-=========================== */
-module.exports = {
-  agencySignup,
-  agencyLogin,
-  getAgencyById,
-  getAllAgencies,
-  updateAgency,
-  deleteAgency,
-    getAgencyLeads,
-  assignLead,
-  updateLeadStatus
+/* =====================================
+   :nine: GET AGENCY PROFILE (Authenticated)
+===================================== */
+export const getAgencyProfile = async (req, res) => {
+  try {
+    const agency = await Agency.findById(req.user._id)
+      .select('-password')
+      .populate('agents', 'first_name last_name email phone_number profile_photo isVerified onboarding_status');
+
+    if (!agency) {
+      return res.status(404).json({
+        success: false,
+        message: "Agency not found"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: agency
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/* =====================================
+   :ten: UPDATE AGENCY PROFILE (Authenticated)
+===================================== */
+export const updateAgencyProfile = async (req, res) => {
+  try {
+    const allowedUpdates = [
+      "agency_name",
+      "address",
+      "city",
+      "profile_photo",
+      "logo",
+      "trade_license",
+      "letter_of_authority"
+    ];
+
+    let updateData = {};
+    allowedUpdates.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No fields to update"
+      });
+    }
+
+    const agency = await Agency.findByIdAndUpdate(
+      req.user._id,
+      updateData,
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      data: agency
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/* =====================================
+   :eleven: GET AGENTS UNDER AGENCY
+===================================== */
+export const getAgencyAgents = async (req, res) => {
+  try {
+    const agencyId = req.user._id;
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const { status, search } = req.query;
+
+    let query = { agency: agencyId };
+
+    if (status) {
+      query.onboarding_status = status;
+    }
+
+    if (search) {
+      query.$or = [
+        { first_name: { $regex: search, $options: 'i' } },
+        { last_name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const total = await Agent.countDocuments(query);
+    const agents = await Agent.find(query)
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const stats = {
+      total: await Agent.countDocuments({ agency: agencyId }),
+      approved: await Agent.countDocuments({ agency: agencyId, onboarding_status: 'approved' }),
+      pending: await Agent.countDocuments({ agency: agencyId, onboarding_status: 'pending' }),
+      rejected: await Agent.countDocuments({ agency: agencyId, onboarding_status: 'rejected' })
+    };
+
+    return res.status(200).json({
+      success: true,
+      data: agents,
+      count: agents.length,
+      pagination: {
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        totalItems: total,
+        limit
+      },
+      stats
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/* =====================================
+   :twelve: ADD AGENT TO AGENCY
+===================================== */
+export const addAgentToAgency = async (req, res) => {
+  try {
+    const agencyId = req.user._id;
+    const { agentId } = req.body;
+
+    const agency = await Agency.findById(agencyId);
+    if (!agency) {
+      return res.status(404).json({
+        success: false,
+        message: "Agency not found"
+      });
+    }
+
+    const agent = await Agent.findById(agentId);
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found"
+      });
+    }
+
+    if (agent.agency) {
+      return res.status(400).json({
+        success: false,
+        message: "Agent already belongs to an agency"
+      });
+    }
+
+    agent.agency = agencyId;
+    agent.agentType = "agency_agent";
+    if (agency.onboarding_status === "approved") {
+      agent.onboarding_status = "approved";
+      agent.isVerified = true;
+    }
+    await agent.save();
+
+    if (!agency.agents.includes(agentId)) {
+      agency.agents.push(agentId);
+      agency.totalAgents = agency.agents.length;
+      await agency.save();
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Agent added to agency successfully",
+      data: { agent, agency }
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/* =====================================
+   :thirteen: REMOVE AGENT FROM AGENCY
+===================================== */
+export const removeAgentFromAgency = async (req, res) => {
+  try {
+    const agencyId = req.user._id;
+    const { agentId } = req.body;
+
+    const agency = await Agency.findById(agencyId);
+    if (!agency) {
+      return res.status(404).json({
+        success: false,
+        message: "Agency not found"
+      });
+    }
+
+    const agent = await Agent.findById(agentId);
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found"
+      });
+    }
+
+    if (agent.agency?.toString() !== agencyId.toString()) {
+      return res.status(400).json({
+        success: false,
+        message: "Agent does not belong to this agency"
+      });
+    }
+
+    agent.agency = null;
+    agent.agentType = "independent";
+    agent.onboarding_status = "pending";
+    agent.isVerified = false;
+    await agent.save();
+
+    agency.agents = agency.agents.filter(id => id.toString() !== agentId);
+    agency.totalAgents = agency.agents.length;
+    await agency.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Agent removed from agency successfully",
+      data: { agent, agency }
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 };

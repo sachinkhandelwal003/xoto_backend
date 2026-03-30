@@ -56,7 +56,7 @@ router.post("/edit-developer", editDeveloper);
 router.post("/delete-developer-by-id", deleteDeveloper);
 
 
-// ---------------- PROPERTY ----------------
+// ---------------- PROPERTYdfaf ----------------
 
 router.post("/create-properties", createProperty);
 router.post("/edit-property", editProperty);
