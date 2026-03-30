@@ -18,77 +18,98 @@ exports.generateGardenDesigns = async (req, res) => {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: "No image uploaded" });
     }
+
     let user = req.user;
     let { styleName, elements, description, userId } = req.body;
-    let aiGeneratedImagesCOunt = await AIGeneratedImages.find({ userId: user._id, designType: "landscaping" });
 
-    // 🔥 LIMIT CHANGED TO 3 🔥
-    if (aiGeneratedImagesCOunt.length >= 3) {
+    // ✅ STEP 1: Elements string to array convert karo
+    const elementsArray = elements
+      ? (typeof elements === 'string'
+          ? elements.split(',').map(e => e.trim()).filter(Boolean)
+          : Array.isArray(elements) ? elements : [])
+      : [];
+
+    // ✅ STEP 2: Limit check
+    let aiGeneratedImagesCount = await AIGeneratedImages.find({ 
+      userId: user._id, 
+      designType: "landscaping" 
+    });
+
+    if (aiGeneratedImagesCount.length >= 3) {
       return res.status(400).json({
         status: false,
         message: "You have reached your free limit of 3 designs. Upgrade to premium for more.",
         aiImageGeneration: false
-      })
+      });
     }
 
+    // ✅ STEP 3: Prompt banao
     const prompt = `
 ${styleName && styleName.length > 0 ? `${styleName} create with these styles and use them.` : ''}
-Use these elements as well: ${elements}.
+Use these elements as well: ${elementsArray.join(', ') || 'Natural Landscaping'}.
 ${description && description.length > 0 ? `Edit according to this description: ${description}` : ''}
 
-**STRICTLY FOLLOW THESE RULES **
+**STRICTLY FOLLOW THESE RULES**
 The image must look 100% real and authentic, like a professional photograph clicked using a DSLR camera.
 Photorealistic lighting, natural shadows, realistic textures, real-world proportions.
 No animation, no illustration, no cartoon style, no CGI, no artificial or stylized look.
-.Images should look real , no animated images should come`.trim();
+Images should look real, no animated images should come`.trim();
 
-    // Convert uploaded files to OpenAI format
+    // ✅ STEP 4: Summary banao
+    const summary = `${styleName ? `${styleName} style` : 'Modern'} landscape design${elementsArray.length > 0 ? ` with ${elementsArray.join(', ')}` : ''}${description ? `. Instruction: ${description}` : ''}.`;
+
+    // ✅ STEP 5: OpenAI ko image bhejo
     const images = await Promise.all(
       req.files.map(async (file) =>
         await toFile(file.buffer, null, { type: file.mimetype })
       )
     );
 
-    // Call OpenAI image edit API
     const response = await client.images.edit({
       model: "gpt-image-1",
       image: images,
       prompt,
-      input_fidelity: "medium", // can be "medium" or "high",
+      input_fidelity: "medium",
     });
 
-    // Convert Base64 output to buffer
+    // ✅ STEP 6: Generated image S3 pe save karo
     const imageBase64 = response.data[0].b64_json;
     const imageBuffer = Buffer.from(imageBase64, "base64");
-
     const fileName = `garden/${Date.now()}_garden.png`;
 
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: process.env.AWS_S3_BUCKET,
-        Key: fileName,
-        Body: imageBuffer,
-        ContentType: "image/png"
-      })
-    )
+    await s3.send(new PutObjectCommand({
+      Bucket: process.env.AWS_S3_BUCKET,
+      Key: fileName,
+      Body: imageBuffer,
+      ContentType: "image/png"
+    }));
 
     const imageUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
 
-
+    // ✅ STEP 7: Ek hi create — sab kuch store
     let AiGeneratedImages = await AIGeneratedImages.create({
       imageUrl,
       userType: "customer",
       userId: user._id,
-      designType: "landscaping"
-    })
+      designType: "landscaping",
+      originalImageUrl: null,
+      styleName: styleName || null,
+      elements: elementsArray,
+      description: description || null,
+      prompt: prompt,
+      summary: summary
+    });
 
+    // ✅ STEP 8: Response bhejo
     res.json({
       message: "Garden generated successfully",
       imageUrl,
-      AiGeneratedImages
+      AiGeneratedImages,
+      summary
     });
+
   } catch (err) {
-    console.error(err);
+    console.error(err); 
     res.status(500).json({ error: "Failed to generate garden" });
   }
 };
@@ -243,7 +264,14 @@ Images should look real; no animated images should come.
       imageUrl,
       userType: "customer",
       userId: user._id,
-      designType: "interior"
+      designType: "interior",
+      originalImageUrl: originalImageUrl,
+  styleName: styleName || null,
+  elements: elementsArray,
+  description: description || null,
+  roomType: roomType || null,
+  prompt: prompt,
+  summary: summary
     });
 
     res.json({
