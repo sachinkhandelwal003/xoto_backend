@@ -464,29 +464,55 @@ exports.getDeveloperProperties = async (req, res) => {
  * @desc    Developer gets single property by ID
  */
 exports.getPropertyById = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const property = await Property.findById(id)
-            .populate("developer", "name logo email websiteUrl");
+  try {
+    const { id } = req.params;
 
-        if (!property) {
-            return res.status(404).json({
-                success: false,
-                message: "Property not found"
-            });
-        }
+   
 
-        return res.status(200).json({
-            success: true,
-            data: property
-        });
+    const property = await Property.findById(id)
+      .populate({
+        path: "developer",
+        select: "name email logo phone_number websiteUrl accountStatus"
+      })
+      .populate({
+        path: "agent",
+        select: "name email phone_number profileImage isVerified"
+      })
+      .populate({
+        path: "agency",
+        select: "agency_name email mobile_number logo"  // ✅ Correct field names
+      })
+      .populate({
+        path: "existingProjectId",
+        select: "propertyName developerName location"
+      });
 
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: error.message
-        });
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found"
+      });
     }
+
+    return res.status(200).json({
+      success: true,
+      data: property
+    });
+
+  } catch (error) {
+    // ✅ Handle CastError specifically
+    if (error.name === 'CastError' && error.kind === 'ObjectId') {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid property ID format"
+      });
+    }
+    
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 };
 
 /**

@@ -83,5 +83,7 @@ router.post("/inventory/:id/sold", protectMulti, markAsSold);
 // router.get("/admin/property/all", protectMulti, getAllProperties);
 router.put("/admin/property/approve/:id", protectMulti, approveProperty);
 router.put("/admin/property/reject/:id", protectMulti, rejectProperty);
+router.get("/admin/property/:id", protectMulti, getPropertyById);
+
 
 module.exports = router;
