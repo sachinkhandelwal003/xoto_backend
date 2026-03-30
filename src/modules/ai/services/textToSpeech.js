@@ -1,7 +1,14 @@
 import path from "path";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+import fs from "fs";
 import OpenAI from "openai";
 import crypto from "crypto";
 import dotenv from "dotenv";
+
+// Get __dirname equivalent in ES module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 dotenv.config();
 
@@ -9,13 +16,16 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// 🔥 absolute path to responses folder 
-// (__dirname is automatically provided by Node.js/Babel in this setup)
+// 🔥 absolute path to responses folder
 const responsesDir = path.join(__dirname, "..", "..", "responses");
+
+// Ensure responses directory exists
+if (!fs.existsSync(responsesDir)) {
+  fs.mkdirSync(responsesDir, { recursive: true });
+}
 
 export async function textToSpeech(text) {
   try {
-
     const fileName = `response-${crypto.randomUUID()}.mp3`;
 
     // ✅ ABSOLUTE FILE PATH (THIS FIXES ENOENT)
@@ -37,4 +47,4 @@ export async function textToSpeech(text) {
     console.error("TTS Error:", error);
     throw new Error("Failed to generate speech");
   }
-} 
+}
