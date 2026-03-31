@@ -23,13 +23,13 @@ exports.generateGardenDesigns = async (req, res) => {
     let aiGeneratedImagesCOunt = await AIGeneratedImages.find({ userId: user._id, designType: "landscaping" });
 
     // 🔥 LIMIT CHANGED TO 3 🔥
-    if (aiGeneratedImagesCOunt.length >= 3) {
-      return res.status(400).json({
-        status: false,
-        message: "You have reached your free limit of 3 designs. Upgrade to premium for more.",
-        aiImageGeneration: false
-      })
-    }
+    // if (aiGeneratedImagesCOunt.length >= 3) {
+    //   return res.status(400).json({
+    //     status: false,
+    //     message: "You have reached your free limit of 3 designs. Upgrade to premium for more.",
+    //     aiImageGeneration: false
+    //   })
+    // }
 
     const prompt = `
 ${styleName && styleName.length > 0 ? `${styleName} create with these styles and use them.` : ''}
@@ -192,13 +192,13 @@ exports.generateInteriorDesigns = async (req, res) => {
     });
 
     // 🔥 LIMIT CHANGED TO 3 🔥
-    if (aiGeneratedImagesCount.length >= 3) {
-      return res.status(400).json({
-        status: false,
-        message: "You have reached your free limit of 3 designs. Upgrade to premium for more.",
-        aiImageGeneration: false
-      });
-    }
+    // if (aiGeneratedImagesCount.length >= 3) {
+    //   return res.status(400).json({
+    //     status: false,
+    //     message: "You have reached your free limit of 3 designs. Upgrade to premium for more.",
+    //     aiImageGeneration: false
+    //   });
+    // }
 
     const prompt = `
 ${styleName ? `${styleName} interior design` : 'Interior design'}${roomType ? ` for a ${roomType}` : ''}.
