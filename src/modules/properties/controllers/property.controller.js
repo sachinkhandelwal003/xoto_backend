@@ -596,11 +596,16 @@ exports.deleteProperty = async (req, res) => {
  * @route   POST /api/agent/property/create-secondary
  * @desc    Agent creates secondary property listing
  */
+/**
+ * @route   POST /api/agent/property/create-secondary
+ * @desc    Agent creates secondary property listing (with agency support)
+ */
 exports.createSecondaryProperty = async (req, res) => {
     try {
         const agentId = req.user._id;
 
-        const agent = await Agent.findById(agentId);
+        // Get agent details
+        const agent = await Agent.findById(agentId).populate('agency', 'agency_name email logo');
         if (!agent) {
             return res.status(404).json({
                 success: false,
@@ -608,6 +613,7 @@ exports.createSecondaryProperty = async (req, res) => {
             });
         }
 
+        // Check if agent is verified
         if (!agent.isVerified) {
             return res.status(403).json({
                 success: false,
@@ -615,9 +621,20 @@ exports.createSecondaryProperty = async (req, res) => {
             });
         }
 
+        // Check if agent is active
+        if (!agent.is_active) {
+            return res.status(403).json({
+                success: false,
+                message: "Your account is suspended. Please contact admin."
+            });
+        }
+
         const {
+            // Project option (existing or new)
             projectOption,
             existingProjectId,
+            
+            // Property details
             propertyName,
             developerName,
             unitNumber,
@@ -628,25 +645,40 @@ exports.createSecondaryProperty = async (req, res) => {
             bathrooms,
             builtUpArea,
             builtUpAreaUnit,
+            
+            // Pricing
             price,
             currency,
+            
+            // Location
             area,
             city,
             coordinates,
+            
+            // Description & Media
             description,
             mainLogo,
             photos,
+            
+            // Features
             hasView,
             viewType,
             parkingSpaces,
             furnishing,
             ownershipType,
             availableFrom,
+            
+            // Commission
             shareCommission,
-            shareCommissionPercentage
+            shareCommissionPercentage,
+            
+            // ✅ NEW: Agency can be passed explicitly (optional)
+            agencyId  // If agent wants to associate property with a specific agency
         } = req.body;
 
-        // ✅ FIXED VALIDATION - For existing project, area will be auto-filled
+        // ========== VALIDATION ==========
+        
+        // Required fields
         if (!price || !description) {
             return res.status(400).json({
                 success: false,
@@ -654,19 +686,44 @@ exports.createSecondaryProperty = async (req, res) => {
             });
         }
 
-        // ✅ For new project, area is required
+        // For new project, area is required
         if (projectOption !== "existing" && !area) {
             return res.status(400).json({
                 success: false,
-                message: "Location is required for new project"
+                message: "Location (area) is required for new project"
             });
         }
 
+        // ========== DETERMINE AGENCY ==========
+        // Priority: 1. Explicit agencyId from request, 2. Agent's existing agency, 3. null
+        let finalAgencyId = null;
+        
+        if (agencyId) {
+            // If agent explicitly provided agency ID
+            finalAgencyId = agencyId;
+        } else if (agent.agency) {
+            // If agent is already under an agency
+            finalAgencyId = agent.agency._id || agent.agency;
+        }
+        
+        // If agent is under agency but trying to use different agency, check permission
+        if (agent.agency && agencyId && agent.agency.toString() !== agencyId) {
+            return res.status(403).json({
+                success: false,
+                message: "You cannot list properties under a different agency. You are already associated with an agency."
+            });
+        }
+
+        // ========== HANDLE EXISTING PROJECT ==========
         let finalPropertyName = propertyName;
         let finalDeveloperName = developerName;
-        let finalLocation = { area, city: city || "Dubai", country: "UAE", coordinates: coordinates || {} };
+        let finalLocation = { 
+            area: area, 
+            city: city || "Dubai", 
+            country: "UAE", 
+            coordinates: coordinates || {} 
+        };
 
-        // Handle existing project selection
         if (projectOption === "existing" && existingProjectId) {
             const existingProject = await Property.findById(existingProjectId);
             if (existingProject) {
@@ -681,56 +738,98 @@ exports.createSecondaryProperty = async (req, res) => {
             }
         }
 
-        // Create secondary property
+        // ========== CREATE SECONDARY PROPERTY ==========
         const property = await Property.create({
+            // Creator info
             developer: null,
             agent: agentId,
-            agency: agent.agency || null,
+            agency: finalAgencyId,  // ✅ Agency ID (if any)
+            
+            // Property type
             propertySubType: "secondary",
             transactionType: "sell",
+            
+            // Project info
             projectOption: projectOption || "new",
             existingProjectId: existingProjectId || null,
             propertyName: finalPropertyName,
             developerName: finalDeveloperName,
+            
+            // Unit details
             unitNumber: unitNumber || "",
             floorNumber: floorNumber || 0,
             unitType: unitType || "apartment",
             bedroomType: bedroomType || "1bed",
             bedrooms: bedrooms || 0,
             bathrooms: bathrooms || 0,
+            
+            // Dimensions
             builtUpArea: builtUpArea || 0,
             builtUpArea_min: builtUpArea || 0,
             builtUpArea_max: builtUpArea || 0,
             builtUpAreaUnit: builtUpAreaUnit || "sqft",
+            
+            // Pricing
             price: price,
             price_min: price,
             price_max: price,
             currency: currency || "AED",
+            
+            // Location
             area: finalLocation.area,
             city: finalLocation.city,
             country: finalLocation.country,
             coordinates: finalLocation.coordinates,
+            
+            // Description & Media
             description: description,
             mainLogo: mainLogo || "",
             photos: photos || { architecture: [], interior: [], lobby: [], other: [] },
+            
+            // Features
             hasView: hasView || false,
             viewType: viewType || [],
             parkingSpaces: parkingSpaces || 0,
             furnishing: furnishing || "unfurnished",
             ownershipType: ownershipType || "freehold",
             availableFrom: availableFrom || null,
+            
+            // Commission
             shareCommission: shareCommission || false,
             shareCommissionPercentage: shareCommissionPercentage || 0,
+            
+            // Status
             totalUnits: 1,
             approvalStatus: "pending",
             listingStatus: "pending",
-            showContactOnlyVerified: true
+            showContactOnlyVerified: true,
+            isAvailable: true
         });
+
+        // ========== POPULATE AGENCY DETAILS FOR RESPONSE ==========
+        const populatedProperty = await Property.findById(property._id)
+            .populate('agent', 'first_name last_name email phone_number')
+            .populate('agency', 'agency_name email logo');
+
+        // ========== RESPONSE ==========
+        const responseMessage = finalAgencyId 
+            ? "Secondary property listing created successfully under agency. Waiting for admin approval."
+            : "Secondary property listing created successfully. Waiting for admin approval.";
 
         return res.status(201).json({
             success: true,
-            message: "Secondary property listing created successfully. Waiting for admin approval.",
-            data: property
+            message: responseMessage,
+            data: {
+                property: populatedProperty,
+                agencyInfo: finalAgencyId ? {
+                    agencyId: finalAgencyId,
+                    agencyName: agent.agency?.agency_name || "Agency",
+                    isUnderAgency: true
+                } : {
+                    isUnderAgency: false,
+                    message: "Property is listed as independent agent"
+                }
+            }
         });
 
     } catch (error) {
