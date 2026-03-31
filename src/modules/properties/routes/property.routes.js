@@ -15,7 +15,7 @@ const {
     getAllProperties,
     approveProperty,
     rejectProperty,
-    getAgentPropertyById,updateAgentProperty,deleteAgentProperty
+    getAgentPropertyById,updateAgentProperty,deleteAgentProperty,getAgencyOwnProperties,getAgencyAllProperties
   
 } = require("../controllers/property.controller");
 
@@ -61,6 +61,12 @@ router.delete("/agent/property/secondary/:id", protectMulti, deleteAgentProperty
 // In your routes file
 router.get("/admin/property/all", protectMulti, getAllProperties);
 router.get("/admin/property/:id", protectMulti, getPropertyById);
+
+
+
+router.get("/agency/properties/all",protectMulti, getAgencyAllProperties);
+
+router.get("/agency/properties/own",protectMulti, getAgencyOwnProperties);
 
 // =========================
 // INVENTORY ROUTES (Developer)
