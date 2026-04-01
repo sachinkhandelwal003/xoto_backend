@@ -906,10 +906,16 @@ exports.getAgentProperties = async (req, res) => {
         // ========== BUILD QUERIES ==========
         
         // Query 1: Agent's own secondary properties
-        let secondaryQuery = { 
-            agent: agentId, 
-            propertySubType: "secondary" 
-        };
+       let secondaryQuery = { 
+  agent: agentId, 
+  propertySubType: "secondary"
+};
+
+// 👉 ADD THIS CONDITION
+if (propertyType === "all") {
+  secondaryQuery.approvalStatus = "approved";
+  secondaryQuery.listingStatus = "active";
+}
         
         // Query 2: Approved off-plan properties (from developers)
         let offplanQuery = { 
