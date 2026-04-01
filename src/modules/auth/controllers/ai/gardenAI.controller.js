@@ -54,7 +54,7 @@ No animation, no illustration, no cartoon style, no CGI, no artificial or styliz
       model: "gpt-image-1",
       image: images,
       prompt,
-      input_fidelity: "medium", // can be "medium" or "high",
+      input_fidelity: "high", // can be "medium" or "high",
     });
 
     // Convert Base64 output to buffer
@@ -88,8 +88,7 @@ No animation, no illustration, no cartoon style, no CGI, no artificial or styliz
       AiGeneratedImages
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to generate garden" });
+console.error("FULL ERROR:", err.response?.data || err.message || err);    res.status(500).json({ error: "Failed to generate garden" });
   }
 };
 

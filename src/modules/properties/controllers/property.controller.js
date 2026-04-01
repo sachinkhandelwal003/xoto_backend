@@ -938,6 +938,9 @@ exports.createSecondaryProperty = async (req, res) => {
  * @route   GET /api/agent/properties
  * @desc    Agent gets all properties (own secondary + approved off-plan)
  */
+
+
+
 exports.getAgentProperties = async (req, res) => {
     try {
         const agentId = req.user._id;
@@ -993,10 +996,16 @@ exports.getAgentProperties = async (req, res) => {
         // ========== BUILD QUERIES ==========
         
         // Query 1: Agent's own secondary properties
-        let secondaryQuery = { 
-            agent: agentId, 
-            propertySubType: "secondary" 
-        };
+       let secondaryQuery = { 
+  agent: agentId, 
+  propertySubType: "secondary"
+};
+
+// 👉 ADD THIS CONDITION
+if (propertyType === "all") {
+  secondaryQuery.approvalStatus = "approved";
+  secondaryQuery.listingStatus = "active";
+}
         
         // Query 2: Approved off-plan properties (from developers)
         let offplanQuery = { 
@@ -1229,6 +1238,10 @@ exports.getAgentProperties = async (req, res) => {
     }
 };
 
+
+
+
+
 exports.getAgentPropertyById = async (req, res) => {
     try {
         const { id } = req.params;
@@ -1255,6 +1268,366 @@ exports.getAgentPropertyById = async (req, res) => {
         });
     }
 };
+
+
+
+/**
+ * @route   GET /api/agency/properties/all
+ * @desc    Agency sees: All approved off-plan + All properties from their agents (secondary only)
+ */
+exports.getAgencyAllProperties = async (req, res) => {
+    try {
+        // =========================
+        // ✅ GET AGENCY ID
+        // =========================
+const agencyId =
+    req.user?.agencyId ||   // for agent login
+    req.user?.id ||         // ✅ for agency login
+    req.params.agencyId;
+
+
+
+        if (!agencyId) {
+            return res.status(400).json({
+                success: false,
+                message: "Agency ID is required"
+            });
+        }
+
+        // =========================
+        // ✅ GET ALL AGENTS OF AGENCY
+        // =========================
+        const agents = await Agent.find({
+            agency: agencyId,
+            is_active: true
+        });
+
+        const agentIds = agents.map(agent => agent._id);
+
+        // =========================
+        // ✅ PAGINATION
+        // =========================
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        // =========================
+        // ✅ FILTERS
+        // =========================
+        const {
+            propertyType, // secondary | off_plan | all
+            propertyName,
+            minPrice,
+            maxPrice,
+            city,
+            area,
+            sortBy,
+            sortOrder
+        } = req.query;
+
+        // =========================
+        // ✅ COMMON FILTERS
+        // =========================
+        const commonFilters = {};
+
+        if (propertyName) {
+            commonFilters.propertyName = { $regex: propertyName, $options: "i" };
+        }
+
+        if (city) {
+            commonFilters.city = { $regex: city, $options: "i" };
+        }
+
+        if (area) {
+            commonFilters.area = { $regex: area, $options: "i" };
+        }
+
+        if (minPrice || maxPrice) {
+            commonFilters.price = {};
+            if (minPrice) commonFilters.price.$gte = Number(minPrice);
+            if (maxPrice) commonFilters.price.$lte = Number(maxPrice);
+        }
+
+        // =========================
+        // ✅ SECONDARY QUERY (AGENCY AGENTS)
+        // =========================
+        let secondaryQuery = {
+            agent: { $in: agentIds },
+            propertySubType: "secondary",
+            approvalStatus: "approved",   // ✅ ONLY APPROVED
+            listingStatus: "active",      // ✅ ONLY ACTIVE
+            ...commonFilters
+        };
+
+        // =========================
+        // ✅ OFFPLAN QUERY (GLOBAL)
+        // =========================
+        let offplanQuery = {
+            propertySubType: "off_plan",
+            approvalStatus: "approved",   // ✅ ONLY APPROVED
+            listingStatus: "active",
+            ...commonFilters
+        };
+
+        // =========================
+        // ✅ FETCH DATA BASED ON TYPE
+        // =========================
+        let properties = [];
+
+        const type = propertyType || "all";
+
+        if (type === "secondary" || type === "all") {
+            const secondary = await Property.find(secondaryQuery)
+                .populate("agent", "first_name last_name email phone_number")
+                .populate("agency", "agency_name logo");
+
+            properties.push(...secondary);
+        }
+
+        if (type === "off_plan" || type === "all") {
+            const offplan = await Property.find(offplanQuery)
+                .populate("developer", "name email logo");
+
+            properties.push(...offplan);
+        }
+
+        // =========================
+        // ✅ SORTING
+        // =========================
+        if (sortBy === "price") {
+            const order = sortOrder === "asc" ? 1 : -1;
+
+            properties.sort((a, b) => {
+                const priceA = a.price || a.price_min || 0;
+                const priceB = b.price || b.price_min || 0;
+                return (priceA - priceB) * order;
+            });
+        } else {
+            properties.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        }
+
+        // =========================
+        // ✅ PAGINATION (AFTER MERGE)
+        // =========================
+        const total = properties.length;
+        const paginatedData = properties.slice(skip, skip + limit);
+
+        // =========================
+        // ✅ RESPONSE
+        // =========================
+        return res.status(200).json({
+            success: true,
+            count: paginatedData.length,
+            totalItems: total,
+            totalPages: Math.ceil(total / limit),
+            currentPage: page,
+            data: paginatedData,
+            agencyInfo: {
+                agencyId,
+                totalAgents: agents.length
+            },
+            message: "Approved secondary + approved offplan properties"
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+/**
+ * @route   GET /api/agency/properties/own
+ * @desc    Agency sees ONLY their agents' secondary properties (no off-plan)
+ */
+exports.getAgencyOwnProperties = async (req, res) => {
+    try {
+        // =========================
+        // ✅ GET AGENCY ID (FIXED)
+        // =========================
+        const agencyId =
+            req.user?.agencyId ||
+            req.user?.id ||   // for agency login
+            req.params.agencyId;
+
+        if (!agencyId) {
+            return res.status(400).json({
+                success: false,
+                message: "Agency ID not found"
+            });
+        }
+
+        // =========================
+        // ✅ GET ACTIVE AGENTS
+        // =========================
+        const agents = await Agent.find({
+            agency: agencyId,
+            is_active: true
+        });
+
+        const agentIds = agents.map(a => a._id);
+
+        // =========================
+        // ✅ PAGINATION
+        // =========================
+        const page = Number(req.query.page) || 1;
+        const limit = Math.min(Number(req.query.limit) || 10, 100);
+        const skip = (page - 1) * limit;
+
+        // =========================
+        // ✅ FILTERS
+        // =========================
+        const {
+            agentId,
+            approvalStatus,
+            listingStatus,
+            propertyName,
+            unitType,
+            bedroomType,
+            bedrooms,
+            minPrice,
+            maxPrice,
+            minArea,
+            maxArea,
+            area,
+            city,
+            hasView,
+            furnishing,
+            parkingSpaces,
+            shareCommission,
+            search,
+            sortBy,
+            sortOrder
+        } = req.query;
+
+        // =========================
+        // ✅ BASE QUERY
+        // =========================
+        let query = {
+            agent: { $in: agentIds },
+            propertySubType: "secondary"
+        };
+
+        // =========================
+        // ✅ AGENT FILTER
+        // =========================
+        if (agentId) {
+            if (agentIds.some(id => id.toString() === agentId)) {
+                query.agent = agentId;
+            } else {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid agent"
+                });
+            }
+        }
+
+        // =========================
+        // ✅ STATUS FILTERS
+        // =========================
+        if (approvalStatus && approvalStatus !== "all") {
+            query.approvalStatus = approvalStatus;
+        }
+
+        if (listingStatus && listingStatus !== "all") {
+            query.listingStatus = listingStatus;
+        }
+
+        // =========================
+        // ✅ PROPERTY FILTERS
+        // =========================
+        if (propertyName) {
+            query.propertyName = { $regex: propertyName, $options: "i" };
+        }
+
+        if (unitType) query.unitType = unitType;
+        if (bedroomType) query.bedroomType = bedroomType;
+        if (bedrooms) query.bedrooms = Number(bedrooms);
+
+        // Price
+        if (minPrice || maxPrice) {
+            query.price = {};
+            if (minPrice) query.price.$gte = Number(minPrice);
+            if (maxPrice) query.price.$lte = Number(maxPrice);
+        }
+
+        // Area
+        if (minArea || maxArea) {
+            query.builtUpArea = {};
+            if (minArea) query.builtUpArea.$gte = Number(minArea);
+            if (maxArea) query.builtUpArea.$lte = Number(maxArea);
+        }
+
+        // Location
+        if (area) query.area = { $regex: area, $options: "i" };
+        if (city) query.city = { $regex: city, $options: "i" };
+
+        // Features
+        if (hasView !== undefined) query.hasView = hasView === "true";
+        if (furnishing) query.furnishing = furnishing;
+        if (parkingSpaces) query.parkingSpaces = Number(parkingSpaces);
+
+        if (shareCommission !== undefined) {
+            query.shareCommission = shareCommission === "true";
+        }
+
+        // Search
+        if (search) {
+            query.$or = [
+                { propertyName: { $regex: search, $options: "i" } },
+                { description: { $regex: search, $options: "i" } },
+                { area: { $regex: search, $options: "i" } }
+            ];
+        }
+
+        // =========================
+        // ✅ SORT
+        // =========================
+        let sort = { createdAt: -1 };
+
+        if (sortBy === "price") {
+            sort = { price: sortOrder === "asc" ? 1 : -1 };
+        }
+
+        // =========================
+        // ✅ QUERY EXECUTION
+        // =========================
+        const total = await Property.countDocuments(query);
+
+        const properties = await Property.find(query)
+            .populate("agent", "first_name last_name email")
+            .populate("agency", "agency_name")
+            .sort(sort)
+            .skip(skip)
+            .limit(limit);
+
+        // =========================
+        // ✅ RESPONSE
+        // =========================
+        return res.status(200).json({
+            success: true,
+            data: properties,
+            totalItems: total,
+            count: properties.length,
+            pagination: {
+                totalPages: Math.ceil(total / limit),
+                currentPage: page,
+                limit
+            },
+            message: "Agency own secondary properties"
+        });
+
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+
 
 
 

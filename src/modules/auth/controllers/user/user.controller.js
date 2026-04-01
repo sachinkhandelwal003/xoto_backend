@@ -205,23 +205,25 @@ exports.customerSignup = asyncHandler(async (req, res) => {
   if (existingCustomer) {
     console.log("existingCustomerexistingCustomer", existingCustomer);
 
-    let validationErrors = [];
 
     // Check agar Email match hua
-    if (existingCustomer.email === email.toLowerCase()) {
-      validationErrors.push({
-        field: "email",
-        message: "Customer already exists with this email address"
-      });
-    }
+     if (existingCustomer.email === email.toLowerCase()) {
+    return res.status(400).json({
+      success: false,
+      message: "Customer already exists with this email"
+    });
+  }
 
     // Check agar Mobile Number match hua
-    if (existingCustomer.mobile && existingCustomer.mobile.number === mobile.number) {
-      validationErrors.push({
-        field: "mobile",
-        message: "Customer already exists with this mobile number"
-      });
-    }
+     if (
+    existingCustomer.mobile &&
+    existingCustomer.mobile.number === mobile.number
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Customer already exists with this mobile number"
+    });
+  }
 
     // Ab smart format me error frontend ko bhej do
     return res.status(400).json({

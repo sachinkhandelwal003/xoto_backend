@@ -18,6 +18,7 @@ export const agentSignup = async (req, res) => {
       "operating_city",
       "specialization",
       "country",
+      "rera_number",
       "profile_photo",
       "id_proof",
       "rera_certificate",
