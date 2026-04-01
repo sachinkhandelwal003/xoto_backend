@@ -10,11 +10,18 @@ const { getPropertySuggestions } = require("./aiSuggestionService");
  * CREATE LEAD with preferences
  * POST /api/lead/create-lead
  */
+/**
+ * CREATE LEAD with preferences and selected properties
+ * POST /api/agent/lead/create-lead
+ */
 exports.createLead = async (req, res) => {
   try {
     const {
       customer,
       agent,
+      name,
+      phone_number,
+      email,
       budget,
       preferred_location,
       bedrooms,
@@ -22,9 +29,11 @@ exports.createLead = async (req, res) => {
       area,
       specific_project,
       requirement_description,
-      source
+      source,
+      selected_properties  // Array of property IDs selected by agent
     } = req.body;
 
+    // Validate required fields
     if (!customer || !agent) {
       return res.status(400).json({
         success: false,
@@ -48,10 +57,13 @@ exports.createLead = async (req, res) => {
       if (property) developerId = property.developer;
     }
 
-    // Create lead
+    // Create lead with all preferences
     const lead = await Lead.create({
       customer,
       agent,
+      name: name || { first_name: "", last_name: "" },
+      phone_number: phone_number || "",
+      email: email || "",
       budget: budget || { min: 0, max: 0 },
       preferred_location: preferred_location || [],
       bedrooms: bedrooms || { min: 0, max: 0 },
@@ -64,36 +76,32 @@ exports.createLead = async (req, res) => {
       status: "customer"
     });
 
-    // Fetch AI suggestions from property database
-    const aiSuggestions = await getPropertySuggestions({
-      budget,
-      preferred_location,
-      bedrooms,
-      property_type,
-      area
-    });
-
-    // Create LeadInterests for each AI suggestion (up to 10)
-    let createdInterests = [];
-    if (aiSuggestions && aiSuggestions.length > 0) {
-      const interestPromises = aiSuggestions.slice(0, 10).map(suggestion =>
+    // Create LeadInterests for selected properties (manually selected by agent)
+    let selectedInterests = [];
+    if (selected_properties && selected_properties.length > 0) {
+      // Verify properties exist before creating interests
+      const validProperties = await Property.find({ 
+        _id: { $in: selected_properties },
+        isAvailable: true,
+        approvalStatus: "approved",
+        listingStatus: "active"
+      });
+      
+      const validPropertyIds = validProperties.map(p => p._id.toString());
+      
+      const interestPromises = validPropertyIds.map(propertyId =>
         LeadInterest.create({
           lead: lead._id,
-          property: suggestion.property._id,
-          developer: suggestion.property.developerId,
+          property: propertyId,
+          developer: null,
           agent: agent,
-          interest_source: "ai_suggested",
-          ai_match: {
-            score: suggestion.matchScore,
-            reasons: suggestion.matchReasons,
-            factors: suggestion.matchFactors,
-            generated_at: new Date()
-          },
+          interest_source: "agent_added",
           conversion_stage: "interest",
-          engagement_score: suggestion.matchScore
+          engagement_score: 60,
+          notes: "Property selected by agent during lead creation"
         })
       );
-      createdInterests = await Promise.all(interestPromises);
+      selectedInterests = await Promise.all(interestPromises);
     }
 
     return res.status(201).json({
@@ -101,8 +109,9 @@ exports.createLead = async (req, res) => {
       message: "Lead created successfully",
       data: {
         lead,
-        interests: createdInterests,
-        aiSuggestions: aiSuggestions.slice(0, 10)
+        interests: selectedInterests,
+        totalInterests: selectedInterests.length,
+        selectedCount: selectedInterests.length
       }
     });
 
