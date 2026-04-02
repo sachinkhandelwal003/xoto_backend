@@ -1,6 +1,8 @@
-const Router = require("express");
+const express = require("express");
+const router = express.Router();
 
 const {
+  // Developer
   createDeveloper,
   loginDeveloper,
   editDeveloper,
@@ -8,47 +10,49 @@ const {
   getAllDevelopers,
   deleteDeveloper,
 
+  // Property
   createProperty,
   editProperty,
   deleteProperty,
   getAllProperties,
   getPropertyById,
   MarketPlaceAPI,
+  updatePropertyStatus,
+  getApprovedProperties,
+  getPropertiesByDeveloper,
+  getMyProperties,
 
+  // Inventory
   createInventory,
   bulkImportInventory,
   getInventoryByProperty,
   updateInventory,
   deleteInventory,
-
   reserveUnit,
   bookUnit,
   releaseUnit,
 
+  // Leads
   getDeveloperLeads,
   getDeveloperLeadById,
 
-  approveProperty,
-  getApprovedProperties,
-  updatePropertyStatus,
-
-   getPropertiesByDeveloper,
-
-   setCommissionScheme,
-   getCommissionScheme,
-   getDeveloperCommissions,
-   getDeveloperRevenue,
-   getDeveloperDashboard,
+  // Commission
+  setCommissionScheme,
+  getCommissionScheme,
+  getDeveloperCommissions,
+  getDeveloperRevenue,
+  getDeveloperDashboard
 
 } = require("../controllers/index.js");
 
-const router = Router();
+const { protectMulti, authorize } = require("../../../middleware/auth.js");
 
+/* =========================================================
+   🔹 DEVELOPER ROUTES
+========================================================= */
 
-// ---------------- DEVELOPER ----------------
-
-router.post("/create-developer", createDeveloper);
-router.post("/login-developer", loginDeveloper);
+router.post("/developer/create", createDeveloper);
+router.post("/developer/login", loginDeveloper);
 
 router.get("/get-all-developers", getAllDevelopers);
 router.get("/get-developer-by-id", getDeveloperrById);
@@ -67,48 +71,125 @@ router.get("/get-property-by-id", getPropertyById);
 
 router.get("/marketplace", MarketPlaceAPI);
 
+// ✅ MY PROPERTIES
 router.get(
-  "/developers/:developerId/properties",
+  "/my",
+  protectMulti,
+  authorize({ roles: ["developer"] }),
+  getMyProperties
+);
+
+// ✅ BY DEVELOPER
+router.get(
+  "/developer/:developerId/properties",
   getPropertiesByDeveloper
 );
 
-// ---------------- PROPERTY APPROVAL ----------------
+/* =========================================================
+   🔹 ADMIN MODERATION (IMPORTANT ABOVE :id)
+========================================================= */
 
-router.put("/approve/:id", approveProperty);
-router.get("/approved", getApprovedProperties);
-router.put("/update-status/:id", updatePropertyStatus);
+// ✅ ADMIN LIST (FILTER)
+router.get(
+  "/admin",
+  protectMulti,
+  authorize({ roles: ["admin"] }),
+  async (req, res) => {
+    try {
+      const { status } = req.query;
 
+      let query = {
+        listingType: "secondary",
+      };
 
-// ---------------- INVENTORY ----------------
+      if (status) query.approvalStatus = status;
 
-router.post("/create-inventory", createInventory);
+      const properties = await require("../models/PropertyModel")
+        .find(query)
+        .sort({ createdAt: -1 });
 
+      res.json({
+        success: true,
+        data: properties,
+      });
+
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+);
+
+// ✅ UPDATE STATUS
+router.put(
+  "/status/:id",
+  protectMulti,
+  authorize({ roles: ["admin"] }),
+  updatePropertyStatus
+);
+
+// ✅ APPROVED ONLY
+router.get(
+  "/approved",
+  protectMulti,
+  authorize({ roles: ["admin"] }),
+  getApprovedProperties
+);
+
+/* =========================================================
+   🔹 INVENTORY
+========================================================= */
+
+router.post("/inventory", protectMulti, createInventory);
 router.get("/inventory/property/:projectId", getInventoryByProperty);
+router.put("/inventory/:id", protectMulti, updateInventory);
+router.delete("/inventory/:id", protectMulti, deleteInventory);
+router.post("/inventory/bulk", protectMulti, bulkImportInventory);
 
-router.put("/update-inventory/:id", updateInventory);
+router.post("/inventory/:id/reserve", protectMulti, reserveUnit);
+router.post("/inventory/:id/book", protectMulti, bookUnit);
+router.post("/inventory/:id/release", protectMulti, releaseUnit);
 
-router.delete("/delete-inventory/:id", deleteInventory);
+/* =========================================================
+   🔹 LEADS
+========================================================= */
 
-router.post("/bulk-import-inventory", bulkImportInventory);
+router.get("/leads", protectMulti, getDeveloperLeads);
+router.get("/leads/:id", protectMulti, getDeveloperLeadById);
 
-// inventory actions
-router.post("/inventory/:id/reserve", reserveUnit);
-router.post("/inventory/:id/book", bookUnit);
-router.post("/inventory/:id/release", releaseUnit);
+/* =========================================================
+   🔹 COMMISSION
+========================================================= */
 
-// ---------------- DEVELOPER LEADS ----------------
-
-router.get("/developer-leads", getDeveloperLeads);
-router.get("/developer-lead/:id", getDeveloperLeadById);
-
-// Commission
-
-router.post("/commission", setCommissionScheme);
-
+router.post("/commission", protectMulti, setCommissionScheme);
 router.get("/commission/:propertyId", getCommissionScheme);
-router.get("/developer-commissions/:developerId", getDeveloperCommissions);
-router.get("/developer-revenue/:developerId", getDeveloperRevenue);
 
-router.get("/developer-dashboard/:developerId",getDeveloperDashboard);
+router.get("/developer/:developerId/commissions", getDeveloperCommissions);
+router.get("/developer/:developerId/revenue", getDeveloperRevenue);
+router.get("/developer/:developerId/dashboard", getDeveloperDashboard);
+
+/* =========================================================
+   🔹 SINGLE PROPERTY (ALWAYS LAST)
+========================================================= */
+
+router.get("/:id", getPropertyById);
+
+// ✅ EDIT
+router.put(
+  "/:id",
+  protectMulti,
+  authorize({ roles: ["agent", "admin", "developer"] }),
+  editProperty
+);
+
+// ✅ DELETE
+router.delete(
+  "/:id",
+  protectMulti,
+  authorize({ roles: ["admin", "developer"] }),
+  deleteProperty
+);
 
 module.exports = router;
