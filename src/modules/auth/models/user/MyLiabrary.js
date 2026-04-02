@@ -1,34 +1,69 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
-const customerAiLibrarySchema = new mongoose.Schema(
+const aiGeneratedImageSchema = new mongoose.Schema(
   {
-    customerId: {
+    // AI generated image URL
+    imageUrl: {
+      type: String,
+      required: true,
+      trim: true
+    },
+
+    // Who generated this image
+    userId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Customer",
+      ref: 'Customer',
       required: true,
       index: true
     },
 
-    designType: {
+    // User type (fixed to customer, extensible later)
+    userType: {
       type: String,
-      enum: ["landscaping", "interior"],
-      default: "landscaping",
+      enum: ['customer'],
+      default: 'customer',
       required: true
     },
 
-    images: [
+    designType: {
+      type: String,
+      default: "landscaping",
+      enum: ["landscaping", "interior"],
+      required: false
+    },
+
+    // :white_check_mark: ADD THIS (description)
+    description: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+
+    // :white_check_mark: OPTIONAL: store selected style/elements if needed
+    styleName: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+
+    elements: [
       {
         type: String,
-        required: true
+        trim: true
       }
     ]
+
   },
-  { timestamps: true }
+  {
+    timestamps: true
+  }
 );
 
+aiGeneratedImageSchema.index({ userId: 1, createdAt: -1 });
 
-
-module.exports = mongoose.model(
-  "CustomerAiLibrary",
-  customerAiLibrarySchema
+let AiGeneratedImage = mongoose.model(
+  'AiGeneratedImage',
+  aiGeneratedImageSchema
 );
+
+module.exports = AiGeneratedImage;
