@@ -516,7 +516,7 @@ exports.getLeadById = async (req, res) => {
     }
 
     const lead = await Lead.findById(id)
-      .populate("customer", "first_name last_name email phone_number")
+      .populate("customer")
       .populate("agent", "first_name last_name email")
       .populate("developer", "name")
       .populate("selected_property", "propertyName price area");
