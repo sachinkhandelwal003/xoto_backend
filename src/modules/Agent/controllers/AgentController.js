@@ -18,7 +18,6 @@ exports.createLead = async (req, res) => {
   try {
     const {
       customer,
-      agent,
       name,
       phone_number,
       email,
@@ -30,19 +29,33 @@ exports.createLead = async (req, res) => {
       specific_project,
       requirement_description,
       source,
-      selected_properties  // Array of property IDs selected by agent
+      selected_properties
     } = req.body;
 
-    // Validate required fields
-    if (!customer || !agent) {
+    // 🔥 GET AGENT FROM TOKEN
+    const agent = req.user?._id;
+
+    // ================= VALIDATION =================
+    if (!customer) {
       return res.status(400).json({
         success: false,
-        message: "Customer and Agent are required"
+        message: "Customer is required"
       });
     }
 
-    // Check for existing lead
-    const existingLead = await Lead.findOne({ customer, isDeleted: false });
+    if (!agent) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized (Agent not found)"
+      });
+    }
+
+    // ================= DUPLICATE CHECK =================
+    const existingLead = await Lead.findOne({
+      customer,
+      isDeleted: false
+    });
+
     if (existingLead) {
       return res.status(400).json({
         success: false,
@@ -50,17 +63,21 @@ exports.createLead = async (req, res) => {
       });
     }
 
-    // Get developer if specific project selected
+    // ================= PROJECT → DEVELOPER =================
     let developerId = null;
+
     if (specific_project) {
-      const property = await Property.findOne({ propertyName: specific_project });
+      const property = await Property.findOne({
+        propertyName: specific_project
+      });
+
       if (property) developerId = property.developer;
     }
 
-    // Create lead with all preferences
+    // ================= CREATE LEAD =================
     const lead = await Lead.create({
       customer,
-      agent,
+      agent, // 🔥 FROM TOKEN
       name: name || { first_name: "", last_name: "" },
       phone_number: phone_number || "",
       email: email || "",
@@ -76,48 +93,51 @@ exports.createLead = async (req, res) => {
       status: "customer"
     });
 
-    // Create LeadInterests for selected properties (manually selected by agent)
+    // ================= CREATE INTERESTS =================
     let selectedInterests = [];
-    if (selected_properties && selected_properties.length > 0) {
-      // Verify properties exist before creating interests
-      const validProperties = await Property.find({ 
+
+    if (selected_properties?.length > 0) {
+      const validProperties = await Property.find({
         _id: { $in: selected_properties },
         isAvailable: true,
         approvalStatus: "approved",
         listingStatus: "active"
       });
-      
-      const validPropertyIds = validProperties.map(p => p._id.toString());
-      
-      const interestPromises = validPropertyIds.map(propertyId =>
+
+      const validIds = validProperties.map(p => p._id.toString());
+
+      const promises = validIds.map(propertyId =>
         LeadInterest.create({
           lead: lead._id,
           property: propertyId,
-          developer: null,
-          agent: agent,
+          agent: agent, // 🔥 FROM TOKEN
           interest_source: "agent_added",
           conversion_stage: "interest",
           engagement_score: 60,
-          notes: "Property selected by agent during lead creation"
+          notes: "Selected by agent during lead creation"
         })
       );
-      selectedInterests = await Promise.all(interestPromises);
+
+      selectedInterests = await Promise.all(promises);
     }
 
+    // ================= RESPONSE =================
     return res.status(201).json({
       success: true,
       message: "Lead created successfully",
       data: {
         lead,
         interests: selectedInterests,
-        totalInterests: selectedInterests.length,
         selectedCount: selectedInterests.length
       }
     });
 
   } catch (error) {
     console.error("Create Lead Error:", error);
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 // controllers/LeadController.js
@@ -765,11 +785,30 @@ exports.getAllLeads = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
-    const { agent, status, search } = req.query;
 
-    let query = { isDeleted: false };
-    if (agent) query.agent = agent;
-    if (status) query.status = status;
+    const { status, search } = req.query;
+
+    // 🔥 GET AGENT FROM TOKEN
+    const agent = req.user?._id;
+    console.log("agentagent",agent)
+
+    if (!agent) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized (Agent not found)"
+      });
+    }
+
+    // ================= QUERY =================
+    let query = {
+      isDeleted: false,
+      agent: agent // 🔥 always filter by logged-in agent
+    };
+
+    if (status) {
+      query.status = status;
+    }
+
     if (search) {
       query.$or = [
         { "name.first_name": { $regex: search, $options: "i" } },
@@ -778,14 +817,17 @@ exports.getAllLeads = async (req, res) => {
       ];
     }
 
+    // ================= FETCH =================
     const total = await Lead.countDocuments(query);
+
     const leads = await Lead.find(query)
-      .populate("customer", "first_name last_name email phone_number")
-      .populate("agent", "first_name last_name email")
+      .populate("customer", "name email mobile")
+      .populate("agent", "name email")
       .skip(skip)
       .limit(limit)
       .sort({ createdAt: -1 });
 
+    // ================= RESPONSE =================
     return res.json({
       success: true,
       count: leads.length,
@@ -800,6 +842,9 @@ exports.getAllLeads = async (req, res) => {
 
   } catch (error) {
     console.error("Get Leads Error:", error);
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
