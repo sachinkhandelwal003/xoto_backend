@@ -15,9 +15,16 @@ const {
 // Public routes
 router.post('/login', validateLogin, controller.userLogin);
 router.post('/login/customer', controller.customerLogin);
+
 router.post(
   '/signup/customer',
   // validateCustomerSignup,
+  controller.customerSignup
+);
+router.post(
+  '/signup/customer/agents',
+  // validateCustomerSignup,
+  protectMulti,
   controller.customerSignup
 );
 
