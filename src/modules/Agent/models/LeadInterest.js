@@ -1,43 +1,21 @@
+// models/LeadInterest.js
 const mongoose = require("mongoose");
 
 const LeadInterestSchema = new mongoose.Schema({
   // =========================
   // REFERENCES
   // =========================
-  lead: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Lead",
-    required: true
-  },
-  
-  property: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Property",
-    required: true
-  },
-  
-  developer: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Developer"
-  },
-  
-  agent: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Agent",
-    required: true
-  },
+  lead: { type: mongoose.Schema.Types.ObjectId, ref: "Lead", required: true },
+  property: { type: mongoose.Schema.Types.ObjectId, ref: "Properties", required: true },
+  developer: { type: mongoose.Schema.Types.ObjectId, ref: "Developer", default: null },
+  agent: { type: mongoose.Schema.Types.ObjectId, ref: "Agent", required: true },
 
   // =========================
   // INTEREST SOURCE
   // =========================
   interest_source: {
     type: String,
-    enum: [
-      "ai_suggested",      // AI recommended
-      "agent_added",       // Agent manually added
-      "client_selected",   // Client showed interest
-      "brochure_sent"      // Brochure sent
-    ],
+    enum: ["ai_suggested", "agent_added", "client_selected", "brochure_sent"],
     default: "ai_suggested"
   },
 
@@ -51,7 +29,8 @@ const LeadInterestSchema = new mongoose.Schema({
       budget_match: Number,
       location_match: Number,
       bedroom_match: Number,
-      property_type_match: Number
+      property_type_match: Number,
+      area_match: Number
     },
     generated_at: Date
   },
@@ -62,58 +41,26 @@ const LeadInterestSchema = new mongoose.Schema({
   brochure: {
     sent: { type: Boolean, default: false },
     sent_at: Date,
-    sent_via: { 
-      type: String, 
-      enum: ["whatsapp", "email", "sms", "link"] 
-    },
-    
-    // Tracking
+    sent_via: { type: String, enum: ["whatsapp", "email", "sms", "link"] },
     viewed: { type: Boolean, default: false },
     viewed_at: Date,
-    view_duration: Number, // seconds spent viewing
-    
-    clicked: { type: Boolean, default: false },
-    clicked_at: Date,
-    clicked_pages: [String], // which pages they clicked
-    
-    // Brochure file
-    file_url: String,
-    file_name: String,
-    
-    // QR Code tracking
-    qr_code: String,
-    qr_scanned_at: Date
+    view_duration: Number,
+    file_url: String
   },
 
   // =========================
-  // SITE VISIT LINK (to your existing SiteVisit model)
+  // SITE VISIT
   // =========================
-  site_visit: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "SiteVisit"  // Links to your existing SiteVisit model
-  },
-  
-  site_visit_requested: {
-    type: Boolean,
-    default: false
-  },
-  
+  site_visit: { type: mongoose.Schema.Types.ObjectId, ref: "SiteVisit", default: null },
+  site_visit_requested: { type: Boolean, default: false },
   site_visit_requested_at: Date,
 
   // =========================
   // CONVERSION TRACKING
   // =========================
-  is_selected: { 
-    type: Boolean, 
-    default: false  // true when client chooses this property
-  },
-  
+  is_selected: { type: Boolean, default: false },
   selected_at: Date,
-  
-  deal_id: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Deal"
-  },
+  deal_id: { type: mongoose.Schema.Types.ObjectId, ref: "Deal", default: null },
   
   conversion_stage: {
     type: String,
@@ -124,174 +71,87 @@ const LeadInterestSchema = new mongoose.Schema({
   // =========================
   // ENGAGEMENT METRICS
   // =========================
-  engagement_score: {
-    type: Number,
-    min: 0,
-    max: 100,
-    default: 0
-  },
-  
+  engagement_score: { type: Number, min: 0, max: 100, default: 0 },
   last_interaction: Date,
   interaction_count: { type: Number, default: 0 },
 
   // =========================
-  // NOTES
+  // NOTES & STATUS
   // =========================
   notes: String,
-
-  // =========================
-  // STATUS
-  // =========================
   is_active: { type: Boolean, default: true },
   is_deleted: { type: Boolean, default: false },
   deleted_at: Date
 
-}, { 
-  timestamps: true,
-  toJSON: { virtuals: true },
-  toObject: { virtuals: true }
-});
+}, { timestamps: true });
 
-// =========================
-// INDEXES
-// =========================
-LeadInterestSchema.index({ lead: 1, property: 1 }, { unique: true }); // One interest per lead per property
+// Indexes
+LeadInterestSchema.index({ lead: 1, property: 1 }, { unique: true });
 LeadInterestSchema.index({ lead: 1, is_selected: 1 });
-LeadInterestSchema.index({ agent: 1 });
-LeadInterestSchema.index({ "brochure.sent": 1, "brochure.viewed": 1 });
 LeadInterestSchema.index({ conversion_stage: 1 });
 LeadInterestSchema.index({ engagement_score: -1 });
-LeadInterestSchema.index({ site_visit: 1 }); // Index for SiteVisit reference
 
-// =========================
-// VIRTUAL FIELDS
-// =========================
+// Virtuals
 LeadInterestSchema.virtual("is_hot").get(function() {
   return this.engagement_score > 70 || 
-         (this.brochure.viewed && this.brochure.clicked) ||
+         (this.brochure.viewed && this.brochure.sent) ||
          this.site_visit_requested;
 });
 
 LeadInterestSchema.virtual("conversion_probability").get(function() {
   if (this.deal_id) return 100;
   if (this.is_selected) return 80;
-  if (this.site_visit) return 60; // Has site visit record
+  if (this.site_visit) return 60;
   if (this.site_visit_requested) return 40;
   if (this.brochure.viewed) return 30;
   if (this.brochure.sent) return 20;
   return 10;
 });
 
-// =========================
-// METHODS
-// =========================
+// Methods
+LeadInterestSchema.methods.markBrochureSent = function(via = "whatsapp") {
+  this.brochure.sent = true;
+  this.brochure.sent_at = new Date();
+  this.brochure.sent_via = via;
+  this.conversion_stage = "brochure_sent";
+  this.engagement_score = Math.min(100, this.engagement_score + 20);
+  this.last_interaction = new Date();
+  return this.save();
+};
 
-// Track brochure view
-LeadInterestSchema.methods.trackBrochureView = function(duration, pages) {
+LeadInterestSchema.methods.markBrochureViewed = function(duration = 0) {
   this.brochure.viewed = true;
   this.brochure.viewed_at = new Date();
   this.brochure.view_duration = duration;
-  this.last_interaction = new Date();
-  this.interaction_count += 1;
-  
-  // Update engagement score
-  this.engagement_score = Math.min(100, this.engagement_score + 20);
-  
-  // Update conversion stage
-  if (this.conversion_stage === "interest" || this.conversion_stage === "brochure_sent") {
-    this.conversion_stage = "viewed";
-  }
-};
-
-// Track brochure click
-LeadInterestSchema.methods.trackBrochureClick = function(page) {
-  if (!this.brochure.clicked) {
-    this.brochure.clicked = true;
-    this.brochure.clicked_at = new Date();
-  }
-  
-  if (page && !this.brochure.clicked_pages.includes(page)) {
-    this.brochure.clicked_pages.push(page);
-  }
-  
-  this.last_interaction = new Date();
-  this.interaction_count += 1;
-  
-  // Update engagement score
+  this.conversion_stage = "viewed";
   this.engagement_score = Math.min(100, this.engagement_score + 15);
+  this.last_interaction = new Date();
+  return this.save();
 };
 
-// Request site visit (links to your SiteVisit model)
 LeadInterestSchema.methods.requestSiteVisit = function(siteVisitId) {
   this.site_visit = siteVisitId;
   this.site_visit_requested = true;
   this.site_visit_requested_at = new Date();
   this.conversion_stage = "site_visit_requested";
-  this.last_interaction = new Date();
-  this.interaction_count += 1;
   this.engagement_score = Math.min(100, this.engagement_score + 30);
+  return this.save();
 };
 
-// Mark site visit as completed (updates based on SiteVisit feedback)
 LeadInterestSchema.methods.completeSiteVisit = function(interestScore) {
   this.conversion_stage = "site_visit_completed";
+  this.engagement_score = Math.min(100, this.engagement_score + (interestScore >= 7 ? 40 : 20));
   this.last_interaction = new Date();
-  this.interaction_count += 1;
-  
-  if (interestScore >= 7) {
-    this.engagement_score = Math.min(100, this.engagement_score + 40);
-  }
+  return this.save();
 };
 
-// Mark as selected (client chooses this property)
 LeadInterestSchema.methods.markAsSelected = function(dealId = null) {
   this.is_selected = true;
   this.selected_at = new Date();
   this.conversion_stage = "deal";
   this.engagement_score = 100;
-  
-  if (dealId) {
-    this.deal_id = dealId;
-  }
-};
-
-// =========================
-// STATIC METHODS
-// =========================
-
-// Get hot leads (high engagement)
-LeadInterestSchema.statics.findHotLeads = function(agentId = null) {
-  const query = { 
-    is_active: true,
-    $or: [
-      { engagement_score: { $gt: 70 } },
-      { "brochure.viewed": true, "brochure.clicked": true },
-      { site_visit_requested: true }
-    ]
-  };
-  
-  if (agentId) query.agent = agentId;
-  
-  return this.find(query)
-    .populate("lead", "name phone_number email")
-    .populate("property", "propertyName price")
-    .sort({ engagement_score: -1 });
-};
-
-// Get leads that viewed brochure but no site visit
-LeadInterestSchema.statics.findWarmLeads = function(agentId = null) {
-  const query = {
-    is_active: true,
-    "brochure.viewed": true,
-    site_visit_requested: false,
-    engagement_score: { $gt: 30, $lte: 70 }
-  };
-  
-  if (agentId) query.agent = agentId;
-  
-  return this.find(query)
-    .populate("lead", "name phone_number")
-    .populate("property", "propertyName");
+  if (dealId) this.deal_id = dealId;
+  return this.save();
 };
 
 module.exports = mongoose.models.LeadInterest || mongoose.model("LeadInterest", LeadInterestSchema);

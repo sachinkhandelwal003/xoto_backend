@@ -181,108 +181,149 @@ exports.customerLogin = asyncHandler(async (req, res) => {
 //     lead
 //   });
 // });
+// controllers/customer.controller.js
+
 exports.customerSignup = asyncHandler(async (req, res) => {
   const {
     name,
     email,
     mobile,
+    phone,
+    whatsapp,
     location,
-    profile,
-    comingFromAiPage
+    profilePic,
+    comingFromAiPage,
+    source = "website",
+    assignedTo,  // Optional: can be passed manually
+    notes,
+    tags,
+    preferences
   } = req.body;
 
-  // 🔴 Required fields check
+  // ================= VALIDATION =================
   if (!name?.first_name || !name?.last_name || !email || !mobile?.number) {
     throw new APIError(
       "First name, last name, email, and mobile number are required",
       StatusCodes.BAD_REQUEST
     );
   }
-  console.log("mobileeeeeeeeeeeeeeeeeee", mobile);
 
-  // 🔍 Get Customer role
+  const normalizedEmail = email.trim().toLowerCase();
+
+  // ================= ROLE =================
   const customerRole = await Role.findOne({ name: "Customer" });
   if (!customerRole) {
     throw new APIError("Customer role not found", StatusCodes.NOT_FOUND);
   }
 
-  // 🔁 Check existing customer (email or mobile)
+  // ================= 🔥 AUTO ASSIGN AGENT FROM TOKEN =================
+  let agentId = null;
+  
+  // Check if the user is an agent based on role code
+  if (req.user && req.user.role && req.user.role.code === "16") {
+    // Agent is creating customer - auto assign to this agent
+    agentId = req.user._id; // from decoded token: "69cb67dd15849dcf52c48882"
+  } 
+  // If manually passed assignedTo, use that (for admin or other scenarios)
+  else if (assignedTo) {
+    agentId = assignedTo;
+  }
+
+  // ================= DUPLICATE CHECK =================
   const existingCustomer = await Customer.findOne({
     $or: [
-      { email: email.toLowerCase() },
-      { "mobile.number": mobile.number } // 🔥 Object match ki jagah direct number match jyada safe hai
+      { email: normalizedEmail },
+      { "mobile.number": mobile.number }
     ],
     is_deleted: false
   });
 
-  // ✅ Yahan humne specific errors generate karne ka logic lagaya hai
   if (existingCustomer) {
-    console.log("existingCustomerexistingCustomer", existingCustomer);
+    let message = "Customer already exists";
 
-    let validationErrors = [];
-
-    // Check agar Email match hua
-    if (existingCustomer.email === email.toLowerCase()) {
-      validationErrors.push({
-        field: "email",
-        message: "Customer already exists with this email address"
-      });
+    if (existingCustomer.email === normalizedEmail) {
+      message = "Customer already exists with this email";
+    } else if (existingCustomer.mobile?.number === mobile.number) {
+      message = "Customer already exists with this mobile number";
     }
 
-    // Check agar Mobile Number match hua
-    if (existingCustomer.mobile && existingCustomer.mobile.number === mobile.number) {
-      validationErrors.push({
-        field: "mobile",
-        message: "Customer already exists with this mobile number"
-      });
-    }
-
-    // Ab smart format me error frontend ko bhej do
     return res.status(400).json({
       success: false,
-      message: "Validation failed",
-      errors: validationErrors
+      message
     });
   }
 
-  // 🧾 Create customer
-  const customer = await Customer.create({
+  // ================= CREATE CUSTOMER =================
+  const customerData = {
     name,
-    email: email.toLowerCase(),
+    email: normalizedEmail,
     mobile,
     role: customerRole._id,
     location,
-    profile,
+    profilePic,
+    source,
     isActive: true
-  });
+  };
+
+  // Add agent assignment if agent is creating
+  if (agentId) {
+    customerData.assignedTo = agentId;
+  }
+
+  // Add optional fields
+  if (phone) customerData.phone = phone;
+  if (whatsapp) customerData.whatsapp = whatsapp;
+  if (notes) customerData.notes = notes;
+  if (tags) customerData.tags = tags;
+  if (preferences) customerData.preferences = preferences;
+
+  const customer = await Customer.create(customerData);
 
   await customer.populate("role", "name code");
+  
+  // Populate assigned agent details if exists
+  if (customer.assignedTo) {
+    await customer.populate("assignedTo", "first_name last_name email phone_number");
+  }
 
-  let lead = {};
+  // ================= AI LEAD =================
+  let lead = null;
+
   if (comingFromAiPage === true) {
-    let new_location = location && typeof (location) == "object" ? Object.values(location).filter(Boolean).join(', ') : "";
-    let payload = {
-      type: 'ai_enquiry', // or 'enquiry' (your choice)
+    const new_location =
+      location && typeof location === "object"
+        ? Object.values(location).filter(Boolean).join(", ")
+        : "";
+
+    const payload = {
+      type: "ai_enquiry",
       name,
-      email: email.toLowerCase(),
+      email: normalizedEmail,
       mobile,
       location: new_location,
-      preferred_contact: 'whatsapp',
-      status: 'submit'
+      preferred_contact: "whatsapp",
+      status: "submit",
+      assignedTo: agentId
     };
 
     lead = await PropertyLead.create(payload);
   }
 
-  // 🔐 Generate token
+  // ================= TOKEN =================
   const token = createToken(customer);
 
+  // ================= RESPONSE =================
   res.status(StatusCodes.CREATED).json({
     success: true,
     message: "Customer registered successfully",
     token,
     customer,
-    lead
+    lead,
+    createdBy: {
+      type: req.user?.role?.code === "16" ? "Agent" : "Self",
+      agentId: agentId,
+      agentName: req.user?.first_name ? `${req.user.first_name} ${req.user.last_name}` : null
+    }
   });
 });
 

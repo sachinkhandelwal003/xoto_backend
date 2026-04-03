@@ -81,6 +81,7 @@ app.use('/freelancer/subcategory', require('../src/modules/auth/routes/freelance
 
 // Routes
 app.use('/platform', require('../src/modules/auth/routes/role/platform.routes'));
+app.use('/vault', require('./modules/vault/routes/vault.js'));
 app.use('/ecommerce/v1', require('../src/modules/ecommerce/B2C/routes/cartOrderWishlist.route'));
 app.use('/roles', require('../src/modules/auth/routes/role/role.routes'));
 app.use('/permission', require('../src/modules/auth/routes/permission/permission.routes'));

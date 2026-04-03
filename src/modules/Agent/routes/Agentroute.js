@@ -1,61 +1,66 @@
+// routes/leadRoutes.js
 const express = require("express");
+const {
+  createLead,
+  getLeadById,
+  updateLead,
+  deleteLead,
+  getAllLeads,
+  updateLeadStatus,
+  selectProperty,
+  fetchPropertySuggestions,
+  addLeadInterest,
+  removeLeadInterest
+} = require("../controllers/AgentController");
+const { protect, protectMulti } = require("../../../middleware/auth");
 
 const {
-
-createLead,
-getLeadById,
-updateLead,
-deleteLead,
-getAllLeads,
-updateLeadStatus,
   createSiteVisit,
-  getAllSiteVisits,
-  getSiteVisitById,
   approveSiteVisit,
   updateSiteVisitStatus,
   rescheduleSiteVisit,
   getSiteVisitsByLead,
   getSiteVisitsByAgent,
-  checkReminders,
-} = require("../controllers/AgentController.js");
-const { getPropertySuggestions } = require("../controllers/aiSuggestionController.js");
-// const { createLeadInterest, getLeadInterests } = require("../controllers/LeadInterestController.js");
-
-
-// const { protectMulti } =
-// require("../../../middleware/auth");
+  getAllSiteVisits,
+  getSiteVisitById,
+  checkReminders
+} = require("../controllers/SiteVisitController");
 
 const router = express.Router();
 
+// =========================
+// LEAD ROUTES
+// =========================
+router.post("/create-lead", protectMulti, createLead);
+router.get("/get-all-leads", protectMulti, getAllLeads);
+router.get("/get-lead/:id",protectMulti, getLeadById);
+router.post("/update-lead/:id",protectMulti, updateLead);
+router.post("/update-status/:id",protectMulti, updateLeadStatus);
+router.delete("/delete-lead/:id",protectMulti, deleteLead);
+router.put("/select-property",protectMulti, selectProperty);
 
-// sab routes protect
-// router.use(protectMulti);
+// =========================
+// PROPERTY SUGGESTIONS (AI)
+// =========================
+router.get("/fetch-properties",protectMulti, fetchPropertySuggestions);
 
-router.post("/create-lead",createLead);
-router.get("/get-all-leads",getAllLeads);
-router.get("/get-lead/:id",getLeadById);
-router.post("/update-lead/:id",updateLead);
-router.post("/update-status/:id",updateLeadStatus);
-router.delete("/delete-lead/:id",deleteLead);
+// =========================
+// LEAD INTERESTS (Manual Add/Remove)
+// =========================
+router.post("/add-interest",protectMulti, addLeadInterest);
+router.delete("/remove-interest/:interestId",protectMulti, removeLeadInterest);
 
-router.post("/ai-suggestions", getPropertySuggestions);
-// router.post("/lead-interests", createLeadInterest);
-// router.get("/lead-interests/:leadId", getLeadInterests);
-
-//  Site Visit
-router.post("/create-site-visit", createSiteVisit);
-router.get("/get-all-site-visits", getAllSiteVisits);
-router.get("/site-visit/:id", getSiteVisitById);
-router.post("/approve-site-visit/:id", approveSiteVisit);
-router.post("/update-site-visit/:id", updateSiteVisitStatus);
-router.post("/reschedule-site-visit/:id", rescheduleSiteVisit);
-// router.post("/cancel-site-visit/:id", cancelSiteVisit);
-
-// Filter routes
-router.get("/by-lead/:leadId", getSiteVisitsByLead);
-router.get("/by-agent/:agentId", getSiteVisitsByAgent);
-
-// Cron job route
-router.get("/check-reminders", checkReminders);
+// =========================
+// SITE VISIT ROUTES
+// =========================
+router.post("/create-site-visit",protectMulti, createSiteVisit);
+router.get("/get-all-site-visits",protectMulti, getAllSiteVisits);
+router.get("/site-visit/:id",protectMulti, getSiteVisitById);
+router.post("/approve-site-visit/:id",protectMulti, approveSiteVisit);
+router.post("/update-site-visit/:id",protectMulti, updateSiteVisitStatus);
+router.post("/reschedule-site-visit/:id",protectMulti, rescheduleSiteVisit);
+router.get("/by-lead/:leadId",protectMulti, getSiteVisitsByLead);
+router.get("/by-agent/:agentId",protectMulti, getSiteVisitsByAgent);
+router.get("/check-reminders",protectMulti, checkReminders);
 
 module.exports = router;

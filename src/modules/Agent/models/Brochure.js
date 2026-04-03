@@ -1,56 +1,70 @@
+// models/Brochure.js
 const mongoose = require("mongoose");
 
 const BrochureSchema = new mongoose.Schema({
-  leadId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Lead",
-    required: true
-  },
-  propertyId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Property",
-    required: true
-  },
-  interestId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "LeadInterest"
-  },
+  // =========================
+  // REFERENCES
+  // =========================
+  leadId: { type: mongoose.Schema.Types.ObjectId, ref: "Lead", required: true },
+  propertyId: { type: mongoose.Schema.Types.ObjectId, ref: "Properties", required: true },
+  interestId: { type: mongoose.Schema.Types.ObjectId, ref: "LeadInterest" },
   
-  // File info
-  fileUrl: {
-    type: String,
-    required: true
-  },
-  fileName: String,
+  // =========================
+  // FILE INFO
+  // =========================
+  fileUrl: { type: String, required: true },
+  fileName: { type: String, default: "" },
   
-  // Tracking
+  // =========================
+  // TRACKING
+  // =========================
   trackingId: {
     type: String,
     unique: true,
     required: true,
     default: () => Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
   },
-  shareLink: String,
+  shareLink: { type: String, default: "" },
   
-  // Email tracking
-  emailSentTo: String,
-  emailSentAt: Date,
+  // =========================
+  // EMAIL TRACKING
+  // =========================
+  emailSentTo: { type: String, default: "" },
+  emailSentAt: { type: Date, default: null },
   
-  // View tracking
+  // =========================
+  // VIEW TRACKING
+  // =========================
   views: [{
-    viewedAt: Date,
-    ip: String,
-    userAgent: String,
-    device: String
+    viewedAt: { type: Date, default: Date.now },
+    ip: { type: String, default: "" },
+    userAgent: { type: String, default: "" },
+    device: { type: String, enum: ["Desktop", "Mobile", "Tablet"], default: "Desktop" }
   }],
-  
   viewCount: { type: Number, default: 0 },
-  lastViewedAt: Date,
-  
-  createdAt: { type: Date, default: Date.now }
-});
+  lastViewedAt: { type: Date, default: null }
 
+}, { timestamps: true });
+
+// Indexes
 BrochureSchema.index({ trackingId: 1 });
 BrochureSchema.index({ leadId: 1 });
 
-module.exports = mongoose.model("Brochure", BrochureSchema);
+// Methods
+BrochureSchema.methods.recordView = function(ip, userAgent) {
+  let device = "Desktop";
+  if (userAgent.includes("Mobile")) device = "Mobile";
+  if (userAgent.includes("iPad")) device = "Tablet";
+  
+  this.views.push({ viewedAt: new Date(), ip, userAgent, device });
+  this.viewCount += 1;
+  this.lastViewedAt = new Date();
+  return this.save();
+};
+
+BrochureSchema.methods.generateShareLink = function(baseUrl) {
+  this.shareLink = `${baseUrl}/api/brochure/track/${this.trackingId}`;
+  return this.save();
+};
+
+module.exports = mongoose.models.Brochure || mongoose.model("Brochure", BrochureSchema);

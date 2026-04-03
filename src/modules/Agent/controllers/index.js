@@ -18,6 +18,7 @@ export const agentSignup = async (req, res) => {
       "operating_city",
       "specialization",
       "country",
+      "rera_number",
       "profile_photo",
       "id_proof",
       "rera_certificate",
@@ -349,7 +350,7 @@ export const getAgentById = async (req, res) => {
     const { id } = req.params;
 
     // ✅ Admin can see independent agents only
-    const agent = await Agent.findOne({ _id: id, agentType: "independent" })
+    const agent = await Agent.findOne({ _id: id})
       .select("-password")
       .populate('agency', 'agency_name');
 
