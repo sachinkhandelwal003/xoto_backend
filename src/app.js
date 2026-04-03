@@ -79,8 +79,10 @@ app.use('/freelancer/category', require('../src/modules/auth/routes/freelancer/f
 app.use('/freelancer/subcategory', require('../src/modules/auth/routes/freelancer/freelancersubcategory.routes'));
 
 // Routes
+app.use('/vault/partner', require('./modules/vault/routes/partner.routes.js'));
+
 app.use('/platform', require('../src/modules/auth/routes/role/platform.routes'));
-app.use('/vault', require('./modules/vault/routes/vault.js'));
+
 app.use('/ecommerce/v1', require('../src/modules/ecommerce/B2C/routes/cartOrderWishlist.route'));
 app.use('/roles', require('../src/modules/auth/routes/role/role.routes'));
 app.use('/permission', require('../src/modules/auth/routes/permission/permission.routes'));
