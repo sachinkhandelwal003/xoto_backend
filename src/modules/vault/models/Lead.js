@@ -1,108 +1,210 @@
 const mongoose = require('mongoose');
 
-// ─── Status history entry ─────────────────────────────────────────────────────
+const customerBasicSchema = new mongoose.Schema(
+  {
+    fullName: { type: String, required: true },
+    preferredName: { type: String, default: null },
+    email: { type: String, required: true, lowercase: true },
+    mobileNumber: { type: String, required: true },
+    alternativePhone: { type: String, default: null },
+    whatsappNumber: { type: String, default: null },
+    dateOfBirth: { type: Date, required: true },
+    nationality: { type: String, required: true },
+    maritalStatus: {
+      type: String,
+      enum: ['Single', 'Married', 'Divorced', 'Widowed'],
+      required: true,
+    },
+    numberOfDependents: { type: Number, default: 0 },
+    occupation: { type: String, default: null },
+    employer: { type: String, default: null },
+    monthlySalary: { type: Number, default: null },
+  },
+  { _id: false }
+);
+
+const propertyDetailsSchema = new mongoose.Schema(
+  {
+    propertyType: { type: String, enum: ['Ready', 'Off-plan', 'Commercial'], required: true },
+    propertySubtype: { type: String, enum: ['Apartment', 'Villa', 'Townhouse', 'Penthouse'], default: null },
+    propertyValue: { type: Number, required: true },
+    downPaymentAmount: { type: Number, default: null },
+    loanAmountRequired: { type: Number, default: null },
+    propertyAddress: {
+      building: { type: String, default: null },
+      area: { type: String, default: null },
+      city: { type: String, default: 'Dubai' },
+    },
+    propertyAgeYears: { type: Number, default: null },
+    isOffPlan: { type: Boolean, default: false },
+    completionDate: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+const loanRequirementsSchema = new mongoose.Schema(
+  {
+    preferredTenureYears: { type: Number, default: 25 },
+    preferredInterestRateType: { type: String, enum: ['Fixed', 'Variable'], default: 'Fixed' },
+    preferredBanks: [{ type: String }],
+    feeFinancingPreference: { type: Boolean, default: true },
+    lifeInsurancePreference: { type: Boolean, default: true },
+    propertyInsurancePreference: { type: Boolean, default: true },
+    specialRequirements: { type: String, default: null },
+  },
+  { _id: false }
+);
+
 const statusHistorySchema = new mongoose.Schema(
   {
-    status: { type: String, required: true },
-    updatedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Admin',
-      default: null,
+    status: {
+      type: String,
+      enum: ['New', 'Contacted', 'Qualified', 'Collecting Documentation', 'Disbursed'],
+      required: true,
     },
-    updatedAt: { type: Date, default: Date.now },
+    timestamp: { type: Date, default: Date.now },
+    updatedBy: { type: String, required: true },
     notes: { type: String, default: null },
   },
   { _id: false }
 );
 
-// ─── Main Lead/Referral Schema ────────────────────────────────────────────────
+const duplicateCheckSchema = new mongoose.Schema(
+  {
+    isDuplicate: { type: Boolean, default: false },
+    checkedAgainstLeads: [{ type: String }],
+    lookbackDays: { type: Number, default: 180 },
+    checkPerformedAt: { type: Date, default: Date.now },
+    matchingPhoneFound: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+const commissionInfoSchema = new mongoose.Schema(
+  {
+    commissionEligible: { type: Boolean, default: false },
+    commissionAmount: { type: Number, default: null },
+    commissionStatus: { type: String, enum: ['Pending', 'Confirmed', 'Paid'], default: 'Pending' },
+    expectedPaymentDate: { type: Date, default: null },
+    paidAt: { type: Date, default: null },
+    calculation: {
+      bankCommissionToXoto: { type: Number, default: null },
+      agentPercentage: { type: Number, default: null },
+      formula: { type: String, default: null },
+    },
+  },
+  { _id: false }
+);
+
 const leadSchema = new mongoose.Schema(
   {
-    // ── Submitting Agent ──────────────────────────────────────────────────────
-    agentId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Agent',
-      required: true,
+    leadId: { type: String, unique: true, required: true },
+    
+    sourceInfo: {
+      createdByRole: { type: String, enum: ['freelance_agent', 'partner_affiliated_agent'], required: true },
+      createdById: { type: mongoose.Schema.Types.ObjectId, ref: 'VaultAgent', required: true },
+      createdByName: { type: String, required: true },
+      createdAt: { type: Date, default: Date.now },
+      submissionMethod: { type: String, enum: ['manual_entry', 'contacts_import'], default: 'manual_entry' },
+      sourceIp: { type: String, default: null },
     },
 
-    // ── Client Info (captured at submission time) ─────────────────────────────
-    clientName: { type: String, required: true, trim: true },
-    clientPhone: {
-      country_code: { type: String, default: '+971' },
-      number: { type: String, required: true, trim: true },
-    },
+    customerInfo: { type: customerBasicSchema, required: true },
 
-    // ── Referral Type & Commission Tier ───────────────────────────────────────
-    // Per PRD: Referral Only = 40%/50%, Referral + Docs = 45%/55%
+    propertyDetails: { type: propertyDetailsSchema, required: true },
+
+    loanRequirements: { type: loanRequirementsSchema, default: () => ({}) },
+
     referralType: {
       type: String,
-      enum: ['Referral Only', 'Referral + Document Submission'],
+      enum: ['Referral Only', 'Referral + Docs'],
       required: true,
     },
-    commissionTier: {
-      // percentage based on loan ≤5M or >5M AED
-      upToFiveMillion: { type: Number, default: null },    // 40 or 45
-      aboveFiveMillion: { type: Number, default: null },   // 50 or 55
-    },
+    commissionTier: { type: Number, default: null },
+    loanAmountRange: { type: String, enum: ['≤5M AED', '>5M AED'], default: null },
+    expectedCommission: { type: Number, default: null },
+    notesToXoto: { type: String, default: null },
 
-    // ── Deduplication ─────────────────────────────────────────────────────────
-    // PRD: same mobile number within 180 days = duplicate, block submission
-    isDuplicate: { type: Boolean, default: false },
-    duplicateOfLeadId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Lead',
-      default: null,
-    },
-
-    // ── Status Workflow ───────────────────────────────────────────────────────
-    status: {
+    currentStatus: {
       type: String,
-      enum: [
-        'New',
-        'Contacted',
-        'Qualified',
-        'Collecting Documentation',
-        'Bank Application',
-        'Pre-Approved',
-        'Valuation',
-        'FOL Processed',
-        'FOL Issued',
-        'FOL Signed',
-        'Disbursed',
-        'Lost',
-      ],
+      enum: ['New', 'Contacted', 'Qualified', 'Collecting Documentation', 'Disbursed'],
       default: 'New',
     },
     statusHistory: [statusHistorySchema],
 
-    // ── Input Method ──────────────────────────────────────────────────────────
-    inputMethod: {
-      type: String,
-      enum: ['Manual Entry', 'Contact Import'],
-      default: 'Manual Entry',
+    duplicateCheck: { type: duplicateCheckSchema, default: () => ({}) },
+
+    documentCollection: {
+      collectionMethod: { type: String, enum: ['agent_collected', 'xoto_collected'], default: null },
+      assignedToAgent: { type: mongoose.Schema.Types.ObjectId, ref: 'VaultAgent', default: null },
+      collectionStartedAt: { type: Date, default: null },
+      collectionCompletedAt: { type: Date, default: null },
+      totalDocumentsRequired: { type: Number, default: 7 },
+      documentsUploaded: { type: Number, default: 0 },
+      documentsVerified: { type: Number, default: 0 },
+      documentsPending: { type: Number, default: 7 },
+      documentsRejected: { type: Number, default: 0 },
+      collectionPercentage: { type: Number, default: 0 },
+      verificationPercentage: { type: Number, default: 0 },
+      readyForSubmission: { type: Boolean, default: false },
     },
 
-    // ── Commission ────────────────────────────────────────────────────────────
-    commissionId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Commission',
-      default: null,
+    conversionInfo: {
+      convertedToCase: { type: Boolean, default: false },
+      caseId: { type: String, default: null },
+      convertedAt: { type: Date, default: null },
+      convertedByRole: { type: String, default: null },
+      convertedById: { type: mongoose.Schema.Types.ObjectId, default: null },
+      convertedByName: { type: String, default: null },
     },
 
-    // ── Notes ─────────────────────────────────────────────────────────────────
-    notes: { type: String, default: null },
+    commissionInfo: { type: commissionInfoSchema, default: () => ({}) },
 
-    // ── Soft Delete ───────────────────────────────────────────────────────────
-    is_deleted: { type: Boolean, default: false },
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
-leadSchema.index({ agentId: 1 });
-leadSchema.index({ 'clientPhone.number': 1 });
-leadSchema.index({ status: 1 });
+leadSchema.index({ leadId: 1 }, { unique: true });
+leadSchema.index({ 'sourceInfo.createdById': 1 });
+leadSchema.index({ 'customerInfo.mobileNumber': 1 });
+leadSchema.index({ currentStatus: 1 });
+leadSchema.index({ referralType: 1 });
 leadSchema.index({ createdAt: -1 });
-// Compound index used for 180-day deduplication check
-leadSchema.index({ 'clientPhone.number': 1, createdAt: -1 });
 
-module.exports = mongoose.models.Lead || mongoose.model('Lead', leadSchema);
+leadSchema.virtual('customerAge').get(function () {
+  if (!this.customerInfo.dateOfBirth) return null;
+  const ageDiff = Date.now() - this.customerInfo.dateOfBirth.getTime();
+  const ageDate = new Date(ageDiff);
+  return Math.abs(ageDate.getUTCFullYear() - 1970);
+});
+
+leadSchema.methods.updateDocumentStatus = function (uploadedCount, verifiedCount) {
+  this.documentCollection.documentsUploaded = uploadedCount;
+  this.documentCollection.documentsVerified = verifiedCount;
+  this.documentCollection.documentsPending = this.documentCollection.totalDocumentsRequired - uploadedCount;
+  this.documentCollection.collectionPercentage = Math.round((uploadedCount / this.documentCollection.totalDocumentsRequired) * 100);
+  this.documentCollection.verificationPercentage = Math.round((verifiedCount / this.documentCollection.totalDocumentsRequired) * 100);
+  this.documentCollection.readyForSubmission = this.documentCollection.collectionPercentage === 100;
+  
+  if (this.documentCollection.collectionPercentage === 100 && !this.documentCollection.collectionCompletedAt) {
+    this.documentCollection.collectionCompletedAt = new Date();
+  }
+  
+  return this.save();
+};
+
+leadSchema.methods.addStatus = function (newStatus, updatedBy, notes) {
+  this.statusHistory.push({
+    status: newStatus,
+    updatedBy,
+    notes,
+    timestamp: new Date(),
+  });
+  this.currentStatus = newStatus;
+  return this.save();
+};
+
+const Lead = mongoose.models.Lead || mongoose.model('Lead', leadSchema);
+module.exports = Lead;

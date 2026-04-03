@@ -18,7 +18,7 @@ import {
   getPartnerCommissions,
   changePassword
 } from "../controllers/partner.controller.js";
-import { protect, protectMulti } from "../../../middleware/auth.js";
+import { protect, protectMulti ,protectPartner} from "../../../middleware/auth.js";
 
 const router = express.Router();
 

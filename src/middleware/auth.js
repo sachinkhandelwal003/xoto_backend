@@ -1,3 +1,4 @@
+
 const jwt = require("jsonwebtoken");
 const { APIError } = require("../utils/errorHandler");
 const { StatusCodes } = require("../utils/constants/statusCodes");
@@ -16,6 +17,7 @@ const Customer = require("../modules/auth/models/user/customer.model");
 const Agent =require("../modules/Agent/models/agent")
 const Agency = require("../modules/agency/models/index")
 const Developer =require("../modules/properties/models/DeveloperModel")
+const Partner =require("../modules/vault/models/Partner")
 
 const { getUserPermissions } = require("./permission");
 
@@ -153,6 +155,7 @@ exports.protectCustomer = protectBase(Customer, "Customer");
 exports.protectAgent = protectBase(Agent, "Agent");
 exports.protectDeveloper = protectBase(Developer, "Developer");
 
+exports.protectPartner = protectBase(Partner, "Partner");
 
 /* ============================================================
    MULTI-USER PROTECTOR (MAIN FIXED VERSION)

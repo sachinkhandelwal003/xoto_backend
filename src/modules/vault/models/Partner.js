@@ -97,6 +97,19 @@ const partnerSchema = new mongoose.Schema(
           ref: "Role",
           default: null
         },
+      email: {
+  type: String,
+  required: true,
+  lowercase: true,
+  trim: true,
+  unique: true
+},
+
+password: {
+  type: String,
+  required: true,
+  select: false
+},
 
     // Contacts
     primaryContact: { type: contactSchema, required: true },

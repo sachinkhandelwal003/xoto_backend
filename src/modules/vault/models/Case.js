@@ -1,270 +1,348 @@
 const mongoose = require('mongoose');
 
-// ─── Sub-schema: Single Document Slot ────────────────────────────────────────
-const documentSlotSchema = new mongoose.Schema(
+const clientPersonalSchema = new mongoose.Schema(
   {
-    label: { type: String, required: true },               // e.g. "Bank Statement"
-    files: [
+    fullName: { type: String, required: true },
+    preferredName: { type: String, default: null },
+    gender: { type: String, enum: ['Male', 'Female'], required: true },
+    dateOfBirth: { type: Date, required: true },
+    nationality: { type: String, required: true },
+    maritalStatus: { type: String, enum: ['Single', 'Married', 'Divorced', 'Widowed'], required: true },
+    numberOfDependents: { type: Number, default: 0 },
+    email: { type: String, required: true, lowercase: true },
+    mobile: { type: String, required: true },
+    homePhone: { type: String, default: null },
+    workPhone: { type: String, default: null },
+    whatsapp: { type: String, default: null },
+  },
+  { _id: false }
+);
+
+const addressSchema = new mongoose.Schema(
+  {
+    building: { type: String, default: null },
+    apartment: { type: String, default: null },
+    area: { type: String, required: true },
+    city: { type: String, default: 'Dubai' },
+    country: { type: String, default: 'UAE' },
+    residenceType: { type: String, enum: ['Owned', 'Rented', 'Company Provided'], default: null },
+    yearsAtAddress: { type: Number, default: null },
+  },
+  { _id: false }
+);
+
+const employmentSchema = new mongoose.Schema(
+  {
+    employerName: { type: String, required: true },
+    industry: { type: String, default: null },
+    designation: { type: String, required: true },
+    employmentType: { type: String, enum: ['Salaried', 'Self-Employed'], required: true },
+    yearsWithEmployer: { type: Number, required: true },
+    monthsWithEmployer: { type: Number, default: 0 },
+    probationPeriod: { type: String, enum: ['Completed', 'Ongoing', 'Not Applicable'], default: 'Completed' },
+    workAddress: { type: String, default: null },
+    workPhone: { type: String, default: null },
+    employerEmail: { type: String, default: null },
+  },
+  { _id: false }
+);
+
+const incomeSchema = new mongoose.Schema(
+  {
+    basicSalary: { type: Number, default: null },
+    housingAllowance: { type: Number, default: null },
+    transportAllowance: { type: Number, default: null },
+    otherAllowances: { type: Number, default: null },
+    totalMonthlySalary: { type: Number, required: true },
+    annualBonus: { type: Number, default: 0 },
+    otherIncome: { type: Number, default: 0 },
+    totalMonthlyIncome: { type: Number, required: true },
+    salaryTransferBank: { type: String, default: null },
+    salaryTransferType: { type: String, enum: ['WPS', 'Manual', null], default: null },
+  },
+  { _id: false }
+);
+
+const expenseSchema = new mongoose.Schema(
+  {
+    monthlyRent: { type: Number, default: 0 },
+    monthlyOtherLoanInstallments: { type: Number, default: 0 },
+    monthlyCreditCardPayments: { type: Number, default: 0 },
+    monthlyLivingExpenses: { type: Number, default: 0 },
+    totalMonthlyLiabilities: { type: Number, default: 0 },
+    dbrPercentage: { type: Number, default: 0 },
+    dbrStatus: { type: String, enum: ['Eligible', 'Borderline', 'Ineligible'], default: 'Eligible' },
+    existingLoans: [
       {
-        url: { type: String, required: true },
-        fileName: { type: String, default: null },
-        uploadedAt: { type: Date, default: Date.now },
-        uploadedBy: {
-          type: mongoose.Schema.Types.ObjectId,
-          refPath: 'uploadedByType',
-          default: null,
-        },
-        uploadedByType: {
-          type: String,
-          enum: ['Agent', 'Partner'],
-          default: null,
-        },
+        type: { type: String, enum: ['Car Loan', 'Personal Loan', 'Other'], required: true },
+        bank: { type: String, required: true },
+        outstandingAmount: { type: Number, required: true },
+        monthlyInstallment: { type: Number, required: true },
+        tenureRemainingMonths: { type: Number, required: true },
       },
     ],
-    status: {
-      type: String,
-      enum: ['Pending', 'Uploaded', 'Rejected'],
-      default: 'Pending',
-    },
-    rejectionReason: { type: String, default: null },
-    isMandatory: { type: Boolean, default: true },
   },
-  { _id: true }
+  { _id: false }
 );
 
-// ─── Sub-schema: Bank Form ────────────────────────────────────────────────────
-const bankFormSchema = new mongoose.Schema(
+const propertySchema = new mongoose.Schema(
   {
-    bankFormId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'BankForm',
-      required: true,
+    propertyType: { type: String, enum: ['Ready', 'Off-plan', 'Commercial'], required: true },
+    propertySubtype: { type: String, enum: ['Apartment', 'Villa', 'Townhouse', 'Penthouse'], required: true },
+    propertyValue: { type: Number, required: true },
+    valuationAmount: { type: Number, default: null },
+    ltvPercentage: { type: Number, default: null },
+    loanAmount: { type: Number, default: null },
+    downPayment: { type: Number, default: null },
+    downPaymentSource: { type: String, default: null },
+    propertyAddress: {
+      building: { type: String, required: true },
+      apartment: { type: String, default: null },
+      floor: { type: Number, default: null },
+      area: { type: String, required: true },
+      city: { type: String, default: 'Dubai' },
+      emirate: { type: String, default: 'Dubai' },
     },
-    bankId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'BankProduct',
-      default: null,
+    propertyDetails: {
+      bedrooms: { type: Number, default: null },
+      bathrooms: { type: Number, default: null },
+      areaSqft: { type: Number, default: null },
+      areaSqm: { type: Number, default: null },
+      yearBuilt: { type: Number, default: null },
+      view: { type: String, default: null },
+      furnishing: { type: String, enum: ['Furnished', 'Semi-Furnished', 'Unfurnished'], default: null },
+      parkingSpaces: { type: Number, default: 0 },
     },
-    bankName: { type: String, required: true },
-    formName: { type: String, required: true },
-    downloadedAt: { type: Date, default: null },
-    downloadedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      refPath: 'bankForms.downloadedByType',
-      default: null,
+    ownershipDetails: {
+      currentOwner: { type: String, required: true },
+      ownerType: { type: String, enum: ['Individual', 'Developer', 'Company'], required: true },
+      titleDeedNumber: { type: String, default: null },
+      titleDeedUrl: { type: String, default: null },
+      nocAvailable: { type: Boolean, default: false },
     },
-    downloadedByType: {
-      type: String,
-      enum: ['Agent', 'Partner'],
-      default: null,
+    transactionDetails: {
+      purchasePrice: { type: Number, required: true },
+      agreementDate: { type: Date, required: true },
+      handoverDate: { type: Date, default: null },
+      depositPaid: { type: Number, default: 0 },
+      depositPaidDate: { type: Date, default: null },
+      agentCommission: { type: Number, default: 0 },
+      dldFees: { type: Number, default: 0 },
+      registrationFees: { type: Number, default: 0 },
+      totalClosingCosts: { type: Number, default: 0 },
     },
-    uploadedFileUrl: { type: String, default: null },       // completed form re-uploaded
-    uploadedAt: { type: Date, default: null },
-    status: {
-      type: String,
-      enum: ['Pending Download', 'Downloaded', 'Uploaded', 'Rejected'],
-      default: 'Pending Download',
-    },
-    rejectionReason: { type: String, default: null },
   },
-  { _id: true }
+  { _id: false }
 );
 
-// ─── Sub-schema: Status History ───────────────────────────────────────────────
+const loanSchema = new mongoose.Schema(
+  {
+    requestedAmount: { type: Number, required: true },
+    approvedAmount: { type: Number, default: null },
+    tenureYears: { type: Number, required: true },
+    tenureMonths: { type: Number, required: true },
+    interestRateType: { type: String, enum: ['Fixed', 'Variable'], required: true },
+    interestRatePercentage: { type: Number, required: true },
+    processingFee: { type: Number, default: 0 },
+    valuationFee: { type: Number, default: 0 },
+    earlySettlementFeePercentage: { type: Number, default: 1 },
+    earlySettlementAllowedAfterYears: { type: Number, default: 3 },
+    lifeInsuranceRequired: { type: Boolean, default: true },
+    propertyInsuranceRequired: { type: Boolean, default: true },
+    monthlyInstallment: {
+      principalAndInterest: { type: Number, required: true },
+      lifeInsurance: { type: Number, default: 0 },
+      propertyInsurance: { type: Number, default: 0 },
+      totalMonthlyPayment: { type: Number, required: true },
+    },
+    selectedBank: { type: String, required: true },
+    selectedBankProduct: { type: String, required: true },
+    alternativeBanksConsidered: [{ type: String }],
+  },
+  { _id: false }
+);
+
 const statusHistorySchema = new mongoose.Schema(
   {
-    status: { type: String, required: true },
-    updatedByType: {
+    status: {
       type: String,
-      enum: ['Agent', 'Partner', 'Admin'],
-      default: 'Admin',
+      enum: [
+        'Submitted to Xoto',
+        'Bank Application',
+        'Collecting Documentation',
+        'Pre-Approved',
+        'Valuation',
+        'FOL Processed',
+        'FOL Issued',
+        'FOL Signed',
+        'Disbursed',
+        'Rejected',
+      ],
+      required: true,
     },
-    updatedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      default: null,
-    },
-    updatedAt: { type: Date, default: Date.now },
+    timestamp: { type: Date, default: Date.now },
+    updatedBy: { type: String, required: true },
     notes: { type: String, default: null },
   },
   { _id: false }
 );
 
-// ─── Sub-schema: Bank Entry in a Case ────────────────────────────────────────
-const caseBankSchema = new mongoose.Schema(
+const commissionSchema = new mongoose.Schema(
   {
-    bankProductId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'BankProduct',
-      default: null,
-    },
-    bankName: { type: String, required: true },
-    loanAmount: { type: Number, default: null },
-    isPrimary: { type: Boolean, default: false },
-    status: {
-      type: String,
-      enum: [
-        'Draft',
-        'Submitted to Xoto',
-        'New',
-        'Contacted',
-        'Qualified',
-        'Collecting Documentation',
-        'Bank Application',
-        'Pre-Approved',
-        'Valuation',
-        'FOL Processed',
-        'FOL Issued',
-        'FOL Signed',
-        'Disbursed',
-        'Lost',
-      ],
-      default: 'Draft',
-    },
+    loanAmount: { type: Number, required: true },
+    loanTier: { type: String, enum: ['≤5M AED', '>5M AED'], required: true },
+    partnerPercentage: { type: Number, required: true },
+    xotoCommissionFromBank: { type: Number, required: true },
+    partnerCommissionAmount: { type: Number, required: true },
+    calculation: { type: String, required: true },
+    status: { type: String, enum: ['Pending Disbursement', 'Confirmed', 'Paid'], default: 'Pending Disbursement' },
+    expectedPaymentDate: { type: Date, default: null },
+    paidAt: { type: Date, default: null },
   },
-  { _id: true }
+  { _id: false }
 );
 
-// ─── Main Case Schema ─────────────────────────────────────────────────────────
+const documentStatusSchema = new mongoose.Schema(
+  {
+    allDocumentsUploaded: { type: Boolean, default: false },
+    allDocumentsVerified: { type: Boolean, default: false },
+    documentsUploadedCount: { type: Number, default: 0 },
+    documentsVerifiedCount: { type: Number, default: 0 },
+    documentsRejectedCount: { type: Number, default: 0 },
+    documentsPendingCount: { type: Number, default: 0 },
+    pendingDocumentTypes: [{ type: String }],
+    verificationNotes: { type: String, default: null },
+  },
+  { _id: false }
+);
+
+const bankSubmissionSchema = new mongoose.Schema(
+  {
+    submittedToBankAt: { type: Date, default: null },
+    bankName: { type: String, default: null },
+    bankBranch: { type: String, default: null },
+    bankRelationshipManager: { type: String, default: null },
+    bankRmContact: { type: String, default: null },
+    submittedDocumentsPackage: { type: String, default: null },
+    bankReferenceNumber: { type: String, default: null },
+    bankNotes: { type: String, default: null },
+  },
+  { _id: false }
+);
+
 const caseSchema = new mongoose.Schema(
   {
-    // ── Ownership ─────────────────────────────────────────────────────────────
-    partnerId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Partner',
-      required: true,
-    },
-    agentId: {
-      // set if the case was submitted by a Partner-Affiliated Agent
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Agent',
-      default: null,
-    },
-    clientId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Client',
-      required: true,
+    caseId: { type: String, unique: true, required: true },
+    caseReference: { type: String, unique: true, required: true },
+    proposalId: { type: String, default: null },
+    sourceLeadId: { type: String, default: null },
+
+    createdBy: {
+      role: { type: String, enum: ['partner'], required: true },
+      partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Partner', required: true },
+      partnerName: { type: String, required: true },
+      createdAt: { type: Date, default: Date.now },
     },
 
-    // ── Step 1: Client Basic Information ──────────────────────────────────────
-    clientInfo: {
-      firstName: { type: String, required: true, trim: true },
-      lastName: { type: String, required: true, trim: true },
-      email: { type: String, required: true, trim: true, lowercase: true },
-      phone: {
-        country_code: { type: String, default: '+971' },
-        number: { type: String, required: true, trim: true },
-      },
-      dateOfBirth: { type: Date, default: null },
-      nationality: { type: String, default: null },
-      residencyStatus: {
-        type: String,
-        enum: ['UAE Resident', 'Non-Resident'],
-        required: true,
-      },
-      employmentStatus: {
-        type: String,
-        enum: ['Salaried', 'Self-Employed'],
-        required: true,
-      },
-      monthlySalary: { type: Number, required: true },
-      salaryBankName: { type: String, default: null },     // salary account bank
-      mortgageTerm: { type: Number, required: true },       // years (5–25)
-      propertyValue: { type: Number, required: true },      // AED
-      feeFinancingRequired: { type: Boolean, default: false },
+    assignedTo: {
+      xotoAdminId: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
+      xotoAdminName: { type: String, default: null },
+      assignedAt: { type: Date, default: null },
     },
 
-    // ── Step 2: Documents — Salaried ─────────────────────────────────────────
-    // All document slots are present regardless of employment type;
-    // isMandatory flags control which are required for submission
-    salariedDocuments: {
-      bankStatements: documentSlotSchema,          // last 6 months
-      emiratesIdFront: documentSlotSchema,
-      emiratesIdBack: documentSlotSchema,
-      passport: documentSlotSchema,               // all pages
-      visaCopy: documentSlotSchema,
-      salaryCertificate: documentSlotSchema,      // on company letterhead
-      payslips: documentSlotSchema,               // only if salary varied
-    },
+    clientInfo: { type: clientPersonalSchema, required: true },
+    currentAddress: { type: addressSchema, default: null },
+    previousAddress: { type: addressSchema, default: null },
+    employmentDetails: { type: employmentSchema, required: true },
+    incomeDetails: { type: incomeSchema, required: true },
+    expenseDetails: { type: expenseSchema, default: () => ({}) },
 
-    // ── Step 2: Documents — Self-Employed ─────────────────────────────────────
-    selfEmployedDocuments: {
-      tradeLicense: documentSlotSchema,
-      moa: documentSlotSchema,                    // all versions since incorporation
-      utilityBills: documentSlotSchema,           // within 3 months
-      ejari: documentSlotSchema,                  // current tenancy
-      companyProfile: documentSlotSchema,
-      companyBankStatement: documentSlotSchema,   // last 12 months
-      personalBankStatement: documentSlotSchema,  // last 12 months
-      employeeList: documentSlotSchema,
-      companyWebsite: {
-        url: { type: String, default: null },
-        screenshotUrl: { type: String, default: null },
-      },
-      auditReport: documentSlotSchema,            // last 2 financial years
-      vatReturnReports: documentSlotSchema,       // last 4 quarters
-      vatRegistrationCertificate: documentSlotSchema,
-    },
+    propertyInfo: { type: propertySchema, required: true },
 
-    // ── Step 3: Bank Forms ────────────────────────────────────────────────────
-    bankForms: [bankFormSchema],
+    loanInfo: { type: loanSchema, required: true },
 
-    // ── Step 4: Banks Selected ────────────────────────────────────────────────
-    banks: [caseBankSchema],
+    documentStatus: { type: documentStatusSchema, default: () => ({}) },
 
-    // ── Submission ────────────────────────────────────────────────────────────
-    submissionNotes: { type: String, default: null },
-    submittedAt: { type: Date, default: null },
-    submittedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      refPath: 'submittedByType',
-      default: null,
-    },
-    submittedByType: {
-      type: String,
-      enum: ['Agent', 'Partner'],
-      default: null,
-    },
-
-    // ── Overall Case Status ───────────────────────────────────────────────────
-    status: {
+    currentStatus: {
       type: String,
       enum: [
-        'Draft',
         'Submitted to Xoto',
-        'New',
-        'Contacted',
-        'Qualified',
-        'Collecting Documentation',
         'Bank Application',
+        'Collecting Documentation',
         'Pre-Approved',
         'Valuation',
         'FOL Processed',
         'FOL Issued',
         'FOL Signed',
         'Disbursed',
-        'Lost',
+        'Rejected',
       ],
-      default: 'Draft',
+      default: 'Submitted to Xoto',
     },
     statusHistory: [statusHistorySchema],
+    nextExpectedStatus: { type: String, default: null },
+    estimatedCompletionDate: { type: Date, default: null },
 
-    // ── Commission ────────────────────────────────────────────────────────────
-    commissionId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Commission',
-      default: null,
-    },
+    bankSubmission: { type: bankSubmissionSchema, default: () => ({}) },
 
-    // ── Soft Delete ───────────────────────────────────────────────────────────
-    is_deleted: { type: Boolean, default: false },
+    commissionInfo: { type: commissionSchema, default: null },
+
+    internalNotes: [
+      {
+        note: { type: String, required: true },
+        addedBy: { type: String, required: true },
+        addedAt: { type: Date, default: Date.now },
+      },
+    ],
+    customerNotes: [
+      {
+        note: { type: String, required: true },
+        addedBy: { type: String, required: true },
+        addedAt: { type: Date, default: Date.now },
+      },
+    ],
+
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
-caseSchema.index({ partnerId: 1 });
-caseSchema.index({ agentId: 1 });
-caseSchema.index({ clientId: 1 });
-caseSchema.index({ status: 1 });
+caseSchema.index({ caseId: 1 }, { unique: true });
+caseSchema.index({ caseReference: 1 }, { unique: true });
+caseSchema.index({ sourceLeadId: 1 });
+caseSchema.index({ 'createdBy.partnerId': 1 });
+caseSchema.index({ currentStatus: 1 });
+caseSchema.index({ 'clientInfo.email': 1 });
+caseSchema.index({ 'clientInfo.mobile': 1 });
 caseSchema.index({ createdAt: -1 });
 
-module.exports = mongoose.model('Case', caseSchema);
+caseSchema.virtual('clientAge').get(function () {
+  if (!this.clientInfo.dateOfBirth) return null;
+  const ageDiff = Date.now() - this.clientInfo.dateOfBirth.getTime();
+  const ageDate = new Date(ageDiff);
+  return Math.abs(ageDate.getUTCFullYear() - 1970);
+});
+
+caseSchema.methods.addStatus = function (newStatus, updatedBy, notes) {
+  this.statusHistory.push({
+    status: newStatus,
+    updatedBy,
+    notes,
+    timestamp: new Date(),
+  });
+  this.currentStatus = newStatus;
+  return this.save();
+};
+
+caseSchema.methods.calculateDBR = function () {
+  const totalMonthlyIncome = this.incomeDetails.totalMonthlyIncome;
+  const totalMonthlyLiabilities = this.expenseDetails.totalMonthlyLiabilities;
+  const dbr = (totalMonthlyLiabilities / totalMonthlyIncome) * 100;
+  this.expenseDetails.dbrPercentage = dbr;
+  this.expenseDetails.dbrStatus = dbr <= 50 ? 'Eligible' : dbr <= 60 ? 'Borderline' : 'Ineligible';
+  return this.save();
+};
+
+const Case = mongoose.models.Case || mongoose.model('Case', caseSchema);
+module.exports = Case;

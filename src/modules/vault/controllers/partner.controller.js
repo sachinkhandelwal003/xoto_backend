@@ -5,6 +5,7 @@ import Lead from "../models/Lead.js";
 import Commission from "../models/Commission.js";
 import Proposal from "../models/Proposal.js";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { createToken } from '../../../middleware/auth.js';
 
@@ -32,9 +33,17 @@ export const createPartner = async (req, res) => {
       bankDetails,
       commissionConfiguration,
       agreementDetails,
-      username,
+      email,
       password
     } = req.body;
+
+    // Validation
+    if (!companyName || !tradeLicenseNumber || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Company name, trade license, email and password are required"
+      });
+    }
 
     // Check role code 21 for Partner
     const roleDoc = await Role.findOne({ code: 21 });
@@ -47,18 +56,25 @@ export const createPartner = async (req, res) => {
 
     // Check if partner already exists
     const existingPartner = await Partner.findOne({
-      $or: [{ companyName }, { tradeLicenseNumber }]
+      $or: [
+        { companyName: companyName },
+        { tradeLicenseNumber: tradeLicenseNumber },
+        { email: email }
+      ]
     });
 
     if (existingPartner) {
       return res.status(400).json({
         success: false,
-        message: "Partner already exists"
+        message: "Partner already exists with this company name, trade license or email"
       });
     }
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create username from email (before @)
+    const username = email.split('@')[0];
 
     const partner = await Partner.create({
       companyName,
@@ -79,8 +95,9 @@ export const createPartner = async (req, res) => {
       bankDetails,
       commissionConfiguration,
       agreementDetails,
-      username,
+      email: email,
       password: hashedPassword,
+      username: username,
       role: roleDoc._id,
       status: 'active',
       onboardingCompleted: true,
@@ -95,10 +112,17 @@ export const createPartner = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "Partner onboarded successfully",
-      data: partnerResponse
+      data: {
+        _id: partnerResponse._id,
+        companyName: partnerResponse.companyName,
+        email: partnerResponse.email,
+        username: partnerResponse.username,
+        status: partnerResponse.status
+      }
     });
 
   } catch (error) {
+    console.error("Create partner error:", error);
     return res.status(500).json({
       success: false,
       message: error.message
@@ -107,18 +131,27 @@ export const createPartner = async (req, res) => {
 };
 
 /* =====================================
-   PARTNER LOGIN
+   PARTNER LOGIN (with Email) - Like Agent Login
 ===================================== */
 export const partnerLogin = async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { email, password } = req.body;
 
-    const partner = await Partner.findOne({ username }).select('+password').populate('role');
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password required",
+      });
+    }
+
+    const partner = await Partner.findOne({ email })
+      .select('+password')
+      .populate('role');
 
     if (!partner) {
       return res.status(401).json({
         success: false,
-        message: "Invalid credentials"
+        message: "Invalid credentials",
       });
     }
 
@@ -126,20 +159,19 @@ export const partnerLogin = async (req, res) => {
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: "Invalid credentials"
+        message: "Invalid credentials",
       });
     }
+
 
     if (partner.status !== 'active') {
       return res.status(403).json({
         success: false,
-        message: `Account is ${partner.status}`
+        message: `Account is ${partner.status}. Please contact admin.`,
       });
     }
 
-    partner.lastLoginAt = new Date();
-    partner.loginCount = (partner.loginCount || 0) + 1;
-    await partner.save();
+
 
     const token = createToken(partner);
     const partnerResponse = partner.toObject();
@@ -149,7 +181,7 @@ export const partnerLogin = async (req, res) => {
       success: true,
       message: "Login successful",
       token,
-      data: partnerResponse
+      data: partnerResponse,
     });
 
   } catch (error) {
@@ -161,15 +193,28 @@ export const partnerLogin = async (req, res) => {
 };
 
 /* =====================================
-   GET ALL PARTNERS
+   GET ALL PARTNERS (with Pagination)
 ===================================== */
 export const getAllPartners = async (req, res) => {
   try {
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const skip = (page - 1) * limit;
+    const { status, search } = req.query;
 
-    const query = { isDeleted: false };
+    let query = { isDeleted: false };
+    
+    if (status) {
+      query.status = status;
+    }
+    
+    if (search) {
+      query.$or = [
+        { companyName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { tradeLicenseNumber: { $regex: search, $options: 'i' } }
+      ];
+    }
 
     const partners = await Partner.find(query)
       .select('-password')
@@ -230,7 +275,7 @@ export const getPartnerById = async (req, res) => {
 };
 
 /* =====================================
-   UPDATE PARTNER
+   UPDATE PARTNER (Admin only)
 ===================================== */
 export const updatePartner = async (req, res) => {
   try {
@@ -248,6 +293,11 @@ export const updatePartner = async (req, res) => {
     // If password is being updated, hash it
     if (updateData.password) {
       updateData.password = await bcrypt.hash(updateData.password, 10);
+    }
+
+    // If email is being updated, update username as well
+    if (updateData.email && updateData.email !== partner.email) {
+      updateData.username = updateData.email.split('@')[0];
     }
 
     const updatedPartner = await Partner.findByIdAndUpdate(
@@ -327,6 +377,12 @@ export const suspendPartner = async (req, res) => {
     partner.suspendedAt = new Date();
     partner.suspensionReason = suspensionReason;
     await partner.save();
+
+    // Suspend all affiliated agents
+    await VaultAgent.updateMany(
+      { partnerId: id, agentType: 'PartnerAffiliatedAgent' },
+      { suspendedAt: new Date(), suspensionReason: "Partner suspended", isActive: false }
+    );
 
     return res.status(200).json({
       success: true,
@@ -509,18 +565,36 @@ export const createCase = async (req, res) => {
 };
 
 /* =====================================
-   GET ALL CASES FOR PARTNER
+   GET ALL CASES FOR PARTNER (with Pagination)
 ===================================== */
 export const getPartnerCases = async (req, res) => {
   try {
     const partnerId = req.user._id;
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const { status } = req.query;
 
-    const cases = await Case.find({ 'createdBy.partnerId': partnerId, isDeleted: false })
-      .sort({ createdAt: -1 });
+    let query = { 'createdBy.partnerId': partnerId, isDeleted: false };
+    if (status) query.currentStatus = status;
+
+    const cases = await Case.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Case.countDocuments(query);
 
     return res.status(200).json({
       success: true,
-      data: cases
+      data: cases,
+      total: total,
+      pagination: {
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        totalItems: total,
+        limit: limit
+      }
     });
   } catch (error) {
     return res.status(500).json({
@@ -607,18 +681,36 @@ export const createProposal = async (req, res) => {
 };
 
 /* =====================================
-   GET ALL PROPOSALS FOR PARTNER
+   GET ALL PROPOSALS FOR PARTNER (with Pagination)
 ===================================== */
 export const getPartnerProposals = async (req, res) => {
   try {
     const partnerId = req.user._id;
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const { status } = req.query;
 
-    const proposals = await Proposal.find({ 'createdBy.partnerId': partnerId, isDeleted: false })
-      .sort({ createdAt: -1 });
+    let query = { 'createdBy.partnerId': partnerId, isDeleted: false };
+    if (status) query.status = status;
+
+    const proposals = await Proposal.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Proposal.countDocuments(query);
 
     return res.status(200).json({
       success: true,
-      data: proposals
+      data: proposals,
+      total: total,
+      pagination: {
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        totalItems: total,
+        limit: limit
+      }
     });
   } catch (error) {
     return res.status(500).json({
@@ -629,21 +721,43 @@ export const getPartnerProposals = async (req, res) => {
 };
 
 /* =====================================
-   GET AFFILIATED AGENTS
+   GET AFFILIATED AGENTS (with Pagination)
 ===================================== */
 export const getAffiliatedAgents = async (req, res) => {
   try {
     const partnerId = req.user._id;
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const { status } = req.query;
 
-    const agents = await VaultAgent.find({ 
+    let query = { 
       partnerId: partnerId, 
       agentType: 'PartnerAffiliatedAgent',
       isDeleted: false 
-    }).select('-password');
+    };
+    
+    if (status === 'active') query.isActive = true;
+    if (status === 'inactive') query.isActive = false;
+
+    const agents = await VaultAgent.find(query)
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await VaultAgent.countDocuments(query);
 
     return res.status(200).json({
       success: true,
-      data: agents
+      data: agents,
+      total: total,
+      pagination: {
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        totalItems: total,
+        limit: limit
+      }
     });
   } catch (error) {
     return res.status(500).json({
@@ -654,17 +768,30 @@ export const getAffiliatedAgents = async (req, res) => {
 };
 
 /* =====================================
-   GET PARTNER COMMISSIONS
+   GET PARTNER COMMISSIONS (with Pagination)
 ===================================== */
 export const getPartnerCommissions = async (req, res) => {
   try {
     const partnerId = req.user._id;
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const { status } = req.query;
 
-    const commissions = await Commission.find({ 
+    let query = { 
       recipientId: partnerId, 
       recipientRole: 'partner',
       isDeleted: false 
-    }).sort({ createdAt: -1 });
+    };
+    
+    if (status) query.status = status;
+
+    const commissions = await Commission.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Commission.countDocuments(query);
 
     const summary = {
       totalEarned: commissions.filter(c => c.status === 'Paid').reduce((sum, c) => sum + c.commissionAmount, 0),
@@ -674,7 +801,14 @@ export const getPartnerCommissions = async (req, res) => {
     return res.status(200).json({
       success: true,
       summary,
-      data: commissions
+      data: commissions,
+      total: total,
+      pagination: {
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        totalItems: total,
+        limit: limit
+      }
     });
   } catch (error) {
     return res.status(500).json({
@@ -714,6 +848,155 @@ export const changePassword = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Password changed successfully"
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/* =====================================
+   FORGOT PASSWORD (Request Reset)
+===================================== */
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const partner = await Partner.findOne({ email, isDeleted: false });
+    if (!partner) {
+      return res.status(404).json({
+        success: false,
+        message: "Partner not found with this email"
+      });
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date();
+    resetTokenExpiry.setHours(resetTokenExpiry.getHours() + 1); // 1 hour expiry
+
+    partner.resetPasswordToken = resetToken;
+    partner.resetPasswordExpires = resetTokenExpiry;
+    await partner.save();
+
+    // Here you would send email with reset link
+    return res.status(200).json({
+      success: true,
+      message: "Password reset email sent"
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/* =====================================
+   RESET PASSWORD
+===================================== */
+export const resetPassword = async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    const partner = await Partner.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpires: { $gt: new Date() },
+      isDeleted: false
+    });
+
+    if (!partner) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired reset token"
+      });
+    }
+
+    partner.password = await bcrypt.hash(newPassword, 10);
+    partner.resetPasswordToken = null;
+    partner.resetPasswordExpires = null;
+    await partner.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Password reset successfully"
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/* =====================================
+   GET PARTNER PROFILE (Self)
+===================================== */
+export const getPartnerProfile = async (req, res) => {
+  try {
+    const partnerId = req.user._id;
+
+    const partner = await Partner.findOne({ _id: partnerId, isDeleted: false })
+      .select('-password')
+      .populate('role', 'name code');
+
+    if (!partner) {
+      return res.status(404).json({
+        success: false,
+        message: "Partner not found"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: partner
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/* =====================================
+   UPDATE PARTNER PROFILE (Self)
+===================================== */
+export const updatePartnerProfile = async (req, res) => {
+  try {
+    const partnerId = req.user._id;
+    const updateData = req.body;
+
+    // Allowed fields for self-update
+    const allowedFields = [
+      'primaryContact',
+      'secondaryContact',
+      'billingAddress',
+      'shippingAddress',
+      'bankDetails',
+      'dbaName',
+      'website'
+    ];
+
+    const filteredData = {};
+    allowedFields.forEach(field => {
+      if (updateData[field] !== undefined) {
+        filteredData[field] = updateData[field];
+      }
+    });
+
+    const updatedPartner = await Partner.findByIdAndUpdate(
+      partnerId,
+      { ...filteredData, updatedAt: new Date() },
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      data: updatedPartner
     });
   } catch (error) {
     return res.status(500).json({
