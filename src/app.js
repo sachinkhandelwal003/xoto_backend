@@ -44,6 +44,8 @@ app.use('/uploads', express.static('uploads'));
 app.use('/estimates', require('./modules/auth/routes/leads/estimate.routes'));
 app.use('/customer', customer);
 app.use('/ai', require('./modules/auth/routes/ai/gardenAI.routes'));
+app.use('/property/lead', require('./modules/auth/routes/consult/propertyLead.route'));
+
 app.use('/packages', require('./modules/auth/routes/packages/packages.routes'));
 app.use('/estimate/master/category', require('./modules/auth/routes/estimateCategory/category.routes'));
 app.use('/dashboard', require('./modules/auth/routes/dashboardview/dashboard.routes.js'));
@@ -62,7 +64,6 @@ app.use('/accountant', require('./modules/auth/routes/accountant/Accountant.rout
 app.use('/users', require('./modules/auth/routes/user/user.routes'));
 app.use('/consult', require('./modules/auth/routes/consult/consult.routes'));
 app.use('/enquiry', require('./modules/auth/routes/consult/enquiry.routes'));
-app.use('/property/lead', require('./modules/auth/routes/consult/propertyLead.route'));
 app.use('/agency', agencyRoutes);
 app.use('/mortgages', mortgageRoutes);
 app.use('/agent', agentRoutes);

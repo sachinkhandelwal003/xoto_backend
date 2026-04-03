@@ -57,45 +57,65 @@ exports.createPropertyLead = asyncHandler(async (req, res) => {
 
 // Get All
 exports.getAllPropertyLeads = asyncHandler(async (req, res) => {
-  const { page = 1, limit, search, status, type, } = req.query;
+  const { page = 1, limit = 10, search, status, type } = req.query;
+
   const query = {};
 
   if (status) query.status = status;
   if (type) query.type = type;
+
   if (search) {
-    query.$or = [
-      { 'name.first_name': new RegExp(search, 'i') },
-      { 'name.last_name': new RegExp(search, 'i') },
-      { email: new RegExp(search, 'i') },
-      { 'mobile.number': new RegExp(search, 'i') }
+    query.$and = [
+      {
+        $or: [
+          { 'name.first_name': new RegExp(search, 'i') },
+          { 'name.last_name': new RegExp(search, 'i') },
+          { email: new RegExp(search, 'i') },
+          { 'mobile.number': new RegExp(search, 'i') }
+        ]
+      }
     ];
   }
 
   const total = await PropertyLead.countDocuments(query);
+
   let leads = await PropertyLead.find(query)
     .sort({ createdAt: -1 })
     .skip((page - 1) * limit)
-    .limit(parseInt(limit))
+    .limit(Number(limit))
     .lean();
 
   leads = await Promise.all(
     leads.map(async (lead) => {
-      let mortgage_application = await MortgageApplication.find({ lead_id: lead._id });
-      let mortgage_applicationdocument = await mortgageApplicationDocument.find({ lead_id: lead._id });
-      let personal_details = await MortgageApplicationCustomerDetails.find({ lead_id: lead._id });
-      let product_details = await MortgageApplicationProductRequirements.find({ lead_id: lead._id });
-      return { ...lead, mortgage_application: mortgage_application[0] ? mortgage_application[0] : {}, mortgage_applicationdocument: mortgage_applicationdocument[0] ? mortgage_applicationdocument[0] : {}, personal_details: personal_details[0] ? personal_details[0] : {}, product_details: product_details[0] ? product_details[0] : {} }
+      const mortgage_application = await MortgageApplication.findOne({ lead_id: lead._id });
+      const mortgage_applicationdocument = await mortgageApplicationDocument.findOne({ lead_id: lead._id });
+      const personal_details = await MortgageApplicationCustomerDetails.findOne({ lead_id: lead._id });
+      const product_details = await MortgageApplicationProductRequirements.findOne({ lead_id: lead._id });
+
+      return {
+        ...lead,
+        mortgage_application: mortgage_application || {},
+        mortgage_applicationdocument: mortgage_applicationdocument || {},
+        personal_details: personal_details || {},
+        product_details: product_details || {}
+      };
     })
-  )
+  );
 
-
-
-  const data = leads.map(l => ({ ...l, full_name: l.full_name }));
+  const data = leads.map(l => ({
+    ...l,
+    full_name: `${l.name?.first_name || ""} ${l.name?.last_name || ""}`.trim()
+  }));
 
   res.json({
     success: true,
     data,
-    pagination: { page: parseInt(page), limit: parseInt(limit), total, totalPages: Math.ceil(total / limit) }
+    pagination: {
+      page: Number(page),
+      limit: Number(limit),
+      total,
+      totalPages: Math.ceil(total / limit)
+    }
   });
 });
 
