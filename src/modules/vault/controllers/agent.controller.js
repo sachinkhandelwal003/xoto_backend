@@ -630,34 +630,7 @@ const changePassword = async (req, res) => {
   }
 };
 
-/* =====================================
-   VERIFY PHONE (Call from OTP service)
-===================================== */
-const verifyPhone = async (req, res) => {
-  try {
-    const { phone_number } = req.body;
 
-    const agent = await VaultAgent.findOne({ 'phone.number': phone_number });
-    if (!agent) {
-      return res.status(404).json({
-        success: false,
-        message: "Agent not found"
-      });
-    }
-
-    await agent.markPhoneVerified();
-
-    return res.status(200).json({
-      success: true,
-      message: "Phone verified successfully"
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
 
 /* =====================================
    GET AGENTS BY PARTNER (Partner only)
@@ -715,6 +688,5 @@ module.exports = {
   getAgentDashboard,
   updateAgentProfile,
   changePassword,
-  verifyPhone,
   getAgentsByPartner
 };

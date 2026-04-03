@@ -200,8 +200,7 @@ const agentSchema = new mongoose.Schema(
 
     isPhoneVerified: { type: Boolean, default: false },
     isEmailVerified: { type: Boolean, default: false },
-    phoneVerifiedAt: { type: Date, default: null },
-    emailVerifiedAt: { type: Date, default: null },
+   
     
   
     isActive: { type: Boolean, default: true },

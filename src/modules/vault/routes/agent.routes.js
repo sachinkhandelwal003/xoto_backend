@@ -12,7 +12,7 @@ const {
   getAgentDashboard,
   updateAgentProfile,
   changePassword,
-  verifyPhone,
+  
   getAgentsByPartner
 } = require('../controllers/agent.controller');
 const { protect, protectMulti } = require('../../../middleware/auth');
@@ -24,7 +24,6 @@ const router = express.Router();
 // =========================
 router.post('/signup', agentSignup);
 router.post('/login', agentLogin);
-router.post('/verify-phone', verifyPhone);
 
 // =========================
 // AGENT SELF ROUTES (Logged in Agent)
