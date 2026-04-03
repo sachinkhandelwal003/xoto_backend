@@ -21,10 +21,14 @@ const PropertyLead = require("./modules/auth/routes/consult/propertyLead.route")
 const ProfileData = require("./modules/profile/routes/index.js").default
 const agentRoutes = require('./modules/Agent/routes/index.js');
 const brochureRoutes = require('./modules/Agent/routes/brochureRoutes.js');
+const customerHistoryRoutes = require('../src/modules/history/routes/customerHistory.routes.js');
 const inventoryRoutes = require("./modules/ecommerce/B2C/routes/inventory.routes");
 
 const AgentLead = require('./modules/Agent/routes/Agentroute.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
+
+const rentalProperrty = require('./modules/RentalProperties/routes/Rentproperty.routes.js')
+const Rentlead = require('./modules/RentalProperties/routes/Rentlead.routes.js')
 // console.log("SkyRoutes Check:", SkyRoutes);
 
 // const SkyRoutes = Skyimport.default || Skyimport;
@@ -100,6 +104,10 @@ app.use('/vendor/b2b', require('../src/modules/auth/routes/vendor/vendorb2b.rout
 app.use('/business', require('../src/modules/auth/routes/freelancer/freelancerbusiness.routes'));
 
 
+// RentalProperty
+app.use('/rental/property', rentalProperrty)
+app.use('/rental/lead', Rentlead)
+
 // image ehncnace,ent 
 app.use('/ai/enhance', enhancementRoutes);
 // sky replacement
@@ -128,6 +136,14 @@ app.use('/categories', require('../src/modules/ecommerce/B2C/routes/category.rou
 app.use('/tags', require('../src/modules/ecommerce/B2C/routes/tags.routes'));
 app.use('/blogs', blogRoutes);
 app.use('/vendor/warehouses', require('../src/modules/ecommerce/B2C/routes/warehouse.routes'));
+
+// History
+app.use('/customer-history', customerHistoryRoutes);
+
+
+
+
+
 // notifications
 app.use('/notifications', Notification);
 // 404 Handler
