@@ -194,6 +194,7 @@ const agentSchema = new mongoose.Schema(
       required: true,
     },
     password: { type: String, required: true },
+    isProfileComplete: { type: Boolean, default: false },
 
     commissionEligible: { type: Boolean, default: false },
     commissionEligibilityReason: { type: String, default: null },

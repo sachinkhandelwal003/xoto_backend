@@ -4,7 +4,7 @@ const controller = require("../controllers/adminController");
 // const adminAuth  = require("../middleware/authMiddleware");
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
-router.post("/login", controller.loginAdmin);
+// router.post("/login", controller.loginAdmin);
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 router.get("/dashboard", controller.getDashboardStats);

@@ -6,6 +6,33 @@ const bcrypt = require('bcryptjs');
 const { Role } = require('../../../modules/auth/models/role/role.model');
 const { createToken } = require('../../../middleware/auth');
 
+
+const checkProfileCompleteness = (agent) => {
+  let completedFields = 0;
+  let totalFields = 5;
+  
+  // Check name
+  if (agent.name?.first_name && agent.name?.last_name) completedFields++;
+  
+  // Check phone
+  if (agent.phone?.number) completedFields++;
+  
+  // Check email
+  if (agent.email) completedFields++;
+  
+  // Check Emirates ID
+  if (agent.emiratesId?.number && agent.emiratesId?.frontImageUrl) completedFields++;
+  
+  // Check Bank Details
+  if (agent.bankDetails?.iban) completedFields++;
+  
+  const percentage = Math.round((completedFields / totalFields) * 100);
+  agent.profileCompletionPercentage = percentage;
+  agent.isProfileComplete = percentage === 100;
+  
+  return agent.isProfileComplete;
+};
+
 /* =====================================
    AGENT SIGNUP (REGISTRATION)
 ===================================== */
@@ -151,21 +178,220 @@ const agentSignup = async (req, res) => {
   }
 };
 
+
+
+const adminOnboardFreelanceAgent = async (req, res) => {
+  try {
+    // Check if user is VaultAdmin (role code 18)
+    const userRole = req.user.role;
+    const roleDoc = await Role.findById(userRole);
+    
+    if (!roleDoc || roleDoc.code !== '18') {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Only VaultAdmin can onboard agents."
+      });
+    }
+
+    const {
+      first_name,
+      last_name,
+      email,
+      phone_number,
+      country_code,
+      password,
+      maritalStatus,
+      numberOfDependents,
+      dependents,
+      nationality,
+      dateOfBirth,
+      gender,
+      address,
+      emergencyContact,
+      emiratesIdNumber,
+      emiratesIdExpiryDate,
+      emiratesIdFrontImage,
+      emiratesIdBackImage,
+      passportNumber,
+      passportExpiryDate,
+      passportImage,
+      visaNumber,
+      visaExpiryDate,
+      visaImage,
+      beneficiaryName,
+      bankName,
+      accountNumber,
+      iban,
+      swiftCode,
+      accountType
+    } = req.body;
+
+    // Validation
+    if (!first_name || !last_name || !email || !phone_number || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "First name, last name, email, phone number and password are required"
+      });
+    }
+
+    // Check role for Freelance Agent (code 16)
+    const freelanceRole = await Role.findOne({ code: '16' });
+    if (!freelanceRole) {
+      return res.status(404).json({
+        success: false,
+        message: "Freelance Agent role (code 16) not found"
+      });
+    }
+
+    // Check if phone already exists
+    const existingPhone = await VaultAgent.findOne({ 'phone.number': phone_number });
+    if (existingPhone) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number already registered"
+      });
+    }
+
+    // Check if email already exists
+    if (email) {
+      const existingEmail = await VaultAgent.findOne({ email });
+      if (existingEmail) {
+        return res.status(400).json({
+          success: false,
+          message: "Email already registered"
+        });
+      }
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Build agent data
+    const agentData = {
+      name: { first_name, last_name },
+      phone: { country_code: country_code || '+971', number: phone_number },
+      email: email,
+      password: hashedPassword,
+      role: freelanceRole._id,
+      agentType: 'FreelanceAgent',
+      partnerId: null,
+      affiliationStatus: 'none',
+      maritalStatus: maritalStatus || null,
+      numberOfDependents: numberOfDependents || 0,
+      dependents: dependents || [],
+      nationality: nationality || null,
+      dateOfBirth: dateOfBirth || null,
+      gender: gender || null,
+      isActive: true,
+      isPhoneVerified: true,
+      isEmailVerified: true,
+      commissionEligible: false
+    };
+
+    // Add address if provided
+    if (address) {
+      agentData.address = address;
+    }
+
+    // Add emergency contact if provided
+    if (emergencyContact) {
+      agentData.emergencyContact = emergencyContact;
+    }
+
+    // Add Emirates ID if provided
+    if (emiratesIdNumber) {
+      agentData.emiratesId = {
+        number: emiratesIdNumber,
+        expiryDate: emiratesIdExpiryDate || null,
+        frontImageUrl: emiratesIdFrontImage || null,
+        backImageUrl: emiratesIdBackImage || null,
+        verified: true,
+        verifiedAt: new Date(),
+        verifiedBy: req.user._id
+      };
+    }
+
+    // Add Passport if provided
+    if (passportNumber) {
+      agentData.passport = {
+        number: passportNumber,
+        expiryDate: passportExpiryDate || null,
+        imageUrl: passportImage || null,
+        verified: true,
+        verifiedAt: new Date()
+      };
+    }
+
+    // Add Visa if provided
+    if (visaNumber) {
+      agentData.visa = {
+        number: visaNumber,
+        expiryDate: visaExpiryDate || null,
+        imageUrl: visaImage || null,
+        verified: true,
+        verifiedAt: new Date()
+      };
+    }
+
+    // Add Bank Details if provided
+    if (iban) {
+      agentData.bankDetails = {
+        beneficiaryName: beneficiaryName || `${first_name} ${last_name}`,
+        bankName: bankName || null,
+        accountNumber: accountNumber || null,
+        iban: iban,
+        swiftCode: swiftCode || null,
+        accountType: accountType || null,
+        verified: true,
+        verifiedAt: new Date()
+      };
+    }
+
+    // Create agent
+    const newAgent = await VaultAgent.create(agentData);
+
+    // Check if profile is complete and set commission eligible
+    const isComplete = checkProfileCompleteness(newAgent);
+    if (isComplete) {
+      newAgent.commissionEligible = true;
+      newAgent.isProfileComplete = true;
+      await newAgent.save();
+    }
+
+    const agentResponse = newAgent.toObject();
+    delete agentResponse.password;
+
+    return res.status(201).json({
+      success: true,
+      message: "Freelance agent onboarded successfully by Admin",
+      data: agentResponse
+    });
+
+  } catch (error) {
+    console.error("Admin onboard freelance agent error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
 /* =====================================
    AGENT LOGIN
 ===================================== */
 const agentLogin = async (req, res) => {
   try {
-    const { phone_number, password } = req.body;
+    const { email, password } = req.body;
 
-    if (!phone_number || !password) {
+    // ✅ Validation
+    if (!email || !password) {
       return res.status(400).json({
         success: false,
-        message: "Phone number and password required"
+        message: "Email and password required"
       });
     }
 
-    const agent = await VaultAgent.findOne({ 'phone.number': phone_number })
+    // ✅ Find agent by email
+    const agent = await VaultAgent.findOne({ email })
       .select('+password')
       .populate('role')
       .populate('partnerId', 'companyName status');
@@ -177,6 +403,7 @@ const agentLogin = async (req, res) => {
       });
     }
 
+    // ✅ Check password
     const isMatch = await bcrypt.compare(password, agent.password);
     if (!isMatch) {
       return res.status(401).json({
@@ -185,6 +412,7 @@ const agentLogin = async (req, res) => {
       });
     }
 
+    // ✅ Status checks
     if (!agent.isActive) {
       return res.status(403).json({
         success: false,
@@ -199,18 +427,23 @@ const agentLogin = async (req, res) => {
       });
     }
 
-    if (agent.agentType === 'PartnerAffiliatedAgent' && agent.affiliationStatus !== 'verified') {
+    if (
+      agent.agentType === 'PartnerAffiliatedAgent' &&
+      agent.affiliationStatus !== 'verified'
+    ) {
       return res.status(403).json({
         success: false,
         message: `Affiliation status: ${agent.affiliationStatus}. Please wait for admin verification.`
       });
     }
 
-    // Update last login
+    // ✅ Update last login
     agent.lastLoginAt = new Date();
     await agent.save();
 
+    // ✅ Token
     const token = createToken(agent);
+
     const agentResponse = agent.toObject();
     delete agentResponse.password;
 
@@ -688,5 +921,6 @@ module.exports = {
   getAgentDashboard,
   updateAgentProfile,
   changePassword,
-  getAgentsByPartner
+  getAgentsByPartner,
+  adminOnboardFreelanceAgent
 };
