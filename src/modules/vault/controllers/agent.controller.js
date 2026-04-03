@@ -288,15 +288,9 @@ const adminOnboardFreelanceAgent = async (req, res) => {
       commissionEligible: false
     };
 
-    // Add address if provided
-    if (address) {
-      agentData.address = address;
-    }
-
-    // Add emergency contact if provided
-    if (emergencyContact) {
-      agentData.emergencyContact = emergencyContact;
-    }
+    // Add optional fields
+    if (address) agentData.address = address;
+    if (emergencyContact) agentData.emergencyContact = emergencyContact;
 
     // Add Emirates ID if provided
     if (emiratesIdNumber) {
@@ -369,6 +363,153 @@ const adminOnboardFreelanceAgent = async (req, res) => {
 
   } catch (error) {
     console.error("Admin onboard freelance agent error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+const partnerOnboardAffiliatedAgent = async (req, res) => {
+  try {
+    const partnerId = req.user._id;
+
+    const {
+      first_name,
+      last_name,
+      email,
+      phone_number,
+      country_code,
+      password,
+      maritalStatus,
+      numberOfDependents,
+      dependents,
+      nationality,
+      dateOfBirth,
+      gender,
+      address,
+      emergencyContact
+    } = req.body;
+
+    // Validation
+    if (!first_name || !last_name || !email || !phone_number || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "First name, last name, email, phone number and password are required"
+      });
+    }
+
+    // Verify partner exists and is active
+    const partner = await Partner.findOne({ _id: partnerId, isDeleted: false });
+    if (!partner) {
+      return res.status(404).json({
+        success: false,
+        message: "Partner not found"
+      });
+    }
+
+    if (partner.status !== 'active') {
+      return res.status(403).json({
+        success: false,
+        message: "Partner account is not active. Cannot onboard agents."
+      });
+    }
+
+    // Check role for Partner Affiliated Agent (code 17)
+    const affiliatedRole = await Role.findOne({ code: '17' });
+    if (!affiliatedRole) {
+      return res.status(404).json({
+        success: false,
+        message: "Partner Affiliated Agent role (code 17) not found"
+      });
+    }
+
+    // Check if phone already exists
+    const existingPhone = await VaultAgent.findOne({ 'phone.number': phone_number });
+    if (existingPhone) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number already registered"
+      });
+    }
+
+    // Check if email already exists
+    if (email) {
+      const existingEmail = await VaultAgent.findOne({ email });
+      if (existingEmail) {
+        return res.status(400).json({
+          success: false,
+          message: "Email already registered"
+        });
+      }
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Build agent data - ✅ Active immediately, NO admin verification needed
+    const agentData = {
+      name: { first_name, last_name },
+      phone: { country_code: country_code || '+971', number: phone_number },
+      email: email,
+      password: hashedPassword,
+      role: affiliatedRole._id,
+      agentType: 'PartnerAffiliatedAgent',
+      partnerId: partnerId,
+      affiliationStatus: 'verified', // ✅ Partner verifies immediately
+      affiliationVerifiedBy: req.user._id,
+      affiliationVerifiedAt: new Date(),
+      maritalStatus: maritalStatus || null,
+      numberOfDependents: numberOfDependents || 0,
+      dependents: dependents || [],
+      nationality: nationality || null,
+      dateOfBirth: dateOfBirth || null,
+      gender: gender || null,
+      isActive: true, // ✅ Active immediately
+      isPhoneVerified: true,
+      isEmailVerified: true,
+      commissionEligible: true
+    };
+
+    // Add address if provided
+    if (address) {
+      agentData.address = address;
+    }
+
+    // Add emergency contact if provided
+    if (emergencyContact) {
+      agentData.emergencyContact = emergencyContact;
+    }
+
+    // Create agent
+    const newAgent = await VaultAgent.create(agentData);
+
+    // Update partner's agent count
+    partner.numberOfAgents += 1;
+    await partner.save();
+
+    const agentResponse = newAgent.toObject();
+    delete agentResponse.password;
+
+    return res.status(201).json({
+      success: true,
+      message: "Partner affiliated agent onboarded successfully by Partner",
+      data: {
+        _id: agentResponse._id,
+        name: agentResponse.name,
+        email: agentResponse.email,
+        phone: agentResponse.phone,
+        agentType: agentResponse.agentType,
+        partnerId: partnerId,
+        partnerName: partner.companyName,
+        affiliationStatus: 'verified',
+        isActive: true
+      }
+    });
+
+  } catch (error) {
+    console.error("Partner onboard affiliated agent error:", error);
     return res.status(500).json({
       success: false,
       message: error.message
@@ -922,5 +1063,6 @@ module.exports = {
   updateAgentProfile,
   changePassword,
   getAgentsByPartner,
-  adminOnboardFreelanceAgent
+  adminOnboardFreelanceAgent,
+  partnerOnboardAffiliatedAgent
 };

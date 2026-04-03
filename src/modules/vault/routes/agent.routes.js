@@ -13,7 +13,7 @@ const {
   updateAgentProfile,
   changePassword,
   
-  getAgentsByPartner,adminOnboardFreelanceAgent
+  getAgentsByPartner,adminOnboardFreelanceAgent,partnerOnboardAffiliatedAgent 
 } = require('../controllers/agent.controller');
 const { protect, protectMulti } = require('../../../middleware/auth');
 
@@ -25,6 +25,8 @@ const router = express.Router();
 router.post('/signup', agentSignup);
 router.post('/login', agentLogin);
 router.post('/admin/onboard-freelance', protect, adminOnboardFreelanceAgent);
+router.post('/admin/onboard-affiliate', protect, partnerOnboardAffiliatedAgent );
+
 
 // =========================
 // AGENT SELF ROUTES (Logged in Agent)
