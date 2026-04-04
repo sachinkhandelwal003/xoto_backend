@@ -13,6 +13,8 @@ const client = new OpenAI({
 
 
 
+
+
 // =======================================================
 // :fire: HELPER: Parse Elements
 // =======================================================
@@ -24,6 +26,8 @@ const parseElements = (elements) => {
   }
   return [];
 };
+
+
 
 
 
@@ -102,6 +106,8 @@ No cartoon, no CGI.
     res.status(500).json({ error: err.message });
   }
 };
+
+
 
 
 
@@ -185,6 +191,8 @@ No cartoon, no CGI.
 
 
 
+
+
 // =======================================================
 // 3. :open_file_folder: GET INTERIOR DESIGNS
 // =======================================================
@@ -207,6 +215,8 @@ exports.getInteriorDesigns = async (req, res) => {
 
 
 
+
+
 // =======================================================
 // 4. :herb: GET GARDEN DESIGNS
 // =======================================================
@@ -226,6 +236,8 @@ exports.getgardenDesigns = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+
 
 
 
@@ -257,6 +269,8 @@ exports.addCustomerDesign = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+
 
 
 
