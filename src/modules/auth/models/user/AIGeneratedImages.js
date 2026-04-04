@@ -47,11 +47,10 @@ const aiGeneratedImageSchema = new mongoose.Schema(
       default: ""
     },
 
-    elements: {
-      type: String,
-      trim: true,
-      default: ""
-    }
+elements: {
+  type: [String],  
+  default: []
+},
 
   },
   {
