@@ -99,7 +99,7 @@ socket.on('send_message', async (data) => {
   socket.on('disconnect', () => {
     Object.keys(onlineUsers).forEach(uid => {
       if (onlineUsers[uid] === socket.id) {
-        delete onlineUsers[uid];
+        delete onlineUsers[uid];  
       }
     });
   });
@@ -167,7 +167,7 @@ app.use(cors({
   credentials: true
 }));
 
-
+// heloooooo
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(morgan('combined'));
