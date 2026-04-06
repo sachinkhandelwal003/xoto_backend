@@ -64,9 +64,9 @@ const agentSignup = async (req, res) => {
     }
 
     // Check role based on agent type
-    let roleCode = 16; // Default for Freelance Agent
+    let roleCode = 22; // Default for Freelance Agent
     if (agentType === 'PartnerAffiliatedAgent') {
-      roleCode = 17; // Partner Affiliated Agent role code
+      roleCode = 22; // Partner Affiliated Agent role code
     }
 
     const roleDoc = await Role.findOne({ code: roleCode });
@@ -235,7 +235,7 @@ const adminOnboardFreelanceAgent = async (req, res) => {
     }
 
     // Check role for Freelance Agent (code 16)
-    const freelanceRole = await Role.findOne({ code: '16' });
+    const freelanceRole = await Role.findOne({ code: '22' });
     if (!freelanceRole) {
       return res.status(404).json({
         success: false,
@@ -416,12 +416,13 @@ const partnerOnboardAffiliatedAgent = async (req, res) => {
       });
     }
 
-    // Check role for Partner Affiliated Agent (code 17)
-    const affiliatedRole = await Role.findOne({ code: '17' });
+    // Check role for Partner Affiliated Agent (code 22)
+
+    const affiliatedRole = await Role.findOne({ code: '22' });
     if (!affiliatedRole) {
       return res.status(404).json({
         success: false,
-        message: "Partner Affiliated Agent role (code 17) not found"
+        message: "Partner Affiliated Agent role (code 22) not found"
       });
     }
 
