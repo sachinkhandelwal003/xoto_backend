@@ -11,7 +11,7 @@ const {
   assignAgent,
   updateStatus,
   deleteLead,
-} = require("../controllers/Rentlead.controller");
+} = require("../controllers/Rentlead.controller"); 
 
 // ─── CUSTOM ADMIN GUARD ───────────────────────────────────────────────────────
 // Built from your actual token structure:
