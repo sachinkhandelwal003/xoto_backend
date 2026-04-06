@@ -45,6 +45,13 @@ exports.createPropertyLead = asyncHandler(async (req, res) => {
     data.consultant_type = data.consultant_type || 'other';
   }
 
+  if (data.type === "rent" && !data.property) {
+  return res.status(400).json({
+    success: false,
+    message: "Property is required for rent leads"
+  });
+}
+
   const lead = await PropertyLead.create(data);
 
   res.status(StatusCodes.CREATED).json({
@@ -80,6 +87,7 @@ exports.getAllPropertyLeads = asyncHandler(async (req, res) => {
   const total = await PropertyLead.countDocuments(query);
 
   let leads = await PropertyLead.find(query)
+  .populate("property")
     .sort({ createdAt: -1 })
     .skip((page - 1) * limit)
     .limit(Number(limit))

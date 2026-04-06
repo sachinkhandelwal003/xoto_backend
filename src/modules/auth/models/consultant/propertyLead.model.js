@@ -42,6 +42,10 @@ const propertyLeadSchema = new mongoose.Schema({
       trim: true,
     }
   },
+property: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "RentalProperty"
+},
   has_property: {
     type: Boolean,
     default: false,
