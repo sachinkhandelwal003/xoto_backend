@@ -58,8 +58,8 @@ router.get('/partner/agents', protectPartner, getAgentsByPartner);
 // =========================
 // COMMON ROUTES (Admin, Partner, Agent can use based on permissions)
 // =========================
-router.post('/suspend/:id' ,protectEither,suspendAgent);
-router.post('/activate/:id',protectEither, activateAgent);
+router.post('/suspend/:id' ,protectEither,suspendAgent);                            
+  router.post('/activate/:id',protectEither, activateAgent);
 router.get('/get/:id',protectEither, getAgentById);
 router.delete('/delete/:id',protectEither, deleteAgent);
 
