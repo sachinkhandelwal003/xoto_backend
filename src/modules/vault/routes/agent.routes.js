@@ -1,55 +1,74 @@
 const express = require('express');
 const {
   agentSignup,
+  adminOnboardFreelanceAgent,
+  partnerOnboardAffiliatedAgent,
   agentLogin,
-  getAllAgents,
-  getAgentById,
-  updateAgent,
-  deleteAgent,
-  verifyAffiliatedAgent,
+  verifyAgent,
   suspendAgent,
   activateAgent,
-  getAgentDashboard,
+  deleteAgent,
+  getAllAgents,
+  getAgentsByPartner,
+  getAgentById,
   updateAgentProfile,
   changePassword,
-  
-  getAgentsByPartner,adminOnboardFreelanceAgent,partnerOnboardAffiliatedAgent 
+  getAgentDashboard
 } = require('../controllers/agent.controller');
-const { protect, protectMulti ,protectPartner } = require('../../../middleware/auth');
+const { protect ,protectPartner  } = require('../../../middleware/auth');
+
 
 const router = express.Router();
+const protectEither = async (req, res, next) => {
+  try {
+    // Try normal user
+    await protect(req, res, next);
+  } catch (err) {
+    try {
+      // If failed, try partner
+      await protectPartner(req, res, next);
+    } catch (err2) {
+      return res.status(401).json({
+        message: 'Unauthorized (User or Partner required)',
+      });
+    }
+  }
+};
 
 // =========================
 // PUBLIC ROUTES
 // =========================
 router.post('/signup', agentSignup);
 router.post('/login', agentLogin);
+
+// =========================
+// ADMIN ONLY ROUTES (Role code 18)
+// =========================
 router.post('/admin/onboard-freelance', protect, adminOnboardFreelanceAgent);
-router.post('/admin/onboard-affiliate', protect, partnerOnboardAffiliatedAgent );
-
-
-// =========================
-// AGENT SELF ROUTES (Logged in Agent)
-// =========================
-router.get('/dashboard', protect, getAgentDashboard);
-router.put('/profile', protect, updateAgentProfile);
-router.post('/change-password', protect, changePassword);
-router.get('/me', protect, getAgentById);
+router.post('/admin/verify/:id', protect, verifyAgent);
+router.get('/admin/all-agents', protect, getAllAgents);
+router.delete('/admin/delete/:id', protect, deleteAgent);
 
 // =========================
-// ADMIN ONLY ROUTES
+// PARTNER ONLY ROUTES (Role code 21)
 // =========================
-router.get('/all', protect,protectPartner, getAllAgents);
-router.get('/get/:id', protect, getAgentById);
-router.put('/update/:id', protect, updateAgent);
-router.delete('/delete/:id', protect, deleteAgent);
-router.post('/suspend/:id', protect, suspendAgent);
-router.post('/activate/:id', protect, activateAgent);
-router.post('/verify-affiliation/:id', protect, verifyAffiliatedAgent);
+router.post('/partner/onboard-affiliate', protectPartner, partnerOnboardAffiliatedAgent);
+router.get('/partner/agents', protectPartner, getAgentsByPartner);
 
 // =========================
-// PARTNER ONLY ROUTES (Get agents under partner)
+// COMMON ROUTES (Admin, Partner, Agent can use based on permissions)
 // =========================
-router.get('/partner/agents', protect, getAgentsByPartner);
+router.post('/suspend/:id' ,protectEither,suspendAgent);
+router.post('/activate/:id',protectEither, activateAgent);
+router.get('/get/:id',protectEither, getAgentById);
+router.delete('/delete/:id',protectEither, deleteAgent);
+
+// =========================
+// AGENT SELF ROUTES
+// =========================
+router.get('/dashboard', getAgentDashboard);
+router.get('/me', getAgentById);
+router.put('/profile', updateAgentProfile);
+router.post('/change-password', changePassword);
 
 module.exports = router;

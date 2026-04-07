@@ -195,15 +195,22 @@ const agentSchema = new mongoose.Schema(
     },
     password: { type: String, required: true },
     isProfileComplete: { type: Boolean, default: false },
+    profileCompletionPercentage: { type: Number, default: 0 },
+
+    // Verification fields
+    isVerified: { type: Boolean, default: false },
+    verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
+    verifiedAt: { type: Date, default: null },
+    rejectionReason: { type: String, default: null },
 
     commissionEligible: { type: Boolean, default: false },
     commissionEligibilityReason: { type: String, default: null },
 
     isPhoneVerified: { type: Boolean, default: false },
     isEmailVerified: { type: Boolean, default: false },
-   
+    phoneVerifiedAt: { type: Date, default: null },
+    emailVerifiedAt: { type: Date, default: null },
     
-  
     isActive: { type: Boolean, default: true },
     isDeleted: { type: Boolean, default: false },
     suspendedAt: { type: Date, default: null },
@@ -220,6 +227,7 @@ const agentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Indexes
 agentSchema.index({ 'phone.number': 1 }, { unique: true });
 agentSchema.index({ email: 1 });
 agentSchema.index({ partnerId: 1 });
@@ -230,6 +238,7 @@ agentSchema.index({ isDeleted: 1 });
 agentSchema.index({ commissionEligible: 1 });
 agentSchema.index({ 'earnings.leaderboardRank': -1 });
 
+// Virtuals
 agentSchema.virtual('fullName').get(function () {
   return `${this.name.first_name} ${this.name.last_name}`;
 });
@@ -238,13 +247,14 @@ agentSchema.virtual('fullPhoneNumber').get(function () {
   return `${this.phone.country_code}${this.phone.number}`;
 });
 
+// Methods
 agentSchema.methods.isActiveAgent = function () {
   return this.isActive && !this.isDeleted && !this.suspendedAt;
 };
 
 agentSchema.methods.canEarnCommission = function () {
   if (this.agentType === 'FreelanceAgent') {
-    return this.commissionEligible && this.isActiveAgent() && this.isPhoneVerified;
+    return this.isVerified && this.isActiveAgent() && this.isPhoneVerified;
   }
   return this.isActiveAgent() && this.affiliationStatus === 'verified' && this.isPhoneVerified;
 };
@@ -273,24 +283,16 @@ agentSchema.methods.markEmailVerified = function () {
   return this.save();
 };
 
+// Pre-save middleware
 agentSchema.pre('save', function (next) {
   let completedFields = 0;
-  let totalFields = 0;
+  let totalFields = 5;
   
   if (this.name.first_name && this.name.last_name) completedFields++;
-  totalFields++;
-  
   if (this.phone.number) completedFields++;
-  totalFields++;
-  
   if (this.email) completedFields++;
-  totalFields++;
-  
   if (this.emiratesId.number && this.emiratesId.frontImageUrl) completedFields++;
-  totalFields++;
-  
   if (this.bankDetails.iban) completedFields++;
-  totalFields++;
   
   this.profileCompletionPercentage = Math.round((completedFields / totalFields) * 100);
   this.isProfileComplete = this.profileCompletionPercentage === 100;

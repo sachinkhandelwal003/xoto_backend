@@ -6,24 +6,17 @@ const bcrypt = require('bcryptjs');
 const { Role } = require('../../../modules/auth/models/role/role.model');
 const { createToken } = require('../../../middleware/auth');
 
-
+/* =====================================
+   HELPER FUNCTION
+===================================== */
 const checkProfileCompleteness = (agent) => {
   let completedFields = 0;
   let totalFields = 5;
   
-  // Check name
   if (agent.name?.first_name && agent.name?.last_name) completedFields++;
-  
-  // Check phone
   if (agent.phone?.number) completedFields++;
-  
-  // Check email
   if (agent.email) completedFields++;
-  
-  // Check Emirates ID
   if (agent.emiratesId?.number && agent.emiratesId?.frontImageUrl) completedFields++;
-  
-  // Check Bank Details
   if (agent.bankDetails?.iban) completedFields++;
   
   const percentage = Math.round((completedFields / totalFields) * 100);
@@ -34,28 +27,15 @@ const checkProfileCompleteness = (agent) => {
 };
 
 /* =====================================
-   AGENT SIGNUP (REGISTRATION)
+   1. AGENT SELF SIGNUP
 ===================================== */
 const agentSignup = async (req, res) => {
   try {
     const {
-      first_name,
-      last_name,
-      email,
-      phone_number,
-      country_code,
-      password,
-      agentType,
-      partnerId,
-      maritalStatus,
-      numberOfDependents,
-      dependents,
-      nationality,
-      dateOfBirth,
-      gender
+      first_name, last_name, email, phone_number, country_code, password,
+      maritalStatus, numberOfDependents, dependents, nationality, dateOfBirth, gender
     } = req.body;
 
-    // Validation
     if (!first_name || !last_name || !password || !phone_number) {
       return res.status(400).json({
         success: false,
@@ -63,170 +43,82 @@ const agentSignup = async (req, res) => {
       });
     }
 
-    // Check role based on agent type
-    let roleCode = 22; // Default for Freelance Agent
-    if (agentType === 'PartnerAffiliatedAgent') {
-      roleCode = 22; // Partner Affiliated Agent role code
-    }
-
-    const roleDoc = await Role.findOne({ code: roleCode });
+    const roleDoc = await Role.findOne({ code: '22' });
     if (!roleDoc) {
-      return res.status(404).json({
-        success: false,
-        message: `Role with code ${roleCode} not found`
-      });
+      return res.status(404).json({ success: false, message: "Role not found" });
     }
 
-    // Check if phone already exists
     const existingPhone = await VaultAgent.findOne({ 'phone.number': phone_number });
     if (existingPhone) {
-      return res.status(400).json({
-        success: false,
-        message: "Phone number already registered"
-      });
+      return res.status(400).json({ success: false, message: "Phone number already registered" });
     }
 
-    // Check if email already exists
     if (email) {
       const existingEmail = await VaultAgent.findOne({ email });
       if (existingEmail) {
-        return res.status(400).json({
-          success: false,
-          message: "Email already registered"
-        });
+        return res.status(400).json({ success: false, message: "Email already registered" });
       }
     }
 
-    // Check partner if agent is PartnerAffiliated
-    let partner = null;
-    let affiliationStatus = 'none';
-    let isActive = true;
-
-    if (agentType === 'PartnerAffiliatedAgent') {
-      if (!partnerId) {
-        return res.status(400).json({
-          success: false,
-          message: "Partner ID is required for Partner Affiliated Agent"
-        });
-      }
-
-      partner = await Partner.findOne({ _id: partnerId, isDeleted: false });
-      if (!partner) {
-        return res.status(404).json({
-          success: false,
-          message: "Partner not found"
-        });
-      }
-
-      affiliationStatus = 'pending';
-      isActive = false; // Will be activated after admin verification
-    }
-
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create agent
     const newAgent = await VaultAgent.create({
-      name: {
-        first_name,
-        last_name
-      },
-      phone: {
-        country_code: country_code || '+971',
-        number: phone_number
-      },
+      name: { first_name, last_name },
+      phone: { country_code: country_code || '+971', number: phone_number },
       email: email || null,
       password: hashedPassword,
       role: roleDoc._id,
-      agentType: agentType || 'FreelanceAgent',
-      partnerId: partnerId || null,
-      affiliationStatus: affiliationStatus,
+      agentType: 'FreelanceAgent',
+      partnerId: null,
+      affiliationStatus: 'none',
       maritalStatus: maritalStatus || null,
       numberOfDependents: numberOfDependents || 0,
       dependents: dependents || [],
       nationality: nationality || null,
       dateOfBirth: dateOfBirth || null,
       gender: gender || null,
-      isActive: isActive,
+      isActive: true,
+      isVerified: false,
       isPhoneVerified: false,
       isEmailVerified: false
     });
-
-    // Update partner's agent count
-    if (partner && agentType === 'PartnerAffiliatedAgent') {
-      partner.numberOfAgents += 1;
-      await partner.save();
-    }
 
     const agentResponse = newAgent.toObject();
     delete agentResponse.password;
 
     return res.status(201).json({
       success: true,
-      message: agentType === 'PartnerAffiliatedAgent' 
-        ? "Agent registered successfully. Waiting for admin verification."
-        : "Freelance agent registered successfully",
+      message: "Freelance agent registered successfully. Please complete your profile and wait for admin verification.",
       data: agentResponse
     });
 
   } catch (error) {
     console.error("Agent signup error:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-
-
+/* =====================================
+   2. ADMIN ONBOARD FREELANCE AGENT (Direct - No verification needed)
+===================================== */
 const adminOnboardFreelanceAgent = async (req, res) => {
   try {
-    // Check if user is VaultAdmin (role code 18)
     const userRole = req.user.role;
     const roleDoc = await Role.findById(userRole);
     
     if (!roleDoc || roleDoc.code !== '18') {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied. Only VaultAdmin can onboard agents."
-      });
+      return res.status(403).json({ success: false, message: "Access denied. Only Admin can onboard agents." });
     }
 
     const {
-      first_name,
-      last_name,
-      email,
-      phone_number,
-      country_code,
-      password,
-      maritalStatus,
-      numberOfDependents,
-      dependents,
-      nationality,
-      dateOfBirth,
-      gender,
-      address,
-      emergencyContact,
-      emiratesIdNumber,
-      emiratesIdExpiryDate,
-      emiratesIdFrontImage,
-      emiratesIdBackImage,
-      passportNumber,
-      passportExpiryDate,
-      passportImage,
-      visaNumber,
-      visaExpiryDate,
-      visaImage,
-      beneficiaryName,
-      bankName,
-      accountNumber,
-      iban,
-      swiftCode,
-      accountType
+      first_name, last_name, email, phone_number, country_code, password,
+      maritalStatus, numberOfDependents, dependents, nationality, dateOfBirth, gender,
+      address, emergencyContact, emiratesIdNumber, emiratesIdExpiryDate,
+      emiratesIdFrontImage, emiratesIdBackImage, passportNumber, passportExpiryDate,
+      passportImage, visaNumber, visaExpiryDate, visaImage, beneficiaryName,
+      bankName, accountNumber, iban, swiftCode, accountType
     } = req.body;
 
-    // Validation
     if (!first_name || !last_name || !email || !phone_number || !password) {
       return res.status(400).json({
         success: false,
@@ -234,39 +126,25 @@ const adminOnboardFreelanceAgent = async (req, res) => {
       });
     }
 
-    // Check role for Freelance Agent (code 16)
     const freelanceRole = await Role.findOne({ code: '22' });
     if (!freelanceRole) {
-      return res.status(404).json({
-        success: false,
-        message: "Freelance Agent role (code 16) not found"
-      });
+      return res.status(404).json({ success: false, message: "Freelance Agent role not found" });
     }
 
-    // Check if phone already exists
     const existingPhone = await VaultAgent.findOne({ 'phone.number': phone_number });
     if (existingPhone) {
-      return res.status(400).json({
-        success: false,
-        message: "Phone number already registered"
-      });
+      return res.status(400).json({ success: false, message: "Phone number already registered" });
     }
 
-    // Check if email already exists
     if (email) {
       const existingEmail = await VaultAgent.findOne({ email });
       if (existingEmail) {
-        return res.status(400).json({
-          success: false,
-          message: "Email already registered"
-        });
+        return res.status(400).json({ success: false, message: "Email already registered" });
       }
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Build agent data
     const agentData = {
       name: { first_name, last_name },
       phone: { country_code: country_code || '+971', number: phone_number },
@@ -283,16 +161,17 @@ const adminOnboardFreelanceAgent = async (req, res) => {
       dateOfBirth: dateOfBirth || null,
       gender: gender || null,
       isActive: true,
+      isVerified: true,
       isPhoneVerified: true,
       isEmailVerified: true,
-      commissionEligible: false
+      verifiedBy: req.user._id,
+      verifiedAt: new Date(),
+      commissionEligible: true
     };
 
-    // Add optional fields
     if (address) agentData.address = address;
     if (emergencyContact) agentData.emergencyContact = emergencyContact;
 
-    // Add Emirates ID if provided
     if (emiratesIdNumber) {
       agentData.emiratesId = {
         number: emiratesIdNumber,
@@ -305,7 +184,6 @@ const adminOnboardFreelanceAgent = async (req, res) => {
       };
     }
 
-    // Add Passport if provided
     if (passportNumber) {
       agentData.passport = {
         number: passportNumber,
@@ -316,7 +194,6 @@ const adminOnboardFreelanceAgent = async (req, res) => {
       };
     }
 
-    // Add Visa if provided
     if (visaNumber) {
       agentData.visa = {
         number: visaNumber,
@@ -327,7 +204,6 @@ const adminOnboardFreelanceAgent = async (req, res) => {
       };
     }
 
-    // Add Bank Details if provided
     if (iban) {
       agentData.bankDetails = {
         beneficiaryName: beneficiaryName || `${first_name} ${last_name}`,
@@ -341,16 +217,9 @@ const adminOnboardFreelanceAgent = async (req, res) => {
       };
     }
 
-    // Create agent
     const newAgent = await VaultAgent.create(agentData);
-
-    // Check if profile is complete and set commission eligible
-    const isComplete = checkProfileCompleteness(newAgent);
-    if (isComplete) {
-      newAgent.commissionEligible = true;
-      newAgent.isProfileComplete = true;
-      await newAgent.save();
-    }
+    checkProfileCompleteness(newAgent);
+    await newAgent.save();
 
     const agentResponse = newAgent.toObject();
     delete agentResponse.password;
@@ -362,37 +231,24 @@ const adminOnboardFreelanceAgent = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Admin onboard freelance agent error:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    console.error("Admin onboard error:", error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-
+/* =====================================
+   3. PARTNER ONBOARD AFFILIATED AGENT
+===================================== */
 const partnerOnboardAffiliatedAgent = async (req, res) => {
   try {
     const partnerId = req.user._id;
 
     const {
-      first_name,
-      last_name,
-      email,
-      phone_number,
-      country_code,
-      password,
-      maritalStatus,
-      numberOfDependents,
-      dependents,
-      nationality,
-      dateOfBirth,
-      gender,
-      address,
-      emergencyContact
+      first_name, last_name, email, phone_number, country_code, password,
+      maritalStatus, numberOfDependents, dependents, nationality, dateOfBirth, gender,
+      address, emergencyContact
     } = req.body;
 
-    // Validation
     if (!first_name || !last_name || !email || !phone_number || !password) {
       return res.status(400).json({
         success: false,
@@ -400,56 +256,34 @@ const partnerOnboardAffiliatedAgent = async (req, res) => {
       });
     }
 
-    // Verify partner exists and is active
     const partner = await Partner.findOne({ _id: partnerId, isDeleted: false });
     if (!partner) {
-      return res.status(404).json({
-        success: false,
-        message: "Partner not found"
-      });
+      return res.status(404).json({ success: false, message: "Partner not found" });
     }
 
     if (partner.status !== 'active') {
-      return res.status(403).json({
-        success: false,
-        message: "Partner account is not active. Cannot onboard agents."
-      });
+      return res.status(403).json({ success: false, message: "Partner account is not active" });
     }
-
-    // Check role for Partner Affiliated Agent (code 22)
 
     const affiliatedRole = await Role.findOne({ code: '22' });
     if (!affiliatedRole) {
-      return res.status(404).json({
-        success: false,
-        message: "Partner Affiliated Agent role (code 22) not found"
-      });
+      return res.status(404).json({ success: false, message: "Role not found" });
     }
 
-    // Check if phone already exists
     const existingPhone = await VaultAgent.findOne({ 'phone.number': phone_number });
     if (existingPhone) {
-      return res.status(400).json({
-        success: false,
-        message: "Phone number already registered"
-      });
+      return res.status(400).json({ success: false, message: "Phone number already registered" });
     }
 
-    // Check if email already exists
     if (email) {
       const existingEmail = await VaultAgent.findOne({ email });
       if (existingEmail) {
-        return res.status(400).json({
-          success: false,
-          message: "Email already registered"
-        });
+        return res.status(400).json({ success: false, message: "Email already registered" });
       }
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Build agent data - ✅ Active immediately, NO admin verification needed
     const agentData = {
       name: { first_name, last_name },
       phone: { country_code: country_code || '+971', number: phone_number },
@@ -458,7 +292,7 @@ const partnerOnboardAffiliatedAgent = async (req, res) => {
       role: affiliatedRole._id,
       agentType: 'PartnerAffiliatedAgent',
       partnerId: partnerId,
-      affiliationStatus: 'verified', // ✅ Partner verifies immediately
+      affiliationStatus: 'verified',
       affiliationVerifiedBy: req.user._id,
       affiliationVerifiedAt: new Date(),
       maritalStatus: maritalStatus || null,
@@ -467,26 +301,17 @@ const partnerOnboardAffiliatedAgent = async (req, res) => {
       nationality: nationality || null,
       dateOfBirth: dateOfBirth || null,
       gender: gender || null,
-      isActive: true, // ✅ Active immediately
+      isActive: true,
       isPhoneVerified: true,
       isEmailVerified: true,
       commissionEligible: true
     };
 
-    // Add address if provided
-    if (address) {
-      agentData.address = address;
-    }
+    if (address) agentData.address = address;
+    if (emergencyContact) agentData.emergencyContact = emergencyContact;
 
-    // Add emergency contact if provided
-    if (emergencyContact) {
-      agentData.emergencyContact = emergencyContact;
-    }
-
-    // Create agent
     const newAgent = await VaultAgent.create(agentData);
 
-    // Update partner's agent count
     partner.numberOfAgents += 1;
     await partner.save();
 
@@ -495,12 +320,11 @@ const partnerOnboardAffiliatedAgent = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: "Partner affiliated agent onboarded successfully by Partner",
+      message: "Partner affiliated agent onboarded successfully",
       data: {
         _id: agentResponse._id,
         name: agentResponse.name,
         email: agentResponse.email,
-        phone: agentResponse.phone,
         agentType: agentResponse.agentType,
         partnerId: partnerId,
         partnerName: partner.companyName,
@@ -510,82 +334,52 @@ const partnerOnboardAffiliatedAgent = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Partner onboard affiliated agent error:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    console.error("Partner onboard error:", error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
+
 /* =====================================
-   AGENT LOGIN
+   4. AGENT LOGIN
 ===================================== */
 const agentLogin = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // ✅ Validation
     if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password required"
-      });
+      return res.status(400).json({ success: false, message: "Email and password required" });
     }
 
-    // ✅ Find agent by email
     const agent = await VaultAgent.findOne({ email })
       .select('+password')
       .populate('role')
       .populate('partnerId', 'companyName status');
 
     if (!agent) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid credentials"
-      });
+      return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
-    // ✅ Check password
     const isMatch = await bcrypt.compare(password, agent.password);
     if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid credentials"
-      });
+      return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
-    // ✅ Status checks
     if (!agent.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: "Account is deactivated. Please contact admin."
-      });
+      return res.status(403).json({ success: false, message: "Account is deactivated" });
     }
 
     if (agent.suspendedAt) {
-      return res.status(403).json({
-        success: false,
-        message: `Account suspended. Reason: ${agent.suspensionReason || 'Contact admin'}`
-      });
+      return res.status(403).json({ success: false, message: `Account suspended. Reason: ${agent.suspensionReason}` });
     }
 
-    if (
-      agent.agentType === 'PartnerAffiliatedAgent' &&
-      agent.affiliationStatus !== 'verified'
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: `Affiliation status: ${agent.affiliationStatus}. Please wait for admin verification.`
-      });
+
+    if (agent.agentType === 'PartnerAffiliatedAgent' && agent.affiliationStatus !== 'verified') {
+      return res.status(403).json({ success: false, message: `Affiliation status: ${agent.affiliationStatus}` });
     }
 
-    // ✅ Update last login
-    agent.lastLoginAt = new Date();
     await agent.save();
 
-    // ✅ Token
     const token = createToken(agent);
-
     const agentResponse = agent.toObject();
     delete agentResponse.password;
 
@@ -597,32 +391,219 @@ const agentLogin = async (req, res) => {
     });
 
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /* =====================================
-   GET ALL AGENTS (Admin only)
+   5. ADMIN VERIFY FREELANCE AGENT
+===================================== */
+const verifyAgent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, rejectionReason } = req.body;
+
+    const userRole = req.user.role;
+    const roleDoc = await Role.findById(userRole);
+    if (!roleDoc || roleDoc.code !== '18') {
+      return res.status(403).json({ success: false, message: "Access denied. Admin only." });
+    }
+
+    const agent = await VaultAgent.findById(id);
+    if (!agent) {
+      return res.status(404).json({ success: false, message: "Agent not found" });
+    }
+
+    if (agent.agentType !== 'FreelanceAgent') {
+      return res.status(400).json({ success: false, message: "This API is only for Freelance Agents" });
+    }
+
+    if (status === 'verified') {
+      agent.isVerified = true;
+      agent.isActive = true;
+      agent.verifiedBy = req.user._id;
+      agent.verifiedAt = new Date();
+      agent.commissionEligible = true;
+      agent.rejectionReason = null;
+    } else if (status === 'rejected') {
+      agent.isVerified = false;
+      agent.isActive = false;
+      agent.rejectionReason = rejectionReason || 'Application rejected by admin';
+    } else {
+      return res.status(400).json({ success: false, message: "Status must be 'verified' or 'rejected'" });
+    }
+
+    await agent.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Agent ${status} successfully`,
+      data: { _id: agent._id, isVerified: agent.isVerified, isActive: agent.isActive, rejectionReason: agent.rejectionReason }
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/* =====================================
+   6. SUSPEND AGENT (Admin or Partner can suspend their own)
+===================================== */
+const suspendAgent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { suspensionReason } = req.body;
+
+    const agent = await VaultAgent.findById(id);
+    if (!agent) {
+      return res.status(404).json({ success: false, message: "Agent not found" });
+    }
+
+    const userRole = req.user.role;
+    const roleDoc = await Role.findById(userRole);
+
+    // Admin can suspend any agent
+    if (roleDoc.code === '18') {
+      agent.suspendedAt = new Date();
+      agent.suspensionReason = suspensionReason || "Suspended by Admin";
+      agent.isActive = false;
+      await agent.save();
+      return res.status(200).json({ success: true, message: "Agent suspended successfully", data: agent });
+    }
+
+    // Partner can suspend only their own affiliated agents
+    if (roleDoc.code === '21') {
+      if (agent.partnerId?.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ success: false, message: "You can only suspend your own agents" });
+      }
+      agent.suspendedAt = new Date();
+      agent.suspensionReason = suspensionReason || "Suspended by Partner";
+      agent.isActive = false;
+      await agent.save();
+      return res.status(200).json({ success: true, message: "Agent suspended successfully", data: agent });
+    }
+
+    return res.status(403).json({ success: false, message: "Access denied" });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/* =====================================
+   7. ACTIVATE AGENT (Admin or Partner can activate their own)
+===================================== */
+const activateAgent = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const agent = await VaultAgent.findById(id);
+    if (!agent) {
+      return res.status(404).json({ success: false, message: "Agent not found" });
+    }
+
+    const userRole = req.user.role;
+    const roleDoc = await Role.findById(userRole);
+
+    // Admin can activate any agent
+    if (roleDoc.code === '18') {
+      agent.suspendedAt = null;
+      agent.suspensionReason = null;
+      agent.isActive = true;
+      await agent.save();
+      return res.status(200).json({ success: true, message: "Agent activated successfully", data: agent });
+    }
+
+    // Partner can activate only their own affiliated agents
+    if (roleDoc.code === '21') {
+      if (agent.partnerId?.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ success: false, message: "You can only activate your own agents" });
+      }
+      agent.suspendedAt = null;
+      agent.suspensionReason = null;
+      agent.isActive = true;
+      await agent.save();
+      return res.status(200).json({ success: true, message: "Agent activated successfully", data: agent });
+    }
+
+    return res.status(403).json({ success: false, message: "Access denied" });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/* =====================================
+   8. DELETE AGENT (Soft Delete)
+===================================== */
+const deleteAgent = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const agent = await VaultAgent.findById(id);
+    if (!agent) {
+      return res.status(404).json({ success: false, message: "Agent not found" });
+    }
+
+    const userRole = req.user.role;
+    const roleDoc = await Role.findById(userRole);
+
+    if (roleDoc.code === '18') {
+      agent.isDeleted = true;
+      agent.deletedAt = new Date();
+      agent.isActive = false;
+      await agent.save();
+      return res.status(200).json({ success: true, message: "Agent deleted successfully" });
+    }
+
+    if (roleDoc.code === '21') {
+      if (agent.partnerId?.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ success: false, message: "You can only delete your own agents" });
+      }
+      agent.isDeleted = true;
+      agent.deletedAt = new Date();
+      agent.isActive = false;
+      await agent.save();
+      await Partner.findByIdAndUpdate(agent.partnerId, { $inc: { numberOfAgents: -1 } });
+      return res.status(200).json({ success: true, message: "Agent deleted successfully" });
+    }
+
+    return res.status(403).json({ success: false, message: "Access denied" });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/* =====================================
+   9. GET ALL AGENTS (Admin only - sees only Freelance Agents)
 ===================================== */
 const getAllAgents = async (req, res) => {
   try {
+    const userRole = req.user.role;
+    const roleDoc = await Role.findById(userRole);
+    
+    if (!roleDoc || roleDoc.code !== '18') {
+      return res.status(403).json({ success: false, message: "Access denied. Admin only." });
+    }
+
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const skip = (page - 1) * limit;
-    const { agentType, affiliationStatus, isActive } = req.query;
+    const { isActive, search, isVerified } = req.query;
 
-    let query = { isDeleted: false };
-    if (agentType) query.agentType = agentType;
-    if (affiliationStatus) query.affiliationStatus = affiliationStatus;
+    let query = { isDeleted: false, agentType: 'FreelanceAgent' };
     if (isActive !== undefined) query.isActive = isActive === 'true';
+    if (isVerified !== undefined) query.isVerified = isVerified === 'true';
+    
+    if (search) {
+      query.$or = [
+        { 'name.first_name': { $regex: search, $options: 'i' } },
+        { 'name.last_name': { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { 'phone.number': { $regex: search, $options: 'i' } }
+      ];
+    }
 
     const agents = await VaultAgent.find(query)
       .select('-password')
       .populate('role', 'name code')
-      .populate('partnerId', 'companyName')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -641,19 +622,73 @@ const getAllAgents = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /* =====================================
-   GET AGENT BY ID
+   10. GET PARTNER'S AGENTS (Partner only)
+===================================== */
+const getAgentsByPartner = async (req, res) => {
+  try {
+    const userRole = req.user.role;
+    const roleDoc = await Role.findById(userRole);
+    
+    if (!roleDoc || roleDoc.code !== '21') {
+      return res.status(403).json({ success: false, message: "Access denied. Partner only." });
+    }
+
+    const partnerId = req.user._id;
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const { isActive, search } = req.query;
+
+    let query = { partnerId: partnerId, agentType: 'PartnerAffiliatedAgent', isDeleted: false };
+    if (isActive !== undefined) query.isActive = isActive === 'true';
+    
+    if (search) {
+      query.$or = [
+        { 'name.first_name': { $regex: search, $options: 'i' } },
+        { 'name.last_name': { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { 'phone.number': { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const agents = await VaultAgent.find(query)
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await VaultAgent.countDocuments(query);
+
+    return res.status(200).json({
+      success: true,
+      data: agents,
+      total: total,
+      pagination: {
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        totalItems: total,
+        limit: limit
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/* =====================================
+   11. GET AGENT BY ID (Any authenticated user can view their own)
 ===================================== */
 const getAgentById = async (req, res) => {
   try {
     const { id } = req.params;
+    const requestingUserId = req.user._id;
+    const userRole = req.user.role;
+    const roleDoc = await Role.findById(userRole);
 
     const agent = await VaultAgent.findOne({ _id: id, isDeleted: false })
       .select('-password')
@@ -661,283 +696,44 @@ const getAgentById = async (req, res) => {
       .populate('partnerId', 'companyName status');
 
     if (!agent) {
-      return res.status(404).json({
-        success: false,
-        message: "Agent not found"
-      });
+      return res.status(404).json({ success: false, message: "Agent not found" });
     }
 
-    return res.status(200).json({
-      success: true,
-      data: agent
-    });
+    // Admin can see any agent
+    if (roleDoc.code === '18') {
+      return res.status(200).json({ success: true, data: agent });
+    }
+
+    // Agent can see their own profile
+    if (agent._id.toString() === requestingUserId.toString()) {
+      return res.status(200).json({ success: true, data: agent });
+    }
+
+    // Partner can see their affiliated agents
+    if (roleDoc.code === '21' && agent.partnerId?.toString() === requestingUserId.toString()) {
+      return res.status(200).json({ success: true, data: agent });
+    }
+
+    return res.status(403).json({ success: false, message: "Access denied" });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /* =====================================
-   UPDATE AGENT
-===================================== */
-const updateAgent = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const updateData = req.body;
-
-    const agent = await VaultAgent.findById(id);
-    if (!agent) {
-      return res.status(404).json({
-        success: false,
-        message: "Agent not found"
-      });
-    }
-
-    // Don't allow updating sensitive fields directly
-    delete updateData.password;
-    delete updateData.role;
-    delete updateData._id;
-
-    const updatedAgent = await VaultAgent.findByIdAndUpdate(
-      id,
-      { ...updateData, updatedAt: new Date() },
-      { new: true, runValidators: true }
-    ).select('-password');
-
-    return res.status(200).json({
-      success: true,
-      message: "Agent updated successfully",
-      data: updatedAgent
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/* =====================================
-   DELETE AGENT (Soft Delete)
-===================================== */
-const deleteAgent = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const agent = await VaultAgent.findById(id);
-    if (!agent) {
-      return res.status(404).json({
-        success: false,
-        message: "Agent not found"
-      });
-    }
-
-    agent.isDeleted = true;
-    agent.deletedAt = new Date();
-    agent.isActive = false;
-    await agent.save();
-
-    // If agent was affiliated with partner, update partner's agent count
-    if (agent.partnerId && agent.agentType === 'PartnerAffiliatedAgent') {
-      await Partner.findByIdAndUpdate(agent.partnerId, {
-        $inc: { numberOfAgents: -1 }
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Agent deleted successfully"
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/* =====================================
-   VERIFY PARTNER AFFILIATED AGENT (Admin)
-===================================== */
-const verifyAffiliatedAgent = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status, rejectionReason } = req.body;
-    const adminId = req.user._id;
-
-    const agent = await VaultAgent.findById(id);
-    if (!agent) {
-      return res.status(404).json({
-        success: false,
-        message: "Agent not found"
-      });
-    }
-
-    if (agent.agentType !== 'PartnerAffiliatedAgent') {
-      return res.status(400).json({
-        success: false,
-        message: "This agent is not a Partner Affiliated Agent"
-      });
-    }
-
-    if (status === 'verified') {
-      agent.affiliationStatus = 'verified';
-      agent.isActive = true;
-      agent.affiliationVerifiedBy = adminId;
-      agent.affiliationVerifiedAt = new Date();
-    } else if (status === 'rejected') {
-      agent.affiliationStatus = 'rejected';
-      agent.isActive = false;
-      agent.affiliationRejectionReason = rejectionReason || 'Affiliation rejected by admin';
-    }
-
-    await agent.save();
-
-    return res.status(200).json({
-      success: true,
-      message: `Agent affiliation ${status} successfully`,
-      data: agent
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/* =====================================
-   SUSPEND AGENT (Admin)
-===================================== */
-const suspendAgent = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { suspensionReason } = req.body;
-
-    const agent = await VaultAgent.findById(id);
-    if (!agent) {
-      return res.status(404).json({
-        success: false,
-        message: "Agent not found"
-      });
-    }
-
-    agent.suspendedAt = new Date();
-    agent.suspensionReason = suspensionReason;
-    agent.isActive = false;
-    await agent.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Agent suspended successfully"
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/* =====================================
-   ACTIVATE AGENT (Admin)
-===================================== */
-const activateAgent = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const agent = await VaultAgent.findById(id);
-    if (!agent) {
-      return res.status(404).json({
-        success: false,
-        message: "Agent not found"
-      });
-    }
-
-    agent.suspendedAt = null;
-    agent.suspensionReason = null;
-    agent.isActive = true;
-    await agent.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Agent activated successfully"
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/* =====================================
-   GET AGENT DASHBOARD
-===================================== */
-const getAgentDashboard = async (req, res) => {
-  try {
-    const agentId = req.user._id;
-
-    // Get leads submitted by this agent
-    const leads = await Lead.find({ 'sourceInfo.createdById': agentId, isDeleted: false });
-    
-    // Get commissions
-    const commissions = await Commission.find({ 
-      recipientId: agentId, 
-      recipientRole: 'freelance_agent',
-      isDeleted: false 
-    });
-
-    const totalLeads = leads.length;
-    const qualifiedLeads = leads.filter(l => l.currentStatus === 'Qualified').length;
-    const disbursedLeads = leads.filter(l => l.currentStatus === 'Disbursed').length;
-    
-    const totalCommissionEarned = commissions
-      .filter(c => c.status === 'Paid')
-      .reduce((sum, c) => sum + c.commissionAmount, 0);
-    
-    const pendingCommission = commissions
-      .filter(c => ['Confirmed', 'Pending'].includes(c.status))
-      .reduce((sum, c) => sum + c.commissionAmount, 0);
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        leads: {
-          total: totalLeads,
-          qualified: qualifiedLeads,
-          disbursed: disbursedLeads,
-          conversionRate: totalLeads > 0 ? (disbursedLeads / totalLeads) * 100 : 0
-        },
-        commissions: {
-          totalEarned: totalCommissionEarned,
-          pending: pendingCommission
-        },
-        recentLeads: leads.slice(0, 5)
-      }
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/* =====================================
-   UPDATE AGENT PROFILE (Self)
+   12. UPDATE AGENT PROFILE (Self)
 ===================================== */
 const updateAgentProfile = async (req, res) => {
   try {
     const agentId = req.user._id;
     const updateData = req.body;
 
-    // Allowed fields for self-update
     const allowedFields = [
       'email', 'profilePic', 'address', 'emergencyContact',
-      'languagePreference', 'communicationPreference'
+      'languagePreference', 'communicationPreference',
+      'emiratesId', 'passport', 'visa', 'bankDetails',
+      'maritalStatus', 'numberOfDependents', 'dependents',
+      'nationality', 'dateOfBirth', 'gender'
     ];
 
     const filteredData = {};
@@ -953,21 +749,21 @@ const updateAgentProfile = async (req, res) => {
       { new: true, runValidators: true }
     ).select('-password');
 
+    checkProfileCompleteness(updatedAgent);
+    await updatedAgent.save();
+
     return res.status(200).json({
       success: true,
       message: "Profile updated successfully",
       data: updatedAgent
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /* =====================================
-   CHANGE PASSWORD
+   13. CHANGE PASSWORD
 ===================================== */
 const changePassword = async (req, res) => {
   try {
@@ -976,94 +772,70 @@ const changePassword = async (req, res) => {
 
     const agent = await VaultAgent.findById(agentId).select('+password');
     if (!agent) {
-      return res.status(404).json({
-        success: false,
-        message: "Agent not found"
-      });
+      return res.status(404).json({ success: false, message: "Agent not found" });
     }
 
     const isMatch = await bcrypt.compare(oldPassword, agent.password);
     if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: "Old password is incorrect"
-      });
+      return res.status(401).json({ success: false, message: "Old password is incorrect" });
     }
 
     agent.password = await bcrypt.hash(newPassword, 10);
     await agent.save();
 
-    return res.status(200).json({
-      success: true,
-      message: "Password changed successfully"
-    });
+    return res.status(200).json({ success: true, message: "Password changed successfully" });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-
-
 /* =====================================
-   GET AGENTS BY PARTNER (Partner only)
+   14. GET AGENT DASHBOARD
 ===================================== */
-const getAgentsByPartner = async (req, res) => {
+const getAgentDashboard = async (req, res) => {
   try {
-    const partnerId = req.user._id;
-    const page = Number(req.query.page) || 1;
-    const limit = Number(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
+    const agentId = req.user._id;
 
-    const query = { 
-      partnerId: partnerId, 
-      agentType: 'PartnerAffiliatedAgent',
-      isDeleted: false 
-    };
+    const leads = await Lead.find({ 'sourceInfo.createdById': agentId, isDeleted: false });
+    const commissions = await Commission.find({ recipientId: agentId, isDeleted: false });
 
-    const agents = await VaultAgent.find(query)
-      .select('-password')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    const total = await VaultAgent.countDocuments(query);
+    const totalLeads = leads.length;
+    const qualifiedLeads = leads.filter(l => l.currentStatus === 'Qualified').length;
+    const disbursedLeads = leads.filter(l => l.currentStatus === 'Disbursed').length;
+    const totalCommissionEarned = commissions.filter(c => c.status === 'Paid').reduce((sum, c) => sum + c.commissionAmount, 0);
+    const pendingCommission = commissions.filter(c => ['Confirmed', 'Pending'].includes(c.status)).reduce((sum, c) => sum + c.commissionAmount, 0);
 
     return res.status(200).json({
       success: true,
-      data: agents,
-      total: total,
-      pagination: {
-        totalPages: Math.ceil(total / limit),
-        currentPage: page,
-        totalItems: total,
-        limit: limit
+      data: {
+        leads: {
+          total: totalLeads,
+          qualified: qualifiedLeads,
+          disbursed: disbursedLeads,
+          conversionRate: totalLeads > 0 ? (disbursedLeads / totalLeads) * 100 : 0
+        },
+        commissions: { totalEarned: totalCommissionEarned, pending: pendingCommission },
+        recentLeads: leads.slice(0, 5)
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 module.exports = {
   agentSignup,
+  adminOnboardFreelanceAgent,
+  partnerOnboardAffiliatedAgent,
   agentLogin,
-  getAllAgents,
-  getAgentById,
-  updateAgent,
-  deleteAgent,
-  verifyAffiliatedAgent,
+  verifyAgent,
   suspendAgent,
   activateAgent,
-  getAgentDashboard,
+  deleteAgent,
+  getAllAgents,
+  getAgentsByPartner,
+  getAgentById,
   updateAgentProfile,
   changePassword,
-  getAgentsByPartner,
-  adminOnboardFreelanceAgent,
-  partnerOnboardAffiliatedAgent
+  getAgentDashboard
 };
