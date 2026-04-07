@@ -15,7 +15,7 @@ const {
   
   getAgentsByPartner,adminOnboardFreelanceAgent,partnerOnboardAffiliatedAgent 
 } = require('../controllers/agent.controller');
-const { protect, protectMulti } = require('../../../middleware/auth');
+const { protect, protectMulti ,protectPartner } = require('../../../middleware/auth');
 
 const router = express.Router();
 
@@ -39,7 +39,7 @@ router.get('/me', protect, getAgentById);
 // =========================
 // ADMIN ONLY ROUTES
 // =========================
-router.get('/all', protect, getAllAgents);
+router.get('/all', protect,protectPartner, getAllAgents);
 router.get('/get/:id', protect, getAgentById);
 router.put('/update/:id', protect, updateAgent);
 router.delete('/delete/:id', protect, deleteAgent);
