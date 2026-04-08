@@ -5,23 +5,41 @@ import sanitizeHtml from 'sanitize-html';
 
 marked.setOptions({ breaks: true, gfm: true, mangle: false });
 
-// ─── Sanitize options ───
+// ─── Sanitize options (UPDATED FOR REACT-QUILL) ───
 const sanitizeOptions = {
   allowedTags: sanitizeHtml.defaults.allowedTags.concat([
     'img', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'iframe',
     'figure', 'figcaption', 'blockquote', 'pre', 'code', 'mark',
     'del', 'ins', 'sup', 'sub', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'span', 'u', 's' // 🚨 ADDED: Quill heavily uses <span>, <u> (underline), <s> (strikethrough)
   ]),
   allowedAttributes: {
     ...sanitizeHtml.defaults.allowedAttributes,
-    '*': ['class', 'style', 'id'],
+    // 🚨 ADDED: 'data-list' and 'data-value' which Quill uses for bullet points and lists
+    '*': ['class', 'style', 'id', 'data-list', 'data-value'],
     'img': ['src', 'alt', 'title', 'width', 'height', 'loading'],
     'a': ['href', 'target', 'rel', 'title'],
     'iframe': ['src', 'width', 'height', 'allow', 'allowfullscreen', 'frameborder'],
     'td': ['colspan', 'rowspan', 'align'],
     'th': ['colspan', 'rowspan', 'align'],
   },
-  allowedSchemes: ['http', 'https', 'mailto'],
+  // 🚨 CRITICAL FIX: sanitize-html strips all inline styles by default!
+  // We MUST explicitly allow styles that Quill uses (colors, alignments, etc.)
+  allowedStyles: {
+    '*': {
+      'color': [/^.*$/],
+      'background-color': [/^.*$/],
+      'background': [/^.*$/],
+      'text-align': [/^.*$/],
+      'font-size': [/^.*$/],
+      'font-family': [/^.*$/],
+      'margin': [/^.*$/],
+      'padding': [/^.*$/],
+      'margin-left': [/^.*$/],
+      'padding-left': [/^.*$/]
+    }
+  },
+  allowedSchemes: ['http', 'https', 'mailto', 'data'], // 'data' allows base64 images if needed
 };
 
 // ─── Helper: strip HTML → plain text ───
