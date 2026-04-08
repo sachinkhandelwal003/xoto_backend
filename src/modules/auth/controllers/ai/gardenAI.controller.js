@@ -34,6 +34,10 @@ const parseElements = (elements) => {
 // =======================================================
 // 1. :herb: GARDEN GENERATION
 // =======================================================
+// ✅ Replace your current generateGardenDesigns with this improved version
+
+// src/controllers/ai/gardenAI.controller.js
+
 exports.generateGardenDesigns = async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
@@ -42,70 +46,86 @@ exports.generateGardenDesigns = async (req, res) => {
 
     const user = req.user;
     const { styleName, elements, description } = req.body;
-
     const parsedElements = parseElements(elements);
 
-    const prompt = `
-${styleName || ''} garden design.
+    // ✅ Turant response
+    res.status(200).json({ message: "Generation started", status: true });
+
+    // 🔥 Background processing
+    (async () => {
+      try {
+        // ✅ ORIGINAL wala prompt — jo pehle kaam kar raha tha
+        const prompt = `
+${styleName ? `${styleName} garden design` : "Beautiful garden design"}.
 Use these elements: ${parsedElements.join(", ") || "none"}.
 ${description || ""}
-
 STRICTLY photorealistic, natural lighting, real-world textures.
 No cartoon, no CGI.
 `.trim();
 
-    const images = await Promise.all(
-      req.files.map(file =>
-        toFile(file.buffer, null, { type: file.mimetype })
-      )
-    );
+        // ✅ ORIGINAL — images[] array (ek nahi, saare files)
+        const images = await Promise.all(
+          req.files.map(file =>
+            toFile(file.buffer, null, { type: file.mimetype })
+          )
+        );
 
-    const response = await client.images.edit({
-      model: "gpt-image-1",
-      image: images,
-      prompt,
-      input_fidelity: "high"
-    });
+        const response = await client.images.edit({
+          model: "gpt-image-1",
+          image: images, // ✅ images[0] nahi — original jaisa
+          prompt,
+          input_fidelity: "high"
+        });
 
-    const imageBase64 = response.data[0].b64_json;
-    const imageBuffer = Buffer.from(imageBase64, "base64");
+        const imageBase64 = response.data[0].b64_json;
+        const imageBuffer = Buffer.from(imageBase64, "base64");
 
-    const fileName = `garden/${Date.now()}.png`;
+        const fileName = `garden/${Date.now()}.png`;
 
-    await s3.send(new PutObjectCommand({
-      Bucket: process.env.AWS_S3_BUCKET,
-      Key: fileName,
-      Body: imageBuffer,
-      ContentType: "image/png"
-    }));
+        await s3.send(new PutObjectCommand({
+          Bucket: process.env.AWS_S3_BUCKET,
+          Key: fileName,
+          Body: imageBuffer,
+          ContentType: "image/png"
+        }));
 
-    const imageUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
+        const imageUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
 
-    const savedImage = await AiGeneratedImage.create({
-      imageUrl,
-      inputImageUrl: null,
-      userId: user._id,
-      userType: "customer",
-      designType: "landscaping",
+        // ✅ DB save with status completed
+        await AiGeneratedImage.create({
+          imageUrl,
+          inputImageUrl: null,
+          userId: user._id,
+          userType: "customer",
+          designType: "landscaping",
+          styleName: styleName || null,
+          elements: parsedElements,
+          description: description || null,
+          aiMessage: "Garden generated successfully",
+          status: "completed"
+        });
 
-      styleName: styleName || null,
-      elements: parsedElements,
-      description: description || null,
+        console.log(`[GARDEN] Done for user: ${user._id} | ${imageUrl}`);
 
-      aiMessage: "Garden generated successfully"
-    });
-
-    res.status(200).json({
-      message: "Garden generated successfully",
-      imageUrl,
-      data: savedImage
-    });
+      } catch (bgErr) {
+        console.error("Background error:", bgErr.message);
+        await AiGeneratedImage.create({
+          imageUrl: "failed",
+          userId: user._id,
+          designType: "landscaping",
+          status: "failed",
+          aiMessage: bgErr.message
+        }).catch(() => {});
+      }
+    })();
 
   } catch (err) {
-    console.error("GARDEN ERROR:", err.message);
-    res.status(500).json({ error: err.message });
+    if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 };
+
+
+
 
 
 
@@ -122,70 +142,80 @@ exports.generateInteriorDesigns = async (req, res) => {
 
     const user = req.user;
     const { styleName, elements, description, roomType } = req.body;
-
     const parsedElements = parseElements(elements);
 
-    const prompt = `
+    // ✅ Turant response bhejo
+    res.status(200).json({ message: "Generation started", status: true });
+
+    // 🔥 Background processing
+    (async () => {
+      try {
+        const prompt = `
 ${styleName ? `${styleName} interior design` : "Interior design"}
 ${roomType ? `for a ${roomType}` : ""}.
 Use these elements: ${parsedElements.join(", ") || "none"}.
 ${description || ""}
-
 STRICTLY photorealistic, DSLR-quality, real-world lighting.
 No cartoon, no CGI.
 `.trim();
 
-    const images = await Promise.all(
-      req.files.map(file =>
-        toFile(file.buffer, null, { type: file.mimetype })
-      )
-    );
+        const images = await Promise.all(
+          req.files.map(file =>
+            toFile(file.buffer, null, { type: file.mimetype })
+          )
+        );
 
-    const response = await client.images.edit({
-      model: "gpt-image-1",
-      image: images,
-      prompt,
-      input_fidelity: "high"
-    });
+        const response = await client.images.edit({
+          model: "gpt-image-1",
+          image: images,
+          prompt,
+          input_fidelity: "high"
+        });
 
-    const imageBase64 = response.data[0].b64_json;
-    const imageBuffer = Buffer.from(imageBase64, "base64");
+        const imageBase64 = response.data[0].b64_json;
+        const imageBuffer = Buffer.from(imageBase64, "base64");
 
-    const fileName = `interior/${Date.now()}.png`;
+        const fileName = `interior/${Date.now()}.png`;
 
-    await s3.send(new PutObjectCommand({
-      Bucket: process.env.AWS_S3_BUCKET,
-      Key: fileName,
-      Body: imageBuffer,
-      ContentType: "image/png"
-    }));
+        await s3.send(new PutObjectCommand({
+          Bucket: process.env.AWS_S3_BUCKET,
+          Key: fileName,
+          Body: imageBuffer,
+          ContentType: "image/png"
+        }));
 
-    const imageUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
+        const imageUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
 
-    const savedImage = await AiGeneratedImage.create({
-      imageUrl,
-      inputImageUrl: null,
-      userId: user._id,
-      userType: "customer",
-      designType: "interior",
+        await AiGeneratedImage.create({
+          imageUrl,
+          inputImageUrl: null,
+          userId: user._id,
+          userType: "customer",
+          designType: "interior",
+          roomType: roomType || null,
+          styleName: styleName || null,
+          elements: parsedElements,
+          description: description || null,
+          aiMessage: "Interior generated successfully",
+          status: "completed"  // ✅ status field add karo
+        });
 
-      roomType: roomType || null,
-      styleName: styleName || null,
-      elements: parsedElements,
-      description: description || null,
+        console.log(`[INTERIOR] Done for user: ${user._id} | ${imageUrl}`);
 
-      aiMessage: "Interior generated successfully"
-    });
-
-    res.status(200).json({
-      message: "Interior design generated successfully",
-      imageUrl,
-      data: savedImage
-    });
+      } catch (bgErr) {
+        console.error("Background error:", bgErr.message);
+        await AiGeneratedImage.create({
+          imageUrl: "failed",
+          userId: user._id,
+          designType: "interior",
+          status: "failed",
+          aiMessage: bgErr.message
+        }).catch(() => {});
+      }
+    })();
 
   } catch (err) {
-    console.error("INTERIOR ERROR:", err.message);
-    res.status(500).json({ error: err.message });
+    if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 };
 
