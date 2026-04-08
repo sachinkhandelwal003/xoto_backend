@@ -18,6 +18,12 @@ const aiGeneratedImageSchema = new mongoose.Schema(
       index: true
     },
 
+    status: { 
+  type: String, 
+  enum: ["processing", "completed", "failed"], 
+  default: "processing" 
+},
+
     // User type (fixed to customer, extensible later)
     userType: {
       type: String,
