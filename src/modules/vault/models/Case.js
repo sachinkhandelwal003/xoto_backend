@@ -162,46 +162,6 @@ const loanSchema = new mongoose.Schema(
   { _id: false }
 );
 
-const statusHistorySchema = new mongoose.Schema(
-  {
-    status: {
-      type: String,
-      enum: [
-        'Submitted to Xoto',
-        'Bank Application',
-        'Collecting Documentation',
-        'Pre-Approved',
-        'Valuation',
-        'FOL Processed',
-        'FOL Issued',
-        'FOL Signed',
-        'Disbursed',
-        'Rejected',
-      ],
-      required: true,
-    },
-    timestamp: { type: Date, default: Date.now },
-    updatedBy: { type: String, required: true },
-    notes: { type: String, default: null },
-  },
-  { _id: false }
-);
-
-const commissionSchema = new mongoose.Schema(
-  {
-    loanAmount: { type: Number, required: true },
-    loanTier: { type: String, enum: ['≤5M AED', '>5M AED'], required: true },
-    partnerPercentage: { type: Number, required: true },
-    xotoCommissionFromBank: { type: Number, required: true },
-    partnerCommissionAmount: { type: Number, required: true },
-    calculation: { type: String, required: true },
-    status: { type: String, enum: ['Pending Disbursement', 'Confirmed', 'Paid'], default: 'Pending Disbursement' },
-    expectedPaymentDate: { type: Date, default: null },
-    paidAt: { type: Date, default: null },
-  },
-  { _id: false }
-);
-
 const documentStatusSchema = new mongoose.Schema(
   {
     allDocumentsUploaded: { type: Boolean, default: false },
@@ -226,6 +186,21 @@ const bankSubmissionSchema = new mongoose.Schema(
     submittedDocumentsPackage: { type: String, default: null },
     bankReferenceNumber: { type: String, default: null },
     bankNotes: { type: String, default: null },
+  },
+  { _id: false }
+);
+
+const commissionInfoSchema = new mongoose.Schema(
+  {
+    loanAmount: { type: Number, required: true },
+    loanTier: { type: String, enum: ['≤5M AED', '>5M AED'], required: true },
+    partnerPercentage: { type: Number, required: true },
+    xotoCommissionFromBank: { type: Number, required: true },
+    partnerCommissionAmount: { type: Number, required: true },
+    calculation: { type: String, required: true },
+    status: { type: String, enum: ['Pending Disbursement', 'Confirmed', 'Paid'], default: 'Pending Disbursement' },
+    expectedPaymentDate: { type: Date, default: null },
+    paidAt: { type: Date, default: null },
   },
   { _id: false }
 );
@@ -266,6 +241,7 @@ const caseSchema = new mongoose.Schema(
     currentStatus: {
       type: String,
       enum: [
+        'Draft',
         'Submitted to Xoto',
         'Bank Application',
         'Collecting Documentation',
@@ -276,16 +252,17 @@ const caseSchema = new mongoose.Schema(
         'FOL Signed',
         'Disbursed',
         'Rejected',
+        'Lost',
       ],
-      default: 'Submitted to Xoto',
+      default: 'Draft',
     },
-    statusHistory: [statusHistorySchema],
+
     nextExpectedStatus: { type: String, default: null },
     estimatedCompletionDate: { type: Date, default: null },
 
     bankSubmission: { type: bankSubmissionSchema, default: () => ({}) },
 
-    commissionInfo: { type: commissionSchema, default: null },
+    commissionInfo: { type: commissionInfoSchema, default: null },
 
     internalNotes: [
       {
@@ -308,6 +285,7 @@ const caseSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Indexes
 caseSchema.index({ caseId: 1 }, { unique: true });
 caseSchema.index({ caseReference: 1 }, { unique: true });
 caseSchema.index({ sourceLeadId: 1 });
@@ -317,6 +295,7 @@ caseSchema.index({ 'clientInfo.email': 1 });
 caseSchema.index({ 'clientInfo.mobile': 1 });
 caseSchema.index({ createdAt: -1 });
 
+// Virtuals
 caseSchema.virtual('clientAge').get(function () {
   if (!this.clientInfo.dateOfBirth) return null;
   const ageDiff = Date.now() - this.clientInfo.dateOfBirth.getTime();
@@ -324,15 +303,27 @@ caseSchema.virtual('clientAge').get(function () {
   return Math.abs(ageDate.getUTCFullYear() - 1970);
 });
 
-caseSchema.methods.addStatus = function (newStatus, updatedBy, notes) {
-  this.statusHistory.push({
-    status: newStatus,
-    updatedBy,
-    notes,
-    timestamp: new Date(),
-  });
+// Methods
+caseSchema.methods.addStatus = async function (newStatus, updatedBy, notes, HistoryService, userInfo) {
+  const previousStatus = this.currentStatus;
   this.currentStatus = newStatus;
-  return this.save();
+  await this.save();
+  
+  if (HistoryService) {
+    await HistoryService.log({
+      entityType: 'Case',
+      entityId: this.caseId,
+      entityName: this.clientInfo?.fullName,
+      action: 'CASE_STATUS_CHANGED',
+      previousStatus,
+      newStatus,
+      performedBy: userInfo,
+      description: `Case status changed from ${previousStatus} to ${newStatus}`,
+      notes,
+      metadata: { caseId: this.caseId, clientName: this.clientInfo?.fullName }
+    });
+  }
+  return this;
 };
 
 caseSchema.methods.calculateDBR = function () {
