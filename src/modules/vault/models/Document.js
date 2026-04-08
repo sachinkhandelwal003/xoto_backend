@@ -12,10 +12,9 @@ const documentSchema = new mongoose.Schema(
       enum: [
         'emirates_id_front', 'emirates_id_back', 'passport', 'visa',
         'bank_statements', 'salary_certificate', 'payslips',
-        'trade_license', 'moa', 'company_bank_statements', 'audit_reports', 'vat_returns', 'employee_list',
-        'sale_agreement', 'title_deed', 'ejari', 'noc',
-        'bank_application_form', 'consent_form',
-        'credit_report', 'other',
+        'trade_license', 'moa', 'company_bank_statements', 'audit_reports', 
+        'vat_returns', 'employee_list', 'sale_agreement', 'title_deed', 
+        'ejari', 'noc', 'bank_application_form', 'consent_form', 'credit_report', 'other'
       ],
       required: true,
     },
@@ -73,12 +72,20 @@ const documentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Indexes
 documentSchema.index({ documentId: 1 }, { unique: true });
 documentSchema.index({ entityType: 1, entityId: 1 });
 documentSchema.index({ documentType: 1 });
 documentSchema.index({ verificationStatus: 1 });
 documentSchema.index({ fileHash: 1 });
+documentSchema.index({ uploadedAt: -1 });
 
+// Virtuals
+documentSchema.virtual('formattedFileSize').get(function () {
+  return `${this.fileSizeMb} MB`;
+});
+
+// Methods
 documentSchema.methods.verify = function (verifiedByAdminId, qualityScore) {
   this.verificationStatus = 'verified';
   this.verifiedBy = verifiedByAdminId;
@@ -96,6 +103,13 @@ documentSchema.methods.reject = function (verifiedByAdminId, reason) {
   this.verifiedBy = verifiedByAdminId;
   this.verifiedAt = new Date();
   this.rejectionReason = reason;
+  return this.save();
+};
+
+documentSchema.methods.softDelete = function (deletedByUserId) {
+  this.isDeleted = true;
+  this.deletedAt = new Date();
+  this.deletedBy = deletedByUserId;
   return this.save();
 };
 

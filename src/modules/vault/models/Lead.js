@@ -55,20 +55,6 @@ const loanRequirementsSchema = new mongoose.Schema(
   { _id: false }
 );
 
-const statusHistorySchema = new mongoose.Schema(
-  {
-    status: {
-      type: String,
-      enum: ['New', 'Contacted', 'Qualified', 'Collecting Documentation', 'Disbursed'],
-      required: true,
-    },
-    timestamp: { type: Date, default: Date.now },
-    updatedBy: { type: String, required: true },
-    notes: { type: String, default: null },
-  },
-  { _id: false }
-);
-
 const duplicateCheckSchema = new mongoose.Schema(
   {
     isDuplicate: { type: Boolean, default: false },
@@ -130,7 +116,6 @@ const leadSchema = new mongoose.Schema(
       enum: ['New', 'Contacted', 'Qualified', 'Collecting Documentation', 'Disbursed'],
       default: 'New',
     },
-    statusHistory: [statusHistorySchema],
 
     duplicateCheck: { type: duplicateCheckSchema, default: () => ({}) },
 
@@ -166,6 +151,7 @@ const leadSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Indexes
 leadSchema.index({ leadId: 1 }, { unique: true });
 leadSchema.index({ 'sourceInfo.createdById': 1 });
 leadSchema.index({ 'customerInfo.mobileNumber': 1 });
@@ -173,6 +159,7 @@ leadSchema.index({ currentStatus: 1 });
 leadSchema.index({ referralType: 1 });
 leadSchema.index({ createdAt: -1 });
 
+// Virtuals
 leadSchema.virtual('customerAge').get(function () {
   if (!this.customerInfo.dateOfBirth) return null;
   const ageDiff = Date.now() - this.customerInfo.dateOfBirth.getTime();
@@ -180,6 +167,7 @@ leadSchema.virtual('customerAge').get(function () {
   return Math.abs(ageDate.getUTCFullYear() - 1970);
 });
 
+// Methods
 leadSchema.methods.updateDocumentStatus = function (uploadedCount, verifiedCount) {
   this.documentCollection.documentsUploaded = uploadedCount;
   this.documentCollection.documentsVerified = verifiedCount;
@@ -192,17 +180,6 @@ leadSchema.methods.updateDocumentStatus = function (uploadedCount, verifiedCount
     this.documentCollection.collectionCompletedAt = new Date();
   }
   
-  return this.save();
-};
-
-leadSchema.methods.addStatus = function (newStatus, updatedBy, notes) {
-  this.statusHistory.push({
-    status: newStatus,
-    updatedBy,
-    notes,
-    timestamp: new Date(),
-  });
-  this.currentStatus = newStatus;
   return this.save();
 };
 

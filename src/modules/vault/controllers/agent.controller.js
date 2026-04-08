@@ -1,10 +1,11 @@
-const VaultAgent = require('../models/Agent');
-const Partner = require('../models/Partner');
-const Lead = require('../models/Lead');
-const Commission = require('../models/Commission');
-const bcrypt = require('bcryptjs');
-const { Role } = require('../../../modules/auth/models/role/role.model');
-const { createToken } = require('../../../middleware/auth');
+import VaultAgent from '../models/Agent.js';
+import Partner from '../models/Partner.js';
+import Lead from '../models/Lead.js';
+import Commission from '../models/Commission.js';
+import HistoryService from '../services/history.service.js';
+import bcrypt from 'bcryptjs';
+import { Role } from '../../../modules/auth/models/role/role.model.js';
+import { createToken } from '../../../middleware/auth.js';
 
 /* =====================================
    HELPER FUNCTION
@@ -26,10 +27,53 @@ const checkProfileCompleteness = (agent) => {
   return agent.isProfileComplete;
 };
 
+const getUserInfo = async (req, user = null) => {
+  let userRole = 'System';
+  
+  try {
+    const roleId = req.user?.role;
+    if (roleId) {
+      const roleDoc = await Role.findById(roleId);
+      const roleCode = roleDoc?.code;
+      
+      if (roleCode === '18') {
+        userRole = 'Admin';
+      } else if (roleCode === '21') {
+        userRole = 'Partner';
+      } else if (req.user?.agentType === 'FreelanceAgent') {
+        userRole = 'FreelanceAgent';
+      } else if (req.user?.agentType === 'PartnerAffiliatedAgent') {
+        userRole = 'PartnerAffiliatedAgent';
+      } else {
+        userRole = 'Agent';
+      }
+    } else {
+      if (req.user?.agentType === 'FreelanceAgent') {
+        userRole = 'FreelanceAgent';
+      } else if (req.user?.agentType === 'PartnerAffiliatedAgent') {
+        userRole = 'PartnerAffiliatedAgent';
+      } else {
+        userRole = 'Agent';
+      }
+    }
+  } catch (error) {
+    console.error("Error getting user role:", error);
+  }
+  
+  return {
+    userId: user?._id || req.user?._id,
+    userRole: userRole,
+    userName: user?.fullName || user?.name || user?.email || req.user?.fullName || req.user?.email || 'System',
+    userEmail: user?.email || req.user?.email || null,
+    ipAddress: req?.ip || null,
+    userAgent: req?.headers?.['user-agent'] || null,
+  };
+};
+
 /* =====================================
    1. AGENT SELF SIGNUP
 ===================================== */
-const agentSignup = async (req, res) => {
+export const agentSignup = async (req, res) => {
   try {
     const {
       first_name, last_name, email, phone_number, country_code, password,
@@ -83,6 +127,10 @@ const agentSignup = async (req, res) => {
       isEmailVerified: false
     });
 
+    await HistoryService.logAgentActivity(newAgent, 'AGENT_REGISTERED', await getUserInfo(req), {
+      description: `Freelance agent ${newAgent.fullName} registered`,
+    });
+
     const agentResponse = newAgent.toObject();
     delete agentResponse.password;
 
@@ -99,9 +147,9 @@ const agentSignup = async (req, res) => {
 };
 
 /* =====================================
-   2. ADMIN ONBOARD FREELANCE AGENT (Direct - No verification needed)
+   2. ADMIN ONBOARD FREELANCE AGENT
 ===================================== */
-const adminOnboardFreelanceAgent = async (req, res) => {
+export const adminOnboardFreelanceAgent = async (req, res) => {
   try {
     const userRole = req.user.role;
     const roleDoc = await Role.findById(userRole);
@@ -171,7 +219,6 @@ const adminOnboardFreelanceAgent = async (req, res) => {
 
     if (address) agentData.address = address;
     if (emergencyContact) agentData.emergencyContact = emergencyContact;
-
     if (emiratesIdNumber) {
       agentData.emiratesId = {
         number: emiratesIdNumber,
@@ -183,7 +230,6 @@ const adminOnboardFreelanceAgent = async (req, res) => {
         verifiedBy: req.user._id
       };
     }
-
     if (passportNumber) {
       agentData.passport = {
         number: passportNumber,
@@ -193,7 +239,6 @@ const adminOnboardFreelanceAgent = async (req, res) => {
         verifiedAt: new Date()
       };
     }
-
     if (visaNumber) {
       agentData.visa = {
         number: visaNumber,
@@ -203,7 +248,6 @@ const adminOnboardFreelanceAgent = async (req, res) => {
         verifiedAt: new Date()
       };
     }
-
     if (iban) {
       agentData.bankDetails = {
         beneficiaryName: beneficiaryName || `${first_name} ${last_name}`,
@@ -220,6 +264,11 @@ const adminOnboardFreelanceAgent = async (req, res) => {
     const newAgent = await VaultAgent.create(agentData);
     checkProfileCompleteness(newAgent);
     await newAgent.save();
+
+    await HistoryService.logAgentActivity(newAgent, 'AGENT_VERIFIED', await getUserInfo(req), {
+      description: `Admin onboarded freelance agent ${newAgent.fullName}`,
+      metadata: { onboardedBy: req.user?.email },
+    });
 
     const agentResponse = newAgent.toObject();
     delete agentResponse.password;
@@ -239,7 +288,7 @@ const adminOnboardFreelanceAgent = async (req, res) => {
 /* =====================================
    3. PARTNER ONBOARD AFFILIATED AGENT
 ===================================== */
-const partnerOnboardAffiliatedAgent = async (req, res) => {
+export const partnerOnboardAffiliatedAgent = async (req, res) => {
   try {
     const partnerId = req.user._id;
 
@@ -315,6 +364,11 @@ const partnerOnboardAffiliatedAgent = async (req, res) => {
     partner.numberOfAgents += 1;
     await partner.save();
 
+    await HistoryService.logAgentActivity(newAgent, 'AGENT_VERIFIED', await getUserInfo(req), {
+      description: `Partner ${partner.companyName} onboarded affiliated agent ${newAgent.fullName}`,
+      metadata: { partnerName: partner.companyName },
+    });
+
     const agentResponse = newAgent.toObject();
     delete agentResponse.password;
 
@@ -342,7 +396,7 @@ const partnerOnboardAffiliatedAgent = async (req, res) => {
 /* =====================================
    4. AGENT LOGIN
 ===================================== */
-const agentLogin = async (req, res) => {
+export const agentLogin = async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -372,12 +426,16 @@ const agentLogin = async (req, res) => {
       return res.status(403).json({ success: false, message: `Account suspended. Reason: ${agent.suspensionReason}` });
     }
 
-
     if (agent.agentType === 'PartnerAffiliatedAgent' && agent.affiliationStatus !== 'verified') {
       return res.status(403).json({ success: false, message: `Affiliation status: ${agent.affiliationStatus}` });
     }
 
+    agent.lastLoginAt = new Date();
     await agent.save();
+
+    await HistoryService.logSecurityEvent(agent, 'LOGIN', await getUserInfo(req), {
+      description: `Agent ${agent.fullName} logged in`,
+    });
 
     const token = createToken(agent);
     const agentResponse = agent.toObject();
@@ -398,7 +456,7 @@ const agentLogin = async (req, res) => {
 /* =====================================
    5. ADMIN VERIFY FREELANCE AGENT
 ===================================== */
-const verifyAgent = async (req, res) => {
+export const verifyAgent = async (req, res) => {
   try {
     const { id } = req.params;
     const { status, rejectionReason } = req.body;
@@ -425,10 +483,19 @@ const verifyAgent = async (req, res) => {
       agent.verifiedAt = new Date();
       agent.commissionEligible = true;
       agent.rejectionReason = null;
+      
+      await HistoryService.logAgentActivity(agent, 'AGENT_VERIFIED', await getUserInfo(req), {
+        description: `Admin verified freelance agent ${agent.fullName}`,
+      });
     } else if (status === 'rejected') {
       agent.isVerified = false;
       agent.isActive = false;
       agent.rejectionReason = rejectionReason || 'Application rejected by admin';
+      
+      await HistoryService.logAgentActivity(agent, 'AGENT_REJECTED', await getUserInfo(req), {
+        description: `Admin rejected freelance agent ${agent.fullName}`,
+        notes: rejectionReason,
+      });
     } else {
       return res.status(400).json({ success: false, message: "Status must be 'verified' or 'rejected'" });
     }
@@ -446,9 +513,9 @@ const verifyAgent = async (req, res) => {
 };
 
 /* =====================================
-   6. SUSPEND AGENT (Admin or Partner can suspend their own)
+   6. SUSPEND AGENT (Admin or Partner)
 ===================================== */
-const suspendAgent = async (req, res) => {
+export const suspendAgent = async (req, res) => {
   try {
     const { id } = req.params;
     const { suspensionReason } = req.body;
@@ -461,16 +528,20 @@ const suspendAgent = async (req, res) => {
     const userRole = req.user.role;
     const roleDoc = await Role.findById(userRole);
 
-    // Admin can suspend any agent
     if (roleDoc.code === '18') {
       agent.suspendedAt = new Date();
       agent.suspensionReason = suspensionReason || "Suspended by Admin";
       agent.isActive = false;
       await agent.save();
+      
+      await HistoryService.logAgentActivity(agent, 'AGENT_SUSPENDED', await getUserInfo(req), {
+        description: `Admin suspended agent ${agent.fullName}`,
+        notes: suspensionReason,
+      });
+      
       return res.status(200).json({ success: true, message: "Agent suspended successfully", data: agent });
     }
 
-    // Partner can suspend only their own affiliated agents
     if (roleDoc.code === '21') {
       if (agent.partnerId?.toString() !== req.user._id.toString()) {
         return res.status(403).json({ success: false, message: "You can only suspend your own agents" });
@@ -479,6 +550,12 @@ const suspendAgent = async (req, res) => {
       agent.suspensionReason = suspensionReason || "Suspended by Partner";
       agent.isActive = false;
       await agent.save();
+      
+      await HistoryService.logAgentActivity(agent, 'AGENT_SUSPENDED', await getUserInfo(req), {
+        description: `Partner suspended agent ${agent.fullName}`,
+        notes: suspensionReason,
+      });
+      
       return res.status(200).json({ success: true, message: "Agent suspended successfully", data: agent });
     }
 
@@ -489,9 +566,9 @@ const suspendAgent = async (req, res) => {
 };
 
 /* =====================================
-   7. ACTIVATE AGENT (Admin or Partner can activate their own)
+   7. ACTIVATE AGENT (Admin or Partner)
 ===================================== */
-const activateAgent = async (req, res) => {
+export const activateAgent = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -503,16 +580,19 @@ const activateAgent = async (req, res) => {
     const userRole = req.user.role;
     const roleDoc = await Role.findById(userRole);
 
-    // Admin can activate any agent
     if (roleDoc.code === '18') {
       agent.suspendedAt = null;
       agent.suspensionReason = null;
       agent.isActive = true;
       await agent.save();
+      
+      await HistoryService.logAgentActivity(agent, 'AGENT_ACTIVATED', await getUserInfo(req), {
+        description: `Admin activated agent ${agent.fullName}`,
+      });
+      
       return res.status(200).json({ success: true, message: "Agent activated successfully", data: agent });
     }
 
-    // Partner can activate only their own affiliated agents
     if (roleDoc.code === '21') {
       if (agent.partnerId?.toString() !== req.user._id.toString()) {
         return res.status(403).json({ success: false, message: "You can only activate your own agents" });
@@ -521,6 +601,11 @@ const activateAgent = async (req, res) => {
       agent.suspensionReason = null;
       agent.isActive = true;
       await agent.save();
+      
+      await HistoryService.logAgentActivity(agent, 'AGENT_ACTIVATED', await getUserInfo(req), {
+        description: `Partner activated agent ${agent.fullName}`,
+      });
+      
       return res.status(200).json({ success: true, message: "Agent activated successfully", data: agent });
     }
 
@@ -533,7 +618,7 @@ const activateAgent = async (req, res) => {
 /* =====================================
    8. DELETE AGENT (Soft Delete)
 ===================================== */
-const deleteAgent = async (req, res) => {
+export const deleteAgent = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -550,6 +635,11 @@ const deleteAgent = async (req, res) => {
       agent.deletedAt = new Date();
       agent.isActive = false;
       await agent.save();
+      
+      await HistoryService.logAgentActivity(agent, 'AGENT_DELETED', await getUserInfo(req), {
+        description: `Admin deleted agent ${agent.fullName}`,
+      });
+      
       return res.status(200).json({ success: true, message: "Agent deleted successfully" });
     }
 
@@ -562,6 +652,11 @@ const deleteAgent = async (req, res) => {
       agent.isActive = false;
       await agent.save();
       await Partner.findByIdAndUpdate(agent.partnerId, { $inc: { numberOfAgents: -1 } });
+      
+      await HistoryService.logAgentActivity(agent, 'AGENT_DELETED', await getUserInfo(req), {
+        description: `Partner deleted agent ${agent.fullName}`,
+      });
+      
       return res.status(200).json({ success: true, message: "Agent deleted successfully" });
     }
 
@@ -572,9 +667,9 @@ const deleteAgent = async (req, res) => {
 };
 
 /* =====================================
-   9. GET ALL AGENTS (Admin only - sees only Freelance Agents)
+   9. GET ALL AGENTS (Admin only)
 ===================================== */
-const getAllAgents = async (req, res) => {
+export const getAllAgents = async (req, res) => {
   try {
     const userRole = req.user.role;
     const roleDoc = await Role.findById(userRole);
@@ -629,7 +724,7 @@ const getAllAgents = async (req, res) => {
 /* =====================================
    10. GET PARTNER'S AGENTS (Partner only)
 ===================================== */
-const getAgentsByPartner = async (req, res) => {
+export const getAgentsByPartner = async (req, res) => {
   try {
     const userRole = req.user.role;
     const roleDoc = await Role.findById(userRole);
@@ -681,9 +776,9 @@ const getAgentsByPartner = async (req, res) => {
 };
 
 /* =====================================
-   11. GET AGENT BY ID (Any authenticated user can view their own)
+   11. GET AGENT BY ID
 ===================================== */
-const getAgentById = async (req, res) => {
+export const getAgentById = async (req, res) => {
   try {
     const { id } = req.params;
     const requestingUserId = req.user._id;
@@ -699,17 +794,14 @@ const getAgentById = async (req, res) => {
       return res.status(404).json({ success: false, message: "Agent not found" });
     }
 
-    // Admin can see any agent
     if (roleDoc.code === '18') {
       return res.status(200).json({ success: true, data: agent });
     }
 
-    // Agent can see their own profile
     if (agent._id.toString() === requestingUserId.toString()) {
       return res.status(200).json({ success: true, data: agent });
     }
 
-    // Partner can see their affiliated agents
     if (roleDoc.code === '21' && agent.partnerId?.toString() === requestingUserId.toString()) {
       return res.status(200).json({ success: true, data: agent });
     }
@@ -723,7 +815,7 @@ const getAgentById = async (req, res) => {
 /* =====================================
    12. UPDATE AGENT PROFILE (Self)
 ===================================== */
-const updateAgentProfile = async (req, res) => {
+export const updateAgentProfile = async (req, res) => {
   try {
     const agentId = req.user._id;
     const updateData = req.body;
@@ -749,7 +841,7 @@ const updateAgentProfile = async (req, res) => {
       { new: true, runValidators: true }
     ).select('-password');
 
-    checkProfileCompleteness(updatedAgent);
+    const wasComplete = checkProfileCompleteness(updatedAgent);
     await updatedAgent.save();
 
     return res.status(200).json({
@@ -765,7 +857,7 @@ const updateAgentProfile = async (req, res) => {
 /* =====================================
    13. CHANGE PASSWORD
 ===================================== */
-const changePassword = async (req, res) => {
+export const changePassword = async (req, res) => {
   try {
     const { oldPassword, newPassword } = req.body;
     const agentId = req.user._id;
@@ -783,7 +875,14 @@ const changePassword = async (req, res) => {
     agent.password = await bcrypt.hash(newPassword, 10);
     await agent.save();
 
-    return res.status(200).json({ success: true, message: "Password changed successfully" });
+    await HistoryService.logSecurityEvent(agent, 'PASSWORD_CHANGED', await getUserInfo(req), {
+      description: `Agent ${agent.fullName} changed password`,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Password changed successfully"
+    });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -792,7 +891,7 @@ const changePassword = async (req, res) => {
 /* =====================================
    14. GET AGENT DASHBOARD
 ===================================== */
-const getAgentDashboard = async (req, res) => {
+export const getAgentDashboard = async (req, res) => {
   try {
     const agentId = req.user._id;
 
@@ -821,21 +920,4 @@ const getAgentDashboard = async (req, res) => {
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
-};
-
-module.exports = {
-  agentSignup,
-  adminOnboardFreelanceAgent,
-  partnerOnboardAffiliatedAgent,
-  agentLogin,
-  verifyAgent,
-  suspendAgent,
-  activateAgent,
-  deleteAgent,
-  getAllAgents,
-  getAgentsByPartner,
-  getAgentById,
-  updateAgentProfile,
-  changePassword,
-  getAgentDashboard
 };

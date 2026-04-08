@@ -70,6 +70,7 @@ const commissionSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Indexes
 commissionSchema.index({ commissionId: 1 }, { unique: true });
 commissionSchema.index({ caseId: 1 });
 commissionSchema.index({ leadId: 1 });
@@ -77,14 +78,12 @@ commissionSchema.index({ recipientRole: 1, recipientId: 1 });
 commissionSchema.index({ status: 1 });
 commissionSchema.index({ createdAt: -1 });
 
+// Virtuals
 commissionSchema.virtual('formattedCommissionAmount').get(function () {
   return `${this.commissionAmount.toLocaleString()} AED`;
 });
 
-commissionSchema.virtual('formattedLoanAmount').get(function () {
-  return `${this.loanAmount.toLocaleString()} AED`;
-});
-
+// Methods
 commissionSchema.methods.confirm = function (adminId) {
   this.status = 'Confirmed';
   this.confirmedByAdminId = adminId;
@@ -107,6 +106,7 @@ commissionSchema.methods.markAsFailed = function (reason) {
   return this.save();
 };
 
+// Static methods
 commissionSchema.statics.calculateCommission = function (bankCommissionToXoto, recipientPercentage) {
   const commissionAmount = (bankCommissionToXoto * recipientPercentage) / 100;
   const formula = `${bankCommissionToXoto} × ${recipientPercentage}% = ${commissionAmount}`;
