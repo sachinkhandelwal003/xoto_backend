@@ -157,6 +157,7 @@ exports.protectAgent = protectBase(Agent, "Agent");
 exports.protectDeveloper = protectBase(Developer, "Developer");
 
 exports.protectPartner = protectBase(Partner, "Partner");
+exports.protectVaultAgent = protectBase(VaultAgents, "VaultAgents");
 
 /* ============================================================
    MULTI-USER PROTECTOR (MAIN FIXED VERSION)

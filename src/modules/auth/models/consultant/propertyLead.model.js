@@ -1,7 +1,6 @@
 // models/propertyLead/propertyLead.model.js
 const mongoose = require('mongoose');
 
-
 const propertyLeadSchema = new mongoose.Schema({
   type: {
     type: String,
@@ -16,7 +15,7 @@ const propertyLeadSchema = new mongoose.Schema({
       'enquiry',
       'ai_enquiry',
       'consultation',
-      "mortgage"
+      'mortgage' // 🚀 Added mortgage to enum
     ],
     required: false,
     index: true
@@ -42,10 +41,10 @@ const propertyLeadSchema = new mongoose.Schema({
       trim: true,
     }
   },
-property: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "RentalProperty"
-},
+  property: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "RentalProperty"
+  },
   has_property: {
     type: Boolean,
     default: false,
@@ -126,6 +125,32 @@ property: {
     createdAt: { type: Date, default: Date.now }
   }],
 
+  // ==============================================================
+  // 🚀 MORTGAGE DETAILS (Populated from Calculator)
+  // ==============================================================
+  mortgage: {
+    monthly_income: { type: Number },
+    monthly_debt: { type: Number },
+    loan_tenure: { type: Number },
+
+    property_value: { type: Number },
+    downpayment: { type: Number },
+    loan_amount: { type: Number },
+
+    interest_rate: { type: Number },
+    loan_duration: { type: Number },
+
+    affordability: { type: Number },
+    max_emi: { type: Number },
+    monthly_emi: { type: Number },
+
+    employment_type: { type: String }, // Employed / Self-employed
+    residency_status: { type: String }, // Resident / Non-resident
+
+    has_existing_loan: { type: Boolean, default: false }
+  },
+  // ==============================================================
+
   is_active: { type: Boolean, default: true },
   is_deleted: { type: Boolean, default: false },
   deleted_at: { type: Date }
@@ -167,12 +192,7 @@ propertyLeadSchema.pre('aggregate', function () {
     pipeline.unshift({ $match: { is_deleted: false } });
   }
 });
+
 const PropertyLead = mongoose.model('PropertyLead', propertyLeadSchema);
 
-// ======================== VALIDATION (Universal for ALL forms) ========================
-
-
-// ======================== CONTROLLER ========================
-
-
-module.exports = PropertyLead; 
+module.exports = PropertyLead;

@@ -4,10 +4,47 @@ import Case from "../models/Case.js";
 import Lead from "../models/Lead.js";
 import Commission from "../models/Commission.js";
 import Proposal from "../models/Proposal.js";
+import HistoryService from "../services/history.service.js";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { createToken } from '../../../middleware/auth.js';
+
+/* =====================================
+   HELPER FUNCTION
+===================================== */
+const getUserInfo = async (req, user = null) => {
+  let userRole = 'System';
+  
+  try {
+    const roleId = req.user?.role;
+    if (roleId) {
+      const roleDoc = await Role.findById(roleId);
+      const roleCode = roleDoc?.code;
+      
+      if (roleCode === '18') {
+        userRole = 'Admin';
+      } else if (roleCode === '21') {
+        userRole = 'Partner';
+      } else {
+        userRole = 'Partner';
+      }
+    } else {
+      userRole = 'Partner';
+    }
+  } catch (error) {
+    console.error("Error getting user role:", error);
+  }
+  
+  return {
+    userId: user?._id || req.user?._id,
+    userRole: userRole,
+    userName: user?.fullName || user?.name || user?.email || req.user?.fullName || req.user?.email || 'System',
+    userEmail: user?.email || req.user?.email || null,
+    ipAddress: req?.ip || null,
+    userAgent: req?.headers?.['user-agent'] || null,
+  };
+};
 
 /* =====================================
    PARTNER ONBOARDING (Admin only)
@@ -37,7 +74,6 @@ export const createPartner = async (req, res) => {
       password
     } = req.body;
 
-    // Validation
     if (!companyName || !tradeLicenseNumber || !email || !password) {
       return res.status(400).json({
         success: false,
@@ -45,7 +81,6 @@ export const createPartner = async (req, res) => {
       });
     }
 
-    // Check role code 21 for Partner
     const roleDoc = await Role.findOne({ code: 21 });
     if (!roleDoc) {
       return res.status(404).json({
@@ -54,7 +89,6 @@ export const createPartner = async (req, res) => {
       });
     }
 
-    // Check if partner already exists
     const existingPartner = await Partner.findOne({
       $or: [
         { companyName: companyName },
@@ -70,10 +104,7 @@ export const createPartner = async (req, res) => {
       });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Create username from email (before @)
     const username = email.split('@')[0];
 
     const partner = await Partner.create({
@@ -106,6 +137,13 @@ export const createPartner = async (req, res) => {
       isVerified: true
     });
 
+    // ✅ LOG HISTORY: Partner Onboarded
+    await HistoryService.logPartnerActivity(partner, 'PARTNER_ONBOARDED', await getUserInfo(req), {
+      description: `Partner ${companyName} onboarded successfully`,
+      metadata: { onboardedBy: req.user?.email, tradeLicense: tradeLicenseNumber },
+      importance: 'HIGH',
+    });
+
     const partnerResponse = partner.toObject();
     delete partnerResponse.password;
 
@@ -131,7 +169,7 @@ export const createPartner = async (req, res) => {
 };
 
 /* =====================================
-   PARTNER LOGIN (with Email) - Like Agent Login
+   PARTNER LOGIN
 ===================================== */
 export const partnerLogin = async (req, res) => {
   try {
@@ -163,7 +201,6 @@ export const partnerLogin = async (req, res) => {
       });
     }
 
-
     if (partner.status !== 'active') {
       return res.status(403).json({
         success: false,
@@ -171,7 +208,11 @@ export const partnerLogin = async (req, res) => {
       });
     }
 
-
+    // ✅ LOG HISTORY: Partner Login
+    await HistoryService.logSecurityEvent(partner, 'LOGIN', await getUserInfo(req), {
+      description: `Partner ${partner.companyName} logged in`,
+      metadata: { companyName: partner.companyName },
+    });
 
     const token = createToken(partner);
     const partnerResponse = partner.toObject();
@@ -290,12 +331,16 @@ export const updatePartner = async (req, res) => {
       });
     }
 
-    // If password is being updated, hash it
+    const oldData = {
+      companyName: partner.companyName,
+      status: partner.status,
+      numberOfBranches: partner.numberOfBranches,
+    };
+
     if (updateData.password) {
       updateData.password = await bcrypt.hash(updateData.password, 10);
     }
 
-    // If email is being updated, update username as well
     if (updateData.email && updateData.email !== partner.email) {
       updateData.username = updateData.email.split('@')[0];
     }
@@ -305,6 +350,13 @@ export const updatePartner = async (req, res) => {
       { ...updateData, updatedAt: new Date() },
       { new: true, runValidators: true }
     ).select('-password');
+
+    // ✅ LOG HISTORY: Partner Updated
+    await HistoryService.logPartnerActivity(updatedPartner, 'PARTNER_UPDATED', await getUserInfo(req), {
+      description: `Partner ${partner.companyName} updated`,
+      changes: { old: oldData, new: { companyName: updatedPartner.companyName, status: updatedPartner.status } },
+      metadata: { updatedBy: req.user?.email },
+    });
 
     return res.status(200).json({
       success: true,
@@ -339,11 +391,17 @@ export const deletePartner = async (req, res) => {
     partner.status = 'inactive';
     await partner.save();
 
-    // Deactivate all affiliated agents
     await VaultAgent.updateMany(
       { partnerId: id, agentType: 'PartnerAffiliatedAgent' },
       { isActive: false, isDeleted: true, deletedAt: new Date() }
     );
+
+    // ✅ LOG HISTORY: Partner Deleted
+    await HistoryService.logPartnerActivity(partner, 'PARTNER_DELETED', await getUserInfo(req), {
+      description: `Partner ${partner.companyName} deleted`,
+      importance: 'HIGH',
+      metadata: { deletedBy: req.user?.email },
+    });
 
     return res.status(200).json({
       success: true,
@@ -378,11 +436,18 @@ export const suspendPartner = async (req, res) => {
     partner.suspensionReason = suspensionReason;
     await partner.save();
 
-    // Suspend all affiliated agents
     await VaultAgent.updateMany(
       { partnerId: id, agentType: 'PartnerAffiliatedAgent' },
       { suspendedAt: new Date(), suspensionReason: "Partner suspended", isActive: false }
     );
+
+    // ✅ LOG HISTORY: Partner Suspended
+    await HistoryService.logPartnerActivity(partner, 'PARTNER_SUSPENDED', await getUserInfo(req), {
+      description: `Partner ${partner.companyName} suspended`,
+      notes: suspensionReason,
+      importance: 'HIGH',
+      metadata: { suspendedBy: req.user?.email, reason: suspensionReason },
+    });
 
     return res.status(200).json({
       success: true,
@@ -416,6 +481,13 @@ export const activatePartner = async (req, res) => {
     partner.suspensionReason = null;
     await partner.save();
 
+    // ✅ LOG HISTORY: Partner Activated
+    await HistoryService.logPartnerActivity(partner, 'PARTNER_ACTIVATED', await getUserInfo(req), {
+      description: `Partner ${partner.companyName} activated`,
+      importance: 'HIGH',
+      metadata: { activatedBy: req.user?.email },
+    });
+
     return res.status(200).json({
       success: true,
       message: "Partner activated successfully"
@@ -435,10 +507,8 @@ export const getPartnerDashboard = async (req, res) => {
   try {
     const partnerId = req.user._id;
 
-    // Get cases
     const cases = await Case.find({ 'createdBy.partnerId': partnerId, isDeleted: false });
     
-    // Get affiliated agents
     const affiliatedAgents = await VaultAgent.find({ 
       partnerId: partnerId, 
       agentType: 'PartnerAffiliatedAgent',
@@ -447,13 +517,11 @@ export const getPartnerDashboard = async (req, res) => {
     
     const agentIds = affiliatedAgents.map(a => a._id);
     
-    // Get leads from affiliated agents
     const leads = await Lead.find({ 
       'sourceInfo.createdById': { $in: agentIds },
       isDeleted: false 
     });
 
-    // Get commissions
     const commissions = await Commission.find({ 
       recipientId: partnerId, 
       recipientRole: 'partner',
@@ -539,17 +607,16 @@ export const createCase = async (req, res) => {
       propertyInfo: caseData.propertyInfo,
       loanInfo: caseData.loanInfo,
       currentStatus: 'Submitted to Xoto',
-      statusHistory: [{
-        status: 'Submitted to Xoto',
-        updatedBy: partner.companyName,
-        notes: 'Case created and submitted to Xoto',
-        timestamp: new Date()
-      }]
     });
 
-    // Update partner performance metrics
     partner.performanceMetrics.totalCasesSubmitted += 1;
     await partner.save();
+
+    // ✅ LOG HISTORY: Case Created
+    await HistoryService.logCaseActivity(newCase, 'CASE_CREATED', await getUserInfo(req), {
+      description: `Case ${caseId} created for client ${caseData.clientInfo?.fullName}`,
+      metadata: { partnerName: partner.companyName, propertyValue: caseData.propertyInfo?.propertyValue },
+    });
 
     return res.status(201).json({
       success: true,
@@ -660,11 +727,12 @@ export const createProposal = async (req, res) => {
       selectedBankProducts: proposalData.selectedBankProducts,
       coverNote: proposalData.coverNote,
       status: 'Draft',
-      statusHistory: [{
-        status: 'Draft',
-        timestamp: new Date(),
-        notes: 'Proposal created'
-      }]
+    });
+
+    // ✅ LOG HISTORY: Proposal Created
+    await HistoryService.logProposalActivity(proposal, 'PROPOSAL_CREATED', await getUserInfo(req), {
+      description: `Proposal ${proposalId} created for client ${proposalData.clientInfo?.name}`,
+      metadata: { partnerName: partner.companyName, bankCount: proposalData.selectedBankProducts?.length },
     });
 
     return res.status(201).json({
@@ -845,6 +913,11 @@ export const changePassword = async (req, res) => {
     partner.password = await bcrypt.hash(newPassword, 10);
     await partner.save();
 
+    // ✅ LOG HISTORY: Password Changed
+    await HistoryService.logSecurityEvent(partner, 'PASSWORD_CHANGED', await getUserInfo(req), {
+      description: `Partner ${partner.companyName} changed password`,
+    });
+
     return res.status(200).json({
       success: true,
       message: "Password changed successfully"
@@ -872,16 +945,19 @@ export const forgotPassword = async (req, res) => {
       });
     }
 
-    // Generate reset token
     const resetToken = crypto.randomBytes(32).toString('hex');
     const resetTokenExpiry = new Date();
-    resetTokenExpiry.setHours(resetTokenExpiry.getHours() + 1); // 1 hour expiry
+    resetTokenExpiry.setHours(resetTokenExpiry.getHours() + 1);
 
     partner.resetPasswordToken = resetToken;
     partner.resetPasswordExpires = resetTokenExpiry;
     await partner.save();
 
-    // Here you would send email with reset link
+    // ✅ LOG HISTORY: Password Reset Requested
+    await HistoryService.logSecurityEvent(partner, 'PASSWORD_RESET_REQUESTED', await getUserInfo(req), {
+      description: `Password reset requested for partner ${partner.companyName}`,
+    });
+
     return res.status(200).json({
       success: true,
       message: "Password reset email sent"
@@ -918,6 +994,11 @@ export const resetPassword = async (req, res) => {
     partner.resetPasswordToken = null;
     partner.resetPasswordExpires = null;
     await partner.save();
+
+    // ✅ LOG HISTORY: Password Reset Completed
+    await HistoryService.logSecurityEvent(partner, 'PASSWORD_RESET_COMPLETED', await getUserInfo(req), {
+      description: `Password reset completed for partner ${partner.companyName}`,
+    });
 
     return res.status(200).json({
       success: true,
@@ -969,7 +1050,6 @@ export const updatePartnerProfile = async (req, res) => {
     const partnerId = req.user._id;
     const updateData = req.body;
 
-    // Allowed fields for self-update
     const allowedFields = [
       'primaryContact',
       'secondaryContact',
@@ -992,6 +1072,11 @@ export const updatePartnerProfile = async (req, res) => {
       { ...filteredData, updatedAt: new Date() },
       { new: true, runValidators: true }
     ).select('-password');
+
+    // ✅ LOG HISTORY: Profile Updated
+    await HistoryService.logPartnerActivity(updatedPartner, 'PROFILE_UPDATED', await getUserInfo(req), {
+      description: `Partner ${updatedPartner.companyName} updated profile`,
+    });
 
     return res.status(200).json({
       success: true,

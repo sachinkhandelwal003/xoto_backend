@@ -1,0 +1,19 @@
+import express from 'express';
+import { createLead, getMyLeads, getLeadById, updateLeadStatus, adminGetAllLeads, getPartnerLeads } from '../controllers/lead.controller.js';
+import { protect, protectPartner ,protectMulti  ,protectVaultAgent } from '../../../middleware/auth.js';
+
+const router = express.Router();
+
+// Agent routessds
+router.post('/', protectVaultAgent, createLead);
+router.get('/my-leads', protect, getMyLeads);
+router.get('/:id', protect, getLeadById);
+
+// Admin routes
+router.get('/admin/all', adminGetAllLeads);
+router.put('/admin/:id/status', updateLeadStatus);
+
+// Partner routes
+router.get('/partner/leads', protectPartner, getPartnerLeads);
+
+module.exports = router;
