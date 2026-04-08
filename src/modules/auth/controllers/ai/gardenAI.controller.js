@@ -136,18 +136,17 @@ No cartoon, no CGI.
 // =======================================================
 exports.generateInteriorDesigns = async (req, res) => {
   try {
-    if (!req.files || req.files.length === 0) {
+    // ✅ YAHI CHANGE KARO — imageUrl bhi accept karo
+    if ((!req.files || req.files.length === 0) && !req.body.imageUrl) {
       return res.status(400).json({ error: "No image uploaded" });
     }
 
     const user = req.user;
-    const { styleName, elements, description, roomType } = req.body;
+    const { styleName, elements, description, roomType, imageUrl } = req.body;
     const parsedElements = parseElements(elements);
 
-    // ✅ Turant response bhejo
     res.status(200).json({ message: "Generation started", status: true });
 
-    // 🔥 Background processing
     (async () => {
       try {
         const prompt = `
@@ -159,12 +158,24 @@ STRICTLY photorealistic, DSLR-quality, real-world lighting.
 No cartoon, no CGI.
 `.trim();
 
-        const images = await Promise.all(
-          req.files.map(file =>
-            toFile(file.buffer, null, { type: file.mimetype })
-          )
-        );
+        let images;
 
+        if (req.files && req.files.length > 0) {
+          // ✅ Normal file upload
+          images = await Promise.all(
+            req.files.map(file =>
+              toFile(file.buffer, null, { type: file.mimetype })
+            )
+          );
+        } else if (imageUrl) {
+          // ✅ Library image URL se server-side fetch
+          const axios = require('axios');
+          const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+          const buffer = Buffer.from(response.data);
+          images = [await toFile(buffer, 'input_image.jpg', { type: 'image/jpeg' })];
+        }
+
+        // ... baaki code bilkul same
         const response = await client.images.edit({
           model: "gpt-image-1",
           image: images,
