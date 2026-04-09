@@ -41,11 +41,11 @@ const protectUpload = async (req, res, next) => {
 };
 
 // ==================== UPLOAD ROUTES ====================
-router.post('/leads/:leadId', protectUpload, uploadDocument);
+router.post('/:leadId', protectUpload, uploadDocument);
 router.post('/cases/:caseId', protectUpload, uploadDocument);
 
 // ==================== GET DOCUMENTS ====================
-router.get('/leads/:leadId', protectUpload, getLeadDocuments);
+router.get('/:leadId', protectUpload, getLeadDocuments);
 router.get('/cases/:caseId', protectUpload, getCaseDocuments);
 
 // ==================== DELETE DOCUMENT ====================

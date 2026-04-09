@@ -17,6 +17,6 @@ router.get('/admin/:id', protect, getLeadById);
 router.put('/admin/:id/status',protect, updateLeadStatus);
 
 // Partner routes
-router.get('/partner/leads', protectPartner, getPartnerLeads);
+router.get('/partner', protectPartner, getPartnerLeads);
 
 module.exports = router;
