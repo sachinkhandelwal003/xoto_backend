@@ -180,4 +180,3 @@ export const getLeadDocuments = async (req, res) => {
   }
 };
 
-export default { uploadDocument, verifyDocument, rejectDocument, deleteDocument, getCaseDocuments, getLeadDocuments };
