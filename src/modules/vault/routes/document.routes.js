@@ -1,17 +1,22 @@
 import express from 'express';
-import multer from 'multer';
-import { uploadDocument, verifyDocument, rejectDocument, deleteDocument, getCaseDocuments, getLeadDocuments } from '../controllers/document.controller.js';
+import { 
+  uploadDocument, 
+  verifyDocument, 
+  rejectDocument, 
+  deleteDocument, 
+  getCaseDocuments, 
+  getLeadDocuments 
+} from '../controllers/document.controller.js';
 import { protect, protectAdmin, protectPartner } from '../../../middleware/auth.js';
 
-const upload = multer({ dest: 'uploads/' });
 const router = express.Router();
 
 // Partner routes
-router.post('/cases/:caseId', protectPartner, upload.single('file'), uploadDocument);
+router.post('/cases/:caseId', protectPartner, uploadDocument);
 router.get('/cases/:caseId', protectPartner, getCaseDocuments);
 
 // Agent routes
-router.post('/leads/:leadId', protect, upload.single('file'), uploadDocument);
+router.post('/leads/:leadId', protect, uploadDocument);
 router.get('/leads/:leadId', protect, getLeadDocuments);
 
 // Common routes

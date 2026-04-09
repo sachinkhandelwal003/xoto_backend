@@ -1,6 +1,6 @@
 import VaultAgent from '../models/Agent.js';
 import Partner from '../models/Partner.js';
-import Lead from '../models/Lead.js';
+import Lead from '../models/VaultLead.js';
 import Commission from '../models/Commission.js';
 import HistoryService from '../services/history.service.js';
 import bcrypt from 'bcryptjs';

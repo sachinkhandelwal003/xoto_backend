@@ -183,5 +183,5 @@ leadSchema.methods.updateDocumentStatus = function (uploadedCount, verifiedCount
   return this.save();
 };
 
-const Lead = mongoose.models.Lead || mongoose.model('VaultLead', leadSchema);
-module.exports = Lead;
+const VaultLead = mongoose.model('VaultLead', leadSchema);
+module.exports = VaultLead;

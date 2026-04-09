@@ -1,4 +1,4 @@
-import Lead from '../models/Lead.js';
+import Lead from '../models/VaultLead.js';
 import Client from '../models/Client.js';
 import VaultAgent from '../models/Agent.js';
 import Partner from '../models/Partner.js';
@@ -34,9 +34,11 @@ const getUserInfo = async (req) => {
 ===================================== */
 export const createLead = async (req, res) => {
   try {
+
+    console.log("Create Lead Request Body:", req.body);
     const agentId = req.user._id;
     const agent = await VaultAgent.findById(agentId);
-    
+    console.log("Create Lead Request User:", req.user);
     if (!agent || !agent.isActiveAgent()) {
       return res.status(403).json({ success: false, message: "Agent account not active" });
     }

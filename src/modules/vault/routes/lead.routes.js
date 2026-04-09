@@ -5,7 +5,7 @@ import { protect, protectPartner ,protectMulti  ,protectVaultAgent } from '../..
 const router = express.Router();
 
 // Agent routessds
-router.post('/', protectVaultAgent, createLead);
+router.post('/create', protectVaultAgent, createLead);
 router.get('/my-leads', protect, getMyLeads);
 router.get('/:id', protect, getLeadById);
 
