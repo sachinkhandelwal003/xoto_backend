@@ -34,11 +34,34 @@ const parseElements = (elements) => {
 // =======================================================
 // 1. :herb: GARDEN GENERATION
 // =======================================================
-// ✅ Replace your current generateGardenDesigns with this improved version
-
-// src/controllers/ai/gardenAI.controller.js
-
+// =======================================================
+// 1. GARDEN GENERATION - FIXED & IMPROVED
+// =======================================================
 exports.generateGardenDesigns = async (req, res) => {
+
+  // ==================== HELPER FUNCTION ====================
+  const isOpenAICreditError = (error) => {
+    if (!error) return false;
+
+    const msg = (error.message || '').toLowerCase();
+    const status = error.status || error?.response?.status || error?.statusCode || error?.code;
+    const errCode = error.code || error?.error?.code || '';
+
+    return (
+      status === 400 ||
+      status === 429 ||
+      errCode === 'billing_hard_limit_reached' ||
+      msg.includes('billing hard limit') ||
+      msg.includes('billing_hard_limit_reached') ||
+      msg.includes('insufficient_quota') ||
+      msg.includes('exceeded your current quota') ||
+      msg.includes('billing') ||
+      msg.includes('credit') ||
+      msg.includes('quota')
+    );
+  };
+  // ========================================================
+
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: "No image uploaded" });
@@ -48,13 +71,32 @@ exports.generateGardenDesigns = async (req, res) => {
     const { styleName, elements, description } = req.body;
     const parsedElements = parseElements(elements);
 
-    // ✅ Turant response
+    // 🔥 IMPORTANT: Pehle credit check karo
+    try {
+      // Small test call to check billing status
+      await client.images.generate({
+        model: "gpt-image-1",
+        prompt: "Test prompt - checking account status only",
+        n: 1,
+        size: "256x256"   // chhota size taaki cost kam ho
+      });
+    } catch (testErr) {
+      console.error("Credit check failed:", testErr);
+      if (isOpenAICreditError(testErr)) {
+        return res.status(402).json({
+          status: false,
+          error: "Insufficient credits",
+          // message: "❌ Image cannot be generated."
+        });
+      }
+    }
+
+    // Agar credit check pass ho gaya tabhi generation start karo
     res.status(200).json({ message: "Generation started", status: true });
 
-    // 🔥 Background processing
+    // Background processing
     (async () => {
       try {
-        // ✅ ORIGINAL wala prompt — jo pehle kaam kar raha tha
         const prompt = `
 ${styleName ? `${styleName} garden design` : "Beautiful garden design"}.
 Use these elements: ${parsedElements.join(", ") || "none"}.
@@ -63,16 +105,13 @@ STRICTLY photorealistic, natural lighting, real-world textures.
 No cartoon, no CGI.
 `.trim();
 
-        // ✅ ORIGINAL — images[] array (ek nahi, saare files)
         const images = await Promise.all(
-          req.files.map(file =>
-            toFile(file.buffer, null, { type: file.mimetype })
-          )
+          req.files.map(file => toFile(file.buffer, null, { type: file.mimetype }))
         );
 
         const response = await client.images.edit({
           model: "gpt-image-1",
-          image: images, // ✅ images[0] nahi — original jaisa
+          image: images,
           prompt,
           input_fidelity: "high"
         });
@@ -91,7 +130,6 @@ No cartoon, no CGI.
 
         const imageUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
 
-        // ✅ DB save with status completed
         await AiGeneratedImage.create({
           imageUrl,
           inputImageUrl: null,
@@ -108,14 +146,24 @@ No cartoon, no CGI.
         console.log(`[GARDEN] Done for user: ${user._id} | ${imageUrl}`);
 
       } catch (bgErr) {
-        console.error("Background error:", bgErr.message);
+        console.error("Background error:", bgErr);
+
+        let errorMessage = bgErr.message || "Image generation failed.";
+
+        if (isOpenAICreditError(bgErr)) {
+          errorMessage = "Image cannot be generated.."
+;
+        }
+
         await AiGeneratedImage.create({
           imageUrl: "failed",
           userId: user._id,
           designType: "landscaping",
           status: "failed",
-          aiMessage: bgErr.message
+          aiMessage: errorMessage
         }).catch(() => {});
+
+        console.log(`[GARDEN] Failed for user: ${user._id}`);
       }
     })();
 
@@ -129,14 +177,39 @@ No cartoon, no CGI.
 
 
 
-
-
 // =======================================================
 // 2. :house_with_garden: INTERIOR GENERATION
 // =======================================================
+// =======================================================
+// 2. INTERIOR GENERATION - FIXED & IMPROVED
+// =======================================================
 exports.generateInteriorDesigns = async (req, res) => {
+
+  // ==================== HELPER FUNCTION ====================
+  const isOpenAICreditError = (error) => {
+    if (!error) return false;
+
+    const msg = (error.message || '').toLowerCase();
+    const status = error.status || error?.response?.status || error?.statusCode || error?.code;
+    const errCode = error.code || error?.error?.code || '';
+
+    return (
+      status === 400 ||
+      status === 429 ||
+      errCode === 'billing_hard_limit_reached' ||
+      msg.includes('billing hard limit') ||
+      msg.includes('billing_hard_limit_reached') ||
+      msg.includes('insufficient_quota') ||
+      msg.includes('exceeded your current quota') ||
+      msg.includes('billing') ||
+      msg.includes('credit') ||
+      msg.includes('quota')
+    );
+  };
+  // ========================================================
+
   try {
-    // ✅ YAHI CHANGE KARO — imageUrl bhi accept karo
+    // Image check
     if ((!req.files || req.files.length === 0) && !req.body.imageUrl) {
       return res.status(400).json({ error: "No image uploaded" });
     }
@@ -145,8 +218,30 @@ exports.generateInteriorDesigns = async (req, res) => {
     const { styleName, elements, description, roomType, imageUrl } = req.body;
     const parsedElements = parseElements(elements);
 
+    // 🔥 CREDIT CHECK - Pehle test call karo
+    try {
+      await client.images.generate({
+        model: "gpt-image-1",
+        prompt: "Test prompt - checking account status only",
+        n: 1,
+        size: "256x256"   // chhota size, kam cost
+      });
+    } catch (testErr) {
+      console.error("Credit check failed:", testErr);
+      if (isOpenAICreditError(testErr)) {
+        return res.status(402).json({
+          status: false,
+          error: "Insufficient credits",
+          message: "Image cannot be generated."
+
+        });
+      }
+    }
+
+    // Agar credit theek hai tabhi generation start karo
     res.status(200).json({ message: "Generation started", status: true });
 
+    // Background processing
     (async () => {
       try {
         const prompt = `
@@ -161,21 +256,18 @@ No cartoon, no CGI.
         let images;
 
         if (req.files && req.files.length > 0) {
-          // ✅ Normal file upload
           images = await Promise.all(
             req.files.map(file =>
               toFile(file.buffer, null, { type: file.mimetype })
             )
           );
         } else if (imageUrl) {
-          // ✅ Library image URL se server-side fetch
           const axios = require('axios');
           const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
           const buffer = Buffer.from(response.data);
           images = [await toFile(buffer, 'input_image.jpg', { type: 'image/jpeg' })];
         }
 
-        // ... baaki code bilkul same
         const response = await client.images.edit({
           model: "gpt-image-1",
           image: images,
@@ -208,20 +300,32 @@ No cartoon, no CGI.
           elements: parsedElements,
           description: description || null,
           aiMessage: "Interior generated successfully",
-          status: "completed"  // ✅ status field add karo
+          status: "completed"
         });
 
         console.log(`[INTERIOR] Done for user: ${user._id} | ${imageUrl}`);
 
       } catch (bgErr) {
-        console.error("Background error:", bgErr.message);
+        console.error("Background error:", bgErr);
+
+        let errorMessage = "Image generation failed. Please try again later.";
+
+        if (isOpenAICreditError(bgErr)) {
+          errorMessage = "Image cannot be generated"
+;
+        } else if (bgErr.message) {
+          errorMessage = bgErr.message;
+        }
+
         await AiGeneratedImage.create({
           imageUrl: "failed",
           userId: user._id,
           designType: "interior",
           status: "failed",
-          aiMessage: bgErr.message
+          aiMessage: errorMessage
         }).catch(() => {});
+
+        console.log(`[INTERIOR] Failed for user: ${user._id}`);
       }
     })();
 
