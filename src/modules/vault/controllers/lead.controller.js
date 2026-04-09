@@ -224,7 +224,6 @@ export const adminGetAllLeads = async (req, res) => {
     if (agentType) query['sourceInfo.createdByRole'] = agentType;
     
     const leads = await Lead.find(query)
-      .populate('sourceInfo.createdById', 'name email agentType')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));

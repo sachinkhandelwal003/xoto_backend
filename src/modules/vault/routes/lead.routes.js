@@ -8,11 +8,13 @@ const router = express.Router();
 router.post('/create', protectVaultAgent, createLead);
 router.get('/my-leads', protectVaultAgent, getMyLeads);
 router.get('/:id', protectVaultAgent, getLeadById);
+
+router.get('/admin/all', protect, adminGetAllLeads);
+
 router.get('/admin/:id', protect, getLeadById);
 
 // Admin routes
-router.get('/admin/all', adminGetAllLeads);
-router.put('/admin/:id/status', updateLeadStatus);
+router.put('/admin/:id/status',protect, updateLeadStatus);
 
 // Partner routes
 router.get('/partner/leads', protectPartner, getPartnerLeads);
