@@ -34,11 +34,11 @@ const getUserInfo = async (req) => {
 ===================================== */
 export const createLead = async (req, res) => {
   try {
-
     console.log("Create Lead Request Body:", req.body);
     const agentId = req.user._id;
     const agent = await VaultAgent.findById(agentId);
     console.log("Create Lead Request User:", req.user);
+    
     if (!agent || !agent.isActiveAgent()) {
       return res.status(403).json({ success: false, message: "Agent account not active" });
     }
@@ -49,7 +49,7 @@ export const createLead = async (req, res) => {
     
     const { customerInfo, propertyDetails, referralType, notesToXoto } = req.body;
     
-    // Duplicate check (180 days)
+    // Duplicate check (180 days) - using mobileNumber
     const existingLead = await Lead.findOne({
       'customerInfo.mobileNumber': customerInfo.mobileNumber,
       createdAt: { $gte: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000) },
@@ -60,7 +60,6 @@ export const createLead = async (req, res) => {
       return res.status(400).json({ success: false, message: "Duplicate lead within 180 days" });
     }
     
-    const leadId = `L-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const loanAmount = propertyDetails.propertyValue - (propertyDetails.downPaymentAmount || 0);
     const loanAmountRange = loanAmount <= 5000000 ? '≤5M AED' : '>5M AED';
     let commissionTier = null;
@@ -69,8 +68,8 @@ export const createLead = async (req, res) => {
       commissionTier = agent.getCommissionPercentage(loanAmount, referralType);
     }
     
+    // ✅ Create lead without custom leadId - MongoDB will generate _id
     const lead = await Lead.create({
-      leadId,
       sourceInfo: {
         createdByRole: agent.agentType === 'FreelanceAgent' ? 'freelance_agent' : 'partner_affiliated_agent',
         createdById: agentId,
@@ -98,6 +97,7 @@ export const createLead = async (req, res) => {
     
     return res.status(201).json({ success: true, message: "Lead created", data: lead });
   } catch (error) {
+    console.error("Create lead error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -110,25 +110,43 @@ export const getMyLeads = async (req, res) => {
     const agentId = req.user._id;
     const { status, page = 1, limit = 20 } = req.query;
     
-    let query = { 'sourceInfo.createdById': agentId, isDeleted: false };
+    let query = { 
+      'sourceInfo.createdById': agentId, 
+      isDeleted: false 
+    };
     if (status) query.currentStatus = status;
     
-    const leads = await Lead.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(parseInt(limit));
+    const leads = await Lead.find(query)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
+      
     const total = await Lead.countDocuments(query);
     
-    return res.status(200).json({ success: true, data: leads, total, pagination: { totalPages: Math.ceil(total / limit), currentPage: parseInt(page), limit } });
+    return res.status(200).json({ 
+      success: true, 
+      data: leads, 
+      total, 
+      pagination: { 
+        totalPages: Math.ceil(total / limit), 
+        currentPage: parseInt(page), 
+        limit 
+      } 
+    });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /* =====================================
-   GET LEAD BY ID
+   GET LEAD BY ID (using MongoDB _id)
 ===================================== */
 export const getLeadById = async (req, res) => {
   try {
     const { id } = req.params;
-    const lead = await Lead.findOne({ leadId: id, isDeleted: false }).populate('sourceInfo.createdById', 'name email');
+    const lead = await Lead.findOne({ _id: id, isDeleted: false })
+      .populate('sourceInfo.createdById', 'name email');
+      
     if (!lead) return res.status(404).json({ success: false, message: "Lead not found" });
     return res.status(200).json({ success: true, data: lead });
   } catch (error) {
@@ -144,17 +162,25 @@ export const updateLeadStatus = async (req, res) => {
     const { id } = req.params;
     const { status, notes } = req.body;
     
-    const lead = await Lead.findOne({ leadId: id, isDeleted: false });
+    const lead = await Lead.findOne({ _id: id, isDeleted: false });
     if (!lead) return res.status(404).json({ success: false, message: "Lead not found" });
     
+    const previousStatus = lead.currentStatus;
     lead.currentStatus = status;
     await lead.save();
     
+    // If lead becomes Qualified, create Client record
     if (status === 'Qualified') {
       const existingClient = await Client.findOne({ email: lead.customerInfo.email });
       if (!existingClient) {
+        const Role = (await import('../../../modules/auth/models/role/role.model.js')).Role;
+        const clientRole = await Role.findOne({ code: '23' });
+        
         await Client.create({
-          name: { first_name: lead.customerInfo.fullName.split(' ')[0], last_name: lead.customerInfo.fullName.split(' ').slice(1).join(' ') },
+          name: { 
+            first_name: lead.customerInfo.fullName.split(' ')[0], 
+            last_name: lead.customerInfo.fullName.split(' ').slice(1).join(' ') 
+          },
           email: lead.customerInfo.email,
           phone: { number: lead.customerInfo.mobileNumber },
           dateOfBirth: lead.customerInfo.dateOfBirth,
@@ -165,15 +191,15 @@ export const updateLeadStatus = async (req, res) => {
           createdByType: 'Agent',
           createdBy: lead.sourceInfo.createdById,
           partnerId: null,
-          role: (await import('../../../modules/auth/models/role/role.model.js')).Role.findOne({ code: '23' })._id,
+          role: clientRole?._id,
         });
       }
     }
     
     await HistoryService.logLeadActivity(lead, 'LEAD_STATUS_CHANGED', await getUserInfo(req), {
-      description: `Lead status changed to ${status}`,
+      description: `Lead status changed from ${previousStatus} to ${status}`,
       notes,
-      previousStatus: lead.currentStatus,
+      previousStatus,
       newStatus: status,
     });
     
@@ -190,13 +216,31 @@ export const adminGetAllLeads = async (req, res) => {
   try {
     const { status, agentType, page = 1, limit = 20 } = req.query;
     let query = { isDeleted: false };
+    
+    // Filter by status if provided
     if (status) query.currentStatus = status;
+    
+    // Filter by agent type if provided (freelance_agent or partner_affiliated_agent)
     if (agentType) query['sourceInfo.createdByRole'] = agentType;
     
-    const leads = await Lead.find(query).populate('sourceInfo.createdById', 'name email').sort({ createdAt: -1 }).skip((page - 1) * limit).limit(parseInt(limit));
+    const leads = await Lead.find(query)
+      .populate('sourceInfo.createdById', 'name email agentType')
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
+      
     const total = await Lead.countDocuments(query);
     
-    return res.status(200).json({ success: true, data: leads, total, pagination: { totalPages: Math.ceil(total / limit), currentPage: parseInt(page), limit } });
+    return res.status(200).json({ 
+      success: true, 
+      data: leads, 
+      total, 
+      pagination: { 
+        totalPages: Math.ceil(total / limit), 
+        currentPage: parseInt(page), 
+        limit 
+      } 
+    });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -208,13 +252,29 @@ export const adminGetAllLeads = async (req, res) => {
 export const getPartnerLeads = async (req, res) => {
   try {
     const partnerId = req.user._id;
-    const affiliatedAgents = await VaultAgent.find({ partnerId, agentType: 'PartnerAffiliatedAgent', isDeleted: false });
+    
+    // Find all Partner-Affiliated Agents under this partner
+    const affiliatedAgents = await VaultAgent.find({ 
+      partnerId: partnerId, 
+      agentType: 'PartnerAffiliatedAgent', 
+      isDeleted: false 
+    });
+    
     const agentIds = affiliatedAgents.map(a => a._id);
     
-    const leads = await Lead.find({ 'sourceInfo.createdById': { $in: agentIds }, isDeleted: false }).sort({ createdAt: -1 });
+    // If no affiliated agents, return empty array
+    if (agentIds.length === 0) {
+      return res.status(200).json({ success: true, data: [], message: "No affiliated agents found" });
+    }
+    
+    // Get leads ONLY from these affiliated agents
+    const leads = await Lead.find({ 
+      'sourceInfo.createdById': { $in: agentIds }, 
+      isDeleted: false 
+    }).sort({ createdAt: -1 });
+    
     return res.status(200).json({ success: true, data: leads });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-

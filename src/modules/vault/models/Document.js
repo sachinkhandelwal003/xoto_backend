@@ -2,10 +2,10 @@ const mongoose = require('mongoose');
 
 const documentSchema = new mongoose.Schema(
   {
-    documentId: { type: String, unique: true, required: true },
+    // ✅ REMOVED custom documentId - using MongoDB _id
     
     entityType: { type: String, enum: ['Lead', 'Case', 'Agent', 'Partner'], required: true },
-    entityId: { type: String, required: true },
+    entityId: { type: String, required: true },  // MongoDB _id of the lead/case
     
     documentType: {
       type: String,
@@ -73,12 +73,16 @@ const documentSchema = new mongoose.Schema(
 );
 
 // Indexes
-documentSchema.index({ documentId: 1 }, { unique: true });
 documentSchema.index({ entityType: 1, entityId: 1 });
 documentSchema.index({ documentType: 1 });
 documentSchema.index({ verificationStatus: 1 });
 documentSchema.index({ fileHash: 1 });
 documentSchema.index({ uploadedAt: -1 });
+
+// Virtual for documentId (returns _id as string)
+documentSchema.virtual('documentId').get(function () {
+  return this._id.toString();
+});
 
 // Virtuals
 documentSchema.virtual('formattedFileSize').get(function () {
@@ -112,6 +116,10 @@ documentSchema.methods.softDelete = function (deletedByUserId) {
   this.deletedBy = deletedByUserId;
   return this.save();
 };
+
+// Ensure virtuals are included in JSON output
+documentSchema.set('toJSON', { virtuals: true });
+documentSchema.set('toObject', { virtuals: true });
 
 const Document = mongoose.models.Document || mongoose.model('Document', documentSchema);
 module.exports = Document;

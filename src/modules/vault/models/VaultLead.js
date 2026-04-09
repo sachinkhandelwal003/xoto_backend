@@ -84,7 +84,6 @@ const commissionInfoSchema = new mongoose.Schema(
 
 const leadSchema = new mongoose.Schema(
   {
-    leadId: { type: String, unique: true, required: true },
     
     sourceInfo: {
       createdByRole: { type: String, enum: ['freelance_agent', 'partner_affiliated_agent'], required: true },
@@ -152,7 +151,6 @@ const leadSchema = new mongoose.Schema(
 );
 
 // Indexes
-leadSchema.index({ leadId: 1 }, { unique: true });
 leadSchema.index({ 'sourceInfo.createdById': 1 });
 leadSchema.index({ 'customerInfo.mobileNumber': 1 });
 leadSchema.index({ currentStatus: 1 });
