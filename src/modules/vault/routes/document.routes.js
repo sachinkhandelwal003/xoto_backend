@@ -46,11 +46,11 @@ router.post('/:leadId', protectMulti, uploadDocument);
 router.post('/cases/:caseId', protectMulti, uploadDocument);
 
 // ==================== GET DOCUMENTS ====================
-router.get('/:leadId', protectUpload, getLeadDocuments);
+router.get('/:leadId', protectMulti, getLeadDocuments);
 router.get('/cases/:caseId', protectMulti, getCaseDocuments);
 
 // ==================== DELETE DOCUMENT ====================
-router.delete('/:id', protectUpload, deleteDocument);
+router.delete('/:id', protectMulti, deleteDocument);
 
 // ==================== ADMIN ONLY ROUTES ====================
 router.post('/:id/verify', protect, verifyDocument);
