@@ -7,7 +7,8 @@ const router = express.Router();
 // Agent routessds
 router.post('/create', protectVaultAgent, createLead);
 router.get('/my-leads', protectVaultAgent, getMyLeads);
-router.get('/:id', protect, getLeadById);
+router.get('/:id', protectVaultAgent, getLeadById);
+router.get('/admin/:id', protect, getLeadById);
 
 // Admin routes
 router.get('/admin/all', adminGetAllLeads);
