@@ -13,23 +13,24 @@ const {
   getAgentById,
   updateAgentProfile,
   changePassword,
-  getAgentDashboard
+  getAgentDashboard,
+  adminUpdateAgent,
+  getAgentProfile,
+  partnerUpdateAgent,
 } = require('../controllers/agent.controller');
-const { protect ,protectPartner  } = require('../../../middleware/auth');
+const { protect ,protectPartner,  protectVaultAgent  } = require('../../../middleware/auth');
 
 
 const router = express.Router();
 const protectEither = async (req, res, next) => {
   try {
-    // Try normal user
-    await protect(req, res, next);
+    await protectVaultAgent(req, res, next); // ← protect → protectVaultAgent
   } catch (err) {
     try {
-      // If failed, try partner
       await protectPartner(req, res, next);
     } catch (err2) {
       return res.status(401).json({
-        message: 'Unauthorized (User or Partner required)',
+        message: 'Unauthorized (VaultAgent or Partner required)',
       });
     }
   }
@@ -47,6 +48,7 @@ router.post('/login', agentLogin);
 router.post('/admin/onboard-freelance', protect, adminOnboardFreelanceAgent);
 router.post('/admin/verify/:id', protect, verifyAgent);
 router.get('/admin/all-agents', protect, getAllAgents);
+router.put('/admin/update/:id', protect, adminUpdateAgent); 
 router.delete('/admin/delete/:id', protect, deleteAgent);
 
 // =========================
@@ -54,6 +56,7 @@ router.delete('/admin/delete/:id', protect, deleteAgent);
 // =========================
 router.post('/partner/onboard-affiliate', protectPartner, partnerOnboardAffiliatedAgent);
 router.get('/partner/agents', protectPartner, getAgentsByPartner);
+router.put('/partner/update/:id', protectPartner, partnerUpdateAgent); 
 
 // =========================
 // COMMON ROUTES (Admin, Partner, Agent can use based on permissions)
@@ -66,9 +69,9 @@ router.delete('/delete/:id',protectEither, deleteAgent);
 // =========================
 // AGENT SELF ROUTES
 // =========================
-router.get('/dashboard', getAgentDashboard);
-router.get('/me', getAgentById);
-router.put('/profile', updateAgentProfile);
-router.post('/change-password', changePassword);
+router.get('/me', protectVaultAgent, getAgentProfile);           
+router.get('/dashboard', protectVaultAgent, getAgentDashboard);  
+router.put('/profile', protectVaultAgent, updateAgentProfile);   
+router.post('/change-password', protectVaultAgent, changePassword);
 
-module.exports = router;
+module.exports = router; 

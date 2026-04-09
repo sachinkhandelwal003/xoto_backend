@@ -155,6 +155,7 @@ exports.protectCustomer = protectBase(Customer, "Customer");
 
 exports.protectAgent = protectBase(Agent, "Agent");
 exports.protectDeveloper = protectBase(Developer, "Developer");
+exports.protectVaultAgent = protectBase(VaultAgents, "VaultAgent");
 
 exports.protectPartner = protectBase(Partner, "Partner");
 
