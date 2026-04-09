@@ -78,8 +78,8 @@ exports.generateGardenDesigns = async (req, res) => {
         model: "gpt-image-1",
         prompt: "Test prompt - checking account status only",
         n: 1,
-        size: "256x256"   // chhota size taaki cost kam ho
-      });
+size: "1024x1024"   
+   });
     } catch (testErr) {
       console.error("Credit check failed:", testErr);
       if (isOpenAICreditError(testErr)) {
@@ -224,7 +224,7 @@ exports.generateInteriorDesigns = async (req, res) => {
         model: "gpt-image-1",
         prompt: "Test prompt - checking account status only",
         n: 1,
-        size: "256x256"   // chhota size, kam cost
+size: "1024x1024"
       });
     } catch (testErr) {
       console.error("Credit check failed:", testErr);
