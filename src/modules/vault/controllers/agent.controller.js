@@ -1,6 +1,6 @@
 import VaultAgent from '../models/Agent.js';
 import Partner from '../models/Partner.js';
-import Lead from '../models/Lead.js';
+import Lead from '../models/VaultLead.js';
 import Commission from '../models/Commission.js';
 import HistoryService from '../services/history.service.js';
 import bcrypt from 'bcryptjs';
@@ -818,38 +818,129 @@ export const getAgentById = async (req, res) => {
 export const updateAgentProfile = async (req, res) => {
   try {
     const agentId = req.user._id;
-    const updateData = req.body;
+    const agent = await VaultAgent.findOne({ _id: agentId, isDeleted: false });
+    if (!agent) {
+      return res.status(404).json({ success: false, message: "Agent not found" });
+    }
 
+    // Agent sirf ye fields update kar sakta hai
     const allowedFields = [
-      'email', 'profilePic', 'address', 'emergencyContact',
-      'languagePreference', 'communicationPreference',
-      'emiratesId', 'passport', 'visa', 'bankDetails',
-      'maritalStatus', 'numberOfDependents', 'dependents',
-      'nationality', 'dateOfBirth', 'gender'
+      'email',
+      'profilePic',
+      'address',
+      'emergencyContact',
+      'languagePreference',
+      'communicationPreference',
+      'maritalStatus',
+      'numberOfDependents',
+      'dependents',
+      'nationality',
+      'dateOfBirth',
+      'gender',
     ];
 
-    const filteredData = {};
-    allowedFields.forEach(field => {
-      if (updateData[field] !== undefined) {
-        filteredData[field] = updateData[field];
+    // Sensitive fields self-update pe blocked
+    const blockedFields = ['agentType', 'partnerId', 'affiliationStatus', 'role',
+      'isVerified', 'commissionEligible', 'isActive', 'password',
+      'freelanceCommission', 'earnings'];
+
+    blockedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        return res.status(403).json({
+          success: false,
+          message: `Field '${field}' cannot be updated by agent`
+        });
       }
     });
 
+    const updates = {};
+    allowedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    });
+
+    // Emirates ID update — partial allowed
+    if (req.body.emiratesId) {
+      const eid = req.body.emiratesId;
+      updates['emiratesId.number'] = eid.number ?? agent.emiratesId.number;
+      updates['emiratesId.issuanceDate'] = eid.issuanceDate ?? agent.emiratesId.issuanceDate;
+      updates['emiratesId.expiryDate'] = eid.expiryDate ?? agent.emiratesId.expiryDate;
+      updates['emiratesId.frontImageUrl'] = eid.frontImageUrl ?? agent.emiratesId.frontImageUrl;
+      updates['emiratesId.backImageUrl'] = eid.backImageUrl ?? agent.emiratesId.backImageUrl;
+      // verified sirf admin set kar sakta hai — agent touch nahi kar sakta
+    }
+
+    // Bank details update
+    if (req.body.bankDetails) {
+      const bd = req.body.bankDetails;
+      updates['bankDetails.beneficiaryName'] = bd.beneficiaryName ?? agent.bankDetails.beneficiaryName;
+      updates['bankDetails.bankName'] = bd.bankName ?? agent.bankDetails.bankName;
+      updates['bankDetails.accountNumber'] = bd.accountNumber ?? agent.bankDetails.accountNumber;
+      updates['bankDetails.iban'] = bd.iban ?? agent.bankDetails.iban;
+      updates['bankDetails.swiftCode'] = bd.swiftCode ?? agent.bankDetails.swiftCode;
+      updates['bankDetails.accountType'] = bd.accountType ?? agent.bankDetails.accountType;
+      // verified reset hoga jab bhi agent bank details change kare
+      updates['bankDetails.verified'] = false;
+      updates['bankDetails.verifiedAt'] = null;
+    }
+
+    // Passport update
+    if (req.body.passport) {
+      const pp = req.body.passport;
+      updates['passport.number'] = pp.number ?? agent.passport.number;
+      updates['passport.countryOfIssue'] = pp.countryOfIssue ?? agent.passport.countryOfIssue;
+      updates['passport.issueDate'] = pp.issueDate ?? agent.passport.issueDate;
+      updates['passport.expiryDate'] = pp.expiryDate ?? agent.passport.expiryDate;
+      updates['passport.imageUrl'] = pp.imageUrl ?? agent.passport.imageUrl;
+      updates['passport.verified'] = false;
+    }
+
+    // Visa update
+    if (req.body.visa) {
+      const v = req.body.visa;
+      updates['visa.number'] = v.number ?? agent.visa.number;
+      updates['visa.residencyStatus'] = v.residencyStatus ?? agent.visa.residencyStatus;
+      updates['visa.sponsor'] = v.sponsor ?? agent.visa.sponsor;
+      updates['visa.expiryDate'] = v.expiryDate ?? agent.visa.expiryDate;
+      updates['visa.imageUrl'] = v.imageUrl ?? agent.visa.imageUrl;
+      updates['visa.verified'] = false;
+    }
+
     const updatedAgent = await VaultAgent.findByIdAndUpdate(
       agentId,
-      { ...filteredData, updatedAt: new Date() },
+      { $set: updates },
       { new: true, runValidators: true }
     ).select('-password');
 
-    const wasComplete = checkProfileCompleteness(updatedAgent);
+    // Profile completion recalculate
+    checkProfileCompleteness(updatedAgent);
     await updatedAgent.save();
+
+    // Commission eligibility — sirf tab true hoga jab EID + bank verified ho
+    const canEarnCommission =
+      updatedAgent.isVerified &&
+      updatedAgent.emiratesId?.verified &&
+      updatedAgent.bankDetails?.verified;
+
+    if (updatedAgent.commissionEligible !== canEarnCommission) {
+      updatedAgent.commissionEligible = canEarnCommission;
+      await updatedAgent.save();
+    }
+
+    await HistoryService.logAgentActivity(updatedAgent, 'PROFILE_UPDATED', await getUserInfo(req), {
+      description: `Agent ${updatedAgent.fullName} updated their profile`,
+      metadata: { updatedFields: Object.keys(updates) }
+    });
 
     return res.status(200).json({
       success: true,
       message: "Profile updated successfully",
       data: updatedAgent
     });
+
   } catch (error) {
+    console.error("updateAgentProfile error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -918,6 +1009,208 @@ export const getAgentDashboard = async (req, res) => {
       }
     });
   } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getAgentProfile = async (req, res) => {
+  try {
+    const agent = await VaultAgent.findOne({ _id: req.user._id, isDeleted: false })
+      .select('-password')
+      .populate('role', 'name code')
+      .populate('partnerId', 'companyName status tradeLicenseNumber');
+
+    if (!agent) {
+      return res.status(404).json({ success: false, message: "Agent not found" });
+    }
+
+    return res.status(200).json({ success: true, data: agent });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+export const adminUpdateAgent = async (req, res) => {
+  try {
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc || roleDoc.code !== '18') {
+      return res.status(403).json({ success: false, message: "Access denied. Admin only." });
+    }
+
+    const { id } = req.params;
+    const agent = await VaultAgent.findOne({ _id: id, isDeleted: false });
+    if (!agent) {
+      return res.status(404).json({ success: false, message: "Agent not found" });
+    }
+
+    // Admin ke liye almost sab update allowed hai — password except
+    const {
+      first_name, last_name, email, nationality, dateOfBirth, gender,
+      maritalStatus, numberOfDependents, dependents, address, emergencyContact,
+      languagePreference, communicationPreference, profilePic,
+      // Emirates ID
+      emiratesIdNumber, emiratesIdIssuanceDate, emiratesIdExpiryDate,
+      emiratesIdFrontImage, emiratesIdBackImage, emiratesIdVerified,
+      // Bank
+      beneficiaryName, bankName, accountNumber, iban, swiftCode, accountType, bankVerified,
+      // Passport
+      passportNumber, passportCountry, passportIssueDate, passportExpiry, passportImage,
+      // Visa
+      visaNumber, visaResidency, visaSponsor, visaExpiry, visaImage,
+      // Status fields
+      commissionEligible, commissionEligibilityReason,
+    } = req.body;
+
+    const updates = {};
+
+    if (first_name) updates['name.first_name'] = first_name;
+    if (last_name) updates['name.last_name'] = last_name;
+    if (email !== undefined) updates.email = email;
+    if (nationality !== undefined) updates.nationality = nationality;
+    if (dateOfBirth !== undefined) updates.dateOfBirth = dateOfBirth;
+    if (gender !== undefined) updates.gender = gender;
+    if (maritalStatus !== undefined) updates.maritalStatus = maritalStatus;
+    if (numberOfDependents !== undefined) updates.numberOfDependents = numberOfDependents;
+    if (dependents !== undefined) updates.dependents = dependents;
+    if (address !== undefined) updates.address = address;
+    if (emergencyContact !== undefined) updates.emergencyContact = emergencyContact;
+    if (languagePreference !== undefined) updates.languagePreference = languagePreference;
+    if (communicationPreference !== undefined) updates.communicationPreference = communicationPreference;
+    if (profilePic !== undefined) updates.profilePic = profilePic;
+
+    // Emirates ID — admin verify bhi kar sakta hai
+    if (emiratesIdNumber !== undefined) updates['emiratesId.number'] = emiratesIdNumber;
+    if (emiratesIdIssuanceDate !== undefined) updates['emiratesId.issuanceDate'] = emiratesIdIssuanceDate;
+    if (emiratesIdExpiryDate !== undefined) updates['emiratesId.expiryDate'] = emiratesIdExpiryDate;
+    if (emiratesIdFrontImage !== undefined) updates['emiratesId.frontImageUrl'] = emiratesIdFrontImage;
+    if (emiratesIdBackImage !== undefined) updates['emiratesId.backImageUrl'] = emiratesIdBackImage;
+    if (emiratesIdVerified !== undefined) {
+      updates['emiratesId.verified'] = emiratesIdVerified;
+      updates['emiratesId.verifiedAt'] = emiratesIdVerified ? new Date() : null;
+      updates['emiratesId.verifiedBy'] = emiratesIdVerified ? req.user._id : null;
+    }
+
+    // Bank details — admin verify bhi kar sakta hai
+    if (beneficiaryName !== undefined) updates['bankDetails.beneficiaryName'] = beneficiaryName;
+    if (bankName !== undefined) updates['bankDetails.bankName'] = bankName;
+    if (accountNumber !== undefined) updates['bankDetails.accountNumber'] = accountNumber;
+    if (iban !== undefined) updates['bankDetails.iban'] = iban;
+    if (swiftCode !== undefined) updates['bankDetails.swiftCode'] = swiftCode;
+    if (accountType !== undefined) updates['bankDetails.accountType'] = accountType;
+    if (bankVerified !== undefined) {
+      updates['bankDetails.verified'] = bankVerified;
+      updates['bankDetails.verifiedAt'] = bankVerified ? new Date() : null;
+    }
+
+    // Passport
+    if (passportNumber !== undefined) updates['passport.number'] = passportNumber;
+    if (passportCountry !== undefined) updates['passport.countryOfIssue'] = passportCountry;
+    if (passportIssueDate !== undefined) updates['passport.issueDate'] = passportIssueDate;
+    if (passportExpiry !== undefined) updates['passport.expiryDate'] = passportExpiry;
+    if (passportImage !== undefined) updates['passport.imageUrl'] = passportImage;
+
+    // Visa
+    if (visaNumber !== undefined) updates['visa.number'] = visaNumber;
+    if (visaResidency !== undefined) updates['visa.residencyStatus'] = visaResidency;
+    if (visaSponsor !== undefined) updates['visa.sponsor'] = visaSponsor;
+    if (visaExpiry !== undefined) updates['visa.expiryDate'] = visaExpiry;
+    if (visaImage !== undefined) updates['visa.imageUrl'] = visaImage;
+
+    // Commission eligibility — admin manually set kar sakta hai
+    if (commissionEligible !== undefined) {
+      updates.commissionEligible = commissionEligible;
+      updates.commissionEligibilityReason = commissionEligibilityReason || null;
+    }
+
+    const updatedAgent = await VaultAgent.findByIdAndUpdate(
+      id,
+      { $set: updates },
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    checkProfileCompleteness(updatedAgent);
+    await updatedAgent.save();
+
+    await HistoryService.logAgentActivity(updatedAgent, 'PROFILE_UPDATED', await getUserInfo(req), {
+      description: `Admin updated agent ${updatedAgent.fullName}'s profile`,
+      metadata: { updatedFields: Object.keys(updates) }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Agent updated successfully by Admin",
+      data: updatedAgent
+    });
+
+  } catch (error) {
+    console.error("adminUpdateAgent error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const partnerUpdateAgent = async (req, res) => {
+  try {
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc || roleDoc.code !== '21') {
+      return res.status(403).json({ success: false, message: "Access denied. Partner only." });
+    }
+
+    const { id } = req.params;
+    const agent = await VaultAgent.findOne({
+      _id: id,
+      partnerId: req.user._id,
+      agentType: 'PartnerAffiliatedAgent',
+      isDeleted: false
+    });
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found or does not belong to your company"
+      });
+    }
+
+    // Partner sirf basic info update kar sakta hai — no financial, no verification
+    const allowedByPartner = [
+      'email', 'profilePic', 'address', 'emergencyContact',
+      'languagePreference', 'communicationPreference',
+      'maritalStatus', 'numberOfDependents', 'dependents'
+    ];
+
+    const updates = {};
+    allowedByPartner.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    });
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: "No valid fields to update" });
+    }
+
+    const updatedAgent = await VaultAgent.findByIdAndUpdate(
+      id,
+      { $set: updates },
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    await HistoryService.logAgentActivity(updatedAgent, 'PROFILE_UPDATED', await getUserInfo(req), {
+      description: `Partner updated affiliated agent ${updatedAgent.fullName}'s profile`,
+      metadata: { updatedFields: Object.keys(updates) }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Agent updated successfully",
+      data: {
+        _id: updatedAgent._id,
+        name: updatedAgent.name,
+        email: updatedAgent.email,
+        ...updates
+      }
+    });
+
+  } catch (error) {
+    console.error("partnerUpdateAgent error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

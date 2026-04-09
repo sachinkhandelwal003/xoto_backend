@@ -84,7 +84,6 @@ const commissionInfoSchema = new mongoose.Schema(
 
 const leadSchema = new mongoose.Schema(
   {
-    leadId: { type: String, unique: true, required: true },
     
     sourceInfo: {
       createdByRole: { type: String, enum: ['freelance_agent', 'partner_affiliated_agent'], required: true },
@@ -152,7 +151,6 @@ const leadSchema = new mongoose.Schema(
 );
 
 // Indexes
-leadSchema.index({ leadId: 1 }, { unique: true });
 leadSchema.index({ 'sourceInfo.createdById': 1 });
 leadSchema.index({ 'customerInfo.mobileNumber': 1 });
 leadSchema.index({ currentStatus: 1 });
@@ -183,5 +181,5 @@ leadSchema.methods.updateDocumentStatus = function (uploadedCount, verifiedCount
   return this.save();
 };
 
-const Lead = mongoose.models.Lead || mongoose.model('VaultLead', leadSchema);
-module.exports = Lead;
+const VaultLead = mongoose.model('VaultLead', leadSchema);
+module.exports = VaultLead;

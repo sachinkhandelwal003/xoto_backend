@@ -87,6 +87,7 @@ app.use('/freelancer/subcategory', require('../src/modules/auth/routes/freelance
 app.use('/vault/partner', require('./modules/vault/routes/partner.routes.js'));
 app.use('/vault/agent', require('./modules/vault/routes/agent.routes.js'));
 app.use('/vault/lead', require('./modules/vault/routes/lead.routes.js'));
+app.use('/vault/lead/documents', require('./modules/vault/routes/document.routes.js'));
 
 
 app.use('/platform', require('../src/modules/auth/routes/role/platform.routes'));

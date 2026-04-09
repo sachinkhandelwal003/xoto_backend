@@ -1,24 +1,58 @@
 import express from 'express';
-import multer from 'multer';
-import { uploadDocument, verifyDocument, rejectDocument, deleteDocument, getCaseDocuments, getLeadDocuments } from '../controllers/document.controller.js';
-import { protect, protectAdmin, protectPartner } from '../../../middleware/auth.js';
+import { 
+  uploadDocument, 
+  verifyDocument, 
+  rejectDocument, 
+  deleteDocument, 
+  getCaseDocuments, 
+  getLeadDocuments 
+} from '../controllers/document.controller.js';
+import { protect, protectPartner, protectVaultAgent, protectAdmin } from '../../../middleware/auth.js';
 
-const upload = multer({ dest: 'uploads/' });
 const router = express.Router();
 
-// Partner routes
-router.post('/cases/:caseId', protectPartner, upload.single('file'), uploadDocument);
-router.get('/cases/:caseId', protectPartner, getCaseDocuments);
+// Protect Admin or Partner or FreelanceAgent for document upload
+// Note: Partner-Affiliated Agent is EXCLUDED from upload
+const protectUpload = async (req, res, next) => {
+  try {
+    await protect(req, res, next);
+  } catch (err) {
+    try {
+      await protectPartner(req, res, next);
+    } catch (err2) {
+      try {
+        // Only allow FreelanceAgent, NOT PartnerAffiliatedAgent
+        await protectVaultAgent(req, res, next);
+        // Check if it's FreelanceAgent (PartnerAffiliatedAgent will be rejected in controller)
+        if (req.user?.agentType === 'PartnerAffiliatedAgent') {
+          return res.status(403).json({
+            success: false,
+            message: "Partner-Affiliated Agents cannot upload documents. Your role is only to create leads."
+          });
+        }
+      } catch (err3) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized. Admin, Partner, or Freelance Agent access required.',
+        });
+      }
+    }
+  }
+};
 
-// Agent routes
-router.post('/leads/:leadId', protect, upload.single('file'), uploadDocument);
-router.get('/leads/:leadId', protect, getLeadDocuments);
+// ==================== UPLOAD ROUTES ====================
+router.post('/leads/:leadId', protectUpload, uploadDocument);
+router.post('/cases/:caseId', protectUpload, uploadDocument);
 
-// Common routes
-router.delete('/:id', protect, deleteDocument);
+// ==================== GET DOCUMENTS ====================
+router.get('/leads/:leadId', protectUpload, getLeadDocuments);
+router.get('/cases/:caseId', protectUpload, getCaseDocuments);
 
-// Admin routes
-router.post('/admin/:id/verify', protectAdmin, verifyDocument);
-router.post('/admin/:id/reject', protectAdmin, rejectDocument);
+// ==================== DELETE DOCUMENT ====================
+router.delete('/:id', protectUpload, deleteDocument);
 
-export default router;
+// ==================== ADMIN ONLY ROUTES ====================
+router.post('/:id/verify', protect, verifyDocument);
+router.post('/:id/reject', protect, rejectDocument);
+
+module.exports = router; 
