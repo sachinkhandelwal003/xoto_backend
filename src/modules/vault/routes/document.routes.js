@@ -7,7 +7,7 @@ import {
   getCaseDocuments, 
   getLeadDocuments 
 } from '../controllers/document.controller.js';
-import { protect, protectPartner, protectVaultAgent, protectAdmin } from '../../../middleware/auth.js';
+import { protect, protectPartner, protectVaultAgent, protectAdmin ,protectMulti } from '../../../middleware/auth.js';
 
 const router = express.Router();
 
@@ -41,12 +41,13 @@ const protectUpload = async (req, res, next) => {
 };
 
 // ==================== UPLOAD ROUTES ====================
-router.post('/:leadId', protectUpload, uploadDocument);
-router.post('/cases/:caseId', protectUpload, uploadDocument);
+router.post('/:leadId', protectMulti, uploadDocument);
+
+router.post('/cases/:caseId', protectMulti, uploadDocument);
 
 // ==================== GET DOCUMENTS ====================
 router.get('/:leadId', protectUpload, getLeadDocuments);
-router.get('/cases/:caseId', protectUpload, getCaseDocuments);
+router.get('/cases/:caseId', protectMulti, getCaseDocuments);
 
 // ==================== DELETE DOCUMENT ====================
 router.delete('/:id', protectUpload, deleteDocument);
