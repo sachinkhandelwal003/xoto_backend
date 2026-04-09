@@ -142,24 +142,22 @@ exports.updatePropertyLead = asyncHandler(async (req, res) => {
 });
 
 // Update
-// createMortgagePropertyLead
-
 exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
-  let { name, email, mobile, mortgage } = req.body; // 🚀 Extracted 'mortgage' block from frontend payload
+  let { name, email, mobile } = req.body;
 
   let customerAlreadyExists = await Customer.findOne({
     $or: [
       { email: email },
-      { 'mobile.number': mobile?.number } // 🚀 Better matching logic for nested mobile object
+      { mobile: mobile }
     ]
-  });
+  })
 
-  let customer = {};
+  let customer = {}
 
   // if it exist then we'll make the lead for it only if there is no lead in last 30 days
   if (customerAlreadyExists) {
-    customer = customerAlreadyExists;
-    console.log("customerAlreadyExistscustomerAlreadyExists", customerAlreadyExists);
+    customer = customerAlreadyExists
+    console.log("customerAlreadyExistscustomerAlreadyExists", customerAlreadyExists)
     const DAYS = 30;
     const fromDate = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000);
 
@@ -167,22 +165,25 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
       customerId: customerAlreadyExists._id,
       createdAt: { $gte: fromDate }
     });
-    console.log("leadsleadsleadsleads", leads);
+    console.log("leadsleadsleadsleads", leads)
     if (leads.length > 0) {
       return res.json({ success: false, message: 'You already have created a lead within last 30 days . So please try after some days', data: null });
     }
-  } else { 
-    // if it doesnt exist then we have to do both signup and create lead
+
+  } else { // if it doesnt exist then we have to do both signup and create lead
     customer = await Customer.create({
       email,
       name,
       mobile
-    });
-    console.log("custoemrrrrrrrrrrrrrrrr", customer);
+    })
+    console.log("custoemrrrrrrrrrrrrrrrr", customer)
   }
 
-  // 🚀 Pass the whole req.body (including the new 'mortgage' block) to create the lead
+
+
+
   const lead = await PropertyLead.create({ customerId: customer._id, ...req.body });
+
 
   let mortgageApplication = {};
   let mortgageDocument = {};
@@ -191,19 +192,11 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
   const applicationId = `XOTO-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
   if (lead.type === "mortgage") {
+
     // map lead_sub_type → loan_type
     let loanType = "purchase";
     if (lead.lead_sub_type === "refinance") loanType = "refinance";
     if (lead.lead_sub_type === "buy_out") loanType = "buy_out";
-
-    // 🚀 FIX: Map frontend free-text (like "Software Engineer" or "Employed") to valid DB Enums
-    let rawEmployment = mortgage?.employment_type || lead.occupation || "";
-    let mappedIncomeType = "salaried"; // Default safe enum value for most users
-    
-    // Agar text mein "self" likha hai, toh self_employed map karenge
-    if (rawEmployment.toLowerCase().includes("self")) {
-        mappedIncomeType = "self_employed";
-    }
 
     mortgageApplication = await MortgageApplication.create({
       customerId: customer._id,
@@ -211,23 +204,25 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
       lead_id: lead._id,
 
       loan_type: loanType,
-      mortgage_type: "-",        
-      loan_preference: "-",     
+      mortgage_type: "-",       // user hasn’t selected yet
+      loan_preference: "-",     // user hasn’t selected yet
 
-      // 🚀 Using safe mapped enum here instead of free text
-      income_type: mappedIncomeType, 
-      property_value: mortgage?.property_value || lead.price || null,    
-      loan_amount: mortgage?.loan_amount || null,                        
+      income_type: lead.occupation || null,
+      property_value: lead.price || null,
+      loan_amount: null,
 
       status: "in_progress"
     });
+
+
 
     // we'll create a document entry here for user and after this he/she can edit those document 
     mortgageDocument = await mortgageApplicationDocument.create({
       customerId: customer._id,
       application_id: applicationId,
       lead_id: lead._id
-    });
+    })
+
 
     mortgageCustomerDetails = await MortgageApplicationCustomerDetails.create({
       customerId: customer._id,
@@ -238,6 +233,7 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
       nationality: "UAE"
     });
 
+
     mortgageProductRequirements = await MortgageApplicationProductRequirements.create({
       customerId: customer._id,
       application_id: applicationId,
@@ -245,29 +241,29 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
 
       // sensible initial defaults (editable later by user)
       purchase_type: lead.lead_sub_type || "",
-      existing_mortgage: mortgage?.has_existing_loan ? "yes" : (lead.lead_sub_type === "refinance" ? "yes" : "no"),
+      existing_mortgage: lead.lead_sub_type === "refinance" ? "yes" : "no",
 
-      found_property: lead.has_property ? "yes" : "no",
+      found_property: "yes",
       applicant: "single",
 
       mortgage_type: "fixed",
       fixed_term: "",
 
       loan_type: loanType,
-      loan_period: mortgage?.loan_duration || 0,        
+      loan_period: 0,
       loan_to_value: 0,
 
-      // 🚀 Using safe mapped enum here too
-      primary_application_income_type: mappedIncomeType, 
-      primary_application_income: mortgage?.monthly_income || 0,                           
+      primary_application_income_type: lead.occupation || "",
+      primary_application_income: 0,
       primary_application_age: 0,
       primary_applicant_finance_audit: "yes",
 
-      property_value: mortgage?.property_value || lead.price || 0, 
-      property_emirate: lead.preferred_city || "",
+      property_value: lead.price || 0,
+      property_emirate: lead.emirate || "",
       property_area: lead.area || ""
     });
   }
+
 
   const payload = {
     id: customer._id,
@@ -286,13 +282,10 @@ exports.createMortgagePropertyLead = asyncHandler(async (req, res) => {
     expiresIn: process.env.JWT_EXPIRE || "30d",
   });
 
-  res.json({ 
-    success: true, 
-    message: 'Created', 
-    data: { lead, mortgageApplication, mortgageDocument, mortgageCustomerDetails, mortgageProductRequirements }, 
-    token 
-  });
+
+  res.json({ success: true, message: 'Created', data: { lead, mortgageApplication, mortgageDocument, mortgageCustomerDetails, mortgageProductRequirements }, token });
 });
+
 // Mark Contacted
 exports.markAsContacted = asyncHandler(async (req, res) => {
   const lead = await PropertyLead.findById(req.params.id);

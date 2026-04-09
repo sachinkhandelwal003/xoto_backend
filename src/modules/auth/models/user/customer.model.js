@@ -12,7 +12,7 @@ const customerSchema = new mongoose.Schema(
       },
       last_name: {
         type: String,
-        required: true,
+        required: false,
         trim: true,
         maxlength: 50
       }

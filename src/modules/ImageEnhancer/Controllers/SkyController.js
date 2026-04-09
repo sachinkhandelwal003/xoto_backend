@@ -6,7 +6,7 @@ const SkyReplacement = require("../../ImageEnhancer/Model/Sky");
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
-
+//sky controller 
 // =======================================
 // REPLACE SKY (UPDATED CONTROLLER)
 // =======================================
