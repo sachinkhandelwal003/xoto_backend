@@ -1,13 +1,13 @@
 import express from 'express';
 import { createProposal, sendProposal, acceptProposal, rejectProposal, getPartnerProposals, getProposalById } from '../controllers/proposal.controller.js';
-import { protect, protectPartner } from '../../../middleware/auth.js';
+import { protect, protectPartner,protectMulti } from '../../../middleware/auth.js';
 
 const router = express.Router();
 
 // Partner routes
-router.post('/', protectPartner, createProposal);
-router.post('/:id/send', protectPartner, sendProposal);
-router.get('/partner/proposals', protectPartner, getPartnerProposals);
+router.post('/', protectMulti, createProposal);
+router.post('/:id/send', protectMulti, sendProposal);
+router.get('/partner/proposals', protectMulti, getPartnerProposals);
 
 // Public routes (client via secure link)
 router.post('/:id/accept', acceptProposal);

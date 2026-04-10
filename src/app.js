@@ -12,6 +12,7 @@ const {downloadImageAsPDF} =require("./modules/s3/downloadUpload.js")
 const aiRoutes = require('./modules/Agent/routes/AIroutes.js');
 const blogRoutes = require('../src/modules/blogs/routes/index.js').default;
 const mortgageRoutes = require('./modules/mortgages/routes/index.js');
+const bankMortgageProductRoutes = require('./modules/mortgages/routes/bankMortgageProduct.routes.js');
 const agencyRoutes = require('./modules/agency/routes/index.js');
 const otpRoutes = require('../src/modules/otp/routes/index.js').default
 const customer = require('../src/modules/customer/routes/index.js').default
@@ -70,6 +71,8 @@ app.use('/consult', require('./modules/auth/routes/consult/consult.routes'));
 app.use('/enquiry', require('./modules/auth/routes/consult/enquiry.routes'));
 app.use('/agency', agencyRoutes);
 app.use('/mortgages', mortgageRoutes);
+app.use('/bank/products', bankMortgageProductRoutes);
+
 app.use('/agent', agentRoutes);
 app.use('/brochure', brochureRoutes);
 
