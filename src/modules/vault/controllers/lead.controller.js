@@ -248,12 +248,10 @@ export const updateLeadStatus = async (req, res) => {
     }
     
     // Log history
-    await HistoryService.logLeadActivity(lead, 'LEAD_STATUS_CHANGED', await getUserInfo(req), {
-      description: `Lead status changed from ${previousStatus} to ${status}`,
-      notes,
-      previousStatus,
-      newStatus: status,
-    });
+   await HistoryService.logLeadActivity(lead, 'LEAD_STATUS_CHANGED', await getUserInfo(req), {
+  description: `Lead status changed from ${previousStatus} to ${status}`,
+  notes: notes || null,
+});
     
     return res.status(200).json({ 
       success: true, 

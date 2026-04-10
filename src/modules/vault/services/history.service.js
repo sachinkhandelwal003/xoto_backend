@@ -55,52 +55,69 @@ class HistoryService {
   /**
    * Log lead activity
    */
-  static async logLeadActivity(lead, action, userInfo, additionalData = {}) {
-    return this.log({
-      entityType: 'Lead',
-      entityId: lead.leadId,
-      entityName: lead.customerInfo?.fullName,
-      action,
-      performedBy: userInfo,
-      description: additionalData.description || `${action} performed on lead ${lead.leadId}`,
-      notes: additionalData.notes,
-      ipAddress: userInfo.ipAddress,
-      userAgent: userInfo.userAgent,
-      metadata: {
-        leadId: lead.leadId,
-        customerName: lead.customerInfo?.fullName,
-        propertyValue: lead.propertyDetails?.propertyValue,
-        referralType: lead.referralType,
-        ...additionalData.metadata,
-      },
-      ...additionalData,
-    });
+ /**
+ * Log lead activity
+ */
+static async logLeadActivity(lead, action, userInfo, additionalData = {}) {
+  // ✅ Use lead._id if leadId doesn't exist
+  const entityId = lead.leadId || lead._id?.toString();
+  
+  if (!entityId) {
+    console.error("Cannot log lead activity: missing entityId");
+    return null;
   }
+  
+  return this.log({
+    entityType: 'Lead',
+    entityId: entityId,
+    entityName: lead.customerInfo?.fullName,
+    action,
+    performedBy: userInfo,
+    description: additionalData.description || `${action} performed on lead ${entityId}`,
+    notes: additionalData.notes,
+    ipAddress: userInfo.ipAddress,
+    userAgent: userInfo.userAgent,
+    metadata: {
+      leadId: lead._id,
+      customerName: lead.customerInfo?.fullName,
+      propertyValue: lead.propertyDetails?.propertyValue,
+      referralType: lead.referralType,
+      ...additionalData.metadata,
+    },
+    ...additionalData,
+  });
+}
 
   /**
    * Log case activity
    */
-  static async logCaseActivity(caseData, action, userInfo, additionalData = {}) {
-    return this.log({
-      entityType: 'Case',
-      entityId: caseData.caseId,
-      entityName: caseData.clientInfo?.fullName,
-      action,
-      performedBy: userInfo,
-      description: additionalData.description || `${action} performed on case ${caseData.caseId}`,
-      notes: additionalData.notes,
-      ipAddress: userInfo.ipAddress,
-      userAgent: userInfo.userAgent,
-      metadata: {
-        caseId: caseData.caseId,
-        caseReference: caseData.caseReference,
-        clientName: caseData.clientInfo?.fullName,
-        propertyValue: caseData.propertyInfo?.propertyValue,
-        ...additionalData.metadata,
-      },
-      ...additionalData,
-    });
-  }
+/**
+ * Log case activity
+ */
+static async logCaseActivity(caseData, action, userInfo, additionalData = {}) {
+  // ✅ Use caseData._id if caseId doesn't exist
+  const entityId = caseData.caseId || caseData._id?.toString();
+  
+  return this.log({
+    entityType: 'Case',
+    entityId: entityId,
+    entityName: caseData.clientInfo?.fullName,
+    action,
+    performedBy: userInfo,
+    description: additionalData.description || `${action} performed on case ${entityId}`,
+    notes: additionalData.notes,
+    ipAddress: userInfo.ipAddress,
+    userAgent: userInfo.userAgent,
+    metadata: {
+      caseId: caseData._id,
+      caseReference: caseData.caseReference,
+      clientName: caseData.clientInfo?.fullName,
+      propertyValue: caseData.propertyInfo?.propertyValue,
+      ...additionalData.metadata,
+    },
+    ...additionalData,
+  });
+}
 
   /**
    * Log proposal activity

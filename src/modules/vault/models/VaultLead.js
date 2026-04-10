@@ -95,7 +95,11 @@ const leadSchema = new mongoose.Schema(
     },
 
     customerInfo: { type: customerBasicSchema, required: true },
-
+  customerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Customer',
+      default: null,
+    },
     propertyDetails: { type: propertyDetailsSchema, required: true },
 
     loanRequirements: { type: loanRequirementsSchema, default: () => ({}) },
