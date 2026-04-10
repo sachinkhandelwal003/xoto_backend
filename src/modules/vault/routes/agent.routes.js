@@ -57,6 +57,7 @@ router.delete('/admin/delete/:id', protect, deleteAgent);
 router.post('/partner/onboard-affiliate', protectPartner, partnerOnboardAffiliatedAgent);
 router.get('/partner/agents', protectPartner, getAgentsByPartner);
 router.put('/partner/update/:id', protectPartner, partnerUpdateAgent); 
+router.post('/partner/verify/:id', protectPartner, verifyAgent);
 
 // =========================
 // COMMON ROUTES (Admin, Partner, Agent can use based on permissions)

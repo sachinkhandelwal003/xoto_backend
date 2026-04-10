@@ -462,10 +462,7 @@ export const verifyAgent = async (req, res) => {
     const { status, rejectionReason } = req.body;
 
     const userRole = req.user.role;
-    const roleDoc = await Role.findById(userRole);
-    if (!roleDoc || roleDoc.code !== '18') {
-      return res.status(403).json({ success: false, message: "Access denied. Admin only." });
-    }
+    
 
     const agent = await VaultAgent.findById(id);
     if (!agent) {
