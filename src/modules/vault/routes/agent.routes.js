@@ -74,4 +74,4 @@ router.get('/dashboard', protectVaultAgent, getAgentDashboard);
 router.put('/profile', protectVaultAgent, updateAgentProfile);   
 router.post('/change-password', protectVaultAgent, changePassword);
 
-module.exports = router; 
+module.exports = router;  
