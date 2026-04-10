@@ -5,7 +5,7 @@ import Admin from "../../../modules/auth/models/User.js"
 import Vendor from "../../../modules/auth/models/Vendor/B2cvendor.model.js"
 import Agent from "../../Agent/models/agent.js"
 import Agency from "../../agency/models/index.js"
-import VaultAgent from "../../vault/models/VaultAgent.js"
+import VaultAgent from "../../vault/models/Agent.js"
 import VaultPartner from "../../vault/models/Partner.js"
 import Developer from "../../properties/models/DeveloperModel.js"
 
