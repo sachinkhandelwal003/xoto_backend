@@ -9,10 +9,10 @@ router.post('/create', protectVaultAgent, createLead);
 router.get('/my-leads', protectVaultAgent, getMyLeads);
 router.get('/:id', protectVaultAgent, getLeadById);
 
+router.get('/admin/all', protect, adminGetAllLeads);
 
 router.get('/admin/:id', getLeadById);
 
-router.get('/admin/all', protect, adminGetAllLeads);
 
 
 // Admin routes
