@@ -95,7 +95,11 @@ const leadSchema = new mongoose.Schema(
     },
 
     customerInfo: { type: customerBasicSchema, required: true },
-
+  customerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Customer',
+      default: null,
+    },
     propertyDetails: { type: propertyDetailsSchema, required: true },
 
     loanRequirements: { type: loanRequirementsSchema, default: () => ({}) },
@@ -166,13 +170,21 @@ leadSchema.virtual('customerAge').get(function () {
 });
 
 // Methods
+// In models/VaultLead.js
 leadSchema.methods.updateDocumentStatus = function (uploadedCount, verifiedCount) {
-  this.documentCollection.documentsUploaded = uploadedCount;
-  this.documentCollection.documentsVerified = verifiedCount;
-  this.documentCollection.documentsPending = this.documentCollection.totalDocumentsRequired - uploadedCount;
-  this.documentCollection.collectionPercentage = Math.round((uploadedCount / this.documentCollection.totalDocumentsRequired) * 100);
-  this.documentCollection.verificationPercentage = Math.round((verifiedCount / this.documentCollection.totalDocumentsRequired) * 100);
-  this.documentCollection.readyForSubmission = this.documentCollection.collectionPercentage === 100;
+  const totalRequired = this.documentCollection.totalDocumentsRequired || 7;
+  
+  // ✅ Ensure counts don't exceed total required
+  const safeUploadedCount = Math.min(uploadedCount, totalRequired);
+  const safeVerifiedCount = Math.min(verifiedCount, totalRequired);
+  
+  this.documentCollection.documentsUploaded = safeUploadedCount;
+  this.documentCollection.documentsVerified = safeVerifiedCount;
+  this.documentCollection.documentsPending = Math.max(0, totalRequired - safeUploadedCount);
+  this.documentCollection.documentsRejected = 0;
+  this.documentCollection.collectionPercentage = Math.min(100, Math.round((safeUploadedCount / totalRequired) * 100));
+  this.documentCollection.verificationPercentage = Math.min(100, Math.round((safeVerifiedCount / totalRequired) * 100));
+  this.documentCollection.readyForSubmission = safeUploadedCount === totalRequired;
   
   if (this.documentCollection.collectionPercentage === 100 && !this.documentCollection.collectionCompletedAt) {
     this.documentCollection.collectionCompletedAt = new Date();

@@ -3,6 +3,9 @@ import Client from '../models/Client.js';
 import VaultAgent from '../models/Agent.js';
 import Partner from '../models/Partner.js';
 import HistoryService from '../services/history.service.js';
+import { Role } from '../../../modules/auth/models/role/role.model.js';
+import Customer from '../../../modules/auth/models/user/customer.model.js';
+
 
 /* =====================================
    HELPER FUNCTION
@@ -157,58 +160,110 @@ export const getLeadById = async (req, res) => {
 /* =====================================
    UPDATE LEAD STATUS (Xoto Admin)
 ===================================== */
+// At the top of lead.controller.js - add this import
 export const updateLeadStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status, notes } = req.body;
     
+    console.log("=== UPDATE LEAD STATUS ===");
+    console.log("Lead ID:", id);
+    console.log("New Status:", status);
+    
     const lead = await Lead.findOne({ _id: id, isDeleted: false });
-    if (!lead) return res.status(404).json({ success: false, message: "Lead not found" });
+    if (!lead) {
+      return res.status(404).json({ success: false, message: "Lead not found" });
+    }
     
     const previousStatus = lead.currentStatus;
     lead.currentStatus = status;
     await lead.save();
+    console.log("Lead status updated to:", status);
     
-    // If lead becomes Qualified, create Client record
+    // ✅ If lead becomes Qualified, create Customer
     if (status === 'Qualified') {
-      const existingClient = await Client.findOne({ email: lead.customerInfo.email });
-      if (!existingClient) {
-        const Role = (await import('../../../modules/auth/models/role/role.model.js')).Role;
-        const clientRole = await Role.findOne({ code: '23' });
+      console.log("=== CREATING CUSTOMER ===");
+      
+      const { email, mobileNumber, fullName, nationality, dateOfBirth } = lead.customerInfo;
+      
+      // ✅ Check if customer already exists by email or mobile
+      let customer = await Customer.findOne({
+        $or: [
+          { email: email.toLowerCase() },
+          { "mobile.number": mobileNumber.replace(/^\+971/, '') }
+        ],
+        is_deleted: false
+      });
+      
+      if (!customer) {
+        // ✅ Get Customer role by NAME (same as customerSignup)
+        const customerRole = await Role.findOne({ name: "Customer" });
         
-        await Client.create({
-          name: { 
-            first_name: lead.customerInfo.fullName.split(' ')[0], 
-            last_name: lead.customerInfo.fullName.split(' ').slice(1).join(' ') 
+        if (!customerRole) {
+          console.error("❌ Customer role not found!");
+          return res.status(400).json({ 
+            success: false, 
+            message: "Customer role not found. Please ensure 'Customer' role exists in database." 
+          });
+        }
+        
+        console.log("✅ Customer role found:", customerRole.name, customerRole._id);
+        
+        // Create new customer
+        const firstName = fullName.split(' ')[0];
+        const lastName = fullName.split(' ').slice(1).join(' ') || '';
+        
+        customer = await Customer.create({
+          name: {
+            first_name: firstName,
+            last_name: lastName,
           },
-          email: lead.customerInfo.email,
-          phone: { number: lead.customerInfo.mobileNumber },
-          dateOfBirth: lead.customerInfo.dateOfBirth,
-          nationality: lead.customerInfo.nationality,
-          residencyStatus: 'UAE Resident',
-          employmentStatus: lead.customerInfo.occupation ? 'Salaried' : null,
-          monthlySalary: lead.customerInfo.monthlySalary,
-          createdByType: 'Agent',
-          createdBy: lead.sourceInfo.createdById,
-          partnerId: null,
-          role: clientRole?._id,
+          email: email.toLowerCase(),
+          mobile: {
+            country_code: '+971',
+            number: mobileNumber.replace(/^\+971/, ''),
+          },
+          dateOfBirth: dateOfBirth || null,
+          nationality: nationality || null,
+          role: customerRole._id,  // ✅ Set role from database
+          assignedTo: lead.sourceInfo.createdById,
+          source: 'vault',
+          isActive: true,
         });
+        
+        console.log(`✅ New customer created: ${customer._id}`);
+      } else {
+        console.log(`✅ Customer already exists: ${customer._id}`);
+        
+        // ✅ Update customer role if not set
+        if (!customer.role) {
+          const customerRole = await Role.findOne({ name: "Customer" });
+          if (customerRole) {
+            customer.role = customerRole._id;
+            await customer.save();
+            console.log(`✅ Customer role updated for existing customer: ${customer._id}`);
+          }
+        }
       }
     }
     
-    await HistoryService.logLeadActivity(lead, 'LEAD_STATUS_CHANGED', await getUserInfo(req), {
-      description: `Lead status changed from ${previousStatus} to ${status}`,
-      notes,
-      previousStatus,
-      newStatus: status,
+    // Log history
+   await HistoryService.logLeadActivity(lead, 'LEAD_STATUS_CHANGED', await getUserInfo(req), {
+  description: `Lead status changed from ${previousStatus} to ${status}`,
+  notes: notes || null,
+});
+    
+    return res.status(200).json({ 
+      success: true, 
+      message: "Lead status updated", 
+      data: lead 
     });
     
-    return res.status(200).json({ success: true, message: "Lead status updated", data: lead });
   } catch (error) {
+    console.error("Update lead status error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-
 /* =====================================
    GET ALL LEADS (Admin)
 ===================================== */

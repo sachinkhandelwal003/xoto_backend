@@ -48,7 +48,10 @@ const clientSchema = new mongoose.Schema(
     partnerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Partner',
-      required: true,
+    },
+     agentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'VaultAgent',
     },
     portalAccess: {
       hasAccess: { type: Boolean, default: false },

@@ -18,7 +18,7 @@ const {
   getAgentProfile,
   partnerUpdateAgent,
 } = require('../controllers/agent.controller');
-const { protect ,protectPartner,  protectVaultAgent  } = require('../../../middleware/auth');
+const { protect ,protectPartner,  protectVaultAgent,protectMulti  } = require('../../../middleware/auth');
 
 
 const router = express.Router();
@@ -57,14 +57,15 @@ router.delete('/admin/delete/:id', protect, deleteAgent);
 router.post('/partner/onboard-affiliate', protectPartner, partnerOnboardAffiliatedAgent);
 router.get('/partner/agents', protectPartner, getAgentsByPartner);
 router.put('/partner/update/:id', protectPartner, partnerUpdateAgent); 
+router.post('/partner/verify/:id', protectPartner, verifyAgent);
 
 // =========================
 // COMMON ROUTES (Admin, Partner, Agent can use based on permissions)
 // =========================
-router.post('/suspend/:id' ,protectEither,suspendAgent);                            
-  router.post('/activate/:id',protectEither, activateAgent);
-router.get('/get/:id',protectEither, getAgentById);
-router.delete('/delete/:id',protectEither, deleteAgent);
+router.post('/suspend/:id' ,protectMulti,suspendAgent);                            
+  router.post('/activate/:id',protectMulti, activateAgent);
+router.get('/get/:id',protectMulti, getAgentById);
+router.delete('/delete/:id',protectMulti, deleteAgent);
 
 // =========================
 // AGENT SELF ROUTES

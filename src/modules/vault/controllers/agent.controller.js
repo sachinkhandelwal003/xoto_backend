@@ -462,10 +462,7 @@ export const verifyAgent = async (req, res) => {
     const { status, rejectionReason } = req.body;
 
     const userRole = req.user.role;
-    const roleDoc = await Role.findById(userRole);
-    if (!roleDoc || roleDoc.code !== '18') {
-      return res.status(403).json({ success: false, message: "Access denied. Admin only." });
-    }
+    
 
     const agent = await VaultAgent.findById(id);
     if (!agent) {
@@ -781,34 +778,29 @@ export const getAgentsByPartner = async (req, res) => {
 export const getAgentById = async (req, res) => {
   try {
     const { id } = req.params;
-    const requestingUserId = req.user._id;
-    const userRole = req.user.role;
-    const roleDoc = await Role.findById(userRole);
 
-    const agent = await VaultAgent.findOne({ _id: id, isDeleted: false })
+    const agent = await VaultAgent.findById(id)
       .select('-password')
       .populate('role', 'name code')
       .populate('partnerId', 'companyName status');
 
-    if (!agent) {
-      return res.status(404).json({ success: false, message: "Agent not found" });
+    if (!agent || agent.isDeleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found"
+      });
     }
 
-    if (roleDoc.code === '18') {
-      return res.status(200).json({ success: true, data: agent });
-    }
+    return res.status(200).json({
+      success: true,
+      data: agent
+    });
 
-    if (agent._id.toString() === requestingUserId.toString()) {
-      return res.status(200).json({ success: true, data: agent });
-    }
-
-    if (roleDoc.code === '21' && agent.partnerId?.toString() === requestingUserId.toString()) {
-      return res.status(200).json({ success: true, data: agent });
-    }
-
-    return res.status(403).json({ success: false, message: "Access denied" });
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 

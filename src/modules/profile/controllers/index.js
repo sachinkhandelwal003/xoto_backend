@@ -5,7 +5,8 @@ import Admin from "../../../modules/auth/models/User.js"
 import Vendor from "../../../modules/auth/models/Vendor/B2cvendor.model.js"
 import Agent from "../../Agent/models/agent.js"
 import Agency from "../../agency/models/index.js"
-
+import VaultAgent from "../../vault/models/Agent.js"
+import VaultPartner from "../../vault/models/Partner.js"
 import Developer from "../../properties/models/DeveloperModel.js"
 
 // Helper function: Role ke basis par model return karne ke liye
@@ -22,6 +23,9 @@ const getModelByRole = (roleName) => {
         case "Agent": return Agent;
         case "Developer": return Developer;
                 case "Agency": return Agency;
+                                case "VaultPartner": return VaultPartner;
+                case "VaultAgent": return VaultAgent;
+
         default: return null;
     }
 };

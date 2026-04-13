@@ -4,6 +4,8 @@ import { protect, protectPartner ,protectMulti  ,protectVaultAgent } from '../..
 
 const router = express.Router();
 
+
+
 // Agent routessds
 router.post('/create', protectVaultAgent, createLead);
 router.get('/my-leads', protectVaultAgent, getMyLeads);
@@ -11,12 +13,16 @@ router.get('/:id', protectVaultAgent, getLeadById);
 
 router.get('/admin/all', protect, adminGetAllLeads);
 
-router.get('/admin/:id', protect, getLeadById);
+router.get('/admin/:id', getLeadById);
+
+
 
 // Admin routes
 router.put('/admin/:id/status',protect, updateLeadStatus);
 
+router.get('/partner/get', protectPartner, getPartnerLeads);
+
+
 // Partner routes
-router.get('/partner', protectPartner, getPartnerLeads);
 
 module.exports = router;
