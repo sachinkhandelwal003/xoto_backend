@@ -177,7 +177,7 @@ proposalSchema.methods.getClientInfo = async function () {
   };
 };
 
-// Static method to create proposal from lead
+// ✅ FIXED: Static method to create proposal from lead
 proposalSchema.statics.createFromLead = async function (leadId, selectedBankProducts, coverNote, userInfo) {
   const Lead = mongoose.model('VaultLead');
   const lead = await Lead.findById(leadId);
@@ -190,10 +190,11 @@ proposalSchema.statics.createFromLead = async function (leadId, selectedBankProd
   const existingProposal = await this.findOne({ leadId, isDeleted: false });
   if (existingProposal) throw new Error('A proposal already exists for this lead');
   
+  // ✅ FIXED: Use userInfo.userRole, not userInfo.role
   const proposal = await this.create({
     leadId,
     createdBy: {
-      role: userInfo.role,
+      role: userInfo.userRole,  // ✅ This is 'Partner', 'Admin', or 'Agent'
       userId: userInfo.userId,
       userName: userInfo.userName,
       partnerId: userInfo.partnerId || null,
