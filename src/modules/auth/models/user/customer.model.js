@@ -82,7 +82,7 @@ const customerSchema = new mongoose.Schema(
     // ================= SOURCE =================
     source: {
       type: String,
-      enum: ['agent', 'website', 'lead_generation', 'bulk_upload', 'manual'],
+      enum: ['agent', 'website', 'lead_generation', 'bulk_upload', 'manual', 'vault'],  // ✅ Added 'vault'
       default: 'manual'
     },
 

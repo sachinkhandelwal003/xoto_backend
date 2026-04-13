@@ -18,7 +18,7 @@ router.get('/admin/:id', getLeadById);
 
 
 // Admin routes
-router.put('/admin/:id/status',protect, updateLeadStatus);
+router.put('/admin/:id/status',protectMulti, updateLeadStatus);
 
 router.get('/partner/get', protectPartner, getPartnerLeads);
 
