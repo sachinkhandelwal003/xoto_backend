@@ -274,50 +274,45 @@ export const rejectProposal = async (req, res) => {
 export const getMyProposals = async (req, res) => {
   try {
     const userId = req.user._id;
-    const roleDoc = await Role.findById(req.user.role);
-    const isAdmin = roleDoc?.code === '18';
-    
-    // Parse pagination query params safely
+
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const { status } = req.query;
-    
-    let query = { isDeleted: false };
-    
-    // Apply status filter if provided
+
+    let query = {
+      isDeleted: false,
+      'createdBy.userId': userId // ✅ only my proposals
+    };
+
     if (status) {
       query.status = status;
     }
 
-    // Restrict to user's own proposals if not admin
-    if (!isAdmin) {
-      query['createdBy.userId'] = userId;
-    }
-    
-    const skip = (page - 1) * limit;
-    
-    // Fetch proposals with populated Lead and Bank Products
     const proposals = await Proposal.find(query)
-      .populate('leadId') // Populates the VaultLead document
-      .populate('selectedBankProducts.bankProductId') // Populates the BankProduct documents
+      .populate('leadId')
+      .populate('selectedBankProducts.bankProductId')
       .sort({ createdAt: -1 })
-      .skip(skip)
+      .skip((page - 1) * limit)
       .limit(limit);
-    
+
     const total = await Proposal.countDocuments(query);
-    
-    return res.status(200).json({ 
-      success: true, 
-      data: proposals, 
-      total, 
-      pagination: { 
-        totalPages: Math.ceil(total / limit), 
-        currentPage: page, 
-        limit 
-      } 
+
+    return res.status(200).json({
+      success: true,
+      data: proposals,
+      total,
+      pagination: {
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        limit
+      }
     });
+
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 
