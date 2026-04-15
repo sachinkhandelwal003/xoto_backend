@@ -92,7 +92,7 @@ export const sendProposal = async (req, res) => {
     const { id } = req.params;
     const { clientEmail } = req.body;
 
-    const frontendUrl = 'https://xoto.ae';
+    const frontendUrl = 'http://localhost:5173';
 
     const proposal = await Proposal.findById(id);
     if (!proposal || proposal.isDeleted) {
