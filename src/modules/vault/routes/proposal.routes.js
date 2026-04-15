@@ -7,7 +7,7 @@ import {
   getMyProposals, 
   getProposalById,
   updateProposal,
-  deleteProposal
+  deleteProposal,getProposalBySecureLink
 } from '../controllers/proposal.controller.js';
 import { protect, protectPartner, protectVaultAgent,protectMulti } from '../../../middleware/auth.js';
 
@@ -25,7 +25,8 @@ router.delete('/:id', protectMulti, deleteProposal);
 
 // ==================== SEND PROPOSAL ====================
 router.post('/:id/send', protectMulti, sendProposal);
-
+// In proposal.routes.js
+router.get('/secure/:id', getProposalBySecureLink);
 // ==================== PUBLIC ROUTES (Client via link) ====================
 router.post('/:id/accept', acceptProposal);
 router.post('/:id/reject', rejectProposal);

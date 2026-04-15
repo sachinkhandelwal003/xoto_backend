@@ -4,6 +4,7 @@ import Case from '../models/Case.js';
 import VaultAgent from '../models/Agent.js';
 import HistoryService from '../services/history.service.js';
 import crypto from 'crypto';
+import { updateCaseDocumentStatus } from '../controllers/case.controller.js';
 
 const getUserInfo = async (req) => {
   const roleId = req.user?.role;
@@ -170,6 +171,9 @@ export const uploadDocument = async (req, res) => {
         await existingDoc.save();
         document = existingDoc;
         isUpdate = true;
+
+        // 🔥 UPDATE CASE DOCUMENT STATUS AFTER REUPLOAD
+await updateCaseDocumentStatus(caseId);
       }
       // If no document exists - create new
       else if (!existingDoc) {
@@ -195,6 +199,33 @@ export const uploadDocument = async (req, res) => {
           encryption: 'AES-256',
         });
       }
+
+      else if (!existingDoc) {
+  const fileHash = crypto.createHash('md5').update(fileUrl).digest('hex');
+
+  document = await Document.create({
+    entityType: 'Case',
+    entityId: caseId,
+    documentType,
+    documentCategory,
+    fileName: fileName || 'document',
+    fileSizeMb: fileSizeMb || 0,
+    fileUrl,
+    fileHash,
+    mimeType: mimeType || 'application/pdf',
+    uploadedBy: {
+      role: isAdmin ? 'admin' : 'partner',
+      userId: req.user._id,
+      userName: req.user?.fullName || req.user?.companyName || req.user?.email,
+    },
+    uploadedFromIp: req.ip,
+    verificationStatus: 'pending',
+    encryption: 'AES-256',
+  });
+
+  // ✅ ADD THIS
+  await updateCaseDocumentStatus(caseId);
+}
       // Document exists and is PENDING or VERIFIED - block
       else {
         return res.status(400).json({ 
@@ -273,8 +304,12 @@ export const uploadDocument = async (req, res) => {
         };
         existingDoc.uploadedAt = new Date();
         await existingDoc.save();
-        document = existingDoc;
-        isUpdate = true;
+
+  // ✅ ADD THIS
+  await updateCaseDocumentStatus(caseId);
+
+  document = existingDoc;
+  isUpdate = true;
       } else if (!existingDoc) {
         const fileHash = crypto.createHash('md5').update(fileUrl).digest('hex');
         
@@ -297,6 +332,8 @@ export const uploadDocument = async (req, res) => {
           verificationStatus: 'pending',
           encryption: 'AES-256',
         });
+        // 🔥 UPDATE CASE DOCUMENT STATUS
+await updateCaseDocumentStatus(caseId);
       } else {
         return res.status(400).json({ 
           success: false, 

@@ -3,6 +3,8 @@ import Lead from '../models/VaultLead.js';
 import BankProduct from '../../mortgages/models/BankProduct.js';
 import HistoryService from '../services/history.service.js';
 import { Role } from '../../../modules/auth/models/role/role.model.js';
+import sendEmail from '../../../utils/sendEmail.js'; // Import your email service
+
 
 const getUserInfo = async (req) => {
   const roleId = req.user?.role;
@@ -89,25 +91,116 @@ export const sendProposal = async (req, res) => {
   try {
     const { id } = req.params;
     const { clientEmail } = req.body;
-    
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
     const proposal = await Proposal.findById(id);
     if (!proposal || proposal.isDeleted) {
       return res.status(404).json({ success: false, message: "Proposal not found" });
     }
-    
+
+    if (!clientEmail) {
+  return res.status(400).json({
+    success: false,
+    message: "Client email is required",
+  });
+}
+    // Step 1: update status
     await proposal.send(clientEmail);
+
+    // Step 2: generate token
     await proposal.generateSecureLink();
-    
-    await HistoryService.logProposalActivity(proposal, 'PROPOSAL_SENT', await getUserInfo(req), {
-      description: `Proposal sent to ${clientEmail}`,
+
+    // Step 3: build FULL link ✅
+    const fullSecureLink = `${frontendUrl}/proposal/view/link/${proposal._id}?token=${proposal.secureLink}`;
+
+    // Step 4: SAVE full link (optional but useful)
+    proposal.fullSecureLink = fullSecureLink;
+    await proposal.save();
+
+    // Step 5: SEND EMAIL ✅
+    await sendProposalEmail(clientEmail, {
+      customerName: proposal.clientRequirements?.customerName || 'Customer',
+      secureLink: fullSecureLink,
+      expiryDate: proposal.expiresAt,
     });
-    
-    return res.status(200).json({ success: true, message: "Proposal sent", data: proposal });
+
+    return res.status(200).json({
+      success: true,
+      message: "Proposal sent",
+      data: {
+        fullSecureLink,
+      }
+    });
+
   } catch (error) {
+    console.error("Send proposal error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
+// Email service function
+const sendProposalEmail = async (toEmail, data) => {
+  const emailHtml = `
+    <h2>Your Proposal is Ready</h2>
+    <p>Hello ${data.customerName},</p>
+
+    <p>Click below to view your proposal:</p>
+
+    <a href="${data.secureLink}" 
+       style="padding:10px 20px;background:#4CAF50;color:white;text-decoration:none;">
+       View Proposal
+    </a>
+
+    <p>Or copy this link:</p>
+    <p>${data.secureLink}</p>
+
+    <p>Expires on: ${new Date(data.expiryDate).toDateString()}</p>
+  `;
+
+await sendEmail({
+  to: toEmail,
+  subject: "Your Proposal",
+  html: emailHtml
+});
+};
+
+// ==================== GET PROPOSAL BY SECURE LINK ====================
+export const getProposalBySecureLink = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { token } = req.query;
+    
+    const proposal = await Proposal.findOne({ 
+      _id: id, 
+      secureLink: token,
+      secureLinkExpiry: { $gt: new Date() },
+      isDeleted: false 
+    })
+      .populate('leadId', 'customerInfo propertyDetails currentStatus')
+      .populate('selectedBankProducts.bankProductId', 'bankInfo offerSummary loanDetails costBreakdown features isPopular');
+    
+
+
+      
+    if (proposal.expiresAt && new Date() > proposal.expiresAt) {
+  proposal.status = 'Expired';
+  await proposal.save();
+
+  return res.status(400).json({
+    success: false,
+    message: "Proposal expired"
+  });
+}
+    await proposal.markViewed();
+
+
+    return res.status(200).json({ success: true, data: proposal });
+  } catch (error) {
+    console.error("Get proposal by secure link error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
 // ==================== ACCEPT PROPOSAL (Client via link) ====================
 export const acceptProposal = async (req, res) => {
   try {
@@ -116,14 +209,24 @@ export const acceptProposal = async (req, res) => {
     
     const proposal = await Proposal.findOne({ 
       _id: id, 
-      secureLink: `/proposal/view/${id}?token=${token}`,
+      secureLink: token,
       secureLinkExpiry: { $gt: new Date() },
       isDeleted: false 
     });
     
+
+
+       if (proposal.status !== 'Viewed' && proposal.status !== 'Sent') {
+  return res.status(400).json({
+    success: false,
+    message: "Action not allowed"
+  });
+}
     if (!proposal) {
       return res.status(404).json({ success: false, message: "Invalid or expired link" });
     }
+
+ 
     
     await proposal.accept();
     
@@ -141,11 +244,18 @@ export const rejectProposal = async (req, res) => {
     
     const proposal = await Proposal.findOne({ 
       _id: id, 
-      secureLink: `/proposal/view/${id}?token=${token}`,
+      secureLink: token,
       secureLinkExpiry: { $gt: new Date() },
       isDeleted: false 
     });
     
+
+    if (proposal.status !== 'Viewed' && proposal.status !== 'Sent') {
+  return res.status(400).json({
+    success: false,
+    message: "Action not allowed"
+  });
+}
     if (!proposal) {
       return res.status(404).json({ success: false, message: "Invalid or expired link" });
     }
@@ -158,27 +268,41 @@ export const rejectProposal = async (req, res) => {
   }
 };
 
+
+
 // ==================== GET MY PROPOSALS ====================
 export const getMyProposals = async (req, res) => {
   try {
     const userId = req.user._id;
     const roleDoc = await Role.findById(req.user.role);
     const isAdmin = roleDoc?.code === '18';
-    const { status, page = 1, limit = 20 } = req.query;
+    
+    // Parse pagination query params safely
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const { status } = req.query;
     
     let query = { isDeleted: false };
     
-    if (isAdmin) {
-      if (status) query.status = status;
-    } else {
+    // Apply status filter if provided
+    if (status) {
+      query.status = status;
+    }
+
+    // Restrict to user's own proposals if not admin
+    if (!isAdmin) {
       query['createdBy.userId'] = userId;
-      if (status) query.status = status;
     }
     
+    const skip = (page - 1) * limit;
+    
+    // Fetch proposals with populated Lead and Bank Products
     const proposals = await Proposal.find(query)
+      .populate('leadId') // Populates the VaultLead document
+      .populate('selectedBankProducts.bankProductId') // Populates the BankProduct documents
       .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .skip(skip)
+      .limit(limit);
     
     const total = await Proposal.countDocuments(query);
     
@@ -188,7 +312,7 @@ export const getMyProposals = async (req, res) => {
       total, 
       pagination: { 
         totalPages: Math.ceil(total / limit), 
-        currentPage: parseInt(page), 
+        currentPage: page, 
         limit 
       } 
     });
@@ -202,16 +326,17 @@ export const getProposalById = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const proposal = await Proposal.findById(id);
+    // Find proposal and populate references immediately
+    const proposal = await Proposal.findById(id)
+      .populate('leadId')
+      .populate('selectedBankProducts.bankProductId');
+
     if (!proposal || proposal.isDeleted) {
       return res.status(404).json({ success: false, message: "Proposal not found" });
     }
     
-    // Get client info from lead
+    // Call the schema method to get formatted client info
     const clientInfo = await proposal.getClientInfo();
-    
-    // Get bank product details
-    await proposal.populate('selectedBankProducts.bankProductId');
     
     return res.status(200).json({ 
       success: true, 
@@ -224,7 +349,6 @@ export const getProposalById = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-
 // ==================== UPDATE PROPOSAL ====================
 export const updateProposal = async (req, res) => {
   try {

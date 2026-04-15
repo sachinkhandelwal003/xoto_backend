@@ -671,6 +671,7 @@ export const getAllAgents = async (req, res) => {
     const userRole = req.user.role;
     const roleDoc = await Role.findById(userRole);
     
+    // Validate Admin Role (assuming '18' is your admin code)
     if (!roleDoc || roleDoc.code !== '18') {
       return res.status(403).json({ success: false, message: "Access denied. Admin only." });
     }
@@ -680,10 +681,20 @@ export const getAllAgents = async (req, res) => {
     const skip = (page - 1) * limit;
     const { isActive, search, isVerified } = req.query;
 
+    // Base query
     let query = { isDeleted: false, agentType: 'FreelanceAgent' };
-    if (isActive !== undefined) query.isActive = isActive === 'true';
-    if (isVerified !== undefined) query.isVerified = isVerified === 'true';
     
+    // Handle Active / Suspended filtering
+    if (isActive !== undefined && isActive !== '') {
+      query.isActive = isActive === 'true';
+    }
+    
+    // Handle Verification filtering
+    if (isVerified !== undefined && isVerified !== '') {
+      query.isVerified = isVerified === 'true';
+    }
+    
+    // Handle Search filtering
     if (search) {
       query.$or = [
         { 'name.first_name': { $regex: search, $options: 'i' } },
@@ -696,7 +707,7 @@ export const getAllAgents = async (req, res) => {
     const agents = await VaultAgent.find(query)
       .select('-password')
       .populate('role', 'name code')
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: -1 }) // Newest first
       .skip(skip)
       .limit(limit);
 
