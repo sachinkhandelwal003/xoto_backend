@@ -156,8 +156,25 @@ const loanSchema = new mongoose.Schema(
       totalMonthlyPayment: { type: Number, required: true },
     },
     selectedBank: { type: String, required: true },
-    selectedBankProduct: { type: String, required: true },
-    alternativeBanksConsidered: [{ type: String }],
+    selectedBankProduct: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'BankMortgageProduct',
+      required: true
+    }
+  },
+  { _id: false }
+);
+
+// ✅ Document requirements per case status
+const documentRequirementSchema = new mongoose.Schema(
+  {
+    documentType: { type: String, required: true },
+    isRequired: { type: Boolean, default: true },
+    isUploaded: { type: Boolean, default: false },
+    isVerified: { type: Boolean, default: false },
+    documentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Document', default: null },
+    uploadedAt: { type: Date, default: null },
+    verifiedAt: { type: Date, default: null },
   },
   { _id: false }
 );
@@ -172,6 +189,8 @@ const documentStatusSchema = new mongoose.Schema(
     documentsPendingCount: { type: Number, default: 0 },
     pendingDocumentTypes: [{ type: String }],
     verificationNotes: { type: String, default: null },
+    // ✅ Required documents for this case
+    requiredDocuments: [documentRequirementSchema],
   },
   { _id: false }
 );
@@ -179,6 +198,8 @@ const documentStatusSchema = new mongoose.Schema(
 const bankSubmissionSchema = new mongoose.Schema(
   {
     submittedToBankAt: { type: Date, default: null },
+      bankProductId: { type: mongoose.Schema.Types.ObjectId, ref: 'BankProduct' },
+
     bankName: { type: String, default: null },
     bankBranch: { type: String, default: null },
     bankRelationshipManager: { type: String, default: null },
@@ -207,15 +228,16 @@ const commissionInfoSchema = new mongoose.Schema(
 
 const caseSchema = new mongoose.Schema(
   {
-    caseId: { type: String, unique: true, required: true },
     caseReference: { type: String, unique: true, required: true },
     proposalId: { type: String, default: null },
     sourceLeadId: { type: String, default: null },
 
     createdBy: {
-      role: { type: String, enum: ['partner'], required: true },
-      partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Partner', required: true },
-      partnerName: { type: String, required: true },
+      role: { type: String, enum: ['partner', 'admin'], required: true },
+      partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Partner', default: null },
+      partnerName: { type: String, default: null },
+      adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
+      adminName: { type: String, default: null },
       createdAt: { type: Date, default: Date.now },
     },
 
@@ -236,8 +258,22 @@ const caseSchema = new mongoose.Schema(
 
     loanInfo: { type: loanSchema, required: true },
 
+    // ✅ ADD HERE 👇
+bankDecision: {
+  status: {
+    type: String,
+    enum: ['Pending', 'Approved', 'Rejected'],
+    default: 'Pending'
+  },
+  approvedAmount: { type: Number, default: null },
+  interestRate: { type: Number, default: null },
+  decisionAt: { type: Date, default: null }
+},
     documentStatus: { type: documentStatusSchema, default: () => ({}) },
-
+documentsCopiedFromLead: {
+  type: Boolean,
+  default: false
+},
     currentStatus: {
       type: String,
       enum: [
@@ -286,7 +322,6 @@ const caseSchema = new mongoose.Schema(
 );
 
 // Indexes
-caseSchema.index({ caseId: 1 }, { unique: true });
 caseSchema.index({ caseReference: 1 }, { unique: true });
 caseSchema.index({ sourceLeadId: 1 });
 caseSchema.index({ 'createdBy.partnerId': 1 });
@@ -303,37 +338,126 @@ caseSchema.virtual('clientAge').get(function () {
   return Math.abs(ageDate.getUTCFullYear() - 1970);
 });
 
-// Methods
-caseSchema.methods.addStatus = async function (newStatus, updatedBy, notes, HistoryService, userInfo) {
-  const previousStatus = this.currentStatus;
-  this.currentStatus = newStatus;
-  await this.save();
-  
-  if (HistoryService) {
-    await HistoryService.log({
-      entityType: 'Case',
-      entityId: this.caseId,
-      entityName: this.clientInfo?.fullName,
-      action: 'CASE_STATUS_CHANGED',
-      previousStatus,
-      newStatus,
-      performedBy: userInfo,
-      description: `Case status changed from ${previousStatus} to ${newStatus}`,
-      notes,
-      metadata: { caseId: this.caseId, clientName: this.clientInfo?.fullName }
-    });
-  }
+// ✅ Method to initialize required documents
+caseSchema.methods.initializeRequiredDocuments = function () {
+  const requiredDocs = [
+    { documentType: 'bank_application_form', isRequired: true },
+    { documentType: 'emirates_id_front', isRequired: true },
+    { documentType: 'emirates_id_back', isRequired: true },
+    { documentType: 'passport', isRequired: true },
+    { documentType: 'visa', isRequired: true },
+    { documentType: 'bank_statements', isRequired: true },
+    { documentType: 'salary_certificate', isRequired: true },
+    { documentType: 'payslips', isRequired: true },
+    { documentType: 'title_deed', isRequired: true },
+    { documentType: 'consent_form', isRequired: true },
+  ];
+
+  this.documentStatus.requiredDocuments = requiredDocs.map(doc => ({
+    documentType: doc.documentType,
+    isRequired: doc.isRequired,
+    isUploaded: false,
+    isVerified: false,
+  }));
+
   return this;
 };
 
-caseSchema.methods.calculateDBR = function () {
-  const totalMonthlyIncome = this.incomeDetails.totalMonthlyIncome;
-  const totalMonthlyLiabilities = this.expenseDetails.totalMonthlyLiabilities;
-  const dbr = (totalMonthlyLiabilities / totalMonthlyIncome) * 100;
-  this.expenseDetails.dbrPercentage = dbr;
-  this.expenseDetails.dbrStatus = dbr <= 50 ? 'Eligible' : dbr <= 60 ? 'Borderline' : 'Ineligible';
+// ✅ Method to update document status
+caseSchema.methods.updateDocumentStatus = async function (documentType, documentId, isUploaded, isVerified) {
+  const docIndex = this.documentStatus.requiredDocuments.findIndex(
+    d => d.documentType === documentType
+  );
+
+  if (docIndex !== -1) {
+    this.documentStatus.requiredDocuments[docIndex].isUploaded = isUploaded;
+    this.documentStatus.requiredDocuments[docIndex].isVerified = isVerified;
+    this.documentStatus.requiredDocuments[docIndex].documentId = documentId;
+    this.documentStatus.requiredDocuments[docIndex].uploadedAt = new Date();
+
+    if (isVerified) {
+      this.documentStatus.requiredDocuments[docIndex].verifiedAt = new Date();
+    }
+  }
+
+  // Update counts
+  const uploadedCount = this.documentStatus.requiredDocuments.filter(d => d.isUploaded).length;
+  const verifiedCount = this.documentStatus.requiredDocuments.filter(d => d.isVerified).length;
+  const totalRequired = this.documentStatus.requiredDocuments.length;
+
+  this.documentStatus.documentsUploadedCount = uploadedCount;
+  this.documentStatus.documentsVerifiedCount = verifiedCount;
+  this.documentStatus.documentsPendingCount = totalRequired - uploadedCount;
+  this.documentStatus.allDocumentsUploaded = uploadedCount === totalRequired;
+  this.documentStatus.allDocumentsVerified = verifiedCount === totalRequired;
+
   return this.save();
 };
+
+// ✅ Method to add status with document check
+caseSchema.methods.addStatus = async function (newStatus, updatedBy, notes, userInfo) {
+  const previousStatus = this.currentStatus;
+
+  // Check if documents are complete before moving to certain statuses
+  if (newStatus === 'Submitted to Xoto' && !this.documentStatus.allDocumentsUploaded) {
+    throw new Error('All required documents must be uploaded before submitting case');
+  }
+
+  if (newStatus === 'Bank Application' && !this.documentStatus.allDocumentsVerified) {
+    throw new Error('All documents must be verified before bank submission');
+  }
+
+  this.currentStatus = newStatus;
+  await this.save();
+
+  // Log history (implement with your history service)
+  console.log(`Case  ${previousStatus} → ${newStatus} by ${updatedBy}`);
+
+  return this;
+};
+
+// ✅ Method to calculate DBR
+caseSchema.methods.calculateDBR = function () {
+  const income = this.incomeDetails.totalMonthlyIncome;
+
+  const liabilities =
+    (this.expenseDetails.monthlyRent || 0) +
+    (this.expenseDetails.monthlyOtherLoanInstallments || 0) +
+    (this.expenseDetails.monthlyCreditCardPayments || 0) +
+    (this.expenseDetails.monthlyLivingExpenses || 0) +
+    (this.expenseDetails.existingLoans || []).reduce(
+      (sum, loan) => sum + (loan.monthlyInstallment || 0),
+      0
+    );
+
+  this.expenseDetails.totalMonthlyLiabilities = liabilities;
+
+  const dbr = (liabilities / income) * 100;
+
+  this.expenseDetails.dbrPercentage = dbr;
+  this.expenseDetails.dbrStatus =
+    dbr <= 50 ? 'Eligible' : dbr <= 60 ? 'Borderline' : 'Ineligible';
+
+  return this;
+};
+
+caseSchema.pre('save', function (next) {
+  if (this.isModified('loanInfo.selectedBankProduct')) {
+    this.bankSubmission.bankProductId = this.loanInfo.selectedBankProduct;
+  }
+  next();
+});
+// ✅ Pre-save middleware
+caseSchema.pre('save', function (next) {
+
+   if (this.isNew) {
+    this.initializeRequiredDocuments(); 
+  }
+  if (this.isModified('incomeDetails') || this.isModified('expenseDetails')) {
+    this.calculateDBR();
+  }
+  next();
+});
 
 const Case = mongoose.models.Case || mongoose.model('Case', caseSchema);
 module.exports = Case;

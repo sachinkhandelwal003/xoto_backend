@@ -269,32 +269,34 @@ export const updateLeadStatus = async (req, res) => {
 ===================================== */
 export const adminGetAllLeads = async (req, res) => {
   try {
-    const { status, agentType, page = 1, limit = 20 } = req.query;
-    let query = { isDeleted: false };
-    
+    const { status, page = 1, limit = 20 } = req.query;
+
+    let query = { 
+      isDeleted: false,
+      'sourceInfo.createdByRole': 'freelance_agent' // ✅ FORCE ONLY FREELANCE
+    };
+
     // Filter by status if provided
     if (status) query.currentStatus = status;
-    
-    // Filter by agent type if provided (freelance_agent or partner_affiliated_agent)
-    if (agentType) query['sourceInfo.createdByRole'] = agentType;
-    
+
     const leads = await Lead.find(query)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
-      
+
     const total = await Lead.countDocuments(query);
-    
-    return res.status(200).json({ 
-      success: true, 
-      data: leads, 
-      total, 
-      pagination: { 
-        totalPages: Math.ceil(total / limit), 
-        currentPage: parseInt(page), 
-        limit 
-      } 
+
+    return res.status(200).json({
+      success: true,
+      data: leads,
+      total,
+      pagination: {
+        totalPages: Math.ceil(total / limit),
+        currentPage: parseInt(page),
+        limit
+      }
     });
+
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
