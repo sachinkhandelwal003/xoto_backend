@@ -14,6 +14,7 @@ const blogRoutes = require('../src/modules/blogs/routes/index.js').default;
 const mortgageRoutes = require('./modules/mortgages/routes/index.js');
 const bankMortgageProductRoutes = require('./modules/mortgages/routes/bankMortgageProduct.routes.js');
 const agencyRoutes = require('./modules/agency/routes/index.js');
+const stripeRoutes = require('./modules/auth/routes/ai/Striperoutes.js');
 const otpRoutes = require('../src/modules/otp/routes/index.js').default
 const customer = require('../src/modules/customer/routes/index.js').default
 const app = express();
@@ -24,7 +25,7 @@ const agentRoutes = require('./modules/Agent/routes/index.js');
 const brochureRoutes = require('./modules/Agent/routes/brochureRoutes.js');
 const customerHistoryRoutes = require('../src/modules/history/routes/customerHistory.routes.js');
 const inventoryRoutes = require("./modules/ecommerce/B2C/routes/inventory.routes");
-
+// const stripeRoutes = require('./modules/auth/routes/ai/Striperoutes.js');
 const AgentLead = require('./modules/Agent/routes/Agentroute.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
 
@@ -33,10 +34,19 @@ const rentalProperrty = require('./modules/RentalProperties/routes/Rentproperty.
 // console.log("SkyRoutes Check:", SkyRoutes);
 
 // const SkyRoutes = Skyimport.default || Skyimport;
+
+
+// ==========================================
+// ⚠️ FIX: Stripe Route Yahan Upar Move Kiya Hai 
+// ==========================================
+
+
+// app.use('/stripe/webhook', express.raw({ type: 'application/json' }));
 // Middleware
 app.use(cors());
 app.use(helmet());
 app.use(morgan('dev'));
+
 // app.use(express.json());
 // app.use(express.urlencoded({ extended: true }));
 // 👇 Isko isse replace karo
@@ -45,6 +55,10 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Database connection
 require('./config/database');
 // app.use('/uploads',express.static(path.join(__dirname, '..', 'uploads')));
+app.use('/stripe', stripeRoutes);
+app.get('/test-stripe', (req, res) => {
+  res.json({ message: 'Stripe routes working!' });
+});
 app.use('/uploads', express.static('uploads'));
 app.use('/estimates', require('./modules/auth/routes/leads/estimate.routes'));
 app.use('/customer', customer);
@@ -129,7 +143,7 @@ app.use('/freelancer/projects/invoice', require('../src/modules/auth/routes/free
 app.use('/otp', otpRoutes);
 // agent AI features
 app.use('/aiii', aiRoutes);
-
+// ⚠️ Stripe route yahan se hata diya gaya hai, line number 36 pe daal diya gaya hai.
 app.use('/attributes', require('../src/modules/ecommerce/B2C/routes/attribute.routes'));
 app.use('/materials', require('../src/modules/ecommerce/B2C/routes/material.routes'));
 app.use('/brands', require('../src/modules/ecommerce/B2C/routes/brand.routes'));
@@ -146,9 +160,6 @@ app.use('/vendor/warehouses', require('../src/modules/ecommerce/B2C/routes/wareh
 
 // History
 app.use('/customer-history', customerHistoryRoutes);
-
-
-
 
 
 // notifications

@@ -92,6 +92,12 @@ const customerSchema = new mongoose.Schema(
       default: true
     },
 
+    // 🔥🔥🔥 YAHAN ADD KIYA HAI isPremium 🔥🔥🔥
+    isPremium: {
+      type: Boolean,
+      default: false
+    },
+
     is_deleted: {
       type: Boolean,
       default: false
