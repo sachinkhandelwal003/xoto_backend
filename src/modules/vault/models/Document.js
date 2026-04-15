@@ -7,6 +7,12 @@ const documentSchema = new mongoose.Schema(
     entityType: { type: String, enum: ['Lead', 'Case', 'Agent', 'Partner'], required: true },
     entityId: { type: String, required: true },  // MongoDB _id of the lead/case
     
+    linkedFrom: {
+  entityType: { type: String, enum: ['Lead', 'Case'], default: null },
+  entityId: { type: String, default: null }
+},
+
+isFromLead: { type: Boolean, default: false },
     documentType: {
       type: String,
       enum: [

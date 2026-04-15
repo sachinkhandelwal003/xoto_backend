@@ -4,7 +4,7 @@ const crypto = require('crypto');
 // Reference to Bank Product (from BankProduct master)
 const selectedBankProductSchema = new mongoose.Schema(
   {
-    bankProductId: { type: mongoose.Schema.Types.ObjectId, ref: 'BankProduct', required: true },
+    bankProductId: { type: mongoose.Schema.Types.ObjectId, ref: 'BankMortgageProduct', required: true },
     snapshotRate: { type: Number, required: true },
     snapshotFeatures: [{ type: String }],
     snapshotMaxLtv: { type: Number, required: true },
@@ -54,7 +54,8 @@ const proposalSchema = new mongoose.Schema(
     pdfUrl: { type: String, default: null },
     secureLink: { type: String, unique: true, sparse: true },
     secureLinkExpiry: { type: Date, default: null },
-
+// In Proposal.js model, add this field
+fullSecureLink: { type: String, default: null },
     // Tracking
     sentAt: { type: Date, default: null },
     sentTo: { type: String, default: null },
@@ -125,9 +126,11 @@ proposalSchema.methods.send = function (clientEmail) {
 
 proposalSchema.methods.generateSecureLink = function () {
   const token = crypto.randomBytes(32).toString('hex');
-  this.secureLink = `/proposal/view/${this._id}?token=${token}`;
+
+  this.secureLink = token; // ✅ store only token
   this.secureLinkExpiry = new Date();
   this.secureLinkExpiry.setDate(this.secureLinkExpiry.getDate() + 7);
+
   return this.save();
 };
 
@@ -241,6 +244,12 @@ proposalSchema.pre('save', function (next) {
 
 proposalSchema.set('toJSON', { virtuals: true });
 proposalSchema.set('toObject', { virtuals: true });
-
+proposalSchema.methods.markViewed = function () {
+  if (!this.viewedAt) {
+    this.viewedAt = new Date();
+    this.status = 'Viewed';
+  }
+  return this.save();
+};
 const Proposal = mongoose.models.Proposal || mongoose.model('Proposal', proposalSchema);
 module.exports = Proposal;
