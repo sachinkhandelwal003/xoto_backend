@@ -469,9 +469,7 @@ export const verifyAgent = async (req, res) => {
       return res.status(404).json({ success: false, message: "Agent not found" });
     }
 
-    if (agent.agentType !== 'FreelanceAgent') {
-      return res.status(400).json({ success: false, message: "This API is only for Freelance Agents" });
-    }
+   
 
     if (status === 'verified') {
       agent.isVerified = true;
