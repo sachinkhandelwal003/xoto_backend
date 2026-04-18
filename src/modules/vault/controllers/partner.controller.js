@@ -631,6 +631,35 @@ export const createCase = async (req, res) => {
   }
 };
 
+export const getPartnersForDropdown = async (req, res) => {
+  try {
+    const today = new Date();
+
+    const partners = await Partner.find({
+      isDeleted: false,
+      status: 'active',
+
+      // Optional (recommended)
+      $or: [
+        { dropdownAvailableFrom: null },
+        { dropdownAvailableFrom: { $lte: today } }
+      ]
+    })
+      .select('_id companyName dbaName') // lightweight
+      .sort({ companyName: 1 });
+
+    return res.status(200).json({
+      success: true,
+      data: partners
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
 /* =====================================
    GET ALL CASES FOR PARTNER (with Pagination)
 ===================================== */
