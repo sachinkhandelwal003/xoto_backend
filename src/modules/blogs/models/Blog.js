@@ -53,7 +53,6 @@ const BlogSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    enum: ['AI', 'Real Estate', 'PropTech', 'Technology', 'Business', 'Other'],
     default: 'Other',
   },
 
