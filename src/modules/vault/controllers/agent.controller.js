@@ -76,10 +76,29 @@ const getUserInfo = async (req, user = null) => {
 export const agentSignup = async (req, res) => {
   try {
     const {
-      first_name, last_name, email, phone_number, country_code, password,
-      maritalStatus, numberOfDependents, dependents, nationality, dateOfBirth, gender
+      first_name,
+      last_name,
+      email,
+      phone_number,
+      country_code,
+      password,
+
+      // NEW FIELDS
+      agentMode, // 'freelance' | 'partner'
+      partnerId,
+
+      // PROFILE
+      maritalStatus,
+      numberOfDependents,
+      dependents,
+      nationality,
+      dateOfBirth,
+      gender
     } = req.body;
 
+    // =========================
+    // VALIDATION
+    // =========================
     if (!first_name || !last_name || !password || !phone_number) {
       return res.status(400).json({
         success: false,
@@ -87,62 +106,145 @@ export const agentSignup = async (req, res) => {
       });
     }
 
-    const roleDoc = await Role.findOne({ code: '22' });
-    if (!roleDoc) {
-      return res.status(404).json({ success: false, message: "Role not found" });
+    if (!agentMode || !['freelance', 'partner'].includes(agentMode)) {
+      return res.status(400).json({
+        success: false,
+        message: "agentMode must be 'freelance' or 'partner'"
+      });
     }
 
-    const existingPhone = await VaultAgent.findOne({ 'phone.number': phone_number });
+    // =========================
+    // ROLE
+    // =========================
+    const roleDoc = await Role.findOne({ code: '22' });
+    if (!roleDoc) {
+      return res.status(404).json({
+        success: false,
+        message: "Role not found"
+      });
+    }
+
+    // =========================
+    // DUPLICATE CHECK
+    // =========================
+    const existingPhone = await VaultAgent.findOne({
+      'phone.number': phone_number
+    });
+
     if (existingPhone) {
-      return res.status(400).json({ success: false, message: "Phone number already registered" });
+      return res.status(400).json({
+        success: false,
+        message: "Phone number already registered"
+      });
     }
 
     if (email) {
       const existingEmail = await VaultAgent.findOne({ email });
       if (existingEmail) {
-        return res.status(400).json({ success: false, message: "Email already registered" });
+        return res.status(400).json({
+          success: false,
+          message: "Email already registered"
+        });
       }
     }
 
+    // =========================
+    // PASSWORD HASH
+    // =========================
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // =========================
+    // AGENT TYPE LOGIC
+    // =========================
+    let agentType = 'FreelanceAgent';
+    let partner = null;
+    let affiliationStatus = 'none';
+
+    if (agentMode === 'partner') {
+      if (!partnerId) {
+        return res.status(400).json({
+          success: false,
+          message: "Partner selection required"
+        });
+      }
+
+      partner = await Partner.findById(partnerId);
+
+      if (!partner) {
+        return res.status(404).json({
+          success: false,
+          message: "Partner not found"
+        });
+      }
+
+      agentType = 'PartnerAffiliatedAgent';
+      affiliationStatus = 'pending'; // 🔥 KEY
+    }
+
+    // =========================
+    // CREATE AGENT
+    // =========================
     const newAgent = await VaultAgent.create({
       name: { first_name, last_name },
-      phone: { country_code: country_code || '+971', number: phone_number },
+
+      phone: {
+        country_code: country_code || '+971',
+        number: phone_number
+      },
+
       email: email || null,
       password: hashedPassword,
+
       role: roleDoc._id,
-      agentType: 'FreelanceAgent',
-      partnerId: null,
-      affiliationStatus: 'none',
+
+      agentType,
+      partnerId: partner ? partner._id : null,
+      affiliationStatus,
+
       maritalStatus: maritalStatus || null,
       numberOfDependents: numberOfDependents || 0,
       dependents: dependents || [],
       nationality: nationality || null,
       dateOfBirth: dateOfBirth || null,
       gender: gender || null,
-      isActive: true,
-      isVerified: false,
+
+isActive: false,
+      isVerified: false, // always false initially
       isPhoneVerified: false,
-      isEmailVerified: false
+      isEmailVerified: false,
+      commissionEligible: false
     });
 
-    await HistoryService.logAgentActivity(newAgent, 'AGENT_REGISTERED', await getUserInfo(req), {
-      description: `Freelance agent ${newAgent.fullName} registered`,
-    });
+    // =========================
+    // HISTORY LOG
+    // =========================
+    await HistoryService.logAgentActivity(
+      newAgent,
+      'AGENT_REGISTERED',
+      await getUserInfo(req),
+      {
+        description: `Agent ${newAgent.fullName} registered (${agentType})`
+      }
+    );
 
     const agentResponse = newAgent.toObject();
     delete agentResponse.password;
 
     return res.status(201).json({
       success: true,
-      message: "Freelance agent registered successfully. Please complete your profile and wait for admin verification.",
+      message:
+        agentMode === 'partner'
+          ? "Registered successfully. Awaiting admin approval for partner affiliation."
+          : "Freelance agent registered successfully. Awaiting admin verification.",
       data: agentResponse
     });
 
   } catch (error) {
     console.error("Agent signup error:", error);
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 
@@ -459,54 +561,119 @@ export const agentLogin = async (req, res) => {
 export const verifyAgent = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, rejectionReason } = req.body;
-
-    const userRole = req.user.role;
-    
+    const { status, action, rejectionReason } = req.body;
 
     const agent = await VaultAgent.findById(id);
-    if (!agent) {
-      return res.status(404).json({ success: false, message: "Agent not found" });
+
+    if (!agent || agent.isDeleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found"
+      });
     }
 
-   
+    const roleDoc = await Role.findById(req.user.role);
 
-    if (status === 'verified') {
-      agent.isVerified = true;
-      agent.isActive = true;
-      agent.verifiedBy = req.user._id;
-      agent.verifiedAt = new Date();
-      agent.commissionEligible = true;
-      agent.rejectionReason = null;
-      
-      await HistoryService.logAgentActivity(agent, 'AGENT_VERIFIED', await getUserInfo(req), {
-        description: `Admin verified freelance agent ${agent.fullName}`,
+    if (!roleDoc) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized"
       });
-    } else if (status === 'rejected') {
-      agent.isVerified = false;
-      agent.isActive = false;
-      agent.rejectionReason = rejectionReason || 'Application rejected by admin';
-      
-      await HistoryService.logAgentActivity(agent, 'AGENT_REJECTED', await getUserInfo(req), {
-        description: `Admin rejected freelance agent ${agent.fullName}`,
-        notes: rejectionReason,
-      });
-    } else {
-      return res.status(400).json({ success: false, message: "Status must be 'verified' or 'rejected'" });
+    }
+
+    const isAdmin = roleDoc.code === '18';
+    const isPartner = roleDoc.code === '21';
+
+    // =========================
+    // PARTNER AGENT FLOW
+    // =========================
+    if (agent.agentType === 'PartnerAffiliatedAgent') {
+
+      if (!isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: "Only Admin can approve partner agents"
+        });
+      }
+
+      if (status === 'verified') {
+        agent.affiliationStatus = 'verified';
+        agent.affiliationVerifiedBy = req.user._id;
+        agent.affiliationVerifiedAt = new Date();
+
+        agent.isActive = true;
+
+        // ❗ DO NOT mark verified yet
+        agent.isVerified = false;
+
+      } else {
+        agent.affiliationStatus = 'rejected';
+        agent.affiliationRejectionReason = rejectionReason;
+
+        agent.isActive = false;
+      }
+    }
+
+    // =========================
+    // FREELANCE FLOW (2 STEP)
+    // =========================
+    else if (agent.agentType === 'FreelanceAgent') {
+
+      if (!isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: "Admin only"
+        });
+      }
+
+      // STEP 1: Allow login
+      if (action === 'approve_login') {
+        agent.isActive = true;
+        agent.isVerified = false;
+      }
+
+      // STEP 2: Final verification
+      else if (action === 'verify_profile') {
+        agent.isVerified = true;
+
+        if (
+          agent.emiratesId?.verified &&
+          agent.bankDetails?.verified
+        ) {
+          agent.commissionEligible = true;
+        }
+      }
+
+      // Reject
+      if (status === 'rejected') {
+        agent.isActive = false;
+        agent.isVerified = false;
+        agent.rejectionReason = rejectionReason;
+      }
     }
 
     await agent.save();
 
     return res.status(200).json({
       success: true,
-      message: `Agent ${status} successfully`,
-      data: { _id: agent._id, isVerified: agent.isVerified, isActive: agent.isActive, rejectionReason: agent.rejectionReason }
+      message: "Agent updated successfully",
+      data: {
+        _id: agent._id,
+        agentType: agent.agentType,
+        isActive: agent.isActive,
+        isVerified: agent.isVerified,
+        affiliationStatus: agent.affiliationStatus
+      }
     });
+
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    console.error("verifyAgent error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
-
 /* =====================================
    6. SUSPEND AGENT (Admin or Partner)
 ===================================== */
@@ -516,47 +683,86 @@ export const suspendAgent = async (req, res) => {
     const { suspensionReason } = req.body;
 
     const agent = await VaultAgent.findById(id);
-    if (!agent) {
-      return res.status(404).json({ success: false, message: "Agent not found" });
+
+    if (!agent || agent.isDeleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found"
+      });
     }
 
-    const userRole = req.user.role;
-    const roleDoc = await Role.findById(userRole);
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized"
+      });
+    }
 
+    // ADMIN
     if (roleDoc.code === '18') {
       agent.suspendedAt = new Date();
       agent.suspensionReason = suspensionReason || "Suspended by Admin";
       agent.isActive = false;
+
       await agent.save();
-      
-      await HistoryService.logAgentActivity(agent, 'AGENT_SUSPENDED', await getUserInfo(req), {
-        description: `Admin suspended agent ${agent.fullName}`,
-        notes: suspensionReason,
+
+      await HistoryService.logAgentActivity(
+        agent,
+        'AGENT_SUSPENDED',
+        await getUserInfo(req),
+        {
+          description: `Admin suspended agent ${agent.fullName}`,
+          notes: suspensionReason
+        }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Agent suspended successfully",
+        data: agent
       });
-      
-      return res.status(200).json({ success: true, message: "Agent suspended successfully", data: agent });
     }
 
+    // PARTNER
     if (roleDoc.code === '21') {
       if (agent.partnerId?.toString() !== req.user._id.toString()) {
-        return res.status(403).json({ success: false, message: "You can only suspend your own agents" });
+        return res.status(403).json({
+          success: false,
+          message: "You can only suspend your own agents"
+        });
       }
+
       agent.suspendedAt = new Date();
       agent.suspensionReason = suspensionReason || "Suspended by Partner";
       agent.isActive = false;
+
       await agent.save();
-      
-      await HistoryService.logAgentActivity(agent, 'AGENT_SUSPENDED', await getUserInfo(req), {
-        description: `Partner suspended agent ${agent.fullName}`,
-        notes: suspensionReason,
+
+      await HistoryService.logAgentActivity(
+        agent,
+        'AGENT_SUSPENDED',
+        await getUserInfo(req),
+        {
+          description: `Partner suspended agent ${agent.fullName}`,
+          notes: suspensionReason
+        }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Agent suspended successfully",
+        data: agent
       });
-      
-      return res.status(200).json({ success: true, message: "Agent suspended successfully", data: agent });
     }
 
     return res.status(403).json({ success: false, message: "Access denied" });
+
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 
@@ -568,45 +774,91 @@ export const activateAgent = async (req, res) => {
     const { id } = req.params;
 
     const agent = await VaultAgent.findById(id);
-    if (!agent) {
-      return res.status(404).json({ success: false, message: "Agent not found" });
+
+    if (!agent || agent.isDeleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found"
+      });
     }
 
-    const userRole = req.user.role;
-    const roleDoc = await Role.findById(userRole);
+    if (agent.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot activate deleted agent"
+      });
+    }
 
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized"
+      });
+    }
+
+    // ADMIN
     if (roleDoc.code === '18') {
       agent.suspendedAt = null;
       agent.suspensionReason = null;
       agent.isActive = true;
+
       await agent.save();
-      
-      await HistoryService.logAgentActivity(agent, 'AGENT_ACTIVATED', await getUserInfo(req), {
-        description: `Admin activated agent ${agent.fullName}`,
+
+      await HistoryService.logAgentActivity(
+        agent,
+        'AGENT_ACTIVATED',
+        await getUserInfo(req),
+        {
+          description: `Admin activated agent ${agent.fullName}`,
+        }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Agent activated successfully",
+        data: agent
       });
-      
-      return res.status(200).json({ success: true, message: "Agent activated successfully", data: agent });
     }
 
+    // PARTNER
     if (roleDoc.code === '21') {
       if (agent.partnerId?.toString() !== req.user._id.toString()) {
-        return res.status(403).json({ success: false, message: "You can only activate your own agents" });
+        return res.status(403).json({
+          success: false,
+          message: "You can only activate your own agents"
+        });
       }
+
       agent.suspendedAt = null;
       agent.suspensionReason = null;
       agent.isActive = true;
+
       await agent.save();
-      
-      await HistoryService.logAgentActivity(agent, 'AGENT_ACTIVATED', await getUserInfo(req), {
-        description: `Partner activated agent ${agent.fullName}`,
+
+      await HistoryService.logAgentActivity(
+        agent,
+        'AGENT_ACTIVATED',
+        await getUserInfo(req),
+        {
+          description: `Partner activated agent ${agent.fullName}`,
+        }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Agent activated successfully",
+        data: agent
       });
-      
-      return res.status(200).json({ success: true, message: "Agent activated successfully", data: agent });
     }
 
     return res.status(403).json({ success: false, message: "Access denied" });
+
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 
@@ -618,81 +870,123 @@ export const deleteAgent = async (req, res) => {
     const { id } = req.params;
 
     const agent = await VaultAgent.findById(id);
-    if (!agent) {
-      return res.status(404).json({ success: false, message: "Agent not found" });
+    if (!agent || agent.isDeleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found"
+      });
     }
 
-    const userRole = req.user.role;
-    const roleDoc = await Role.findById(userRole);
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
 
+    // ADMIN
     if (roleDoc.code === '18') {
       agent.isDeleted = true;
       agent.deletedAt = new Date();
       agent.isActive = false;
+
       await agent.save();
-      
-      await HistoryService.logAgentActivity(agent, 'AGENT_DELETED', await getUserInfo(req), {
-        description: `Admin deleted agent ${agent.fullName}`,
+
+      await HistoryService.logAgentActivity(
+        agent,
+        'AGENT_DELETED',
+        await getUserInfo(req),
+        {
+          description: `Admin deleted agent ${agent.fullName}`,
+        }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Agent deleted successfully"
       });
-      
-      return res.status(200).json({ success: true, message: "Agent deleted successfully" });
     }
 
+    // PARTNER
     if (roleDoc.code === '21') {
       if (agent.partnerId?.toString() !== req.user._id.toString()) {
-        return res.status(403).json({ success: false, message: "You can only delete your own agents" });
+        return res.status(403).json({
+          success: false,
+          message: "You can only delete your own agents"
+        });
       }
+
       agent.isDeleted = true;
       agent.deletedAt = new Date();
       agent.isActive = false;
+
       await agent.save();
-      await Partner.findByIdAndUpdate(agent.partnerId, { $inc: { numberOfAgents: -1 } });
-      
-      await HistoryService.logAgentActivity(agent, 'AGENT_DELETED', await getUserInfo(req), {
-        description: `Partner deleted agent ${agent.fullName}`,
+
+      await Partner.findByIdAndUpdate(agent.partnerId, {
+        $inc: { numberOfAgents: -1 }
       });
-      
-      return res.status(200).json({ success: true, message: "Agent deleted successfully" });
+
+      await HistoryService.logAgentActivity(
+        agent,
+        'AGENT_DELETED',
+        await getUserInfo(req),
+        {
+          description: `Partner deleted agent ${agent.fullName}`,
+        }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Agent deleted successfully"
+      });
     }
 
     return res.status(403).json({ success: false, message: "Access denied" });
+
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
-
 /* =====================================
    9. GET ALL AGENTS (Admin only)
 ===================================== */
 export const getAllAgents = async (req, res) => {
   try {
-    const userRole = req.user.role;
-    const roleDoc = await Role.findById(userRole);
-    
-    // Validate Admin Role (assuming '18' is your admin code)
+    const roleDoc = await Role.findById(req.user.role);
+
     if (!roleDoc || roleDoc.code !== '18') {
-      return res.status(403).json({ success: false, message: "Access denied. Admin only." });
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Admin only."
+      });
     }
 
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const skip = (page - 1) * limit;
+
     const { isActive, search, isVerified } = req.query;
 
-    // Base query
-    let query = { isDeleted: false, agentType: 'FreelanceAgent' };
-    
-    // Handle Active / Suspended filtering
+    let query = {
+      isDeleted: false,
+      $or: [
+        { agentType: 'FreelanceAgent' },
+        {
+          agentType: 'PartnerAffiliatedAgent',
+          affiliationStatus: 'pending'
+        }
+      ]
+    };
+
     if (isActive !== undefined && isActive !== '') {
       query.isActive = isActive === 'true';
     }
-    
-    // Handle Verification filtering
+
     if (isVerified !== undefined && isVerified !== '') {
       query.isVerified = isVerified === 'true';
     }
-    
-    // Handle Search filtering
+
     if (search) {
       query.$or = [
         { 'name.first_name': { $regex: search, $options: 'i' } },
@@ -702,28 +996,33 @@ export const getAllAgents = async (req, res) => {
       ];
     }
 
-    const agents = await VaultAgent.find(query)
-      .select('-password')
-      .populate('role', 'name code')
-      .sort({ createdAt: -1 }) // Newest first
-      .skip(skip)
-      .limit(limit);
+   const agents = await VaultAgent.find(query)
+  .select('-password')
+  .populate('role', 'name code')
+  .populate('partnerId', 'companyName dbaName') // 🔥 ADD THIS
+  .sort({ createdAt: -1 })
+  .skip(skip)
+  .limit(limit);
 
     const total = await VaultAgent.countDocuments(query);
 
     return res.status(200).json({
       success: true,
       data: agents,
-      total: total,
+      total,
       pagination: {
         totalPages: Math.ceil(total / limit),
         currentPage: page,
         totalItems: total,
-        limit: limit
+        limit
       }
     });
+
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 
@@ -732,22 +1031,34 @@ export const getAllAgents = async (req, res) => {
 ===================================== */
 export const getAgentsByPartner = async (req, res) => {
   try {
-    const userRole = req.user.role;
-    const roleDoc = await Role.findById(userRole);
-    
+    const roleDoc = await Role.findById(req.user.role);
+
     if (!roleDoc || roleDoc.code !== '21') {
-      return res.status(403).json({ success: false, message: "Access denied. Partner only." });
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Partner only."
+      });
     }
 
     const partnerId = req.user._id;
+
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const skip = (page - 1) * limit;
+
     const { isActive, search } = req.query;
 
-    let query = { partnerId: partnerId, agentType: 'PartnerAffiliatedAgent', isDeleted: false };
-    if (isActive !== undefined) query.isActive = isActive === 'true';
-    
+    let query = {
+      partnerId,
+      agentType: 'PartnerAffiliatedAgent',
+      affiliationStatus: 'verified', // 🔥 KEY FIX
+      isDeleted: false
+    };
+
+    if (isActive !== undefined) {
+      query.isActive = isActive === 'true';
+    }
+
     if (search) {
       query.$or = [
         { 'name.first_name': { $regex: search, $options: 'i' } },
@@ -768,19 +1079,22 @@ export const getAgentsByPartner = async (req, res) => {
     return res.status(200).json({
       success: true,
       data: agents,
-      total: total,
+      total,
       pagination: {
         totalPages: Math.ceil(total / limit),
         currentPage: page,
         totalItems: total,
-        limit: limit
+        limit
       }
     });
+
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
-
 /* =====================================
    11. GET AGENT BY ID
 ===================================== */
