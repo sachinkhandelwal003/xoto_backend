@@ -29,7 +29,6 @@ const mortgageOpsSchema = new mongoose.Schema(
     gender: { type: String, enum: ['Male', 'Female', 'Other'], default: null },
     
     // Employment Info
-    employeeCode: { type: String, unique: true, required: true },
     joinDate: { type: Date, default: Date.now },
     department: { type: String, default: 'Mortgage Operations' },
     designation: { type: String, default: 'Mortgage Operations Executive' },
@@ -87,7 +86,6 @@ const mortgageOpsSchema = new mongoose.Schema(
 
 // Indexes
 mortgageOpsSchema.index({ email: 1 });
-mortgageOpsSchema.index({ employeeCode: 1 });
 mortgageOpsSchema.index({ isActive: 1 });
 mortgageOpsSchema.index({ 'workload.currentApplications': 1 });
 
@@ -146,14 +144,7 @@ mortgageOpsSchema.statics.getOpsWithCapacity = function () {
   });
 };
 
-// Pre-save middleware
-mortgageOpsSchema.pre('save', function (next) {
-  if (!this.employeeCode) {
-    const timestamp = Date.now().toString().slice(-6);
-    this.employeeCode = `OPS-${timestamp}`;
-  }
-  next();
-});
+
 
 const MortgageOps = mongoose.models.MortgageOps || mongoose.model('MortgageOps', mortgageOpsSchema);
 module.exports = MortgageOps;

@@ -68,7 +68,7 @@ export const createMortgageOps = async (req, res) => {
     }
 
     // Get Role for Mortgage Ops
-    const opsRole = await Role.findOne({ name: 'Mortgage Ops', code: '23' });
+    const opsRole = await Role.findOne({ name: 'Vault-Mortgage-Ops', code: '23' });
     if (!opsRole) {
       return res.status(404).json({ success: false, message: "Mortgage Ops role not found" });
     }
