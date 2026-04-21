@@ -56,7 +56,7 @@ export const createPartner = async (req, res) => {
       legalEntityType,
       tradeLicenseNumber,
       tradeLicenseIssueDate,
-      isOffline_aggrement,
+      isOfflineAgreement,
       tradeLicenseExpiryDate,
       taxRegistrationNumber,
       dbaName,
@@ -81,7 +81,7 @@ export const createPartner = async (req, res) => {
       });
     }
 
-    const roleDoc = await Role.findOne({ code: 21 });
+    const roleDoc = await Role.findOne({ code: '21' });
     if (!roleDoc) {
       return res.status(404).json({
         success: false,
@@ -108,11 +108,12 @@ export const createPartner = async (req, res) => {
     const username = email.split('@')[0];
 
     const partner = await Partner.create({
+      partnerCategory: 'company',
       companyName,
       legalEntityType,
       tradeLicenseNumber,
       tradeLicenseIssueDate,
-      isOffline_aggrement,
+      isOfflineAgreement: isOfflineAgreement || true,
       tradeLicenseExpiryDate,
       taxRegistrationNumber,
       dbaName,
@@ -124,20 +125,20 @@ export const createPartner = async (req, res) => {
       billingAddress,
       shippingAddress,
       bankDetails,
-      commissionConfiguration,
+      commissionConfiguration: commissionConfiguration || {
+        tier1: { loanAmountMax: 5000000, commissionPercentage: 80 },
+        tier2: { loanAmountMin: 5000001, commissionPercentage: 85 }
+      },
       agreementDetails,
       email: email,
       password: hashedPassword,
-      username: username,
       role: roleDoc._id,
       status: 'active',
       onboardingCompleted: true,
       onboardedAt: new Date(),
-      dropdownAvailableFrom: new Date(),
-      isVerified: true
+      dropdownAvailableFrom: new Date()
     });
 
-    // ✅ LOG HISTORY: Partner Onboarded
     await HistoryService.logPartnerActivity(partner, 'PARTNER_ONBOARDED', await getUserInfo(req), {
       description: `Partner ${companyName} onboarded successfully`,
       metadata: { onboardedBy: req.user?.email, tradeLicense: tradeLicenseNumber },
@@ -154,17 +155,13 @@ export const createPartner = async (req, res) => {
         _id: partnerResponse._id,
         companyName: partnerResponse.companyName,
         email: partnerResponse.email,
-        username: partnerResponse.username,
         status: partnerResponse.status
       }
     });
 
   } catch (error) {
     console.error("Create partner error:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -176,42 +173,26 @@ export const partnerLogin = async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password required",
-      });
+      return res.status(400).json({ success: false, message: "Email and password required" });
     }
 
-    const partner = await Partner.findOne({ email })
-      .select('+password')
-      .populate('role');
+    const partner = await Partner.findOne({ email }).select('+password').populate('role');
 
     if (!partner) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid credentials",
-      });
+      return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
     const isMatch = await bcrypt.compare(password, partner.password);
     if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid credentials",
-      });
+      return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
     if (partner.status !== 'active') {
-      return res.status(403).json({
-        success: false,
-        message: `Account is ${partner.status}. Please contact admin.`,
-      });
+      return res.status(403).json({ success: false, message: `Account is ${partner.status}. Please contact admin.` });
     }
 
-    // ✅ LOG HISTORY: Partner Login
     await HistoryService.logSecurityEvent(partner, 'LOGIN', await getUserInfo(req), {
       description: `Partner ${partner.companyName} logged in`,
-      metadata: { companyName: partner.companyName },
     });
 
     const token = createToken(partner);
@@ -226,15 +207,12 @@ export const partnerLogin = async (req, res) => {
     });
 
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /* =====================================
-   GET ALL PARTNERS (with Pagination)
+   GET ALL PARTNERS
 ===================================== */
 export const getAllPartners = async (req, res) => {
   try {
@@ -245,10 +223,7 @@ export const getAllPartners = async (req, res) => {
 
     let query = { isDeleted: false };
     
-    if (status) {
-      query.status = status;
-    }
-    
+    if (status) query.status = status;
     if (search) {
       query.$or = [
         { companyName: { $regex: search, $options: 'i' } },
@@ -278,10 +253,7 @@ export const getAllPartners = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -297,21 +269,12 @@ export const getPartnerById = async (req, res) => {
       .populate('role', 'name code');
 
     if (!partner) {
-      return res.status(404).json({
-        success: false,
-        message: "Partner not found"
-      });
+      return res.status(404).json({ success: false, message: "Partner not found" });
     }
 
-    return res.status(200).json({
-      success: true,
-      data: partner
-    });
+    return res.status(200).json({ success: true, data: partner });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -325,10 +288,7 @@ export const updatePartner = async (req, res) => {
 
     const partner = await Partner.findById(id);
     if (!partner) {
-      return res.status(404).json({
-        success: false,
-        message: "Partner not found"
-      });
+      return res.status(404).json({ success: false, message: "Partner not found" });
     }
 
     const oldData = {
@@ -351,11 +311,9 @@ export const updatePartner = async (req, res) => {
       { new: true, runValidators: true }
     ).select('-password');
 
-    // ✅ LOG HISTORY: Partner Updated
     await HistoryService.logPartnerActivity(updatedPartner, 'PARTNER_UPDATED', await getUserInfo(req), {
       description: `Partner ${partner.companyName} updated`,
       changes: { old: oldData, new: { companyName: updatedPartner.companyName, status: updatedPartner.status } },
-      metadata: { updatedBy: req.user?.email },
     });
 
     return res.status(200).json({
@@ -364,10 +322,7 @@ export const updatePartner = async (req, res) => {
       data: updatedPartner
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -380,10 +335,7 @@ export const deletePartner = async (req, res) => {
 
     const partner = await Partner.findById(id);
     if (!partner) {
-      return res.status(404).json({
-        success: false,
-        message: "Partner not found"
-      });
+      return res.status(404).json({ success: false, message: "Partner not found" });
     }
 
     partner.isDeleted = true;
@@ -396,22 +348,14 @@ export const deletePartner = async (req, res) => {
       { isActive: false, isDeleted: true, deletedAt: new Date() }
     );
 
-    // ✅ LOG HISTORY: Partner Deleted
     await HistoryService.logPartnerActivity(partner, 'PARTNER_DELETED', await getUserInfo(req), {
       description: `Partner ${partner.companyName} deleted`,
       importance: 'HIGH',
-      metadata: { deletedBy: req.user?.email },
     });
 
-    return res.status(200).json({
-      success: true,
-      message: "Partner deleted successfully"
-    });
+    return res.status(200).json({ success: true, message: "Partner deleted successfully" });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -425,10 +369,7 @@ export const suspendPartner = async (req, res) => {
 
     const partner = await Partner.findById(id);
     if (!partner) {
-      return res.status(404).json({
-        success: false,
-        message: "Partner not found"
-      });
+      return res.status(404).json({ success: false, message: "Partner not found" });
     }
 
     partner.status = 'suspended';
@@ -441,23 +382,15 @@ export const suspendPartner = async (req, res) => {
       { suspendedAt: new Date(), suspensionReason: "Partner suspended", isActive: false }
     );
 
-    // ✅ LOG HISTORY: Partner Suspended
     await HistoryService.logPartnerActivity(partner, 'PARTNER_SUSPENDED', await getUserInfo(req), {
       description: `Partner ${partner.companyName} suspended`,
       notes: suspensionReason,
       importance: 'HIGH',
-      metadata: { suspendedBy: req.user?.email, reason: suspensionReason },
     });
 
-    return res.status(200).json({
-      success: true,
-      message: "Partner suspended successfully"
-    });
+    return res.status(200).json({ success: true, message: "Partner suspended successfully" });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -470,10 +403,7 @@ export const activatePartner = async (req, res) => {
 
     const partner = await Partner.findById(id);
     if (!partner) {
-      return res.status(404).json({
-        success: false,
-        message: "Partner not found"
-      });
+      return res.status(404).json({ success: false, message: "Partner not found" });
     }
 
     partner.status = 'active';
@@ -481,96 +411,52 @@ export const activatePartner = async (req, res) => {
     partner.suspensionReason = null;
     await partner.save();
 
-    // ✅ LOG HISTORY: Partner Activated
     await HistoryService.logPartnerActivity(partner, 'PARTNER_ACTIVATED', await getUserInfo(req), {
       description: `Partner ${partner.companyName} activated`,
       importance: 'HIGH',
-      metadata: { activatedBy: req.user?.email },
     });
 
-    return res.status(200).json({
-      success: true,
-      message: "Partner activated successfully"
-    });
+    return res.status(200).json({ success: true, message: "Partner activated successfully" });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /* =====================================
-   GET PARTNER DASHBOARD STATS
+   GET PARTNER DASHBOARD
 ===================================== */
 export const getPartnerDashboard = async (req, res) => {
   try {
     const partnerId = req.user._id;
 
     const cases = await Case.find({ 'createdBy.partnerId': partnerId, isDeleted: false });
-    
-    const affiliatedAgents = await VaultAgent.find({ 
-      partnerId: partnerId, 
-      agentType: 'PartnerAffiliatedAgent',
-      isDeleted: false 
-    });
-    
+    const affiliatedAgents = await VaultAgent.find({ partnerId: partnerId, agentType: 'PartnerAffiliatedAgent', isDeleted: false });
     const agentIds = affiliatedAgents.map(a => a._id);
-    
-    const leads = await Lead.find({ 
-      'sourceInfo.createdById': { $in: agentIds },
-      isDeleted: false 
-    });
-
-    const commissions = await Commission.find({ 
-      recipientId: partnerId, 
-      recipientRole: 'partner',
-      isDeleted: false 
-    });
+    const leads = await Lead.find({ 'sourceInfo.createdById': { $in: agentIds }, isDeleted: false });
+    const commissions = await Commission.find({ recipientId: partnerId, recipientRole: 'partner', isDeleted: false });
 
     const totalCases = cases.length;
     const activeCases = cases.filter(c => !['Disbursed', 'Rejected'].includes(c.currentStatus)).length;
     const completedCases = cases.filter(c => c.currentStatus === 'Disbursed').length;
-    
-    const totalCommissionEarned = commissions
-      .filter(c => c.status === 'Paid')
-      .reduce((sum, c) => sum + c.commissionAmount, 0);
-    
-    const pendingCommission = commissions
-      .filter(c => ['Confirmed', 'Pending'].includes(c.status))
-      .reduce((sum, c) => sum + c.commissionAmount, 0);
+    const totalCommissionEarned = commissions.filter(c => c.status === 'Paid').reduce((sum, c) => sum + c.commissionAmount, 0);
+    const pendingCommission = commissions.filter(c => ['Confirmed', 'Pending'].includes(c.status)).reduce((sum, c) => sum + c.commissionAmount, 0);
 
     return res.status(200).json({
       success: true,
       data: {
-        cases: {
-          total: totalCases,
-          active: activeCases,
-          completed: completedCases
-        },
-        leads: {
-          total: leads.length
-        },
-        commissions: {
-          totalEarned: totalCommissionEarned,
-          pending: pendingCommission
-        },
-        agents: {
-          total: affiliatedAgents.length,
-          active: affiliatedAgents.filter(a => a.isActive).length
-        }
+        cases: { total: totalCases, active: activeCases, completed: completedCases },
+        leads: { total: leads.length },
+        commissions: { totalEarned: totalCommissionEarned, pending: pendingCommission },
+        agents: { total: affiliatedAgents.length, active: affiliatedAgents.filter(a => a.isActive).length }
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /* =====================================
-   CREATE CASE (Partner only)
+   CREATE CASE
 ===================================== */
 export const createCase = async (req, res) => {
   try {
@@ -579,10 +465,7 @@ export const createCase = async (req, res) => {
 
     const partner = await Partner.findById(partnerId);
     if (!partner) {
-      return res.status(404).json({
-        success: false,
-        message: "Partner not found"
-      });
+      return res.status(404).json({ success: false, message: "Partner not found" });
     }
 
     const caseId = `C-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -612,25 +495,19 @@ export const createCase = async (req, res) => {
     partner.performanceMetrics.totalCasesSubmitted += 1;
     await partner.save();
 
-    // ✅ LOG HISTORY: Case Created
     await HistoryService.logCaseActivity(newCase, 'CASE_CREATED', await getUserInfo(req), {
       description: `Case ${caseId} created for client ${caseData.clientInfo?.fullName}`,
-      metadata: { partnerName: partner.companyName, propertyValue: caseData.propertyInfo?.propertyValue },
     });
 
-    return res.status(201).json({
-      success: true,
-      message: "Case created successfully",
-      data: newCase
-    });
+    return res.status(201).json({ success: true, message: "Case created successfully", data: newCase });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
+/* =====================================
+   GET PARTNERS FOR DROPDOWN
+===================================== */
 export const getPartnersForDropdown = async (req, res) => {
   try {
     const today = new Date();
@@ -638,30 +515,20 @@ export const getPartnersForDropdown = async (req, res) => {
     const partners = await Partner.find({
       isDeleted: false,
       status: 'active',
-
-      // Optional (recommended)
       $or: [
         { dropdownAvailableFrom: null },
         { dropdownAvailableFrom: { $lte: today } }
       ]
-    })
-      .select('_id companyName dbaName') // lightweight
-      .sort({ companyName: 1 });
+    }).select('_id companyName dbaName').sort({ companyName: 1 });
 
-    return res.status(200).json({
-      success: true,
-      data: partners
-    });
-
+    return res.status(200).json({ success: true, data: partners });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
+
 /* =====================================
-   GET ALL CASES FOR PARTNER (with Pagination)
+   GET PARTNER CASES
 ===================================== */
 export const getPartnerCases = async (req, res) => {
   try {
@@ -674,29 +541,17 @@ export const getPartnerCases = async (req, res) => {
     let query = { 'createdBy.partnerId': partnerId, isDeleted: false };
     if (status) query.currentStatus = status;
 
-    const cases = await Case.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
+    const cases = await Case.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit);
     const total = await Case.countDocuments(query);
 
     return res.status(200).json({
       success: true,
       data: cases,
       total: total,
-      pagination: {
-        totalPages: Math.ceil(total / limit),
-        currentPage: page,
-        totalItems: total,
-        limit: limit
-      }
+      pagination: { totalPages: Math.ceil(total / limit), currentPage: page, totalItems: total, limit: limit }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -708,28 +563,14 @@ export const getCaseById = async (req, res) => {
     const { id } = req.params;
     const partnerId = req.user._id;
 
-    const caseData = await Case.findOne({
-      caseId: id,
-      'createdBy.partnerId': partnerId,
-      isDeleted: false
-    });
-
+    const caseData = await Case.findOne({ caseId: id, 'createdBy.partnerId': partnerId, isDeleted: false });
     if (!caseData) {
-      return res.status(404).json({
-        success: false,
-        message: "Case not found"
-      });
+      return res.status(404).json({ success: false, message: "Case not found" });
     }
 
-    return res.status(200).json({
-      success: true,
-      data: caseData
-    });
+    return res.status(200).json({ success: true, data: caseData });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -758,27 +599,18 @@ export const createProposal = async (req, res) => {
       status: 'Draft',
     });
 
-    // ✅ LOG HISTORY: Proposal Created
     await HistoryService.logProposalActivity(proposal, 'PROPOSAL_CREATED', await getUserInfo(req), {
       description: `Proposal ${proposalId} created for client ${proposalData.clientInfo?.name}`,
-      metadata: { partnerName: partner.companyName, bankCount: proposalData.selectedBankProducts?.length },
     });
 
-    return res.status(201).json({
-      success: true,
-      message: "Proposal created successfully",
-      data: proposal
-    });
+    return res.status(201).json({ success: true, message: "Proposal created successfully", data: proposal });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /* =====================================
-   GET ALL PROPOSALS FOR PARTNER (with Pagination)
+   GET PARTNER PROPOSALS
 ===================================== */
 export const getPartnerProposals = async (req, res) => {
   try {
@@ -791,34 +623,22 @@ export const getPartnerProposals = async (req, res) => {
     let query = { 'createdBy.partnerId': partnerId, isDeleted: false };
     if (status) query.status = status;
 
-    const proposals = await Proposal.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
+    const proposals = await Proposal.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit);
     const total = await Proposal.countDocuments(query);
 
     return res.status(200).json({
       success: true,
       data: proposals,
       total: total,
-      pagination: {
-        totalPages: Math.ceil(total / limit),
-        currentPage: page,
-        totalItems: total,
-        limit: limit
-      }
+      pagination: { totalPages: Math.ceil(total / limit), currentPage: page, totalItems: total, limit: limit }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /* =====================================
-   GET AFFILIATED AGENTS (with Pagination)
+   GET AFFILIATED AGENTS
 ===================================== */
 export const getAffiliatedAgents = async (req, res) => {
   try {
@@ -828,44 +648,26 @@ export const getAffiliatedAgents = async (req, res) => {
     const skip = (page - 1) * limit;
     const { status } = req.query;
 
-    let query = { 
-      partnerId: partnerId, 
-      agentType: 'PartnerAffiliatedAgent',
-      isDeleted: false 
-    };
-    
+    let query = { partnerId: partnerId, agentType: 'PartnerAffiliatedAgent', isDeleted: false };
     if (status === 'active') query.isActive = true;
     if (status === 'inactive') query.isActive = false;
 
-    const agents = await VaultAgent.find(query)
-      .select('-password')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
+    const agents = await VaultAgent.find(query).select('-password').sort({ createdAt: -1 }).skip(skip).limit(limit);
     const total = await VaultAgent.countDocuments(query);
 
     return res.status(200).json({
       success: true,
       data: agents,
       total: total,
-      pagination: {
-        totalPages: Math.ceil(total / limit),
-        currentPage: page,
-        totalItems: total,
-        limit: limit
-      }
+      pagination: { totalPages: Math.ceil(total / limit), currentPage: page, totalItems: total, limit: limit }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /* =====================================
-   GET PARTNER COMMISSIONS (with Pagination)
+   GET PARTNER COMMISSIONS
 ===================================== */
 export const getPartnerCommissions = async (req, res) => {
   try {
@@ -875,19 +677,10 @@ export const getPartnerCommissions = async (req, res) => {
     const skip = (page - 1) * limit;
     const { status } = req.query;
 
-    let query = { 
-      recipientId: partnerId, 
-      recipientRole: 'partner',
-      isDeleted: false 
-    };
-    
+    let query = { recipientId: partnerId, recipientRole: 'partner', isDeleted: false };
     if (status) query.status = status;
 
-    const commissions = await Commission.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
+    const commissions = await Commission.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit);
     const total = await Commission.countDocuments(query);
 
     const summary = {
@@ -900,18 +693,10 @@ export const getPartnerCommissions = async (req, res) => {
       summary,
       data: commissions,
       total: total,
-      pagination: {
-        totalPages: Math.ceil(total / limit),
-        currentPage: page,
-        totalItems: total,
-        limit: limit
-      }
+      pagination: { totalPages: Math.ceil(total / limit), currentPage: page, totalItems: total, limit: limit }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -925,42 +710,29 @@ export const changePassword = async (req, res) => {
 
     const partner = await Partner.findById(partnerId).select('+password');
     if (!partner) {
-      return res.status(404).json({
-        success: false,
-        message: "Partner not found"
-      });
+      return res.status(404).json({ success: false, message: "Partner not found" });
     }
 
     const isMatch = await bcrypt.compare(oldPassword, partner.password);
     if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: "Old password is incorrect"
-      });
+      return res.status(401).json({ success: false, message: "Old password is incorrect" });
     }
 
     partner.password = await bcrypt.hash(newPassword, 10);
     await partner.save();
 
-    // ✅ LOG HISTORY: Password Changed
     await HistoryService.logSecurityEvent(partner, 'PASSWORD_CHANGED', await getUserInfo(req), {
       description: `Partner ${partner.companyName} changed password`,
     });
 
-    return res.status(200).json({
-      success: true,
-      message: "Password changed successfully"
-    });
+    return res.status(200).json({ success: true, message: "Password changed successfully" });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /* =====================================
-   FORGOT PASSWORD (Request Reset)
+   FORGOT PASSWORD
 ===================================== */
 export const forgotPassword = async (req, res) => {
   try {
@@ -968,10 +740,7 @@ export const forgotPassword = async (req, res) => {
 
     const partner = await Partner.findOne({ email, isDeleted: false });
     if (!partner) {
-      return res.status(404).json({
-        success: false,
-        message: "Partner not found with this email"
-      });
+      return res.status(404).json({ success: false, message: "Partner not found with this email" });
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
@@ -982,20 +751,13 @@ export const forgotPassword = async (req, res) => {
     partner.resetPasswordExpires = resetTokenExpiry;
     await partner.save();
 
-    // ✅ LOG HISTORY: Password Reset Requested
     await HistoryService.logSecurityEvent(partner, 'PASSWORD_RESET_REQUESTED', await getUserInfo(req), {
       description: `Password reset requested for partner ${partner.companyName}`,
     });
 
-    return res.status(200).json({
-      success: true,
-      message: "Password reset email sent"
-    });
+    return res.status(200).json({ success: true, message: "Password reset email sent" });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -1013,10 +775,7 @@ export const resetPassword = async (req, res) => {
     });
 
     if (!partner) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired reset token"
-      });
+      return res.status(400).json({ success: false, message: "Invalid or expired reset token" });
     }
 
     partner.password = await bcrypt.hash(newPassword, 10);
@@ -1024,25 +783,18 @@ export const resetPassword = async (req, res) => {
     partner.resetPasswordExpires = null;
     await partner.save();
 
-    // ✅ LOG HISTORY: Password Reset Completed
     await HistoryService.logSecurityEvent(partner, 'PASSWORD_RESET_COMPLETED', await getUserInfo(req), {
       description: `Password reset completed for partner ${partner.companyName}`,
     });
 
-    return res.status(200).json({
-      success: true,
-      message: "Password reset successfully"
-    });
+    return res.status(200).json({ success: true, message: "Password reset successfully" });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /* =====================================
-   GET PARTNER PROFILE (Self)
+   GET PARTNER PROFILE
 ===================================== */
 export const getPartnerProfile = async (req, res) => {
   try {
@@ -1053,21 +805,12 @@ export const getPartnerProfile = async (req, res) => {
       .populate('role', 'name code');
 
     if (!partner) {
-      return res.status(404).json({
-        success: false,
-        message: "Partner not found"
-      });
+      return res.status(404).json({ success: false, message: "Partner not found" });
     }
 
-    return res.status(200).json({
-      success: true,
-      data: partner
-    });
+    return res.status(200).json({ success: true, data: partner });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -1079,21 +822,11 @@ export const updatePartnerProfile = async (req, res) => {
     const partnerId = req.user._id;
     const updateData = req.body;
 
-    const allowedFields = [
-      'primaryContact',
-      'secondaryContact',
-      'billingAddress',
-      'shippingAddress',
-      'bankDetails',
-      'dbaName',
-      'website'
-    ];
+    const allowedFields = ['primaryContact', 'secondaryContact', 'billingAddress', 'shippingAddress', 'bankDetails', 'dbaName', 'website'];
 
     const filteredData = {};
     allowedFields.forEach(field => {
-      if (updateData[field] !== undefined) {
-        filteredData[field] = updateData[field];
-      }
+      if (updateData[field] !== undefined) filteredData[field] = updateData[field];
     });
 
     const updatedPartner = await Partner.findByIdAndUpdate(
@@ -1102,20 +835,12 @@ export const updatePartnerProfile = async (req, res) => {
       { new: true, runValidators: true }
     ).select('-password');
 
-    // ✅ LOG HISTORY: Profile Updated
     await HistoryService.logPartnerActivity(updatedPartner, 'PROFILE_UPDATED', await getUserInfo(req), {
       description: `Partner ${updatedPartner.companyName} updated profile`,
     });
 
-    return res.status(200).json({
-      success: true,
-      message: "Profile updated successfully",
-      data: updatedPartner
-    });
+    return res.status(200).json({ success: true, message: "Profile updated successfully", data: updatedPartner });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };

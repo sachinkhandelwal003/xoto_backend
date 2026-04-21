@@ -247,7 +247,8 @@ agentSchema.virtual('fullPhoneNumber').get(function () {
   return `${this.phone.country_code}${this.phone.number}`;
 });
 
-// Methods
+// ==================== EXISTING METHODS ====================
+
 agentSchema.methods.isActiveAgent = function () {
   return this.isActive && !this.isDeleted && !this.suspendedAt;
 };
@@ -280,6 +281,74 @@ agentSchema.methods.markPhoneVerified = function () {
 agentSchema.methods.markEmailVerified = function () {
   this.isEmailVerified = true;
   this.emailVerifiedAt = new Date();
+  return this.save();
+};
+
+// ==================== NEW METHODS FOR COMMISSION INTEGRATION ====================
+
+// ✅ Method 1: Get detailed commission eligibility status
+agentSchema.methods.getCommissionEligibilityStatus = function() {
+  if (this.agentType === 'FreelanceAgent') {
+    if (!this.isVerified) {
+      return { eligible: false, reason: 'Profile not verified by admin' };
+    }
+    if (!this.isPhoneVerified) {
+      return { eligible: false, reason: 'Phone number not verified' };
+    }
+    if (!this.isActiveAgent()) {
+      return { eligible: false, reason: 'Account is not active' };
+    }
+    if (!this.emiratesId?.number || !this.emiratesId?.frontImageUrl) {
+      return { eligible: false, reason: 'Emirates ID not uploaded' };
+    }
+    if (!this.bankDetails?.iban) {
+      return { eligible: false, reason: 'Bank details not provided' };
+    }
+    if (!this.bankDetails?.verified) {
+      return { eligible: false, reason: 'Bank details not verified by admin' };
+    }
+    return { eligible: true, reason: null };
+  }
+  
+  if (this.agentType === 'PartnerAffiliatedAgent') {
+    if (this.affiliationStatus !== 'verified') {
+      return { eligible: false, reason: `Affiliation status: ${this.affiliationStatus}` };
+    }
+    if (!this.isActiveAgent()) {
+      return { eligible: false, reason: 'Account is not active' };
+    }
+    // Partner-affiliated agents don't get direct commission
+    return { eligible: false, reason: 'Commission paid to partner company' };
+  }
+  
+  return { eligible: false, reason: 'Unknown agent type' };
+};
+
+// ✅ Method 2: Get payout bank details for commission
+agentSchema.methods.getPayoutBankDetails = function() {
+  if (!this.bankDetails?.iban) return null;
+  
+  return {
+    beneficiaryName: this.bankDetails.beneficiaryName || `${this.name.first_name} ${this.name.last_name}`,
+    bankName: this.bankDetails.bankName,
+    iban: this.bankDetails.iban,
+    swiftCode: this.bankDetails.swiftCode,
+  };
+};
+
+// ✅ Method 3: Update earnings from commission
+agentSchema.methods.updateEarningsFromCommission = async function(commissionAmount, isConfirmed = false) {
+  this.earnings.totalCommissionEarned += commissionAmount;
+  
+  if (!isConfirmed) {
+    this.earnings.pendingCommission += commissionAmount;
+  }
+  
+  // Update conversion rate
+  if (this.earnings.successfulDisbursals > 0) {
+    this.earnings.conversionRate = (this.earnings.successfulDisbursals / this.earnings.totalLeadsSubmitted) * 100;
+  }
+  
   return this.save();
 };
 
