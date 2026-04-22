@@ -155,7 +155,7 @@ const leadSchema = new mongoose.Schema(
       advisorId: { type: mongoose.Schema.Types.ObjectId, ref: 'VaultAdvisor', default: null },
       advisorName: { type: String, default: null },
       assignedAt: { type: Date, default: null },
-      assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null }
+      assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }
     },
      sla: {
       deadline: { type: Date, default: null },
