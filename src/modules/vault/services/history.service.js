@@ -47,7 +47,6 @@ class HistoryService {
       });
     } catch (error) {
       console.error('Failed to log history:', error);
-      // Don't throw error - history logging should not break the main flow
       return null;
     }
   }
@@ -55,69 +54,61 @@ class HistoryService {
   /**
    * Log lead activity
    */
- /**
- * Log lead activity
- */
-static async logLeadActivity(lead, action, userInfo, additionalData = {}) {
-  // ✅ Use lead._id if leadId doesn't exist
-  const entityId = lead.leadId || lead._id?.toString();
-  
-  if (!entityId) {
-    console.error("Cannot log lead activity: missing entityId");
-    return null;
+  static async logLeadActivity(lead, action, userInfo, additionalData = {}) {
+    const entityId = lead.leadId || lead._id?.toString();
+    
+    if (!entityId) {
+      console.error("Cannot log lead activity: missing entityId");
+      return null;
+    }
+    
+    return this.log({
+      entityType: 'Lead',
+      entityId: entityId,
+      entityName: lead.customerInfo?.fullName,
+      action,
+      performedBy: userInfo,
+      description: additionalData.description || `${action} performed on lead ${entityId}`,
+      notes: additionalData.notes,
+      ipAddress: userInfo.ipAddress,
+      userAgent: userInfo.userAgent,
+      metadata: {
+        leadId: lead._id,
+        customerName: lead.customerInfo?.fullName,
+        propertyValue: lead.propertyDetails?.propertyValue,
+        referralType: lead.referralType,
+        ...additionalData.metadata,
+      },
+      ...additionalData,
+    });
   }
-  
-  return this.log({
-    entityType: 'Lead',
-    entityId: entityId,
-    entityName: lead.customerInfo?.fullName,
-    action,
-    performedBy: userInfo,
-    description: additionalData.description || `${action} performed on lead ${entityId}`,
-    notes: additionalData.notes,
-    ipAddress: userInfo.ipAddress,
-    userAgent: userInfo.userAgent,
-    metadata: {
-      leadId: lead._id,
-      customerName: lead.customerInfo?.fullName,
-      propertyValue: lead.propertyDetails?.propertyValue,
-      referralType: lead.referralType,
-      ...additionalData.metadata,
-    },
-    ...additionalData,
-  });
-}
 
   /**
    * Log case activity
    */
-/**
- * Log case activity
- */
-static async logCaseActivity(caseData, action, userInfo, additionalData = {}) {
-  // ✅ Use caseData._id if caseId doesn't exist
-  const entityId = caseData.caseId || caseData._id?.toString();
-  
-  return this.log({
-    entityType: 'Case',
-    entityId: entityId,
-    entityName: caseData.clientInfo?.fullName,
-    action,
-    performedBy: userInfo,
-    description: additionalData.description || `${action} performed on case ${entityId}`,
-    notes: additionalData.notes,
-    ipAddress: userInfo.ipAddress,
-    userAgent: userInfo.userAgent,
-    metadata: {
-      caseId: caseData._id,
-      caseReference: caseData.caseReference,
-      clientName: caseData.clientInfo?.fullName,
-      propertyValue: caseData.propertyInfo?.propertyValue,
-      ...additionalData.metadata,
-    },
-    ...additionalData,
-  });
-}
+  static async logCaseActivity(caseData, action, userInfo, additionalData = {}) {
+    const entityId = caseData.caseId || caseData._id?.toString();
+    
+    return this.log({
+      entityType: 'Case',
+      entityId: entityId,
+      entityName: caseData.clientInfo?.fullName,
+      action,
+      performedBy: userInfo,
+      description: additionalData.description || `${action} performed on case ${entityId}`,
+      notes: additionalData.notes,
+      ipAddress: userInfo.ipAddress,
+      userAgent: userInfo.userAgent,
+      metadata: {
+        caseId: caseData._id,
+        caseReference: caseData.caseReference,
+        clientName: caseData.clientInfo?.fullName,
+        propertyValue: caseData.propertyInfo?.propertyValue,
+        ...additionalData.metadata,
+      },
+      ...additionalData,
+    });
+  }
 
   /**
    * Log proposal activity
@@ -266,6 +257,48 @@ static async logCaseActivity(caseData, action, userInfo, additionalData = {}) {
       },
       importance: 'HIGH',
       category: 'SECURITY_EVENT',
+      ...additionalData,
+    });
+  }
+
+  // ✅ NEW: Log employee activity (XotoAdvisor, MortgageOps)
+  static async logEmployeeActivity(employee, action, userInfo, additionalData = {}) {
+    // Get employee type from the model
+    let employeeType = 'Employee';
+    let entityName = '';
+    let entityId = employee._id?.toString();
+    
+    // Check if it's XotoAdvisor or MortgageOps
+    if (employee.employeeType === 'XotoAdvisor') {
+      employeeType = 'XotoAdvisor';
+      entityName = employee.fullName;
+    } else if (employee.employeeType === 'MortgageOps') {
+      employeeType = 'MortgageOps';
+      entityName = employee.fullName;
+    } else if (employee.designation) {
+      employeeType = employee.designation;
+      entityName = employee.fullName || (employee.name?.first_name + ' ' + employee.name?.last_name);
+    } else {
+      entityName = employee.email || (employee.name?.first_name + ' ' + employee.name?.last_name);
+    }
+    
+    return this.log({
+      entityType: employeeType,
+      entityId: entityId,
+      entityName: entityName,
+      action: action,
+      performedBy: userInfo,
+      description: additionalData.description || `${action} performed on employee ${entityName}`,
+      notes: additionalData.notes,
+      ipAddress: userInfo.ipAddress,
+      userAgent: userInfo.userAgent,
+      metadata: {
+        employeeId: employee._id,
+        employeeName: entityName,
+        employeeType: employee.employeeType || employeeType,
+        ...additionalData.metadata,
+      },
+      category: 'USER_ACTION',
       ...additionalData,
     });
   }
