@@ -8,8 +8,11 @@ const bankDetailsSchema = new mongoose.Schema(
     iban: { type: String, default: null },
     swiftCode: { type: String, default: null },
     branchName: { type: String, default: null },
-    accountType: { type: String, enum: ['Business Current', 'Business Savings', null], default: null },
-    verified: { type: Boolean, default: false },
+ accountType: { 
+      type: String, 
+      enum: ['Business Current', 'Business Savings', 'Personal Current', 'Personal Savings', null], 
+      default: null 
+    },    verified: { type: Boolean, default: false },
     verifiedAt: { type: Date, default: null },
   },
   { _id: false }
