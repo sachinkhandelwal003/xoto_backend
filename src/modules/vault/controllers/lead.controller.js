@@ -396,6 +396,11 @@ export const getPartnerLeads = async (req, res) => {
    7. ADMIN GET ALL LEADS (Only Website & Freelance Agent)
    Role: Admin only
 ===================================== */
+/* =====================================
+   7. ADMIN GET ALL LEADS (With Filters)
+   Role: Admin only
+   Filters: source, status, agentId, advisorId, search, dateRange
+===================================== */
 export const adminGetAllLeads = async (req, res) => {
   try {
     const roleDoc = await Role.findById(req.user.role);
@@ -403,29 +408,104 @@ export const adminGetAllLeads = async (req, res) => {
       return res.status(403).json({ success: false, message: "Access denied. Admin only." });
     }
 
-    const { status, page = 1, limit = 20 } = req.query;
+    const { 
+      status, 
+      source, 
+      agentId,
+      advisorId,
+      search,
+      fromDate,
+      toDate,
+      page = 1, 
+      limit = 20 
+    } = req.query;
 
-    // ✅ ONLY leads from website and freelance_agent
-    let query = { 
-      isDeleted: false,
-      'sourceInfo.source': { $in: ['freelance_agent', 'website'] }
-    };
+    // ✅ Build query
+    let query = { isDeleted: false };
     
-    if (status) query.currentStatus = status;
+    // 1. Filter by source (freelance_agent, website, etc.)
+    if (source) {
+      query['sourceInfo.source'] = source;
+    } else {
+      // Default: Only freelance_agent and website (as per your requirement)
+      query['sourceInfo.source'] = { $in: ['freelance_agent', 'website'] };
+    }
+    
+    // 2. Filter by status
+    if (status) {
+      query.currentStatus = status;
+    }
+    
+    // 3. Filter by Agent ID (who created the lead)
+    if (agentId) {
+      query['sourceInfo.createdById'] = agentId;
+    }
+    
+    // 4. Filter by Advisor ID (assigned to)
+    if (advisorId) {
+      query['assignedTo.advisorId'] = advisorId;
+    }
+    
+    // 5. Filter by assigned/unassigned
+    if (req.query.assigned === 'true') {
+      query['assignedTo.advisorId'] = { $ne: null };
+    }
+    if (req.query.assigned === 'false') {
+      query['assignedTo.advisorId'] = null;
+    }
+    
+    // 6. Search by customer name, email, or mobile
+    if (search) {
+      query.$or = [
+        { 'customerInfo.fullName': { $regex: search, $options: 'i' } },
+        { 'customerInfo.email': { $regex: search, $options: 'i' } },
+        { 'customerInfo.mobileNumber': { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    // 7. Filter by date range
+    if (fromDate) {
+      query.createdAt = { ...query.createdAt, $gte: new Date(fromDate) };
+    }
+    if (toDate) {
+      query.createdAt = { ...query.createdAt, $lte: new Date(toDate) };
+    }
 
+    // ✅ Execute query with pagination
     const leads = await Lead.find(query)
-      .populate('sourceInfo.createdById', 'name email')
+      .populate('sourceInfo.createdById', 'name email employeeCode agentType')
       .populate('assignedTo.advisorId', 'name email employeeCode')
+      .populate('assignedTo.assignedBy', 'name email')
       .sort({ createdAt: -1 })
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
 
     const total = await Lead.countDocuments(query);
 
+    // ✅ Get summary stats for filters
+    const summary = {
+      totalLeads: total,
+      bySource: await Lead.aggregate([
+        { $match: { isDeleted: false, 'sourceInfo.source': { $in: ['freelance_agent', 'website'] } } },
+        { $group: { _id: '$sourceInfo.source', count: { $sum: 1 } } }
+      ]),
+      byStatus: await Lead.aggregate([
+        { $match: { isDeleted: false, 'sourceInfo.source': { $in: ['freelance_agent', 'website'] } } },
+        { $group: { _id: '$currentStatus', count: { $sum: 1 } } }
+      ]),
+      unassignedCount: await Lead.countDocuments({
+        isDeleted: false,
+        'sourceInfo.source': { $in: ['freelance_agent', 'website'] },
+        'assignedTo.advisorId': null,
+        currentStatus: 'New'
+      })
+    };
+
     return res.status(200).json({
       success: true,
       data: leads,
       total,
+      summary,
       pagination: {
         totalPages: Math.ceil(total / parseInt(limit)),
         currentPage: parseInt(page),
