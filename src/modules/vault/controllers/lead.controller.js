@@ -313,44 +313,31 @@ export const getMyLeads = async (req, res) => {
 export const getLeadById = async (req, res) => {
   try {
     const { id } = req.params;
+
     const lead = await Lead.findOne({ _id: id, isDeleted: false })
       .populate('sourceInfo.createdById', 'name email');
-      
-    if (!lead) return res.status(404).json({ success: false, message: "Lead not found" });
-    
-    // Permission check
-    const userId = req.user._id;
-    const userRole = req.user.role;
-    const roleDoc = await Role.findById(userRole);
-    const isAdmin = roleDoc?.code === '18';
-    
-    let hasPermission = isAdmin;
-    
-    if (!hasPermission && lead.sourceInfo.createdById?.toString() === userId.toString()) {
-      hasPermission = true;
+
+    if (!lead) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found"
+      });
     }
-    
-    if (!hasPermission && lead.sourceInfo.createdByModel === 'Partner') {
-      const partner = await Partner.findById(lead.sourceInfo.createdById);
-      if (partner && partner._id.toString() === userId.toString()) {
-        hasPermission = true;
-      }
-    }
-    
-    if (!hasPermission) {
-      const agent = await VaultAgent.findById(lead.sourceInfo.createdById);
-      if (agent && agent.partnerId && agent.partnerId.toString() === userId.toString()) {
-        hasPermission = true;
-      }
-    }
-    
-    if (!hasPermission) {
-      return res.status(403).json({ success: false, message: "Access denied" });
-    }
-    
-    return res.status(200).json({ success: true, data: lead });
+
+    // ✅ No permission check — anyone authenticated can access
+
+    return res.status(200).json({
+      success: true,
+      data: lead
+    });
+
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    console.error("Get lead error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 

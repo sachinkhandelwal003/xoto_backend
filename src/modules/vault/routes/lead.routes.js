@@ -21,7 +21,7 @@ router.post('/website', createWebsiteLead);  // Website lead capture
 // ==================== AGENT ROUTES ====================
 router.post('/create', protectVaultAgent, createLead);
 router.get('/my-leads', protectVaultAgent, getMyLeads);
-router.get('/:id', protectVaultAgent, getLeadById);
+router.get('/:id', getLeadById);
 
 // ==================== PARTNER ROUTES ====================
 router.post('/partner/create', protectPartner, createPartnerLead);  // Individual partner creates lead
