@@ -85,14 +85,29 @@ const commissionInfoSchema = new mongoose.Schema(
 const leadSchema = new mongoose.Schema(
   {
     
-    sourceInfo: {
-      createdByRole: { type: String, enum: ['freelance_agent', 'partner_affiliated_agent'], required: true },
-      createdById: { type: mongoose.Schema.Types.ObjectId, ref: 'VaultAgent', required: true },
-      createdByName: { type: String, required: true },
-      createdAt: { type: Date, default: Date.now },
-      submissionMethod: { type: String, enum: ['manual_entry', 'contacts_import'], default: 'manual_entry' },
-      sourceIp: { type: String, default: null },
-    },
+  sourceInfo: {
+  source: { 
+    type: String, 
+    enum: ['freelance_agent', 'partner_affiliated_agent', 'individual_partner', 'website', 'admin'], 
+    default: 'freelance_agent'
+  },
+  createdByRole: { 
+    type: String,
+    enum: ['freelance_agent', 'partner_affiliated_agent', 'individual_partner', 'website', 'admin'], 
+    required: true 
+  },
+  createdById: { type: mongoose.Schema.Types.ObjectId, refPath: 'sourceInfo.createdByModel', default: null },
+  createdByModel: { 
+    type: String, 
+    enum: ['VaultAgent', 'Partner', 'Admin'], 
+    default: null 
+  },
+  createdByName: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now },
+  submissionMethod: { type: String, enum: ['manual_entry', 'contacts_import', 'website_form', 'api'], default: 'manual_entry' },
+  sourceIp: { type: String, default: null },
+  userAgent: { type: String, default: null },
+},
 
     customerInfo: { type: customerBasicSchema, required: true },
   customerId: {
@@ -114,9 +129,9 @@ const leadSchema = new mongoose.Schema(
     expectedCommission: { type: Number, default: null },
     notesToXoto: { type: String, default: null },
 
-    currentStatus: {
+     currentStatus: {
       type: String,
-      enum: ['New', 'Contacted', 'Qualified', 'Collecting Documentation', 'Disbursed'],
+      enum: ['New', 'Assigned', 'Contacted', 'Qualified', 'Collecting Documents', 'Application Created', 'Not Proceeding', 'Disbursed'],
       default: 'New',
     },
 
@@ -136,7 +151,21 @@ const leadSchema = new mongoose.Schema(
       verificationPercentage: { type: Number, default: 0 },
       readyForSubmission: { type: Boolean, default: false },
     },
-
+ assignedTo: {
+      advisorId: { type: mongoose.Schema.Types.ObjectId, ref: 'VaultAdvisor', default: null },
+      advisorName: { type: String, default: null },
+      assignedAt: { type: Date, default: null },
+      assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null }
+    },
+     sla: {
+      deadline: { type: Date, default: null },
+      breached: { type: Boolean, default: false },
+      breachedAt: { type: Date, default: null },
+      firstContactAt: { type: Date, default: null },
+      qualificationAt: { type: Date, default: null },
+      reminderCount: { type: Number, default: 0 },
+      lastReminderSentAt: { type: Date, default: null }
+    },
     conversionInfo: {
       convertedToCase: { type: Boolean, default: false },
       caseId: { type: String, default: null },
@@ -160,6 +189,9 @@ leadSchema.index({ 'customerInfo.mobileNumber': 1 });
 leadSchema.index({ currentStatus: 1 });
 leadSchema.index({ referralType: 1 });
 leadSchema.index({ createdAt: -1 });
+leadSchema.index({ 'assignedTo.advisorId': 1 });  // ✅ ADD THIS
+leadSchema.index({ 'sla.deadline': 1 });          // ✅ ADD THIS
+leadSchema.index({ 'sla.breached': 1 });          
 
 // Virtuals
 leadSchema.virtual('customerAge').get(function () {
