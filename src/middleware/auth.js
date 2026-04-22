@@ -14,8 +14,8 @@ const Freelancer = require("../modules/auth/models/Freelancer/freelancer.model")
 
 const AllUsers = require("../modules/auth/models/user/user.model");
 const Customer = require("../modules/auth/models/user/customer.model");
-const Agent =require("../modules/Agent/models/agent")
-const Agency = require("../modules/agency/models/index")
+const Agent =require("../modules/Grid/Agent/models/agent")
+const Agency = require("../modules/Grid/agency/models/index")
 const Developer =require("../modules/properties/models/DeveloperModel")
 const Partner =require("../modules/vault/models/Partner")
 const VaultAgents =require("../modules/vault/models/Agent")

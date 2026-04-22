@@ -3,7 +3,7 @@
 const Property = require("../models/property.model");
 const Inventory = require("../models/property.inventory.model");
 const Developer = require("../models/DeveloperModel");
-const Agent = require("../../Agent/models/agent");
+const Agent = require("../../Grid/Agent/models/agent");
 
 // =========================
 // OFF-PLAN PROPERTY (Developer)

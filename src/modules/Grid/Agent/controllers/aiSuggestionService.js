@@ -1,5 +1,5 @@
   // services/aiSuggestionService.js
-  const Property = require("../../properties/models/property.model");
+  const Property = require("../../../properties/models/property.model");
 
   /**
    * Get property suggestions based on lead preferences

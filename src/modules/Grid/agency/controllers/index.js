@@ -1,8 +1,8 @@
 import Agency from "../models/index.js";
 import Agent from "../../Agent/models/agent.js";
 import bcrypt from "bcryptjs";
-import { Role } from '../../../modules/auth/models/role/role.model.js';
-import { createToken } from '../../../middleware/auth.js';
+import { Role } from '../../../../modules/auth/models/role/role.model.js';
+import { createToken } from '../../../../middleware/auth.js';
 
 
 

@@ -9,23 +9,23 @@ const virtualStagingRoutes = require('./modules/ImageEnhancer/Routes/VirtualRout
 const upload = require("../src/middleware/s3Upload.js").default
 const { uploadFileToS3 } = require("./modules/s3/upload.js");
 const {downloadImageAsPDF} =require("./modules/s3/downloadUpload.js")
-const aiRoutes = require('./modules/Agent/routes/AIroutes.js');
+const aiRoutes = require('./modules/Grid/Agent/routes/AIroutes.js');
 const blogRoutes = require('../src/modules/blogs/routes/index.js').default;
 const mortgageRoutes = require('./modules/mortgages/routes/index.js');
 const bankMortgageProductRoutes = require('./modules/mortgages/routes/bankMortgageProduct.routes.js');
-const agencyRoutes = require('./modules/agency/routes/index.js');
+const agencyRoutes = require('./modules/Grid/agency/routes/index.js');
 const otpRoutes = require('../src/modules/otp/routes/index.js').default
 const customer = require('../src/modules/customer/routes/index.js').default
 const app = express();
 const Notification = require("../src/modules/Notification/Routes/NotificationRoutes.js").default
 const PropertyLead = require("./modules/auth/routes/consult/propertyLead.route").default
 const ProfileData = require("./modules/profile/routes/index.js").default
-const agentRoutes = require('./modules/Agent/routes/index.js');
-const brochureRoutes = require('./modules/Agent/routes/brochureRoutes.js');
+const agentRoutes = require('./modules/Grid/Agent/routes/index.js');
+const brochureRoutes = require('./modules/Grid/Agent/routes/brochureRoutes.js');
 const customerHistoryRoutes = require('../src/modules/history/routes/customerHistory.routes.js');
 const inventoryRoutes = require("./modules/ecommerce/B2C/routes/inventory.routes");
-
-const AgentLead = require('./modules/Agent/routes/Agentroute.js')
+const XotoAdvisor = require('./modules/Grid/Advisor/routes/index.js')
+const AgentLead = require('./modules/Grid/Agent/routes/Agentroute.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
 
 const rentalProperrty = require('./modules/RentalProperties/routes/Rentproperty.routes.js')
@@ -111,7 +111,7 @@ app.use('/vendor', require('../src/modules/auth/routes/vendor/vendorb2c.routes')
 app.use('/vendor/b2b', require('../src/modules/auth/routes/vendor/vendorb2b.routes'));
 app.use('/business', require('../src/modules/auth/routes/freelancer/freelancerbusiness.routes'));
 
-
+app.use('/advisor', XotoAdvisor);
 // RentalProperty
 app.use('/rental/property', rentalProperrty)
 // app.use('/rental/lead', Rentlead)
@@ -135,10 +135,6 @@ app.use('/attributes', require('../src/modules/ecommerce/B2C/routes/attribute.ro
 app.use('/materials', require('../src/modules/ecommerce/B2C/routes/material.routes'));
 app.use('/brands', require('../src/modules/ecommerce/B2C/routes/brand.routes'));
 
-//  Messages
-
-app.use("/chat", require('../src/modules/chat/routes/chat.routes.js'))
-app.use("/chat-request", require('../src/modules/chat/routes/chatRequest.routes.js'))
 
 app.use('/categories', require('../src/modules/ecommerce/B2C/routes/category.routes'));
 app.use('/tags', require('../src/modules/ecommerce/B2C/routes/tags.routes'));
