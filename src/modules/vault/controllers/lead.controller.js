@@ -392,6 +392,10 @@ export const getPartnerLeads = async (req, res) => {
    7. ADMIN GET ALL LEADS
    Role: Admin only
 ===================================== */
+/* =====================================
+   7. ADMIN GET ALL LEADS (Only Website & Freelance Agent)
+   Role: Admin only
+===================================== */
 export const adminGetAllLeads = async (req, res) => {
   try {
     const roleDoc = await Role.findById(req.user.role);
@@ -399,17 +403,21 @@ export const adminGetAllLeads = async (req, res) => {
       return res.status(403).json({ success: false, message: "Access denied. Admin only." });
     }
 
-    const { status, source, page = 1, limit = 20 } = req.query;
+    const { status, page = 1, limit = 20 } = req.query;
 
-    let query = { isDeleted: false };
+    // ✅ ONLY leads from website and freelance_agent
+    let query = { 
+      isDeleted: false,
+      'sourceInfo.source': { $in: ['freelance_agent', 'website'] }
+    };
     
     if (status) query.currentStatus = status;
-    if (source) query['sourceInfo.source'] = source;
 
     const leads = await Lead.find(query)
       .populate('sourceInfo.createdById', 'name email')
+      .populate('assignedTo.advisorId', 'name email employeeCode')
       .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
+      .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
 
     const total = await Lead.countDocuments(query);
@@ -419,13 +427,15 @@ export const adminGetAllLeads = async (req, res) => {
       data: leads,
       total,
       pagination: {
-        totalPages: Math.ceil(total / limit),
+        totalPages: Math.ceil(total / parseInt(limit)),
         currentPage: parseInt(page),
-        limit
+        limit: parseInt(limit),
+        totalItems: total
       }
     });
 
   } catch (error) {
+    console.error("adminGetAllLeads error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
