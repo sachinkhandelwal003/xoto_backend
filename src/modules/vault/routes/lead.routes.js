@@ -25,7 +25,7 @@ router.get('/:id', getLeadById);
 
 // ==================== PARTNER ROUTES ====================
 router.post('/partner/create', protectPartner, createPartnerLead);  // Individual partner creates lead
-router.get('/partner/leads', protectPartner, getPartnerLeads);
+router.get('/partner/get', protectPartner, getPartnerLeads);
 
 // ==================== ADMIN ROUTES ====================
 router.get('/admin/all', protect, adminGetAllLeads);
