@@ -1,4 +1,5 @@
 import Document from '../models/Document.js';
+import Partner from "../models/Partner.js";
 import Lead from '../models/VaultLead.js';
 import Case from '../models/Case.js';
 import VaultAgent from '../models/Agent.js';
@@ -97,6 +98,15 @@ export const uploadDocument = async (req, res) => {
     const isFreelanceAgent = req.user?.agentType === 'FreelanceAgent';
     const isPartnerAffiliatedAgent = req.user?.agentType === 'PartnerAffiliatedAgent';
     
+    // Get partner type if partner
+    let isCompanyPartner = false;
+    let isIndividualPartner = false;
+    if (isPartner) {
+      const partner = await Partner.findById(req.user._id);
+      isCompanyPartner = partner?.partnerCategory === 'company';
+      isIndividualPartner = partner?.partnerCategory === 'individual';
+    }
+    
     // Partner-Affiliated Agents CANNOT upload
     if (isPartnerAffiliatedAgent) {
       return res.status(403).json({ 
@@ -121,6 +131,7 @@ export const uploadDocument = async (req, res) => {
       if (isAdmin) {
         hasPermission = true;
       }
+      
       // FREELANCE AGENT - only their own leads with Referral + Docs
       else if (isFreelanceAgent) {
         if (lead.sourceInfo.createdById.toString() === req.user._id.toString() && 
@@ -128,8 +139,18 @@ export const uploadDocument = async (req, res) => {
           hasPermission = true;
         }
       }
-      // PARTNER - leads from their affiliated agents
-      else if (isPartner) {
+      
+      // INDIVIDUAL PARTNER - can upload for their OWN leads
+      else if (isIndividualPartner) {
+        // Check if this lead was created by this individual partner
+        if (lead.sourceInfo.createdById.toString() === req.user._id.toString() &&
+            lead.sourceInfo.createdByModel === 'Partner') {
+          hasPermission = true;
+        }
+      }
+      
+      // COMPANY PARTNER - leads from their affiliated agents
+      else if (isCompanyPartner) {
         const agent = await VaultAgent.findById(lead.sourceInfo.createdById);
         if (agent && agent.partnerId && agent.partnerId.toString() === req.user._id.toString()) {
           hasPermission = true;
@@ -163,7 +184,7 @@ export const uploadDocument = async (req, res) => {
         existingDoc.verificationStatus = 'pending';
         existingDoc.rejectionReason = null;
         existingDoc.uploadedBy = {
-          role: isAdmin ? 'admin' : (isFreelanceAgent ? 'agent' : 'partner'),
+          role: isAdmin ? 'admin' : (isFreelanceAgent ? 'agent' : (isPartner ? 'partner' : 'client')),
           userId: req.user._id,
           userName: req.user?.fullName || req.user?.companyName || req.user?.email,
         };
@@ -171,9 +192,6 @@ export const uploadDocument = async (req, res) => {
         await existingDoc.save();
         document = existingDoc;
         isUpdate = true;
-
-        // 🔥 UPDATE CASE DOCUMENT STATUS AFTER REUPLOAD
-await updateCaseDocumentStatus(caseId);
       }
       // If no document exists - create new
       else if (!existingDoc) {
@@ -183,14 +201,14 @@ await updateCaseDocumentStatus(caseId);
           entityType: 'Lead',
           entityId: leadId,
           documentType,
-          documentCategory,
+          documentCategory: documentCategory || getDocumentCategory(documentType),
           fileName: fileName || 'document',
           fileSizeMb: fileSizeMb || 0,
           fileUrl,
           fileHash,
           mimeType: mimeType || 'application/pdf',
           uploadedBy: {
-            role: isAdmin ? 'admin' : (isFreelanceAgent ? 'agent' : 'partner'),
+            role: isAdmin ? 'admin' : (isFreelanceAgent ? 'agent' : (isPartner ? 'partner' : 'client')),
             userId: req.user._id,
             userName: req.user?.fullName || req.user?.companyName || req.user?.email,
           },
@@ -199,33 +217,6 @@ await updateCaseDocumentStatus(caseId);
           encryption: 'AES-256',
         });
       }
-
-      else if (!existingDoc) {
-  const fileHash = crypto.createHash('md5').update(fileUrl).digest('hex');
-
-  document = await Document.create({
-    entityType: 'Case',
-    entityId: caseId,
-    documentType,
-    documentCategory,
-    fileName: fileName || 'document',
-    fileSizeMb: fileSizeMb || 0,
-    fileUrl,
-    fileHash,
-    mimeType: mimeType || 'application/pdf',
-    uploadedBy: {
-      role: isAdmin ? 'admin' : 'partner',
-      userId: req.user._id,
-      userName: req.user?.fullName || req.user?.companyName || req.user?.email,
-    },
-    uploadedFromIp: req.ip,
-    verificationStatus: 'pending',
-    encryption: 'AES-256',
-  });
-
-  // ✅ ADD THIS
-  await updateCaseDocumentStatus(caseId);
-}
       // Document exists and is PENDING or VERIFIED - block
       else {
         return res.status(400).json({ 
@@ -268,8 +259,16 @@ await updateCaseDocumentStatus(caseId);
       
       if (isAdmin) {
         hasPermission = true;
-      } else if (isPartner) {
-        if (caseData.createdBy.partnerId.toString() === req.user._id.toString()) {
+      } 
+      else if (isIndividualPartner) {
+        // Individual Partner can upload for their own cases
+        if (caseData.createdBy?.partnerId?.toString() === req.user._id.toString()) {
+          hasPermission = true;
+        }
+      }
+      else if (isCompanyPartner) {
+        // Company Partner can upload for cases from their company
+        if (caseData.createdBy?.partnerId?.toString() === req.user._id.toString()) {
           hasPermission = true;
         }
       }
@@ -281,7 +280,7 @@ await updateCaseDocumentStatus(caseId);
         });
       }
       
-      // Duplicate check
+      // Duplicate check and upload logic (same as before)
       const existingDoc = await Document.findOne({ 
         entityType: 'Case', 
         entityId: caseId, 
@@ -304,20 +303,19 @@ await updateCaseDocumentStatus(caseId);
         };
         existingDoc.uploadedAt = new Date();
         await existingDoc.save();
+        document = existingDoc;
+        isUpdate = true;
 
-  // ✅ ADD THIS
-  await updateCaseDocumentStatus(caseId);
-
-  document = existingDoc;
-  isUpdate = true;
-      } else if (!existingDoc) {
+        await updateCaseDocumentStatus(caseId);
+      } 
+      else if (!existingDoc) {
         const fileHash = crypto.createHash('md5').update(fileUrl).digest('hex');
         
         document = await Document.create({
           entityType: 'Case',
           entityId: caseId,
           documentType,
-          documentCategory,
+          documentCategory: documentCategory || getDocumentCategory(documentType),
           fileName: fileName || 'document',
           fileSizeMb: fileSizeMb || 0,
           fileUrl,
@@ -332,9 +330,9 @@ await updateCaseDocumentStatus(caseId);
           verificationStatus: 'pending',
           encryption: 'AES-256',
         });
-        // 🔥 UPDATE CASE DOCUMENT STATUS
-await updateCaseDocumentStatus(caseId);
-      } else {
+        await updateCaseDocumentStatus(caseId);
+      } 
+      else {
         return res.status(400).json({ 
           success: false, 
           message: `Document ${documentType} is already ${existingDoc.verificationStatus}` 
@@ -360,6 +358,20 @@ await updateCaseDocumentStatus(caseId);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// Helper function to get document category
+function getDocumentCategory(documentType) {
+  const identityDocs = ['emirates_id_front', 'emirates_id_back', 'passport', 'visa'];
+  const financialDocs = ['bank_statements', 'salary_certificate', 'payslips', 'credit_report'];
+  const propertyDocs = ['title_deed', 'ejari', 'sale_agreement', 'noc'];
+  const bankForms = ['bank_application_form', 'consent_form'];
+  
+  if (identityDocs.includes(documentType)) return 'identity';
+  if (financialDocs.includes(documentType)) return 'financial';
+  if (propertyDocs.includes(documentType)) return 'property';
+  if (bankForms.includes(documentType)) return 'bank_form';
+  return 'other';
+}
 
 /* =====================================
    VERIFY DOCUMENT (Admin)
