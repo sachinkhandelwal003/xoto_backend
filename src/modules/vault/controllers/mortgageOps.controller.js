@@ -181,6 +181,36 @@ export const getAllMortgageOps = async (req, res) => {
 };
 
 /* =====================================
+   GET MORTGAGE OPS BY ID (Admin only)
+===================================== */
+export const getMortgageOpsById = async (req, res) => {
+  try {
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc || roleDoc.code !== '18') {
+      return res.status(403).json({ success: false, message: "Access denied. Admin only." });
+    }
+
+    const { id } = req.params;
+
+    const ops = await MortgageOps.findById(id)
+      .select('-password')
+      .populate('role', 'name code');
+
+    if (!ops) {
+      return res.status(404).json({ success: false, message: "Mortgage Ops not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: ops
+    });
+
+  } catch (error) {
+    console.error("getMortgageOpsById error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+/* =====================================
    3. ADMIN GET OPS WORKLOAD
 ===================================== */
 export const getOpsWorkload = async (req, res) => {

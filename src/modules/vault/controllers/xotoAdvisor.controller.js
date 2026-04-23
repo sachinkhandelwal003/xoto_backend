@@ -180,6 +180,37 @@ export const getAllXotoAdvisors = async (req, res) => {
 };
 
 /* =====================================
+   GET XOTO ADVISOR BY ID (Admin only)
+===================================== */
+export const getXotoAdvisorById = async (req, res) => {
+  try {
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc || roleDoc.code !== '18') {
+      return res.status(403).json({ success: false, message: "Access denied. Admin only." });
+    }
+
+    const { id } = req.params;
+
+    const advisor = await XotoAdvisor.findById(id)
+      .select('-password')
+      .populate('role', 'name code');
+
+    if (!advisor) {
+      return res.status(404).json({ success: false, message: "Xoto Advisor not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: advisor
+    });
+
+  } catch (error) {
+    console.error("getXotoAdvisorById error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/* =====================================
    3. ADMIN GET ADVISOR WORKLOAD (For Assignment)
 ===================================== */
 export const getAdvisorWorkload = async (req, res) => {
