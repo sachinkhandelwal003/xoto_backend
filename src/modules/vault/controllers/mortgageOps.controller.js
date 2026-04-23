@@ -141,10 +141,34 @@ export const getAllMortgageOps = async (req, res) => {
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const skip = (page - 1) * limit;
-    const { isActive, search } = req.query;
+    const { isActive, status, search, department } = req.query;
 
     let query = { isDeleted: false };
-    if (isActive !== undefined) query.isActive = isActive === 'true';
+    
+    // Handle status filter
+    if (status) {
+      if (status === 'active') {
+        query.isActive = true;
+        query.suspendedAt = null;
+      } else if (status === 'suspended') {
+        query.suspendedAt = { $ne: null };
+      } else if (status === 'inactive') {
+        query.isActive = false;
+        query.suspendedAt = null;
+      }
+    }
+    
+    // Handle isActive filter (backward compatibility)
+    if (isActive !== undefined && !status) {
+      query.isActive = isActive === 'true';
+    }
+    
+    // Handle department filter
+    if (department && department !== 'all') {
+      query.department = department;
+    }
+    
+    // Handle search
     if (search) {
       query.$or = [
         { 'name.first_name': { $regex: search, $options: 'i' } },
