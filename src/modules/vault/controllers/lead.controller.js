@@ -937,3 +937,94 @@ export const updateLeadStatus = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+
+/* =====================================
+   ADVISOR UPDATE LEAD INFORMATION
+   Role: Xoto Advisor (for assigned leads only)
+===================================== */
+export const advisorUpdateLeadInfo = async (req, res) => {
+  try {
+    const { leadId } = req.params;
+    const { customerInfo, propertyDetails, loanRequirements, notesToXoto } = req.body;
+    const advisorId = req.user._id;
+
+    // Check if lead exists and is assigned to this advisor
+    const lead = await Lead.findOne({
+      _id: leadId,
+      'assignedTo.advisorId': advisorId,
+      isDeleted: false
+    });
+
+    if (!lead) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Lead not found or not assigned to you" 
+      });
+    }
+
+    // Update customer information if provided
+    if (customerInfo) {
+      const allowedCustomerFields = ['occupation', 'employer', 'monthlySalary', 'numberOfDependents', 'maritalStatus'];
+      allowedCustomerFields.forEach(field => {
+        if (customerInfo[field] !== undefined) {
+          lead.customerInfo[field] = customerInfo[field];
+        }
+      });
+    }
+
+    // Update property details if provided
+    if (propertyDetails) {
+      const allowedPropertyFields = ['propertyValue', 'downPaymentAmount', 'propertyAgeYears', 'isOffPlan', 'completionDate'];
+      allowedPropertyFields.forEach(field => {
+        if (propertyDetails[field] !== undefined) {
+          lead.propertyDetails[field] = propertyDetails[field];
+        }
+      });
+      
+      // Update property address if provided
+      if (propertyDetails.propertyAddress) {
+        lead.propertyDetails.propertyAddress = {
+          ...lead.propertyDetails.propertyAddress,
+          ...propertyDetails.propertyAddress
+        };
+      }
+    }
+
+    // Update loan requirements if provided
+    if (loanRequirements) {
+      const allowedLoanFields = ['preferredTenureYears', 'preferredInterestRateType', 'feeFinancingPreference', 
+                                   'lifeInsurancePreference', 'propertyInsurancePreference', 'specialRequirements'];
+      allowedLoanFields.forEach(field => {
+        if (loanRequirements[field] !== undefined) {
+          lead.loanRequirements[field] = loanRequirements[field];
+        }
+      });
+    }
+
+    // Update notes
+    if (notesToXoto !== undefined) {
+      lead.notesToXoto = notesToXoto;
+    }
+
+    await lead.save();
+
+    await HistoryService.logLeadActivity(lead, 'LEAD_INFO_UPDATED_BY_ADVISOR', await getUserInfo(req), {
+      description: `Lead information updated by advisor after customer contact`,
+      metadata: { updatedFields: Object.keys(req.body) }
+    });
+
+    return res.status(200).json({ 
+      success: true, 
+      message: "Lead information updated successfully", 
+      data: lead 
+    });
+
+  } catch (error) {
+    console.error("advisorUpdateLeadInfo error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+

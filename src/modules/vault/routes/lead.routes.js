@@ -9,7 +9,7 @@ import {
   createWebsiteLead,
   createPartnerLead,
   getUnassignedLeads,
-  assignLeadToXotoAdvisor,advisorUpdateLeadStatus,getAdvisorAssignedLeads
+  assignLeadToXotoAdvisor,advisorUpdateLeadStatus,getAdvisorAssignedLeads,advisorUpdateLeadInfo
 } from '../controllers/lead.controller.js';
 import { protect, protectPartner, protectMulti, protectVaultAgent ,protectVaultAdvisor} from '../../../middleware/auth.js';
 
@@ -36,5 +36,7 @@ router.put('/admin/:id/status', protect, updateLeadStatus);
 // ==================== XOTO ADVISOR ROUTES ====================
 router.get('/advisor/my-leads', protectVaultAdvisor, getAdvisorAssignedLeads);
 router.put('/advisor/lead/:leadId/status', protectVaultAdvisor, advisorUpdateLeadStatus);
+router.put('/advisor/lead/:leadId/info', protectVaultAdvisor, advisorUpdateLeadInfo);  // ✅ ADD THIS LINE
+
 
 module.exports = router;
