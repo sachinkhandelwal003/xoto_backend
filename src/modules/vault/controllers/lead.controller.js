@@ -683,6 +683,176 @@ export const assignLeadToXotoAdvisor = async (req, res) => {
   }
 };
 
+
+/* =====================================
+   GET ADVISOR ASSIGNED LEADS (Xoto Advisor only)
+   Role: Xoto Advisor
+===================================== */
+export const getAdvisorAssignedLeads = async (req, res) => {
+  try {
+    const advisorId = req.user._id;
+    const { status, page = 1, limit = 20 } = req.query;
+
+    // Build query for leads assigned to this advisor
+    let query = {
+      isDeleted: false,
+      'assignedTo.advisorId': advisorId
+    };
+
+    // Filter by status if provided
+    if (status) {
+      query.currentStatus = status;
+    }
+
+    const leads = await Lead.find(query)
+      .populate('sourceInfo.createdById', 'name email')
+      .sort({ createdAt: -1 })
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .limit(parseInt(limit));
+
+    const total = await Lead.countDocuments(query);
+
+    // Get summary stats
+    const summary = {
+      total: total,
+      new: await Lead.countDocuments({ ...query, currentStatus: 'New' }),
+      assigned: await Lead.countDocuments({ ...query, currentStatus: 'Assigned' }),
+      contacted: await Lead.countDocuments({ ...query, currentStatus: 'Contacted' }),
+      qualified: await Lead.countDocuments({ ...query, currentStatus: 'Qualified' }),
+      collectingDocs: await Lead.countDocuments({ ...query, currentStatus: 'Collecting Documents' }),
+      applicationCreated: await Lead.countDocuments({ ...query, currentStatus: 'Application Created' }),
+      notProceeding: await Lead.countDocuments({ ...query, currentStatus: 'Not Proceeding' }),
+      disbursed: await Lead.countDocuments({ ...query, currentStatus: 'Disbursed' })
+    };
+
+    return res.status(200).json({
+      success: true,
+      data: leads,
+      total,
+      summary,
+      pagination: {
+        totalPages: Math.ceil(total / parseInt(limit)),
+        currentPage: parseInt(page),
+        limit: parseInt(limit),
+        totalItems: total
+      }
+    });
+
+  } catch (error) {
+    console.error("getAdvisorAssignedLeads error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/* =====================================
+   ADVISOR UPDATE LEAD STATUS (Xoto Advisor only)
+   Role: Xoto Advisor
+===================================== */
+export const advisorUpdateLeadStatus = async (req, res) => {
+  try {
+    const { leadId } = req.params;
+    const { status, notes } = req.body;
+    const advisorId = req.user._id;
+
+    const lead = await Lead.findOne({
+      _id: leadId,
+      'assignedTo.advisorId': advisorId,
+      isDeleted: false
+    });
+
+    if (!lead) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Lead not found or not assigned to you" 
+      });
+    }
+
+    const validStatuses = [
+      'New', 'Assigned', 'Contacted', 'Qualified', 
+      'Collecting Documents', 'Application Created', 
+      'Not Proceeding', 'Disbursed'
+    ];
+
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid status" 
+      });
+    }
+
+    const previousStatus = lead.currentStatus;
+    lead.currentStatus = status;
+
+    // Track SLA for Contacted status
+    if (status === 'Contacted') {
+      lead.sla.firstContactAt = new Date();
+      if (lead.sla.deadline && new Date() > lead.sla.deadline) {
+        lead.sla.breached = true;
+        lead.sla.breachedAt = new Date();
+      }
+    }
+
+    // Track qualification
+    if (status === 'Qualified') {
+      lead.sla.qualificationAt = new Date();
+    }
+
+    if (notes) {
+      lead.notesToXoto = notes;
+    }
+
+    await lead.save();
+
+    // Create Customer when Qualified
+    if (status === 'Qualified') {
+      const { email, mobileNumber, fullName, nationality, dateOfBirth } = lead.customerInfo;
+      
+      let customer = await Customer.findOne({
+        $or: [
+          { email: email.toLowerCase() },
+          { "mobile.number": mobileNumber.replace(/^\+971/, '') }
+        ],
+        is_deleted: false
+      });
+      
+      if (!customer) {
+        const customerRole = await Role.findOne({ name: "Customer" });
+        const firstName = fullName.split(' ')[0];
+        const lastName = fullName.split(' ').slice(1).join(' ') || '';
+        
+        customer = await Customer.create({
+          name: { first_name: firstName, last_name: lastName },
+          email: email.toLowerCase(),
+          mobile: { country_code: '+971', number: mobileNumber.replace(/^\+971/, '') },
+          dateOfBirth: dateOfBirth || null,
+          nationality: nationality || null,
+          role: customerRole?._id,
+          assignedTo: lead.sourceInfo.createdById,
+          source: 'vault',
+          isActive: true,
+        });
+        
+        lead.customerId = customer._id;
+        await lead.save();
+      }
+    }
+
+    await HistoryService.logLeadActivity(lead, 'LEAD_STATUS_UPDATED_BY_ADVISOR', await getUserInfo(req), {
+      description: `Lead status changed from ${previousStatus} to ${status}`,
+      notes: notes || null,
+    });
+
+    return res.status(200).json({ 
+      success: true, 
+      message: "Lead status updated successfully", 
+      data: lead 
+    });
+
+  } catch (error) {
+    console.error("advisorUpdateLeadStatus error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
 /* =====================================
    10. UPDATE LEAD STATUS (Admin)
    Role: Admin, XotoAdvisor

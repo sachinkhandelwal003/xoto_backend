@@ -9,9 +9,9 @@ import {
   createWebsiteLead,
   createPartnerLead,
   getUnassignedLeads,
-  assignLeadToXotoAdvisor
+  assignLeadToXotoAdvisor,advisorUpdateLeadStatus,getAdvisorAssignedLeads
 } from '../controllers/lead.controller.js';
-import { protect, protectPartner, protectMulti, protectVaultAgent } from '../../../middleware/auth.js';
+import { protect, protectPartner, protectMulti, protectVaultAgent ,protectVaultAdvisor} from '../../../middleware/auth.js';
 
 const router = express.Router();
 
@@ -32,5 +32,9 @@ router.get('/admin/all', protect, adminGetAllLeads);
 router.get('/admin/unassigned', protect, getUnassignedLeads);
 router.post('/admin/assign-to-advisor', protect, assignLeadToXotoAdvisor);
 router.put('/admin/:id/status', protect, updateLeadStatus);
+
+// ==================== XOTO ADVISOR ROUTES ====================
+router.get('/advisor/my-leads', protectVaultAdvisor, getAdvisorAssignedLeads);
+router.put('/advisor/lead/:leadId/status', protectVaultAdvisor, advisorUpdateLeadStatus);
 
 module.exports = router;
