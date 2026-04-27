@@ -24,7 +24,7 @@ const agentRoutes = require('./modules/Grid/Agent/routes/index.js');
 const brochureRoutes = require('./modules/Grid/Agent/routes/brochureRoutes.js');
 const customerHistoryRoutes = require('../src/modules/history/routes/customerHistory.routes.js');
 const inventoryRoutes = require("./modules/ecommerce/B2C/routes/inventory.routes");
-const XotoAdvisor = require('./modules/Grid/Advisor/routes/index.js')
+const GridAdvisor = require('./modules/Grid/Advisor/routes/index.js')
 const AgentLead = require('./modules/Grid/Agent/routes/Agentroute.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
 
@@ -114,7 +114,8 @@ app.use('/vendor', require('../src/modules/auth/routes/vendor/vendorb2c.routes')
 app.use('/vendor/b2b', require('../src/modules/auth/routes/vendor/vendorb2b.routes'));
 app.use('/business', require('../src/modules/auth/routes/freelancer/freelancerbusiness.routes'));
 
-app.use('/advisor', XotoAdvisor);
+app.use('/gridadvisor', GridAdvisor);
+app.use('/grid-advisor', GridAdvisor);
 // RentalProperty
 app.use('/rental/property', rentalProperrty)
 // app.use('/rental/lead', Rentlead)

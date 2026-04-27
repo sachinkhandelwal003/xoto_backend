@@ -1,24 +1,37 @@
 const express = require("express");
 const router = express.Router();
 
-const advisorController = require("../controller/index.js");
+const gridAdvisorController = require("../controller/index.js");
 const { protect, restrictTo } = require("../../../../middleware/auth");
 
 // ════════════════════════════════════════════════════════════════════════════
 // PUBLIC ROUTES  (no auth needed)
 // ════════════════════════════════════════════════════════════════════════════
 
-// POST /api/v1/grid/advisor/login
-router.post("/login", advisorController.loginAdvisor);
-  
-// POST /api/v1/grid/advisor/reset-password
-router.post("/reset-password", advisorController.resetPassword);
+router.post("/login", gridAdvisorController.loginGridAdvisor);
+
+
+router.post("/reset-password", gridAdvisorController.resetPassword);
+
+
+
+
 
 // ════════════════════════════════════════════════════════════════════════════
 // PROTECTED ROUTES  (Admin only)
 // ════════════════════════════════════════════════════════════════════════════
 
-// POST /api/v1/grid/advisor  — Create new advisor (Admin only)
-router.post("/", protect, advisorController.createAdvisor);
+router
+  .route("/")
+  .post(protect, gridAdvisorController.createGridAdvisor)
+  .get(protect, gridAdvisorController.getAllGridAdvisors);
+
+router
+  .route("/:id")
+  .get(protect, gridAdvisorController.getGridAdvisorById);
+
+router
+  .route("/:id/suspend")
+  .put(protect, gridAdvisorController.suspendGridAdvisor);
 
 module.exports = router;
