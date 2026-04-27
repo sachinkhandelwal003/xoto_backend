@@ -15,7 +15,7 @@ import {
   activateOps,
   deleteOps,
   getOpsProfile,
-  changeOpsPassword
+  changeOpsPassword,getMortgageOpsById
 } from '../controllers/mortgageOps.controller.js';
 
 import { protect } from '../../../middleware/auth.js';
@@ -25,6 +25,8 @@ const router = express.Router();
 // ==================== ADMIN ONLY ====================
 router.post('/create', protect, createMortgageOps);
 router.get('/all', protect, getAllMortgageOps);
+// Add this line with other admin routes
+router.get('/get/:id', protect, getMortgageOpsById);
 router.get('/workload', protect, getOpsWorkload);
 router.post('/assign-case', protect, assignCaseToOps);
 router.post('/suspend/:id', protect, suspendOps);

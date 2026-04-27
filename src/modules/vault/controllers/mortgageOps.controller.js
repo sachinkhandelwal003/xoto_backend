@@ -141,10 +141,34 @@ export const getAllMortgageOps = async (req, res) => {
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const skip = (page - 1) * limit;
-    const { isActive, search } = req.query;
+    const { isActive, status, search, department } = req.query;
 
     let query = { isDeleted: false };
-    if (isActive !== undefined) query.isActive = isActive === 'true';
+    
+    // Handle status filter
+    if (status) {
+      if (status === 'active') {
+        query.isActive = true;
+        query.suspendedAt = null;
+      } else if (status === 'suspended') {
+        query.suspendedAt = { $ne: null };
+      } else if (status === 'inactive') {
+        query.isActive = false;
+        query.suspendedAt = null;
+      }
+    }
+    
+    // Handle isActive filter (backward compatibility)
+    if (isActive !== undefined && !status) {
+      query.isActive = isActive === 'true';
+    }
+    
+    // Handle department filter
+    if (department && department !== 'all') {
+      query.department = department;
+    }
+    
+    // Handle search
     if (search) {
       query.$or = [
         { 'name.first_name': { $regex: search, $options: 'i' } },
@@ -180,6 +204,36 @@ export const getAllMortgageOps = async (req, res) => {
   }
 };
 
+/* =====================================
+   GET MORTGAGE OPS BY ID (Admin only)
+===================================== */
+export const getMortgageOpsById = async (req, res) => {
+  try {
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc || roleDoc.code !== '18') {
+      return res.status(403).json({ success: false, message: "Access denied. Admin only." });
+    }
+
+    const { id } = req.params;
+
+    const ops = await MortgageOps.findById(id)
+      .select('-password')
+      .populate('role', 'name code');
+
+    if (!ops) {
+      return res.status(404).json({ success: false, message: "Mortgage Ops not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: ops
+    });
+
+  } catch (error) {
+    console.error("getMortgageOpsById error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
 /* =====================================
    3. ADMIN GET OPS WORKLOAD
 ===================================== */

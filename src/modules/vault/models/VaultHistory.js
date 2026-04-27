@@ -10,13 +10,14 @@ const historySchema = new mongoose.Schema(
       type: String,
       enum: [
         'Lead', 'Case', 'Proposal', 'Client', 'Agent', 'Partner', 
-        'Commission', 'Document', 'User', 'Admin', 'Payment', 'BankForm'
+        'Commission', 'Document', 'User', 'Admin', 'Payment', 'BankForm',
+        'XotoAdvisor', 'MortgageOps'  // ✅ ADDED
       ],
       required: true,
       index: true,
     },
     entityId: { type: String, required: true, index: true },
-    entityName: { type: String, default: null }, // Human readable name (e.g., "Ahmed Al Mansoori")
+    entityName: { type: String, default: null },
     
     // ==================== ACTION INFORMATION ====================
     action: {
@@ -24,6 +25,7 @@ const historySchema = new mongoose.Schema(
       enum: [
         // Lead actions
         'LEAD_CREATED', 'LEAD_UPDATED', 'LEAD_STATUS_CHANGED', 'LEAD_CONVERTED', 'LEAD_DELETED',
+        'LEAD_CREATED_BY_PARTNER', 'LEAD_CREATED_FROM_WEBSITE', 'LEAD_ASSIGNED_TO_ADVISOR',  // ✅ ADDED
         // Case actions
         'CASE_CREATED', 'CASE_UPDATED', 'CASE_STATUS_CHANGED', 'CASE_SUBMITTED', 'CASE_DELETED',
         // Proposal actions
@@ -33,7 +35,7 @@ const historySchema = new mongoose.Schema(
         // Partner actions
         'PARTNER_ONBOARDED', 'PARTNER_UPDATED', 'PARTNER_SUSPENDED', 'PARTNER_ACTIVATED',
         // Document actions
-        'DOCUMENT_UPLOADED', 'DOCUMENT_VERIFIED', 'DOCUMENT_REJECTED', 'DOCUMENT_DELETED',
+        'DOCUMENT_UPLOADED', 'DOCUMENT_VERIFIED', 'DOCUMENT_REJECTED', 'DOCUMENT_DELETED', 'DOCUMENT_REUPLOADED',  // ✅ ADDED
         // Commission actions
         'COMMISSION_CREATED', 'COMMISSION_CONFIRMED', 'COMMISSION_PAID', 'COMMISSION_FAILED',
         // Bank actions
@@ -42,6 +44,10 @@ const historySchema = new mongoose.Schema(
         'CLIENT_PORTAL_ACCESS_GRANTED', 'CLIENT_LOGGED_IN', 'CLIENT_PASSWORD_CHANGED',
         // Auth actions
         'LOGIN', 'LOGOUT', 'PASSWORD_CHANGED', 'PASSWORD_RESET_REQUESTED', 'PASSWORD_RESET_COMPLETED',
+        // Employee actions
+        'ADVISOR_CREATED', 'ADVISOR_SUSPENDED', 'ADVISOR_ACTIVATED', 'ADVISOR_DELETED',  // ✅ ADDED
+        'OPS_CREATED', 'OPS_SUSPENDED', 'OPS_ACTIVATED', 'OPS_DELETED',  // ✅ ADDED
+        'EMPLOYEE_CREATED', 'EMPLOYEE_UPDATED',  // ✅ ADDED
       ],
       required: true,
       index: true,
@@ -56,12 +62,18 @@ const historySchema = new mongoose.Schema(
       userId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
       userRole: { 
         type: String, 
-        enum: ['Admin', 'Partner', 'FreelanceAgent', 'PartnerAffiliatedAgent', 'Client' ,'Agent', 'System', 'XotoAdmin'], 
+        enum: [
+          'Admin', 'Partner', 'FreelanceAgent', 'PartnerAffiliatedAgent', 
+          'IndividualPartner',  // ✅ ADDED
+          'XotoAdvisor',        // ✅ ADDED
+          'MortgageOps',        // ✅ ADDED
+          'Client', 'Agent', 'System', 'XotoAdmin', 'Website'  // ✅ ADDED 'Website'
+        ], 
         required: true 
       },
       userName: { type: String, required: true },
       userEmail: { type: String, default: null },
-      userType: { type: String, default: null }, // 'internal' or 'external'
+      userType: { type: String, default: null },
     },
     
     // ==================== WHAT CHANGED ====================
@@ -77,7 +89,7 @@ const historySchema = new mongoose.Schema(
     // ==================== TECHNICAL DETAILS ====================
     ipAddress: { type: String, default: null },
     userAgent: { type: String, default: null },
-    requestId: { type: String, default: null }, // For tracking related requests
+    requestId: { type: String, default: null },
     
     // ==================== METADATA ====================
     metadata: {
@@ -108,8 +120,7 @@ const historySchema = new mongoose.Schema(
   },
   { 
     timestamps: true,
-    // Add TTL index to auto-delete old history after 2 years
-    expireAfterSeconds: 63072000, // 2 years
+    expireAfterSeconds: 63072000,
   }
 );
 
@@ -148,62 +159,36 @@ historySchema.virtual('timeAgo').get(function () {
 
 // ==================== STATIC METHODS ====================
 
-// Log a new history entry
 historySchema.statics.log = async function (data) {
   const historyId = `HIST-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-  
-  return this.create({
-    historyId,
-    ...data,
-  });
+  return this.create({ historyId, ...data });
 };
 
-// Get history for a specific entity
 historySchema.statics.getEntityHistory = async function (entityType, entityId, options = {}) {
   const { limit = 50, skip = 0, action = null, fromDate = null, toDate = null } = options;
-  
   let query = { entityType, entityId, isDeleted: false };
   if (action) query.action = action;
   if (fromDate) query.createdAt = { $gte: fromDate };
   if (toDate) query.createdAt = { ...query.createdAt, $lte: toDate };
-  
   const total = await this.countDocuments(query);
-  
-  const data = await this.find(query)
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(limit);
-  
+  const data = await this.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit);
   return { data, total, skip, limit };
 };
 
-// Get user activity timeline
 historySchema.statics.getUserTimeline = async function (userId, options = {}) {
   const { limit = 50, skip = 0, fromDate = null, toDate = null } = options;
-  
   let query = { 'performedBy.userId': userId, isDeleted: false };
   if (fromDate) query.createdAt = { $gte: fromDate };
   if (toDate) query.createdAt = { ...query.createdAt, $lte: toDate };
-  
   const total = await this.countDocuments(query);
-  
-  const data = await this.find(query)
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(limit);
-  
+  const data = await this.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit);
   return { data, total, skip, limit };
 };
 
-// Get dashboard summary (recent activities)
 historySchema.statics.getDashboardSummary = async function (limit = 20) {
-  return this.find({ isDeleted: false })
-    .sort({ createdAt: -1 })
-    .limit(limit)
-    .lean();
+  return this.find({ isDeleted: false }).sort({ createdAt: -1 }).limit(limit).lean();
 };
 
-// Get statistics by action type
 historySchema.statics.getActionStats = async function (fromDate, toDate) {
   const match = { isDeleted: false };
   if (fromDate || toDate) {
@@ -211,7 +196,6 @@ historySchema.statics.getActionStats = async function (fromDate, toDate) {
     if (fromDate) match.createdAt.$gte = fromDate;
     if (toDate) match.createdAt.$lte = toDate;
   }
-  
   return this.aggregate([
     { $match: match },
     { $group: { _id: '$action', count: { $sum: 1 } } },
@@ -219,7 +203,6 @@ historySchema.statics.getActionStats = async function (fromDate, toDate) {
   ]);
 };
 
-// Get statistics by entity type
 historySchema.statics.getEntityStats = async function (fromDate, toDate) {
   const match = { isDeleted: false };
   if (fromDate || toDate) {
@@ -227,7 +210,6 @@ historySchema.statics.getEntityStats = async function (fromDate, toDate) {
     if (fromDate) match.createdAt.$gte = fromDate;
     if (toDate) match.createdAt.$lte = toDate;
   }
-  
   return this.aggregate([
     { $match: match },
     { $group: { _id: '$entityType', count: { $sum: 1 } } },
@@ -235,7 +217,6 @@ historySchema.statics.getEntityStats = async function (fromDate, toDate) {
   ]);
 };
 
-// Get activity by user role
 historySchema.statics.getActivityByRole = async function (fromDate, toDate) {
   const match = { isDeleted: false };
   if (fromDate || toDate) {
@@ -243,7 +224,6 @@ historySchema.statics.getActivityByRole = async function (fromDate, toDate) {
     if (fromDate) match.createdAt.$gte = fromDate;
     if (toDate) match.createdAt.$lte = toDate;
   }
-  
   return this.aggregate([
     { $match: match },
     { $group: { _id: '$performedBy.userRole', count: { $sum: 1 } } },
@@ -251,10 +231,8 @@ historySchema.statics.getActivityByRole = async function (fromDate, toDate) {
   ]);
 };
 
-// Search history
 historySchema.statics.searchHistory = async function (searchTerm, options = {}) {
   const { limit = 50, skip = 0 } = options;
-  
   return this.find({
     isDeleted: false,
     $or: [
@@ -263,15 +241,10 @@ historySchema.statics.searchHistory = async function (searchTerm, options = {}) 
       { 'performedBy.userName': { $regex: searchTerm, $options: 'i' } },
       { notes: { $regex: searchTerm, $options: 'i' } },
     ],
-  })
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(limit);
+  }).sort({ createdAt: -1 }).skip(skip).limit(limit);
 };
 
 // ==================== INSTANCE METHODS ====================
-
-// Mark as deleted
 historySchema.methods.softDelete = async function () {
   this.isDeleted = true;
   this.deletedAt = new Date();
