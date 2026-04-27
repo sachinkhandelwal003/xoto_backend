@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
+const { Role } = require('../../../auth/models/role/role.model');
 
 // ─── Sub Schemas ──────────────────────────────────────────────────────────────
 
@@ -67,12 +68,18 @@ const advisorSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
-    phone: {
-      type: String,
-      required: [true, "Phone number is required"],
-      unique: true,
-      trim: true,
-    },
+phone: {
+  type: String,
+  required: [true, "Phone number is required"],
+  unique: true,
+  trim: true,
+},
+// Yeh add karo phone ke neeche
+countryCode: {
+  type: String,
+  trim: true,
+  default: "+971", // UAE default
+},
     employeeId: {
       type: String,
       unique: true,
@@ -85,9 +92,9 @@ const advisorSchema = new mongoose.Schema(
     loginLink: { type: String, select: false },
     loginLinkExpiresAt: { type: Date, select: false },
 
-    // ── Role & Status ─────────────────────────────────────────────────────────
-    role: { type: String, default: "GridAdvisor" },
-    department: { type: String, trim: true },
+    // // ── Role & Status ─────────────────────────────────────────────────────────
+    // role: { type: String, default: "GridAdvisor" },
+    // department: { type: String, trim: true },
 
     // ── "suspended" added alongside existing values ───────────────────────────
     status: {
@@ -116,6 +123,12 @@ const advisorSchema = new mongoose.Schema(
       },
     },
 
+
+role: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'Role',
+  default: null
+},
 
     // ── Bio & Languages ───────────────────────────────────────────
     bio: { type: String, trim: true, default: null },
@@ -170,6 +183,15 @@ advisorSchema.index({ "workload.activeLeadsCount": 1 });
 // ─── Pre Save ─────────────────────────────────────────────────────────────────
 
 advisorSchema.pre("save", async function (next) {
+  // ── Auto assign role ──────────────────────────────────────────
+  if (!this.role) {
+    const { Role } = require('../../../auth/models/role/role.model');
+    const gridRole = await Role.findOne({
+      $or: [{ code: "gridadvisor" }, { name: "GridAdvisor" }]
+    });
+    if (gridRole) this.role = gridRole._id;
+  }
+
   // Auto generate employeeId
   if (!this.employeeId) {
     const count = await mongoose.model("GridAdvisor").countDocuments();
@@ -181,23 +203,21 @@ advisorSchema.pre("save", async function (next) {
     this.password = await bcrypt.hash(this.password, 12);
   }
 
-  // Auto calculate profile completion percentage
+  // profile completion...
   let completed = 0;
   const total = 3;
-
   if (this.firstName && this.lastName && this.email && this.phone) {
     this.profileCompletion.basicInfo = true;
     completed++;
   }
-if (this.identity?.idNumber && this.identity?.isVerified) {
-  this.profileCompletion.identity = true;
-  completed++;
-}
-if (this.bankDetails?.iban && this.bankDetails?.isVerified) {
-  this.profileCompletion.bankDetails = true;
-  completed++;
-}
-
+  if (this.identity?.idNumber && this.identity?.isVerified) {
+    this.profileCompletion.identity = true;
+    completed++;
+  }
+  if (this.bankDetails?.iban && this.bankDetails?.isVerified) {
+    this.profileCompletion.bankDetails = true;
+    completed++;
+  }
   this.profileCompletion.percentage = Math.round((completed / total) * 100);
 
   next();

@@ -19,6 +19,7 @@ const Agency = require("../modules/Grid/agency/models/index")
 const Developer =require("../modules/properties/models/DeveloperModel")
 const Partner =require("../modules/vault/models/Partner")
 const VaultAgents =require("../modules/vault/models/Agent")
+const GridAdvisor = require("../modules/Grid/Advisor/model/index");
 
 const { getUserPermissions } = require("./permission");
 
@@ -79,7 +80,7 @@ exports.createToken = (user, type) => {
   };
 
   // ⭐ ADDED: Agar user Agent, Agency ya Freelancer hai, toh uska detail bhi token mein daal do
-  if (["agent", "agency", "freelancer", "vendorb2c", "vendorb2b", "developer"].includes(detectedType)) {
+  if (["agent", "agency", "freelancer", "vendorb2c", "vendorb2b", "developer", "gridadvisor"  ].includes(detectedType)) {
     payload.first_name = user.first_name;
     payload.last_name = user.last_name;
     payload.phone_number = user.phone_number;
@@ -191,7 +192,8 @@ exports.protectMulti = async (req, res, next) => {
   developer: Developer,
       agency: Agency,         // role code 17
         vaultagent: VaultAgents,
-  partner: Partner
+  partner: Partner,
+  gridadvisor: GridAdvisor,
     };
 
     const Model = entityMap[type];
