@@ -1,5 +1,5 @@
 const express = require("express");
-const { protectMulti } = require("../../../middleware/auth");
+const { protectMulti } = require("../../../../middleware/auth");
 
 const {
   agencySignup,

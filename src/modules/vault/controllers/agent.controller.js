@@ -76,8 +76,20 @@ const getUserInfo = async (req, user = null) => {
 export const agentSignup = async (req, res) => {
   try {
     const {
-      first_name, last_name, email, phone_number, country_code, password,
-      maritalStatus, numberOfDependents, dependents, nationality, dateOfBirth, gender
+      first_name,
+      last_name,
+      email,
+      phone_number,
+      country_code,
+      password,
+      agentMode, // 'freelance' | 'partner'
+      partnerId,
+      maritalStatus,
+      numberOfDependents,
+      dependents,
+      nationality,
+      dateOfBirth,
+      gender
     } = req.body;
 
     if (!first_name || !last_name || !password || !phone_number) {
@@ -87,24 +99,64 @@ export const agentSignup = async (req, res) => {
       });
     }
 
+    if (!agentMode || !['freelance', 'partner'].includes(agentMode)) {
+      return res.status(400).json({
+        success: false,
+        message: "agentMode must be 'freelance' or 'partner'"
+      });
+    }
+
     const roleDoc = await Role.findOne({ code: '22' });
     if (!roleDoc) {
-      return res.status(404).json({ success: false, message: "Role not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Role not found"
+      });
     }
 
     const existingPhone = await VaultAgent.findOne({ 'phone.number': phone_number });
     if (existingPhone) {
-      return res.status(400).json({ success: false, message: "Phone number already registered" });
+      return res.status(400).json({
+        success: false,
+        message: "Phone number already registered"
+      });
     }
 
     if (email) {
       const existingEmail = await VaultAgent.findOne({ email });
       if (existingEmail) {
-        return res.status(400).json({ success: false, message: "Email already registered" });
+        return res.status(400).json({
+          success: false,
+          message: "Email already registered"
+        });
       }
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+
+    let agentType = 'FreelanceAgent';
+    let partner = null;
+    let affiliationStatus = 'none';
+
+    if (agentMode === 'partner') {
+      if (!partnerId) {
+        return res.status(400).json({
+          success: false,
+          message: "Partner selection required"
+        });
+      }
+
+      partner = await Partner.findById(partnerId);
+      if (!partner) {
+        return res.status(404).json({
+          success: false,
+          message: "Partner not found"
+        });
+      }
+
+      agentType = 'PartnerAffiliatedAgent';
+      affiliationStatus = 'pending';
+    }
 
     const newAgent = await VaultAgent.create({
       name: { first_name, last_name },
@@ -112,31 +164,37 @@ export const agentSignup = async (req, res) => {
       email: email || null,
       password: hashedPassword,
       role: roleDoc._id,
-      agentType: 'FreelanceAgent',
-      partnerId: null,
-      affiliationStatus: 'none',
+      agentType,
+      partnerId: partner ? partner._id : null,
+      affiliationStatus,
       maritalStatus: maritalStatus || null,
       numberOfDependents: numberOfDependents || 0,
       dependents: dependents || [],
       nationality: nationality || null,
       dateOfBirth: dateOfBirth || null,
       gender: gender || null,
-      isActive: true,
+      isActive: false,
       isVerified: false,
       isPhoneVerified: false,
-      isEmailVerified: false
+      isEmailVerified: false,
+      commissionEligible: false
     });
 
-    await HistoryService.logAgentActivity(newAgent, 'AGENT_REGISTERED', await getUserInfo(req), {
-      description: `Freelance agent ${newAgent.fullName} registered`,
-    });
+    await HistoryService.logAgentActivity(
+      newAgent,
+      'AGENT_REGISTERED',
+      await getUserInfo(req),
+      { description: `Agent ${newAgent.fullName} registered (${agentType})` }
+    );
 
     const agentResponse = newAgent.toObject();
     delete agentResponse.password;
 
     return res.status(201).json({
       success: true,
-      message: "Freelance agent registered successfully. Please complete your profile and wait for admin verification.",
+      message: agentMode === 'partner'
+        ? "Registered successfully. Awaiting partner approval."
+        : "Freelance agent registered successfully. Awaiting admin verification.",
       data: agentResponse
     });
 
@@ -454,61 +512,90 @@ export const agentLogin = async (req, res) => {
 };
 
 /* =====================================
-   5. ADMIN VERIFY FREELANCE AGENT
+   5. ADMIN VERIFY AGENT
 ===================================== */
 export const verifyAgent = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, rejectionReason } = req.body;
-
-    const userRole = req.user.role;
-    
+    const { status, action, rejectionReason } = req.body;
 
     const agent = await VaultAgent.findById(id);
-    if (!agent) {
+
+    if (!agent || agent.isDeleted) {
       return res.status(404).json({ success: false, message: "Agent not found" });
     }
 
-   
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
 
-    if (status === 'verified') {
-      agent.isVerified = true;
-      agent.isActive = true;
-      agent.verifiedBy = req.user._id;
-      agent.verifiedAt = new Date();
-      agent.commissionEligible = true;
-      agent.rejectionReason = null;
-      
-      await HistoryService.logAgentActivity(agent, 'AGENT_VERIFIED', await getUserInfo(req), {
-        description: `Admin verified freelance agent ${agent.fullName}`,
-      });
-    } else if (status === 'rejected') {
-      agent.isVerified = false;
-      agent.isActive = false;
-      agent.rejectionReason = rejectionReason || 'Application rejected by admin';
-      
-      await HistoryService.logAgentActivity(agent, 'AGENT_REJECTED', await getUserInfo(req), {
-        description: `Admin rejected freelance agent ${agent.fullName}`,
-        notes: rejectionReason,
-      });
-    } else {
-      return res.status(400).json({ success: false, message: "Status must be 'verified' or 'rejected'" });
+    const isAdmin = roleDoc.code === '18';
+    const isPartner = roleDoc.code === '21';
+
+    // Partner Affiliated Agent Flow
+    if (agent.agentType === 'PartnerAffiliatedAgent') {
+      if (!isAdmin) {
+        return res.status(403).json({ success: false, message: "Only Admin can approve partner agents" });
+      }
+
+      if (status === 'verified') {
+        agent.affiliationStatus = 'verified';
+        agent.affiliationVerifiedBy = req.user._id;
+        agent.affiliationVerifiedAt = new Date();
+        agent.isActive = true;
+        agent.isVerified = false;
+      } else {
+        agent.affiliationStatus = 'rejected';
+        agent.affiliationRejectionReason = rejectionReason;
+        agent.isActive = false;
+      }
+    }
+    // Freelance Agent Flow
+    else if (agent.agentType === 'FreelanceAgent') {
+      if (!isAdmin) {
+        return res.status(403).json({ success: false, message: "Admin only" });
+      }
+
+      if (action === 'approve_login') {
+        agent.isActive = true;
+        agent.isVerified = false;
+      } else if (action === 'verify_profile') {
+        agent.isVerified = true;
+        if (agent.emiratesId?.verified && agent.bankDetails?.verified) {
+          agent.commissionEligible = true;
+        }
+      }
+
+      if (status === 'rejected') {
+        agent.isActive = false;
+        agent.isVerified = false;
+        agent.rejectionReason = rejectionReason;
+      }
     }
 
     await agent.save();
 
     return res.status(200).json({
       success: true,
-      message: `Agent ${status} successfully`,
-      data: { _id: agent._id, isVerified: agent.isVerified, isActive: agent.isActive, rejectionReason: agent.rejectionReason }
+      message: "Agent updated successfully",
+      data: {
+        _id: agent._id,
+        agentType: agent.agentType,
+        isActive: agent.isActive,
+        isVerified: agent.isVerified,
+        affiliationStatus: agent.affiliationStatus
+      }
     });
+
   } catch (error) {
+    console.error("verifyAgent error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /* =====================================
-   6. SUSPEND AGENT (Admin or Partner)
+   6. SUSPEND AGENT
 ===================================== */
 export const suspendAgent = async (req, res) => {
   try {
@@ -516,95 +603,107 @@ export const suspendAgent = async (req, res) => {
     const { suspensionReason } = req.body;
 
     const agent = await VaultAgent.findById(id);
-    if (!agent) {
+    if (!agent || agent.isDeleted) {
       return res.status(404).json({ success: false, message: "Agent not found" });
     }
 
-    const userRole = req.user.role;
-    const roleDoc = await Role.findById(userRole);
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
 
+    // Admin
     if (roleDoc.code === '18') {
       agent.suspendedAt = new Date();
       agent.suspensionReason = suspensionReason || "Suspended by Admin";
       agent.isActive = false;
       await agent.save();
-      
+
       await HistoryService.logAgentActivity(agent, 'AGENT_SUSPENDED', await getUserInfo(req), {
         description: `Admin suspended agent ${agent.fullName}`,
-        notes: suspensionReason,
+        notes: suspensionReason
       });
-      
+
       return res.status(200).json({ success: true, message: "Agent suspended successfully", data: agent });
     }
 
+    // Partner
     if (roleDoc.code === '21') {
       if (agent.partnerId?.toString() !== req.user._id.toString()) {
         return res.status(403).json({ success: false, message: "You can only suspend your own agents" });
       }
+
       agent.suspendedAt = new Date();
       agent.suspensionReason = suspensionReason || "Suspended by Partner";
       agent.isActive = false;
       await agent.save();
-      
+
       await HistoryService.logAgentActivity(agent, 'AGENT_SUSPENDED', await getUserInfo(req), {
         description: `Partner suspended agent ${agent.fullName}`,
-        notes: suspensionReason,
+        notes: suspensionReason
       });
-      
+
       return res.status(200).json({ success: true, message: "Agent suspended successfully", data: agent });
     }
 
     return res.status(403).json({ success: false, message: "Access denied" });
+
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /* =====================================
-   7. ACTIVATE AGENT (Admin or Partner)
+   7. ACTIVATE AGENT
 ===================================== */
 export const activateAgent = async (req, res) => {
   try {
     const { id } = req.params;
 
     const agent = await VaultAgent.findById(id);
-    if (!agent) {
+    if (!agent || agent.isDeleted) {
       return res.status(404).json({ success: false, message: "Agent not found" });
     }
 
-    const userRole = req.user.role;
-    const roleDoc = await Role.findById(userRole);
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
 
+    // Admin
     if (roleDoc.code === '18') {
       agent.suspendedAt = null;
       agent.suspensionReason = null;
       agent.isActive = true;
       await agent.save();
-      
+
       await HistoryService.logAgentActivity(agent, 'AGENT_ACTIVATED', await getUserInfo(req), {
         description: `Admin activated agent ${agent.fullName}`,
       });
-      
+
       return res.status(200).json({ success: true, message: "Agent activated successfully", data: agent });
     }
 
+    // Partner
     if (roleDoc.code === '21') {
       if (agent.partnerId?.toString() !== req.user._id.toString()) {
         return res.status(403).json({ success: false, message: "You can only activate your own agents" });
       }
+
       agent.suspendedAt = null;
       agent.suspensionReason = null;
       agent.isActive = true;
       await agent.save();
-      
+
       await HistoryService.logAgentActivity(agent, 'AGENT_ACTIVATED', await getUserInfo(req), {
         description: `Partner activated agent ${agent.fullName}`,
       });
-      
+
       return res.status(200).json({ success: true, message: "Agent activated successfully", data: agent });
     }
 
     return res.status(403).json({ success: false, message: "Access denied" });
+
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -618,44 +717,51 @@ export const deleteAgent = async (req, res) => {
     const { id } = req.params;
 
     const agent = await VaultAgent.findById(id);
-    if (!agent) {
+    if (!agent || agent.isDeleted) {
       return res.status(404).json({ success: false, message: "Agent not found" });
     }
 
-    const userRole = req.user.role;
-    const roleDoc = await Role.findById(userRole);
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
 
+    // Admin
     if (roleDoc.code === '18') {
       agent.isDeleted = true;
       agent.deletedAt = new Date();
       agent.isActive = false;
       await agent.save();
-      
+
       await HistoryService.logAgentActivity(agent, 'AGENT_DELETED', await getUserInfo(req), {
         description: `Admin deleted agent ${agent.fullName}`,
       });
-      
+
       return res.status(200).json({ success: true, message: "Agent deleted successfully" });
     }
 
+    // Partner
     if (roleDoc.code === '21') {
       if (agent.partnerId?.toString() !== req.user._id.toString()) {
         return res.status(403).json({ success: false, message: "You can only delete your own agents" });
       }
+
       agent.isDeleted = true;
       agent.deletedAt = new Date();
       agent.isActive = false;
       await agent.save();
+
       await Partner.findByIdAndUpdate(agent.partnerId, { $inc: { numberOfAgents: -1 } });
-      
+
       await HistoryService.logAgentActivity(agent, 'AGENT_DELETED', await getUserInfo(req), {
         description: `Partner deleted agent ${agent.fullName}`,
       });
-      
+
       return res.status(200).json({ success: true, message: "Agent deleted successfully" });
     }
 
     return res.status(403).json({ success: false, message: "Access denied" });
+
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -666,10 +772,7 @@ export const deleteAgent = async (req, res) => {
 ===================================== */
 export const getAllAgents = async (req, res) => {
   try {
-    const userRole = req.user.role;
-    const roleDoc = await Role.findById(userRole);
-    
-    // Validate Admin Role (assuming '18' is your admin code)
+    const roleDoc = await Role.findById(req.user.role);
     if (!roleDoc || roleDoc.code !== '18') {
       return res.status(403).json({ success: false, message: "Access denied. Admin only." });
     }
@@ -679,20 +782,17 @@ export const getAllAgents = async (req, res) => {
     const skip = (page - 1) * limit;
     const { isActive, search, isVerified } = req.query;
 
-    // Base query
-    let query = { isDeleted: false, agentType: 'FreelanceAgent' };
-    
-    // Handle Active / Suspended filtering
-    if (isActive !== undefined && isActive !== '') {
-      query.isActive = isActive === 'true';
-    }
-    
-    // Handle Verification filtering
-    if (isVerified !== undefined && isVerified !== '') {
-      query.isVerified = isVerified === 'true';
-    }
-    
-    // Handle Search filtering
+    let query = {
+      isDeleted: false,
+      $or: [
+        { agentType: 'FreelanceAgent' },
+        { agentType: 'PartnerAffiliatedAgent', affiliationStatus: 'pending' }
+      ]
+    };
+
+    if (isActive !== undefined && isActive !== '') query.isActive = isActive === 'true';
+    if (isVerified !== undefined && isVerified !== '') query.isVerified = isVerified === 'true';
+
     if (search) {
       query.$or = [
         { 'name.first_name': { $regex: search, $options: 'i' } },
@@ -705,7 +805,8 @@ export const getAllAgents = async (req, res) => {
     const agents = await VaultAgent.find(query)
       .select('-password')
       .populate('role', 'name code')
-      .sort({ createdAt: -1 }) // Newest first
+      .populate('partnerId', 'companyName dbaName')
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
@@ -714,14 +815,15 @@ export const getAllAgents = async (req, res) => {
     return res.status(200).json({
       success: true,
       data: agents,
-      total: total,
+      total,
       pagination: {
         totalPages: Math.ceil(total / limit),
         currentPage: page,
         totalItems: total,
-        limit: limit
+        limit
       }
     });
+
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -732,9 +834,7 @@ export const getAllAgents = async (req, res) => {
 ===================================== */
 export const getAgentsByPartner = async (req, res) => {
   try {
-    const userRole = req.user.role;
-    const roleDoc = await Role.findById(userRole);
-    
+    const roleDoc = await Role.findById(req.user.role);
     if (!roleDoc || roleDoc.code !== '21') {
       return res.status(403).json({ success: false, message: "Access denied. Partner only." });
     }
@@ -745,9 +845,15 @@ export const getAgentsByPartner = async (req, res) => {
     const skip = (page - 1) * limit;
     const { isActive, search } = req.query;
 
-    let query = { partnerId: partnerId, agentType: 'PartnerAffiliatedAgent', isDeleted: false };
+    let query = {
+      partnerId,
+      agentType: 'PartnerAffiliatedAgent',
+      affiliationStatus: 'verified',
+      isDeleted: false
+    };
+
     if (isActive !== undefined) query.isActive = isActive === 'true';
-    
+
     if (search) {
       query.$or = [
         { 'name.first_name': { $regex: search, $options: 'i' } },
@@ -768,14 +874,15 @@ export const getAgentsByPartner = async (req, res) => {
     return res.status(200).json({
       success: true,
       data: agents,
-      total: total,
+      total,
       pagination: {
         totalPages: Math.ceil(total / limit),
         currentPage: page,
         totalItems: total,
-        limit: limit
+        limit
       }
     });
+
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -794,22 +901,13 @@ export const getAgentById = async (req, res) => {
       .populate('partnerId', 'companyName status');
 
     if (!agent || agent.isDeleted) {
-      return res.status(404).json({
-        success: false,
-        message: "Agent not found"
-      });
+      return res.status(404).json({ success: false, message: "Agent not found" });
     }
 
-    return res.status(200).json({
-      success: true,
-      data: agent
-    });
+    return res.status(200).json({ success: true, data: agent });
 
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -824,44 +922,27 @@ export const updateAgentProfile = async (req, res) => {
       return res.status(404).json({ success: false, message: "Agent not found" });
     }
 
-    // Agent sirf ye fields update kar sakta hai
     const allowedFields = [
-      'email',
-      'profilePic',
-      'address',
-      'emergencyContact',
-      'languagePreference',
-      'communicationPreference',
-      'maritalStatus',
-      'numberOfDependents',
-      'dependents',
-      'nationality',
-      'dateOfBirth',
-      'gender',
+      'email', 'profilePic', 'address', 'emergencyContact',
+      'languagePreference', 'communicationPreference', 'maritalStatus',
+      'numberOfDependents', 'dependents', 'nationality', 'dateOfBirth', 'gender'
     ];
 
-    // Sensitive fields self-update pe blocked
     const blockedFields = ['agentType', 'partnerId', 'affiliationStatus', 'role',
       'isVerified', 'commissionEligible', 'isActive', 'password',
       'freelanceCommission', 'earnings'];
 
-    blockedFields.forEach(field => {
+    for (const field of blockedFields) {
       if (req.body[field] !== undefined) {
-        return res.status(403).json({
-          success: false,
-          message: `Field '${field}' cannot be updated by agent`
-        });
+        return res.status(403).json({ success: false, message: `Field '${field}' cannot be updated by agent` });
       }
-    });
+    }
 
     const updates = {};
     allowedFields.forEach(field => {
-      if (req.body[field] !== undefined) {
-        updates[field] = req.body[field];
-      }
+      if (req.body[field] !== undefined) updates[field] = req.body[field];
     });
 
-    // Emirates ID update — partial allowed
     if (req.body.emiratesId) {
       const eid = req.body.emiratesId;
       updates['emiratesId.number'] = eid.number ?? agent.emiratesId.number;
@@ -869,10 +950,8 @@ export const updateAgentProfile = async (req, res) => {
       updates['emiratesId.expiryDate'] = eid.expiryDate ?? agent.emiratesId.expiryDate;
       updates['emiratesId.frontImageUrl'] = eid.frontImageUrl ?? agent.emiratesId.frontImageUrl;
       updates['emiratesId.backImageUrl'] = eid.backImageUrl ?? agent.emiratesId.backImageUrl;
-      // verified sirf admin set kar sakta hai — agent touch nahi kar sakta
     }
 
-    // Bank details update
     if (req.body.bankDetails) {
       const bd = req.body.bankDetails;
       updates['bankDetails.beneficiaryName'] = bd.beneficiaryName ?? agent.bankDetails.beneficiaryName;
@@ -881,12 +960,10 @@ export const updateAgentProfile = async (req, res) => {
       updates['bankDetails.iban'] = bd.iban ?? agent.bankDetails.iban;
       updates['bankDetails.swiftCode'] = bd.swiftCode ?? agent.bankDetails.swiftCode;
       updates['bankDetails.accountType'] = bd.accountType ?? agent.bankDetails.accountType;
-      // verified reset hoga jab bhi agent bank details change kare
       updates['bankDetails.verified'] = false;
       updates['bankDetails.verifiedAt'] = null;
     }
 
-    // Passport update
     if (req.body.passport) {
       const pp = req.body.passport;
       updates['passport.number'] = pp.number ?? agent.passport.number;
@@ -897,7 +974,6 @@ export const updateAgentProfile = async (req, res) => {
       updates['passport.verified'] = false;
     }
 
-    // Visa update
     if (req.body.visa) {
       const v = req.body.visa;
       updates['visa.number'] = v.number ?? agent.visa.number;
@@ -914,16 +990,10 @@ export const updateAgentProfile = async (req, res) => {
       { new: true, runValidators: true }
     ).select('-password');
 
-    // Profile completion recalculate
     checkProfileCompleteness(updatedAgent);
     await updatedAgent.save();
 
-    // Commission eligibility — sirf tab true hoga jab EID + bank verified ho
-    const canEarnCommission =
-      updatedAgent.isVerified &&
-      updatedAgent.emiratesId?.verified &&
-      updatedAgent.bankDetails?.verified;
-
+    const canEarnCommission = updatedAgent.isVerified && updatedAgent.emiratesId?.verified && updatedAgent.bankDetails?.verified;
     if (updatedAgent.commissionEligible !== canEarnCommission) {
       updatedAgent.commissionEligible = canEarnCommission;
       await updatedAgent.save();
@@ -934,11 +1004,7 @@ export const updateAgentProfile = async (req, res) => {
       metadata: { updatedFields: Object.keys(updates) }
     });
 
-    return res.status(200).json({
-      success: true,
-      message: "Profile updated successfully",
-      data: updatedAgent
-    });
+    return res.status(200).json({ success: true, message: "Profile updated successfully", data: updatedAgent });
 
   } catch (error) {
     console.error("updateAgentProfile error:", error);
@@ -971,10 +1037,8 @@ export const changePassword = async (req, res) => {
       description: `Agent ${agent.fullName} changed password`,
     });
 
-    return res.status(200).json({
-      success: true,
-      message: "Password changed successfully"
-    });
+    return res.status(200).json({ success: true, message: "Password changed successfully" });
+
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -1009,11 +1073,15 @@ export const getAgentDashboard = async (req, res) => {
         recentLeads: leads.slice(0, 5)
       }
     });
+
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
+/* =====================================
+   15. GET AGENT PROFILE
+===================================== */
 export const getAgentProfile = async (req, res) => {
   try {
     const agent = await VaultAgent.findOne({ _id: req.user._id, isDeleted: false })
@@ -1026,10 +1094,15 @@ export const getAgentProfile = async (req, res) => {
     }
 
     return res.status(200).json({ success: true, data: agent });
+
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+/* =====================================
+   16. ADMIN UPDATE AGENT
+===================================== */
 export const adminUpdateAgent = async (req, res) => {
   try {
     const roleDoc = await Role.findById(req.user.role);
@@ -1043,21 +1116,15 @@ export const adminUpdateAgent = async (req, res) => {
       return res.status(404).json({ success: false, message: "Agent not found" });
     }
 
-    // Admin ke liye almost sab update allowed hai — password except
     const {
       first_name, last_name, email, nationality, dateOfBirth, gender,
       maritalStatus, numberOfDependents, dependents, address, emergencyContact,
       languagePreference, communicationPreference, profilePic,
-      // Emirates ID
       emiratesIdNumber, emiratesIdIssuanceDate, emiratesIdExpiryDate,
       emiratesIdFrontImage, emiratesIdBackImage, emiratesIdVerified,
-      // Bank
       beneficiaryName, bankName, accountNumber, iban, swiftCode, accountType, bankVerified,
-      // Passport
       passportNumber, passportCountry, passportIssueDate, passportExpiry, passportImage,
-      // Visa
       visaNumber, visaResidency, visaSponsor, visaExpiry, visaImage,
-      // Status fields
       commissionEligible, commissionEligibilityReason,
     } = req.body;
 
@@ -1078,7 +1145,6 @@ export const adminUpdateAgent = async (req, res) => {
     if (communicationPreference !== undefined) updates.communicationPreference = communicationPreference;
     if (profilePic !== undefined) updates.profilePic = profilePic;
 
-    // Emirates ID — admin verify bhi kar sakta hai
     if (emiratesIdNumber !== undefined) updates['emiratesId.number'] = emiratesIdNumber;
     if (emiratesIdIssuanceDate !== undefined) updates['emiratesId.issuanceDate'] = emiratesIdIssuanceDate;
     if (emiratesIdExpiryDate !== undefined) updates['emiratesId.expiryDate'] = emiratesIdExpiryDate;
@@ -1090,7 +1156,6 @@ export const adminUpdateAgent = async (req, res) => {
       updates['emiratesId.verifiedBy'] = emiratesIdVerified ? req.user._id : null;
     }
 
-    // Bank details — admin verify bhi kar sakta hai
     if (beneficiaryName !== undefined) updates['bankDetails.beneficiaryName'] = beneficiaryName;
     if (bankName !== undefined) updates['bankDetails.bankName'] = bankName;
     if (accountNumber !== undefined) updates['bankDetails.accountNumber'] = accountNumber;
@@ -1102,21 +1167,18 @@ export const adminUpdateAgent = async (req, res) => {
       updates['bankDetails.verifiedAt'] = bankVerified ? new Date() : null;
     }
 
-    // Passport
     if (passportNumber !== undefined) updates['passport.number'] = passportNumber;
     if (passportCountry !== undefined) updates['passport.countryOfIssue'] = passportCountry;
     if (passportIssueDate !== undefined) updates['passport.issueDate'] = passportIssueDate;
     if (passportExpiry !== undefined) updates['passport.expiryDate'] = passportExpiry;
     if (passportImage !== undefined) updates['passport.imageUrl'] = passportImage;
 
-    // Visa
     if (visaNumber !== undefined) updates['visa.number'] = visaNumber;
     if (visaResidency !== undefined) updates['visa.residencyStatus'] = visaResidency;
     if (visaSponsor !== undefined) updates['visa.sponsor'] = visaSponsor;
     if (visaExpiry !== undefined) updates['visa.expiryDate'] = visaExpiry;
     if (visaImage !== undefined) updates['visa.imageUrl'] = visaImage;
 
-    // Commission eligibility — admin manually set kar sakta hai
     if (commissionEligible !== undefined) {
       updates.commissionEligible = commissionEligible;
       updates.commissionEligibilityReason = commissionEligibilityReason || null;
@@ -1136,11 +1198,7 @@ export const adminUpdateAgent = async (req, res) => {
       metadata: { updatedFields: Object.keys(updates) }
     });
 
-    return res.status(200).json({
-      success: true,
-      message: "Agent updated successfully by Admin",
-      data: updatedAgent
-    });
+    return res.status(200).json({ success: true, message: "Agent updated successfully by Admin", data: updatedAgent });
 
   } catch (error) {
     console.error("adminUpdateAgent error:", error);
@@ -1148,6 +1206,9 @@ export const adminUpdateAgent = async (req, res) => {
   }
 };
 
+/* =====================================
+   17. PARTNER UPDATE AGENT
+===================================== */
 export const partnerUpdateAgent = async (req, res) => {
   try {
     const roleDoc = await Role.findById(req.user.role);
@@ -1164,13 +1225,9 @@ export const partnerUpdateAgent = async (req, res) => {
     });
 
     if (!agent) {
-      return res.status(404).json({
-        success: false,
-        message: "Agent not found or does not belong to your company"
-      });
+      return res.status(404).json({ success: false, message: "Agent not found or does not belong to your company" });
     }
 
-    // Partner sirf basic info update kar sakta hai — no financial, no verification
     const allowedByPartner = [
       'email', 'profilePic', 'address', 'emergencyContact',
       'languagePreference', 'communicationPreference',
@@ -1179,9 +1236,7 @@ export const partnerUpdateAgent = async (req, res) => {
 
     const updates = {};
     allowedByPartner.forEach(field => {
-      if (req.body[field] !== undefined) {
-        updates[field] = req.body[field];
-      }
+      if (req.body[field] !== undefined) updates[field] = req.body[field];
     });
 
     if (Object.keys(updates).length === 0) {
@@ -1202,12 +1257,7 @@ export const partnerUpdateAgent = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Agent updated successfully",
-      data: {
-        _id: updatedAgent._id,
-        name: updatedAgent.name,
-        email: updatedAgent.email,
-        ...updates
-      }
+      data: { _id: updatedAgent._id, name: updatedAgent.name, email: updatedAgent.email, ...updates }
     });
 
   } catch (error) {
