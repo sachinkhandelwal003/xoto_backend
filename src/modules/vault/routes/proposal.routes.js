@@ -25,7 +25,7 @@ router.put('/:id', protectMulti, updateProposal);
 router.delete('/:id', protectMulti, deleteProposal);
 
 // ==================== SEND PROPOSAL ====================
-router.post('/:id/send', protectMulti, sendProposal);
+router.post('/:id/send', sendProposal);
 
 // ==================== PUBLIC CUSTOMER ROUTES (No Auth - Secure Link) ====================
 router.get('/secure/:id', getProposalBySecureLink);
@@ -34,6 +34,6 @@ router.post('/:id/reject', rejectProposal);
 
 // ==================== ELIGIBILITY & CALCULATION (Advisor Preview) ====================
 router.get('/eligible-banks/:leadId', protectMulti, getEligibleBanksForLead);
-router.post('/calculate-offer', protectMulti, calculateBankOffer);
+router.post('/calculate-offer', calculateBankOffer);
 
 module.exports = router;

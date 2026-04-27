@@ -11,30 +11,43 @@ import {
   getCasesByProposal,
   getCaseDocumentStatus,
   deleteCase,
-  getCaseStats
+  getCaseStats, getOpsQueue,
+  opsPickUpCase,
+  adminAssignCaseToOps,
+  getMyAssignedCases,
+  returnCaseForCorrection,
+  submitCaseToBank,
+  updateBankDecision
 } from '../controllers/case.controller.js';
-import { protect, protectAdmin, protectPartner,protectMulti} from '../../../middleware/auth.js';
+import { protect, protectMulti,protectVaultOps } from '../../../middleware/auth.js';
 
 const router = express.Router();
 
-// ==================== PROTECTED ROUTES ====================
-
 // ==================== CASE CRUD ====================
-router.post('/',protectMulti, createCase);                          // Create case
-router.get('/', protectMulti, getAllCases);                          // Get all cases
-router.get('/stats', protect, getCaseStats);      // Get case statistics
-router.get('/by-lead/:leadId', getCasesByLead);        // Get cases by lead
-router.get('/by-proposal/:proposalId', getCasesByProposal); // Get cases by proposal
-router.get('/:id', getCaseById);                       // Get case by ID
-router.put('/:id', updateCase);                        // Update case
-router.delete('/:id', protect, deleteCase);       // Delete case (Admin only)
+router.post('/', protectMulti, createCase);
+router.get('/', protectMulti, getAllCases);
+router.get('/stats', protect, getCaseStats);
+router.get('/by-lead/:leadId', protectMulti, getCasesByLead);
+router.get('/by-proposal/:proposalId', protectMulti, getCasesByProposal);
+router.get('/:id', protectMulti, getCaseById);
+router.put('/:id', protectMulti, updateCase);
+router.delete('/:id', protect, deleteCase);
 
 // ==================== CASE WORKFLOW ====================
-router.post('/:id/submit', protectMulti, submitCaseToXoto);          // Submit case to Xoto
-router.put('/admin/:id/status', protect, updateCaseStatus); // Update status (Admin only)
-router.post('/:id/notes', addCaseNote);                // Add case note
+router.post('/:id/submit', protectMulti, submitCaseToXoto);
+router.put('/:id/status', protectMulti, updateCaseStatus);
+router.post('/:id/notes', protectMulti, addCaseNote);
+
+// ==================== OPS QUEUE ROUTES ====================
+router.get('/ops/queue', protectMulti, getOpsQueue);
+router.post('/ops/pickup/:caseId', protectVaultOps, opsPickUpCase);
+router.post('/ops/assign', protect, adminAssignCaseToOps);
+router.get('/ops/my-cases', protectVaultOps, getMyAssignedCases);
+router.post('/ops/return/:caseId', protectMulti, returnCaseForCorrection);
+router.post('/ops/submit-to-bank/:caseId', protectMulti, submitCaseToBank);
+router.put('/ops/bank-decision/:caseId', protectMulti, updateBankDecision);
 
 // ==================== CASE DOCUMENTS ====================
-router.get('/:id/documents/status', getCaseDocumentStatus); // Get document status
+router.get('/:id/documents/status', protectMulti, getCaseDocumentStatus);
 
 module.exports = router;

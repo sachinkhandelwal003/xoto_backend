@@ -199,7 +199,7 @@ exports.protectMulti = async (req, res, next) => {
         vaultagent: VaultAgents,
   partner: Partner,
   vaultadvisor: VaultAdvisor,    // ✅ ADD THIS LINE
-  vaultops: VaultOps
+  mortgageops: VaultOps
     };
 
     const Model = entityMap[type];
