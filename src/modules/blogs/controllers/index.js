@@ -16,7 +16,8 @@ const sanitizeOptions = {
   allowedAttributes: {
     ...sanitizeHtml.defaults.allowedAttributes,
     // 🚨 ADDED: 'data-list' and 'data-value' which Quill uses for bullet points and lists
-    '*': ['class', 'style', 'id', 'data-list', 'data-value'],
+    // '*': ['class', 'style', 'id', 'data-list', 'data-value'],
+    '*': ['class', 'id', 'data-list', 'data-value'],
     'img': ['src', 'alt', 'title', 'width', 'height', 'loading'],
     'a': ['href', 'target', 'rel', 'title'],
     'iframe': ['src', 'width', 'height', 'allow', 'allowfullscreen', 'frameborder'],
@@ -106,6 +107,10 @@ export const createBlog = async (req, res) => {
 
     // Convert markdown → HTML if plain text
     let processedContent = body.content || '';
+    processedContent = processedContent.replace(
+  /font-weight:\s*(bold|700|800|900);?/gi,
+  ''
+);
     if (processedContent && !processedContent.includes('<')) {
       processedContent = await marked(processedContent);
     }
@@ -265,7 +270,10 @@ export const editBlogsById = async (req, res) => {
       }
       updateData.content = sanitizeHtml(updateData.content, sanitizeOptions);
       updateData.contentHtml = updateData.content;
-
+updateData.content = updateData.content.replace(
+  /font-weight:\s*(bold|700|800|900);?/gi,
+  ''
+);
       // Re-enrich tags/category/readingTime on edit
       updateData.tags = autoExtractTags(updateData.content, updateData.tags || []);
       updateData.category = autoDetectCategory(updateData.content, updateData.category);
