@@ -4,7 +4,7 @@ import Developer from "../models/DeveloperModel.js";
 import Inventory from "../models/Inventory.js";
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { createToken } from '../../../middleware/auth.js';
-import Lead from "../../Agent/models/AgentLeaad.js";
+import Lead from "../../Grid/Agent/models/AgentLeaad.js";
 import bcrypt from "bcryptjs";
 
 

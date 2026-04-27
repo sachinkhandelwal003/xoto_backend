@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const SiteVisit = require("../models/SiteVisit");
 const Lead = require("../models/AgentLeaad");
 const LeadInterest = require("../models/LeadInterest");
-const Property = require("../../properties/models/property.model");
+const Property = require("../../../properties/models/property.model");
 
 /**
  * CREATE SITE VISIT
