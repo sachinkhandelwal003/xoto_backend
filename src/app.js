@@ -31,7 +31,7 @@ const AgentLead = require('./modules/Grid/Agent/routes/Agentroute.js')
 // const stripeRoutes = require('./modules/auth/routes/ai/Striperoutes.js');
 const AgentLead = require('./modules/Agent/routes/Agentroute.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
-
+const referralPartnerRoutes = require("./modules/Grid/ReferralPartner/Routes/ReferralPartner.route.js");
 const rentalProperrty = require('./modules/RentalProperties/routes/Rentproperty.routes.js')
 // const Rentlead = require('./modules/RentalProperties/routes/Rentlead.routes.js')
 // console.log("SkyRoutes Check:", SkyRoutes);
@@ -58,7 +58,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Database connection
 require('./config/database');
 // app.use('/uploads',express.static(path.join(__dirname, '..', 'uploads')));
-app.use('/stripe', stripeRoutes);
+// app.use('/stripe', stripeRoutes);
 app.get('/test-stripe', (req, res) => {
   res.json({ message: 'Stripe routes working!' });
 });
@@ -114,7 +114,8 @@ app.use('/vault/lead/proposals', require('./modules/vault/routes/proposal.routes
 app.use('/vault/cases', require('./modules/vault/routes/case.routes.js'));
 
 app.use('/vault/lead/documents', require('./modules/vault/routes/document.routes.js'));
-
+// Grid Referral Partner 
+app.use("/referral", referralPartnerRoutes);
 
 app.use('/platform', require('../src/modules/auth/routes/role/platform.routes'));
 
