@@ -14,7 +14,7 @@ import {
   deleteAdvisor,
   getAdvisorProfile,
   updateAdvisorProfile,
-  changeAdvisorPassword
+  changeAdvisorPassword,getXotoAdvisorById
 } from '../controllers/xotoAdvisor.controller.js';
 
 import { protect } from '../../../middleware/auth.js';
@@ -24,6 +24,8 @@ const router = express.Router();
 // ==================== ADMIN ONLY ====================
 router.post('/create', protect, createXotoAdvisor);
 router.get('/all', protect, getAllXotoAdvisors);
+router.get('/get/:id', protect, getXotoAdvisorById);
+
 router.get('/workload', protect, getAdvisorWorkload);
 router.post('/assign-lead', protect, assignLeadToAdvisor);
 router.post('/suspend/:id', protect, suspendAdvisor);

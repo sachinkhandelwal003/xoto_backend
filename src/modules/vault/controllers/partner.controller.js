@@ -48,113 +48,212 @@ const getUserInfo = async (req, user = null) => {
 
 /* =====================================
    PARTNER ONBOARDING (Admin only)
+   Handles BOTH Company and Individual Partner
 ===================================== */
 export const createPartner = async (req, res) => {
   try {
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc || roleDoc.code !== '18') {
+      return res.status(403).json({ success: false, message: "Access denied. Admin only." });
+    }
+
     const {
-      companyName,
-      legalEntityType,
-      tradeLicenseNumber,
-      tradeLicenseIssueDate,
-      isOfflineAgreement,
-      tradeLicenseExpiryDate,
-      taxRegistrationNumber,
-      dbaName,
-      website,
-      yearEstablished,
-      numberOfBranches,
+      // Common fields for both types
+      partnerCategory,  // 'company' or 'individual'
+      email,
+      password,
       primaryContact,
-      secondaryContact,
       billingAddress,
       shippingAddress,
       bankDetails,
       commissionConfiguration,
       agreementDetails,
-      email,
-      password
+      taxRegistrationNumber,
+      dbaName,
+      website,
+      yearEstablished,
+      numberOfBranches,
+      
+      // Company specific fields
+      companyName,
+      legalEntityType,
+      tradeLicenseNumber,
+      tradeLicenseIssueDate,
+      tradeLicenseExpiryDate,
+      isOfflineAgreement,
+      
+      // Individual specific fields
+      individualDetails
     } = req.body;
 
-    if (!companyName || !tradeLicenseNumber || !email || !password) {
+    // ==================== VALIDATION ====================
+    if (!partnerCategory || !['company', 'individual'].includes(partnerCategory)) {
       return res.status(400).json({
         success: false,
-        message: "Company name, trade license, email and password are required"
+        message: "partnerCategory is required and must be 'company' or 'individual'"
       });
     }
 
-    const roleDoc = await Role.findOne({ code: '21' });
-    if (!roleDoc) {
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required"
+      });
+    }
+
+    if (!primaryContact || !primaryContact.name || !primaryContact.email || !primaryContact.phone) {
+      return res.status(400).json({
+        success: false,
+        message: "Primary contact name, email and phone are required"
+      });
+    }
+
+    if (!billingAddress || !billingAddress.city) {
+      return res.status(400).json({
+        success: false,
+        message: "Billing address city is required"
+      });
+    }
+
+    if (!agreementDetails || !agreementDetails.startDate || !agreementDetails.endDate || !agreementDetails.signedByPartner || !agreementDetails.signedDate) {
+      return res.status(400).json({
+        success: false,
+        message: "Agreement details (startDate, endDate, signedByPartner, signedDate) are required"
+      });
+    }
+
+    // ==================== COMPANY VALIDATION ====================
+    if (partnerCategory === 'company') {
+      if (!companyName) {
+        return res.status(400).json({
+          success: false,
+          message: "Company name is required for company partner"
+        });
+      }
+      if (!tradeLicenseNumber) {
+        return res.status(400).json({
+          success: false,
+          message: "Trade license number is required for company partner"
+        });
+      }
+    }
+
+    // ==================== INDIVIDUAL VALIDATION ====================
+    if (partnerCategory === 'individual') {
+      if (!individualDetails || !individualDetails.firstName || !individualDetails.lastName || !individualDetails.emiratesId || !individualDetails.nationality || !individualDetails.dateOfBirth) {
+        return res.status(400).json({
+          success: false,
+          message: "Individual details (firstName, lastName, emiratesId, nationality, dateOfBirth) are required"
+        });
+      }
+    }
+
+    // ==================== ROLE CHECK ====================
+    const roleDocPartner = await Role.findOne({ code: '21' });
+    if (!roleDocPartner) {
       return res.status(404).json({
         success: false,
         message: "Role with code 21 not found"
       });
     }
 
-    const existingPartner = await Partner.findOne({
-      $or: [
+    // ==================== DUPLICATE CHECK ====================
+    let duplicateQuery = { email: email };
+    if (partnerCategory === 'company') {
+      duplicateQuery.$or = [
         { companyName: companyName },
-        { tradeLicenseNumber: tradeLicenseNumber },
-        { email: email }
-      ]
-    });
+        { tradeLicenseNumber: tradeLicenseNumber }
+      ];
+    } else {
+      duplicateQuery.$or = [
+        { 'individualDetails.emiratesId': individualDetails.emiratesId }
+      ];
+    }
 
+    const existingPartner = await Partner.findOne(duplicateQuery);
     if (existingPartner) {
+      let duplicateField = '';
+      if (existingPartner.email === email) duplicateField = 'email';
+      else if (existingPartner.companyName === companyName) duplicateField = 'company name';
+      else if (existingPartner.tradeLicenseNumber === tradeLicenseNumber) duplicateField = 'trade license';
+      else if (existingPartner.individualDetails?.emiratesId === individualDetails?.emiratesId) duplicateField = 'Emirates ID';
+      
       return res.status(400).json({
         success: false,
-        message: "Partner already exists with this company name, trade license or email"
+        message: `Partner already exists with this ${duplicateField}`
       });
     }
 
+    // ==================== CREATE PARTNER ====================
     const hashedPassword = await bcrypt.hash(password, 10);
-    const username = email.split('@')[0];
 
-    const partner = await Partner.create({
-      partnerCategory: 'company',
-      companyName,
-      legalEntityType,
-      tradeLicenseNumber,
-      tradeLicenseIssueDate,
-      isOfflineAgreement: isOfflineAgreement || true,
-      tradeLicenseExpiryDate,
-      taxRegistrationNumber,
-      dbaName,
-      website,
-      yearEstablished,
-      numberOfBranches,
+    const partnerData = {
+      partnerCategory,
+      email,
+      password: hashedPassword,
+      role: roleDocPartner._id,
       primaryContact,
-      secondaryContact,
       billingAddress,
-      shippingAddress,
-      bankDetails,
+      shippingAddress: shippingAddress || null,
+      bankDetails: bankDetails || {},
       commissionConfiguration: commissionConfiguration || {
         tier1: { loanAmountMax: 5000000, commissionPercentage: 80 },
         tier2: { loanAmountMin: 5000001, commissionPercentage: 85 }
       },
       agreementDetails,
-      email: email,
-      password: hashedPassword,
-      role: roleDoc._id,
+      taxRegistrationNumber: taxRegistrationNumber || null,
+      dbaName: dbaName || null,
+      website: website || null,
+      yearEstablished: yearEstablished || null,
+      numberOfBranches: numberOfBranches || 1,
+      numberOfAgents: 0,
       status: 'active',
       onboardingCompleted: true,
       onboardedAt: new Date(),
       dropdownAvailableFrom: new Date()
-    });
+    };
 
+    // Add company specific fields
+    if (partnerCategory === 'company') {
+      partnerData.companyName = companyName;
+      partnerData.legalEntityType = legalEntityType || null;
+      partnerData.tradeLicenseNumber = tradeLicenseNumber;
+      partnerData.tradeLicenseIssueDate = tradeLicenseIssueDate || null;
+      partnerData.tradeLicenseExpiryDate = tradeLicenseExpiryDate || null;
+      partnerData.isOfflineAgreement = isOfflineAgreement || true;
+    }
+
+    // Add individual specific fields
+    if (partnerCategory === 'individual') {
+      partnerData.individualDetails = individualDetails;
+    }
+
+    const partner = await Partner.create(partnerData);
+
+    // ==================== LOG HISTORY ====================
     await HistoryService.logPartnerActivity(partner, 'PARTNER_ONBOARDED', await getUserInfo(req), {
-      description: `Partner ${companyName} onboarded successfully`,
-      metadata: { onboardedBy: req.user?.email, tradeLicense: tradeLicenseNumber },
+      description: `${partnerCategory === 'company' ? 'Company Partner' : 'Individual Partner'} ${partner.displayName} onboarded successfully`,
+      metadata: { 
+        onboardedBy: req.user?.email, 
+        partnerCategory,
+        ...(partnerCategory === 'company' && { tradeLicense: tradeLicenseNumber }),
+        ...(partnerCategory === 'individual' && { emiratesId: individualDetails.emiratesId })
+      },
       importance: 'HIGH',
     });
 
+    // ==================== RESPONSE ====================
     const partnerResponse = partner.toObject();
     delete partnerResponse.password;
 
     return res.status(201).json({
       success: true,
-      message: "Partner onboarded successfully",
+      message: `${partnerCategory === 'company' ? 'Company Partner' : 'Individual Partner'} onboarded successfully`,
       data: {
         _id: partnerResponse._id,
-        companyName: partnerResponse.companyName,
+        displayName: partnerResponse.displayName,
         email: partnerResponse.email,
+        partnerCategory: partnerResponse.partnerCategory,
         status: partnerResponse.status
       }
     });

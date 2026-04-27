@@ -5,9 +5,21 @@ const crypto = require('crypto');
 const selectedBankProductSchema = new mongoose.Schema(
   {
     bankProductId: { type: mongoose.Schema.Types.ObjectId, ref: 'BankMortgageProduct', required: true },
+    bankName: { type: String, required: true },  // ✅ ADDED: Store bank name for quick access
     snapshotRate: { type: Number, required: true },
     snapshotFeatures: [{ type: String }],
     snapshotMaxLtv: { type: Number, required: true },
+    
+    // ✅ ADDED: Calculated financial fields (LOW priority but good to have)
+    snapshotEmi: { type: Number, default: null },
+    snapshotMonthlyPayment: { type: Number, default: null },
+    snapshotTotalUpfrontCost: { type: Number, default: null },
+    snapshotDbr: { type: Number, default: null },
+    snapshotLoanAmount: { type: Number, default: null },
+    snapshotLtv: { type: Number, default: null },
+    snapshotTenureYears: { type: Number, default: 25 },
+    snapshotProcessingFee: { type: Number, default: 0 },
+    snapshotValuationFee: { type: Number, default: 2500 },
   },
   { _id: false }
 );
@@ -36,8 +48,32 @@ const proposalSchema = new mongoose.Schema(
       bankExclusions: [{ type: String }],
     },
 
+    // ✅ ADDED: Customer financial summary (snapshot at proposal time)
+    customerFinancialSummary: {
+      monthlySalary: { type: Number, default: null },
+      estimatedLoanAmount: { type: Number, default: null },
+      estimatedDbr: { type: Number, default: null },
+      estimatedLtv: { type: Number, default: null },
+      eligibilityStatus: { 
+        type: String, 
+        enum: ['Eligible', 'Borderline', 'Not Eligible'], 
+        default: 'Eligible' 
+      }
+    },
+
     // Selected Bank Products (references to BankProduct master)
     selectedBankProducts: [selectedBankProductSchema],
+
+    // ✅ ADDED: Bank comparison summary (for quick display)
+    bankComparison: {
+      bestRateBank: { type: String, default: null },
+      bestRate: { type: Number, default: null },
+      lowestEmiBank: { type: String, default: null },
+      lowestEmi: { type: Number, default: null },
+      lowestUpfrontBank: { type: String, default: null },
+      lowestUpfront: { type: Number, default: null },
+      recommendedBank: { type: String, default: null }
+    },
 
     // Notes
     coverNote: { type: String, default: null },
@@ -54,8 +90,8 @@ const proposalSchema = new mongoose.Schema(
     pdfUrl: { type: String, default: null },
     secureLink: { type: String, unique: true, sparse: true },
     secureLinkExpiry: { type: Date, default: null },
-// In Proposal.js model, add this field
-fullSecureLink: { type: String, default: null },
+    fullSecureLink: { type: String, default: null },
+
     // Tracking
     sentAt: { type: Date, default: null },
     sentTo: { type: String, default: null },
@@ -95,7 +131,7 @@ fullSecureLink: { type: String, default: null },
   { timestamps: true }
 );
 
-// Indexes
+// ==================== INDEXES ====================
 proposalSchema.index({ leadId: 1 });
 proposalSchema.index({ secureLink: 1 }, { unique: true, sparse: true });
 proposalSchema.index({ 'createdBy.userId': 1 });
@@ -103,7 +139,7 @@ proposalSchema.index({ status: 1 });
 proposalSchema.index({ createdAt: -1 });
 proposalSchema.index({ convertedToCase: 1 });
 
-// Virtuals
+// ==================== VIRTUALS ====================
 proposalSchema.virtual('proposalId').get(function () {
   return this._id.toString();
 });
@@ -112,7 +148,28 @@ proposalSchema.virtual('isExpired').get(function () {
   return this.expiresAt && new Date() > this.expiresAt;
 });
 
-// Methods
+// ==================== HELPER FUNCTIONS ====================
+function calculateEMI(principal, annualRate, tenureYears) {
+  const monthlyRate = annualRate / 100 / 12;
+  const months = tenureYears * 12;
+  if (monthlyRate === 0) return principal / months;
+  const emi = principal * monthlyRate * Math.pow(1 + monthlyRate, months) / 
+              (Math.pow(1 + monthlyRate, months) - 1);
+  return Math.round(emi);
+}
+
+function calculateDBR(emi, monthlySalary, nationality) {
+  const dbr = (emi / monthlySalary) * 100;
+  const isUAE = nationality === 'United Arab Emirates' || nationality === 'UAE';
+  const maxDBR = isUAE ? 55 : 50;
+  return {
+    dbr: Math.round(dbr * 100) / 100,
+    isEligible: dbr <= maxDBR,
+    maxAllowed: maxDBR
+  };
+}
+
+// ==================== METHODS ====================
 proposalSchema.methods.send = function (clientEmail) {
   this.status = 'Sent';
   this.sentAt = new Date();
@@ -126,11 +183,9 @@ proposalSchema.methods.send = function (clientEmail) {
 
 proposalSchema.methods.generateSecureLink = function () {
   const token = crypto.randomBytes(32).toString('hex');
-
-  this.secureLink = token; // ✅ store only token
+  this.secureLink = token;
   this.secureLinkExpiry = new Date();
   this.secureLinkExpiry.setDate(this.secureLinkExpiry.getDate() + 7);
-
   return this.save();
 };
 
@@ -144,6 +199,14 @@ proposalSchema.methods.reject = function (reason) {
   this.status = 'Rejected';
   this.rejectedAt = new Date();
   this.rejectionReason = reason;
+  return this.save();
+};
+
+proposalSchema.methods.markViewed = function () {
+  if (!this.viewedAt) {
+    this.viewedAt = new Date();
+    this.status = 'Viewed';
+  }
   return this.save();
 };
 
@@ -180,8 +243,8 @@ proposalSchema.methods.getClientInfo = async function () {
   };
 };
 
-// ✅ FIXED: Static method to create proposal from lead
-proposalSchema.statics.createFromLead = async function (leadId, selectedBankProducts, coverNote, userInfo) {
+// ==================== STATIC METHODS ====================
+proposalSchema.statics.createFromLead = async function (leadId, selectedBankProducts, coverNote, userInfo, customCalculations = null) {
   const Lead = mongoose.model('VaultLead');
   const lead = await Lead.findById(leadId);
   
@@ -193,41 +256,125 @@ proposalSchema.statics.createFromLead = async function (leadId, selectedBankProd
   const existingProposal = await this.findOne({ leadId, isDeleted: false });
   if (existingProposal) throw new Error('A proposal already exists for this lead');
   
-  // ✅ FIXED: Use userInfo.userRole, not userInfo.role
+  // Get lead data for calculations
+  const monthlySalary = lead.customerInfo.monthlySalary || 0;
+  const propertyValue = lead.propertyDetails.propertyValue;
+  const downPayment = lead.propertyDetails.downPaymentAmount || 0;
+  const loanAmount = propertyValue - downPayment;
+  const ltv = (loanAmount / propertyValue) * 100;
+  const tenureYears = lead.loanRequirements.preferredTenureYears || 25;
+  const nationality = lead.customerInfo.nationality;
+  
+  // Calculate DBR limits
+  const isUAE = nationality === 'United Arab Emirates' || nationality === 'UAE';
+  const maxDBR = isUAE ? 55 : 50;
+  let eligibilityStatus = 'Eligible';
+  
+  // Process selected bank products with calculations
+  const processedBankProducts = [];
+  let bestRate = Infinity;
+  let bestRateBank = null;
+  let lowestEmi = Infinity;
+  let lowestEmiBank = null;
+  let lowestUpfront = Infinity;
+  let lowestUpfrontBank = null;
+  
+  for (const product of selectedBankProducts) {
+    // Get bank name from product or from database
+    let bankName = product.bankName;
+    if (!bankName && product.bankProductId) {
+      const BankProduct = mongoose.model('BankMortgageProduct');
+      const bankProduct = await BankProduct.findById(product.bankProductId);
+      bankName = bankProduct?.bankInfo?.bankName || 'Unknown Bank';
+    }
+    
+    const emi = calculateEMI(loanAmount, product.snapshotRate, tenureYears);
+    const dbrResult = monthlySalary > 0 ? calculateDBR(emi, monthlySalary, nationality) : { dbr: 0, isEligible: true };
+    const totalUpfront = customCalculations?.upfrontCosts?.[product.bankProductId] || 0;
+    
+    processedBankProducts.push({
+      bankProductId: product.bankProductId,
+      bankName: bankName,
+      snapshotRate: product.snapshotRate,
+      snapshotFeatures: product.snapshotFeatures || [],
+      snapshotMaxLtv: product.snapshotMaxLtv,
+      snapshotEmi: emi,
+      snapshotMonthlyPayment: emi,
+      snapshotTotalUpfrontCost: totalUpfront,
+      snapshotDbr: dbrResult.dbr,
+      snapshotLoanAmount: loanAmount,
+      snapshotLtv: Math.round(ltv),
+      snapshotTenureYears: tenureYears,
+      snapshotProcessingFee: product.snapshotProcessingFee || 0,
+      snapshotValuationFee: product.snapshotValuationFee || 2500,
+    });
+    
+    // Update best values
+    if (product.snapshotRate < bestRate) {
+      bestRate = product.snapshotRate;
+      bestRateBank = bankName;
+    }
+    if (emi < lowestEmi) {
+      lowestEmi = emi;
+      lowestEmiBank = bankName;
+    }
+    if (totalUpfront < lowestUpfront) {
+      lowestUpfront = totalUpfront;
+      lowestUpfrontBank = bankName;
+    }
+  }
+  
+  // Determine overall eligibility
+  const estimatedDbr = monthlySalary > 0 ? (lowestEmi / monthlySalary) * 100 : 0;
+  if (estimatedDbr > maxDBR) eligibilityStatus = 'Not Eligible';
+  else if (estimatedDbr > maxDBR - 5) eligibilityStatus = 'Borderline';
+  
   const proposal = await this.create({
     leadId,
     createdBy: {
-      role: userInfo.userRole,  // ✅ This is 'Partner', 'Admin', or 'Agent'
+      role: userInfo.userRole,
       userId: userInfo.userId,
       userName: userInfo.userName,
       partnerId: userInfo.partnerId || null,
       createdAt: new Date(),
     },
     clientRequirements: {
-      targetPropertyValue: lead.propertyDetails.propertyValue,
-      preferredLoanTenureYears: 25,
+      targetPropertyValue: propertyValue,
+      preferredLoanTenureYears: tenureYears,
       propertyType: lead.propertyDetails.propertyType,
       feeFinancingPreference: true,
       bankPreferences: [],
       bankExclusions: [],
     },
-    selectedBankProducts: selectedBankProducts.map(p => ({
-      bankProductId: p.bankProductId,
-      snapshotRate: p.snapshotRate,
-      snapshotFeatures: p.snapshotFeatures || [],
-      snapshotMaxLtv: p.snapshotMaxLtv,
-    })),
+    customerFinancialSummary: {
+      monthlySalary,
+      estimatedLoanAmount: loanAmount,
+      estimatedDbr: Math.round(estimatedDbr * 100) / 100,
+      estimatedLtv: Math.round(ltv),
+      eligibilityStatus
+    },
+    selectedBankProducts: processedBankProducts,
+    bankComparison: {
+      bestRateBank,
+      bestRate,
+      lowestEmiBank,
+      lowestEmi,
+      lowestUpfrontBank,
+      lowestUpfront,
+      recommendedBank: bestRateBank
+    },
     coverNote: coverNote || null,
     status: 'Draft',
   });
   
+  // Update lead with proposal reference
   lead.conversionInfo.proposalId = proposal._id;
   await lead.save();
   
   return proposal;
 };
 
-// Pre-save middleware
+// ==================== PRE-SAVE MIDDLEWARE ====================
 proposalSchema.pre('save', function (next) {
   if (!this.expiresAt && this.status === 'Sent') {
     this.expiresAt = new Date();
@@ -242,14 +389,9 @@ proposalSchema.pre('save', function (next) {
   next();
 });
 
+// ==================== JSON CONFIGURATION ====================
 proposalSchema.set('toJSON', { virtuals: true });
 proposalSchema.set('toObject', { virtuals: true });
-proposalSchema.methods.markViewed = function () {
-  if (!this.viewedAt) {
-    this.viewedAt = new Date();
-    this.status = 'Viewed';
-  }
-  return this.save();
-};
+
 const Proposal = mongoose.models.Proposal || mongoose.model('Proposal', proposalSchema);
 module.exports = Proposal;

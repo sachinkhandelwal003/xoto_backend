@@ -167,7 +167,7 @@ app.use(cors({
 }));
 
 // heloooooo
-
+app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(morgan('combined'));
 app.use(express.json());

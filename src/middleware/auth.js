@@ -20,6 +20,9 @@ const Developer =require("../modules/properties/models/DeveloperModel")
 const Partner =require("../modules/vault/models/Partner")
 const VaultAgents =require("../modules/vault/models/Agent")
 const GridAdvisor = require("../modules/Grid/Advisor/model/index");
+const VaultAdvisor =require("../modules/vault/models/XotoAdvisor")
+const VaultOps =require("../modules/vault/models/MortgageOps")
+
 
 const { getUserPermissions } = require("./permission");
 
@@ -159,6 +162,9 @@ exports.protectDeveloper = protectBase(Developer, "Developer");
 exports.protectVaultAgent = protectBase(VaultAgents, "VaultAgent");
 
 exports.protectPartner = protectBase(Partner, "Partner");
+exports.protectPartner = protectBase(Partner, "Partner");
+exports.protectVaultAdvisor = protectBase(VaultAdvisor, "VaultAdvisor");
+exports.protectVaultOps = protectBase(VaultOps, "VaultOps");
 // exports.protectVaultAgent = protectBase(VaultAgents, "VaultAgents");
 
 /* ============================================================
@@ -194,6 +200,8 @@ exports.protectMulti = async (req, res, next) => {
         vaultagent: VaultAgents,
   partner: Partner,
   gridadvisor: GridAdvisor,
+  vaultadvisor: VaultAdvisor,    // ✅ ADD THIS LINE
+  vaultops: VaultOps
     };
 
     const Model = entityMap[type];

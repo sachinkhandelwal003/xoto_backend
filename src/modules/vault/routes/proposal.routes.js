@@ -1,3 +1,4 @@
+// proposal.routes.js
 import express from 'express';
 import { 
   createProposal, 
@@ -7,16 +8,16 @@ import {
   getMyProposals, 
   getProposalById,
   updateProposal,
-  deleteProposal,getProposalBySecureLink
+  deleteProposal,
+  getProposalBySecureLink,
+  calculateBankOffer,
+  getEligibleBanksForLead
 } from '../controllers/proposal.controller.js';
-import { protect, protectPartner, protectVaultAgent,protectMulti } from '../../../middleware/auth.js';
+import { protect, protectMulti } from '../../../middleware/auth.js';
 
 const router = express.Router();
 
-// Protect any authenticated user
-
-
-// ==================== PROPOSAL CRUD ====================
+// ==================== PROPOSAL CRUD (Authenticated Users) ====================
 router.post('/', protectMulti, createProposal);
 router.get('/my-proposals', protectMulti, getMyProposals);
 router.get('/:id', protectMulti, getProposalById);
@@ -25,10 +26,14 @@ router.delete('/:id', protectMulti, deleteProposal);
 
 // ==================== SEND PROPOSAL ====================
 router.post('/:id/send', protectMulti, sendProposal);
-// In proposal.routes.js
+
+// ==================== PUBLIC CUSTOMER ROUTES (No Auth - Secure Link) ====================
 router.get('/secure/:id', getProposalBySecureLink);
-// ==================== PUBLIC ROUTES (Client via link) ====================
 router.post('/:id/accept', acceptProposal);
 router.post('/:id/reject', rejectProposal);
+
+// ==================== ELIGIBILITY & CALCULATION (Advisor Preview) ====================
+router.get('/eligible-banks/:leadId', protectMulti, getEligibleBanksForLead);
+router.post('/calculate-offer', protectMulti, calculateBankOffer);
 
 module.exports = router;

@@ -21,8 +21,8 @@ const {
   getInteriorDesigns,
   getgardenDesigns,
   addCustomerDesign,
-  getCustomerDesigns
-
+  getCustomerDesigns,
+  getUserGenerationCount // ✅ 1. YAHAN IMPORT ADD KIYA
 } = require("../../controllers/ai/gardenAI.controller");
 
 // ✅ Yeh line change karo (sabse important)
@@ -38,6 +38,9 @@ router.get("/get-interior-designs", protectCustomer, getInteriorDesigns);
 router.get("/get-landscape-designs", protectCustomer, getgardenDesigns);
 
 router.post("/generate-interior", upload.any(), protectCustomer, generateInteriorDesigns);
+
+// ✅ 2. YAHAN NAYA ROUTE ADD KIYA HAI (Jiska 404 error aa raha tha)
+router.get("/get-user-generation-count", protectCustomer, getUserGenerationCount);
 
 
 // Chat sub-router
