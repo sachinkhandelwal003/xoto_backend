@@ -6,7 +6,7 @@ const s3 = require("../../../../config/s3Client");
 
 const AiGeneratedImage = require('../../models/user/AIGeneratedImages');
 const CustomerAiLibrary = require('../../models/user/MyLiabrary');
-// 🔥 YAHAN CUSTOMER MODEL IMPORT KIYA HAI (Kyunki premium status yahan save hota hai)
+// 🔥 YAHAN CUSTOMER MODEL IMPORT KIYA HAI (Premium status ke liye)
 const Customer = require('../../models/user/customer.model');
 
 const client = new OpenAI({
@@ -50,17 +50,15 @@ const isOpenAICreditError = (error) => {
 };
 
 // =======================================================
-// 🔥 HELPER: Free Limit Check (UPDATED)
+// 🔥 HELPER: Free Limit Check 
 // =======================================================
 const checkFreeLimit = async (userId) => {
-  // ✅ FIX: Check Customer database directly, NOT AiGeneratedImage database
   const userRecord = await Customer.findById(userId);
 
   if (userRecord && userRecord.isPremium) {
     return { allowed: true }; // Premium user — no limit
   }
 
-  // Count karo kitni completed images hain
   const totalImages = await AiGeneratedImage.countDocuments({
     userId,
     status: "completed"
@@ -77,23 +75,6 @@ const checkFreeLimit = async (userId) => {
 // 1. 🌿 GARDEN GENERATION
 // =======================================================
 exports.generateGardenDesigns = async (req, res) => {
-  const isOpenAICreditError = (error) => {
-    if (!error) return false;
-
-    const msg = (error.message || '').toLowerCase();
-    const status = error.status || error?.response?.status;
-    const errCode = error.code || error?.error?.code || '';
-
-    return (
-      status === 400 ||
-      status === 429 ||
-      errCode === 'billing_hard_limit_reached' ||
-      msg.includes('quota') ||
-      msg.includes('billing') ||
-      msg.includes('credit')
-    );
-  };
-
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: "No image uploaded" });
@@ -102,6 +83,18 @@ exports.generateGardenDesigns = async (req, res) => {
     const user = req.user;
     const { styleName, elements, description } = req.body;
     const parsedElements = parseElements(elements);
+
+    // ✅ FIX: LIMIT CHECK CALL KIYA YAHAN
+    const limitCheck = await checkFreeLimit(user._id);
+    if (!limitCheck.allowed) {
+      return res.status(403).json({
+        status: false,
+        limitReached: true,
+        message: "Free limit khatam ho gayi! Premium lo aur unlimited designs banao.",
+        usedCount: limitCheck.count,
+        freeLimit: FREE_LIMIT
+      });
+    }
 
     // ✅ Send immediate response
     res.status(200).json({ message: "Generation started", status: true });
@@ -132,7 +125,6 @@ No cartoon, no CGI.
         });
 
         const imageBuffer = Buffer.from(response.data[0].b64_json, "base64");
-
         const fileName = `garden/${Date.now()}.png`;
 
         await s3.send(new PutObjectCommand({
@@ -184,23 +176,6 @@ No cartoon, no CGI.
 // 2. 🏠 INTERIOR GENERATION
 // =======================================================
 exports.generateInteriorDesigns = async (req, res) => {
-  const isOpenAICreditError = (error) => {
-    if (!error) return false;
-
-    const msg = (error.message || '').toLowerCase();
-    const status = error.status || error?.response?.status;
-    const errCode = error.code || error?.error?.code || '';
-
-    return (
-      status === 400 ||
-      status === 429 ||
-      errCode === 'billing_hard_limit_reached' ||
-      msg.includes('quota') ||
-      msg.includes('billing') ||
-      msg.includes('credit')
-    );
-  };
-
   try {
     if ((!req.files || req.files.length === 0) && !req.body.imageUrl) {
       return res.status(400).json({ error: "No image provided" });
@@ -209,6 +184,18 @@ exports.generateInteriorDesigns = async (req, res) => {
     const user = req.user;
     const { styleName, elements, description, roomType, imageUrl } = req.body;
     const parsedElements = parseElements(elements);
+
+    // ✅ FIX: LIMIT CHECK CALL KIYA YAHAN BHI
+    const limitCheck = await checkFreeLimit(user._id);
+    if (!limitCheck.allowed) {
+      return res.status(403).json({
+        status: false,
+        limitReached: true,
+        message: "Free limit khatam ho gayi! Premium lo aur unlimited designs banao.",
+        usedCount: limitCheck.count,
+        freeLimit: FREE_LIMIT
+      });
+    }
 
     res.status(200).json({ message: "Generation started", status: true });
 
@@ -241,7 +228,7 @@ No cartoon, no CGI.
           ];
         }
 
-        // ✅ DIRECT CALL (no extra billing call)
+        // ✅ DIRECT CALL
         const response = await client.images.edit({
           model: "gpt-image-1",
           image: images,
@@ -250,7 +237,6 @@ No cartoon, no CGI.
         });
 
         const imageBuffer = Buffer.from(response.data[0].b64_json, "base64");
-
         const fileName = `interior/${Date.now()}.png`;
 
         await s3.send(new PutObjectCommand({
@@ -298,9 +284,6 @@ No cartoon, no CGI.
     }
   }
 };
-
-
-
 
 // =======================================================
 // 3. 📂 GET INTERIOR DESIGNS
@@ -393,13 +376,12 @@ exports.getCustomerDesigns = async (req, res) => {
 };
 
 // =======================================================
-// 7. 🔢 GET USER GENERATION COUNT (Frontend ke liye)
+// 7. 🔢 GET USER GENERATION COUNT
 // =======================================================
 exports.getUserGenerationCount = async (req, res) => {
   try {
     const user = req.user;
 
-    // ✅ FIX: Get from Customer database
     const userRecord = await Customer.findById(user._id);
     const isPremium = userRecord?.isPremium || false;
 

@@ -64,6 +64,7 @@ const BlogSchema = new mongoose.Schema({
   // ── Author ────────────────────────────────
   authorName: { type: String, required: true, default: "Admin", trim: true },
   authorImage: { type: String, default: "" },
+  authorDesignation: { type: String, default: "Content Writer", trim: true }, // 👈 Added here
 
   // ── Analytics ─────────────────────────────
   readingTime: { type: Number, default: 1 },   // Minutes
@@ -146,10 +147,11 @@ BlogSchema.methods.toSummary = function () {
     tags: this.tags,
     category: this.category,
     authorName: this.authorName,
+    authorDesignation: this.authorDesignation, // 👈 Added here
     readingTime: this.readingTime,
     viewCount: this.viewCount,
     isPublished: this.isPublished,
-    publishedAt: this.publishedAt,
+    publishedAt: this.publishedAt,  
     createdAt: this.createdAt,
   };
 };
