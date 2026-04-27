@@ -8,6 +8,8 @@ const mortgageApplicationDocument = require("../../../mortgages/models/CustomerD
 const MortgageApplicationCustomerDetails = require("../../../mortgages/models/CustomerBasicDetails.js");
 const MortgageApplicationProductRequirements = require("../../../mortgages/models/ProductRequirements.js")
 const Customer = require('../../models/user/customer.model.js')
+const { suggestAdvisor } = require('../../../Grid/Advisor/controller/advisorAssignment.service.js');
+const GridAdvisor = require('../../../Grid/Advisor/model/index.js');
 const jwt = require("jsonwebtoken");
 // Create
 exports.createPropertyLead = asyncHandler(async (req, res) => {
@@ -86,12 +88,13 @@ exports.getAllPropertyLeads = asyncHandler(async (req, res) => {
 
   const total = await PropertyLead.countDocuments(query);
 
-  let leads = await PropertyLead.find(query)
+let leads = await PropertyLead.find(query)
   .populate("property")
-    .sort({ createdAt: -1 })
-    .skip((page - 1) * limit)
-    .limit(Number(limit))
-    .lean();
+  .populate("assignedAdvisor", "firstName lastName email phone employeeId") // ✅ add karo
+  .sort({ createdAt: -1 })
+  .skip((page - 1) * limit)
+  .limit(Number(limit))
+  .lean();
 
   leads = await Promise.all(
     leads.map(async (lead) => {
@@ -303,4 +306,193 @@ exports.deletePropertyLead = asyncHandler(async (req, res) => {
   lead.deleted_at = new Date();
   await lead.save();
   res.json({ success: true, message: 'Deleted' });
+});
+
+
+
+
+exports.suggestAdvisors = asyncHandler(async (req, res) => {
+  const lead = await PropertyLead.findById(req.params.id);
+  if (!lead) throw new APIError('Lead not found', StatusCodes.NOT_FOUND);
+
+  const best = await suggestAdvisor({
+    area:           lead.area,
+    preferred_city: lead.preferred_city,
+    type:           lead.type,
+  });
+
+  // Also return top 5 for admin to manually pick
+  const all = await GridAdvisor.find({ status: 'active' })
+    .select('firstName lastName email specialisation leaderboard workload')
+    .sort({ 'leaderboard.compositeScore': -1 })
+    .limit(5)
+    .lean();
+
+  res.json({
+    success: true,
+    data: {
+      recommended: best || null,    // Top 1 auto-suggested
+      options: all,                  // Top 5 for manual pick
+    }
+  });
+});
+
+// ════════════════════════════════════════════════════
+// ASSIGN ADVISOR — Admin manually assigns
+// PATCH /property-leads/:id/assign
+// Body: { advisorId, notes }
+// PRD 4.5 — only admin can assign/reassign
+// ════════════════════════════════════════════════════
+exports.assignAdvisor = asyncHandler(async (req, res) => {
+  const { advisorId, notes } = req.body;
+
+  if (!advisorId) {
+    return res.status(400).json({ success: false, message: 'advisorId is required' });
+  }
+
+  const [lead, advisor] = await Promise.all([
+    PropertyLead.findById(req.params.id),
+    GridAdvisor.findById(advisorId),
+  ]);
+
+  if (!lead)    throw new APIError('Lead not found',    StatusCodes.NOT_FOUND);
+  if (!advisor) throw new APIError('Advisor not found', StatusCodes.NOT_FOUND);
+
+  if (advisor.status !== 'active') {
+    return res.status(400).json({
+      success: false,
+      message: `Advisor is ${advisor.status} — cannot assign`,
+    });
+  }
+
+  // Already assigned to same advisor
+  if (lead.assignedAdvisor?.toString() === advisorId) {
+    return res.status(400).json({
+      success: false,
+      message: 'Lead is already assigned to this advisor',
+    });
+  }
+
+  // Assign
+  lead.assignedAdvisor  = advisorId;
+  lead.assignedAt       = new Date();
+  lead.assignedBy       = req.user._id;   // Admin who assigned
+  lead.assignmentNotes  = notes || null;
+
+  // PRD 4.6 — status: New when just assigned
+  if (lead.status === 'submit') {
+    lead.status = 'submit'; // keep existing, advisor will move it to 'contacted'
+  }
+
+  await lead.save();
+
+  // Update advisor workload count (for future sorting)
+  await GridAdvisor.findByIdAndUpdate(advisorId, {
+    $inc: { 'workload.activeLeadsCount': 1 }
+  });
+
+  res.json({
+    success: true,
+    message: `Lead assigned to ${advisor.firstName} ${advisor.lastName}`,
+    data: {
+      leadId:    lead._id,
+      advisor: {
+        _id:       advisor._id,
+        name:      `${advisor.firstName} ${advisor.lastName}`,
+        email:     advisor.email,
+      },
+      assignedAt: lead.assignedAt,
+    }
+  });
+});
+
+
+exports.getMyAssignedLeads = asyncHandler(async (req, res) => {
+  const { page = 1, limit = 10, status, type, search } = req.query;
+
+  // ✅ req.user se GridAdvisor dhundo
+  const advisor = await GridAdvisor.findOne({ 
+    email: req.user.email  // ya phone, jo bhi match kare
+  });
+
+  if (!advisor) {
+    return res.status(404).json({ 
+      success: false, 
+      message: 'Advisor profile not found' 
+    });
+  }
+
+  const query = {
+    assignedAdvisor: advisor._id,  // ✅ GridAdvisor ka actual _id
+    type: { $ne: 'mortgage' }
+  };
+
+  if (status) query.status = status;
+  if (type)   query.type   = type;
+
+  if (search) {
+    query.$or = [
+      { 'name.first_name': new RegExp(search, 'i') },
+      { 'name.last_name':  new RegExp(search, 'i') },
+      { email:             new RegExp(search, 'i') },
+      { 'mobile.number':   new RegExp(search, 'i') },
+    ];
+  }
+
+  const total = await PropertyLead.countDocuments(query);
+  const leads = await PropertyLead.find(query)
+    .populate("property")
+    .sort({ assignedAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(Number(limit))
+    .lean();
+
+  const data = leads.map(l => ({
+    ...l,
+    full_name: `${l.name?.first_name || ''} ${l.name?.last_name || ''}`.trim()
+  }));
+
+  res.json({
+    success: true,
+    data,
+    pagination: {
+      page: Number(page),
+      limit: Number(limit),
+      total,
+      totalPages: Math.ceil(total / limit)
+    }
+  });
+});
+
+// PATCH /property/lead/:id/status — Advisor status update karega
+exports.updateLeadStatus = asyncHandler(async (req, res) => {
+  const { status, notes } = req.body;
+
+  const allowed = ['submit','contacted','converted','dead'];
+  if (!allowed.includes(status)) {
+    return res.status(400).json({ success: false, message: `Invalid status` });
+  }
+
+  // ✅ GridAdvisor dhundo pehle
+  const advisor = await GridAdvisor.findOne({ email: req.user.email });
+  if (!advisor) return res.status(404).json({ success: false, message: 'Advisor not found' });
+
+  const lead = await PropertyLead.findOne({
+    _id:             req.params.id,
+    assignedAdvisor: advisor._id,  // ✅ GridAdvisor _id
+  });
+
+  if (!lead) throw new APIError('Lead not found or not assigned to you', 404);
+
+  lead.status = status;
+  if (notes) {
+    lead.notes.push({
+      text:      notes,
+      author:    `${advisor.firstName} ${advisor.lastName}`,
+      createdAt: new Date()
+    });
+  }
+
+  await lead.save();
+  res.json({ success: true, message: 'Status updated', data: lead });
 });

@@ -14,6 +14,8 @@ const blogRoutes = require('../src/modules/blogs/routes/index.js').default;
 const mortgageRoutes = require('./modules/mortgages/routes/index.js');
 const bankMortgageProductRoutes = require('./modules/mortgages/routes/bankMortgageProduct.routes.js');
 const agencyRoutes = require('./modules/Grid/agency/routes/index.js');
+const agencyRoutes = require('./modules/agency/routes/index.js');
+const stripeRoutes = require('./modules/auth/routes/ai/Striperoutes.js');
 const otpRoutes = require('../src/modules/otp/routes/index.js').default
 const customer = require('../src/modules/customer/routes/index.js').default
 const app = express();
@@ -26,6 +28,8 @@ const customerHistoryRoutes = require('../src/modules/history/routes/customerHis
 const inventoryRoutes = require("./modules/ecommerce/B2C/routes/inventory.routes");
 const GridAdvisor = require('./modules/Grid/Advisor/routes/index.js')
 const AgentLead = require('./modules/Grid/Agent/routes/Agentroute.js')
+// const stripeRoutes = require('./modules/auth/routes/ai/Striperoutes.js');
+const AgentLead = require('./modules/Agent/routes/Agentroute.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
 const referralPartnerRoutes = require("./modules/Grid/ReferralPartner/Routes/ReferralPartner.route.js");
 const rentalProperrty = require('./modules/RentalProperties/routes/Rentproperty.routes.js')
@@ -129,7 +133,6 @@ app.use('/vendor/b2b', require('../src/modules/auth/routes/vendor/vendorb2b.rout
 app.use('/business', require('../src/modules/auth/routes/freelancer/freelancerbusiness.routes'));
 
 app.use('/gridadvisor', GridAdvisor);
-app.use('/grid-advisor', GridAdvisor);
 // RentalProperty
 app.use('/rental/property', rentalProperrty)
 // app.use('/rental/lead', Rentlead)

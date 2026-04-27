@@ -1,28 +1,13 @@
-const jwt = require("jsonwebtoken");
 const GridAdvisor = require("../model/index.js");
 const sendEmail = require("../../../../utils/sendEmail");
+const { createToken } = require("../../../../middleware/auth");
+const { APIError } = require("../../../../utils/errorHandler");
+const asyncHandler = require("../../../../utils/asyncHandler");
+const { StatusCodes } = require("../../../../utils/constants/statusCodes");
 
-// ── JWT generate ──────────────────────────────────────────────────────────────
-const signToken = (advisor) => {
-  return jwt.sign(
-    {
-      id:    advisor._id,
-      email: advisor.email,
-      type:  "user",
-      role: {
-        id:           advisor._id,
-        code:         24,             // ✅ fixed
-        name:         "GridAdvisor",
-        isSuperAdmin: false,
-      },
-    },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRE }
-  );
-};
-
+// ── Send Token Response ───────────────────────────────────────────────────────
 const sendTokenResponse = (advisor, statusCode, res) => {
-  const token = signToken(advisor);
+  const token = createToken(advisor);
 
   res.status(statusCode).json({
     status: "success",
@@ -69,16 +54,30 @@ const advisorWelcomeEmail = ({ firstName, email, tempPassword, employeeId }) => 
 // ════════════════════════════════════════════════════════════════════════════
 exports.createGridAdvisor = async (req, res) => {
   try {
-    const { firstName, lastName, email, phone, department, location, nationality, specialisation } = req.body;
+    const {
+      firstName, lastName, email,
+      countryCode, phone,              // <-- alag alag lo
+      department, location, nationality, specialisation
+    } = req.body;
 
-    if (!firstName || !lastName || !email || !phone) {
+    if (!firstName || !lastName || !email || !phone || !countryCode) {
       return res.status(400).json({
         status: "fail",
-        message: "firstName, lastName, email and phone are required",
+        message: "firstName, lastName, email, countryCode and phone are required",
       });
     }
 
-    const existing = await GridAdvisor.findOne({ $or: [{ email }, { phone }] });
+    // countryCode validate karo (+ se start hona chahiye)
+    if (!/^\+\d{1,4}$/.test(countryCode)) {
+      return res.status(400).json({
+        status: "fail",
+        message: "Invalid countryCode format. Example: +971, +91, +1",
+      });
+    }
+
+    const fullPhone = `${countryCode}${phone}`;  // combine for uniqueness check
+
+    const existing = await GridAdvisor.findOne({ $or: [{ email }, { phone: fullPhone }] });
     if (existing) {
       return res.status(409).json({
         status: "fail",
@@ -91,7 +90,9 @@ exports.createGridAdvisor = async (req, res) => {
     const tempPassword = `Xoto@${Math.floor(1000 + Math.random() * 9000)}`;
 
     const advisor = await GridAdvisor.create({
-      firstName, lastName, email, phone,
+      firstName, lastName, email,
+      countryCode,
+      phone: fullPhone,              // DB mein full number store hoga
       department, location, nationality,
       specialisation: specialisation || {},
       password: tempPassword,
@@ -104,8 +105,8 @@ exports.createGridAdvisor = async (req, res) => {
         to: advisor.email,
         subject: "Your Xoto GRID Advisor Account — Login Credentials",
         html: advisorWelcomeEmail({
-          firstName: advisor.firstName,
-          email: advisor.email,
+          firstName:  advisor.firstName,
+          email:      advisor.email,
           tempPassword,
           employeeId: advisor.employeeId,
         }),
@@ -118,15 +119,16 @@ exports.createGridAdvisor = async (req, res) => {
       status: "success",
       message: "GridAdvisor created. Login credentials sent to GridAdvisor's email.",
       data: {
-        _id:        advisor._id,
-        firstName:  advisor.firstName,
-        lastName:   advisor.lastName,
-        email:      advisor.email,
-        phone:      advisor.phone,
-        employeeId: advisor.employeeId,
-        department: advisor.department,
-        role:       advisor.role,
-        status:     advisor.status,
+        _id:         advisor._id,
+        firstName:   advisor.firstName,
+        lastName:    advisor.lastName,
+        email:       advisor.email,
+        countryCode: advisor.countryCode,
+        phone:       advisor.phone,
+        employeeId:  advisor.employeeId,
+        department:  advisor.department,
+        role:        advisor.role,
+        status:      advisor.status,
       },
     });
   } catch (err) {
@@ -144,9 +146,9 @@ exports.getAllGridAdvisors = async (req, res) => {
       status,
       department,
       search,
-      page = 1,
-      limit = 20,
-      sortBy = "createdAt",
+      page      = 1,
+      limit     = 20,
+      sortBy    = "createdAt",
       sortOrder = "desc",
     } = req.query;
 
@@ -155,7 +157,10 @@ exports.getAllGridAdvisors = async (req, res) => {
     if (status) {
       const allowed = ["active", "inactive", "deactivated", "suspended"];
       if (!allowed.includes(status)) {
-        return res.status(400).json({ status: "fail", message: `status must be one of: ${allowed.join(", ")}` });
+        return res.status(400).json({
+          status:  "fail",
+          message: `status must be one of: ${allowed.join(", ")}`,
+        });
       }
       filter.status = status;
     }
@@ -177,10 +182,12 @@ exports.getAllGridAdvisors = async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
     const skip     = (pageNum - 1) * limitNum;
 
-    const sortAllowed = ["createdAt", "firstName", "lastName", "status", "department",
-                         "leaderboard.compositeScore", "workload.activeLeadsCount"];
-    const sortField   = sortAllowed.includes(sortBy) ? sortBy : "createdAt";
-    const sortDir     = sortOrder === "asc" ? 1 : -1;
+    const sortAllowed = [
+      "createdAt", "firstName", "lastName", "status", "department",
+      "leaderboard.compositeScore", "workload.activeLeadsCount",
+    ];
+    const sortField = sortAllowed.includes(sortBy) ? sortBy : "createdAt";
+    const sortDir   = sortOrder === "asc" ? 1 : -1;
 
     const [advisors, total] = await Promise.all([
       GridAdvisor.find(filter)
@@ -244,7 +251,7 @@ exports.suspendGridAdvisor = async (req, res) => {
 
     if (!action || !["suspend", "unsuspend"].includes(action)) {
       return res.status(400).json({
-        status: "fail",
+        status:  "fail",
         message: 'action must be "suspend" or "unsuspend"',
       });
     }
@@ -257,7 +264,7 @@ exports.suspendGridAdvisor = async (req, res) => {
 
     if (advisor.status === "deactivated") {
       return res.status(400).json({
-        status: "fail",
+        status:  "fail",
         message: "Cannot suspend a deactivated GridAdvisor. Reactivate first.",
       });
     }
@@ -309,7 +316,7 @@ exports.suspendGridAdvisor = async (req, res) => {
     }
 
     res.status(200).json({
-      status: "success",
+      status:  "success",
       message: action === "suspend" ? "GridAdvisor suspended successfully" : "GridAdvisor reinstated successfully",
       data: {
         _id:                advisor._id,
@@ -328,52 +335,74 @@ exports.suspendGridAdvisor = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// LOGIN GRID ADVISOR
+// LOGIN GRID ADVISOR — Email + Password based
 // POST /gridadvisor/login
 // ════════════════════════════════════════════════════════════════════════════
-exports.loginGridAdvisor = async (req, res) => {
-  try {
-    const { email, password } = req.body;
+exports.loginGridAdvisor = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
 
-    if (!email || !password) {
-      return res.status(400).json({ status: "fail", message: "Please provide email and password" });
-    }
-
-    const advisor = await GridAdvisor.findOne({ email }).select("+password");
-    if (!advisor) {
-      return res.status(401).json({ status: "fail", message: "Invalid email or password" });
-    }
-
-    if (advisor.status === "deactivated") {
-      return res.status(403).json({ status: "fail", message: "Account deactivated. Contact admin." });
-    }
-    if (advisor.status === "inactive") {
-      return res.status(403).json({ status: "fail", message: "Account inactive. Contact admin." });
-    }
-    if (advisor.status === "suspended") {
-      return res.status(403).json({
-        status: "fail",
-        message: "Account suspended. Contact admin.",
-        reason: advisor.deactivationReason || null,
-      });
-    }
-
-    const isCorrect = await advisor.correctPassword(password);
-    if (!isCorrect) {
-      return res.status(401).json({ status: "fail", message: "Invalid email or password" });
-    }
-
-    advisor.lastLoginAt = new Date();
-    await advisor.save({ validateBeforeSave: false });
-
-    sendTokenResponse(advisor, 200, res);
-  } catch (err) {
-    res.status(500).json({ status: "error", message: err.message });
+  // ── Validation ─────────────────────────────────────────────────────────
+  if (!email || !password) {
+    throw new APIError("Email and password are required", StatusCodes.BAD_REQUEST);
   }
-};
 
-// ════════════════════════════════════════════════════════════════════════════
-// RESET PASSWORD — First login
+  // ── Find advisor (password field select kar) ────────────────────────────
+  const advisor = await GridAdvisor.findOne({ email })
+    .select("+password")
+    .populate("role", "name code");
+
+  if (!advisor) {
+    throw new APIError("Invalid email or password", StatusCodes.UNAUTHORIZED);
+  }
+
+  // ── Password check ──────────────────────────────────────────────────────
+  const isCorrect = await advisor.correctPassword(password);
+  if (!isCorrect) {
+    throw new APIError("Invalid email or password", StatusCodes.UNAUTHORIZED);
+  }
+
+  // ── Account status checks ───────────────────────────────────────────────
+  if (advisor.status === "deactivated") {
+    throw new APIError("Account deactivated. Contact admin.", StatusCodes.FORBIDDEN);
+  }
+  if (advisor.status === "inactive") {
+    throw new APIError("Account inactive. Contact admin.", StatusCodes.FORBIDDEN);
+  }
+  if (advisor.status === "suspended") {
+    throw new APIError(
+      `Account suspended. Contact admin.${advisor.deactivationReason ? ` Reason: ${advisor.deactivationReason}` : ""}`,
+      StatusCodes.FORBIDDEN
+    );
+  }
+
+
+  // ── Update last login ───────────────────────────────────────────────────
+  advisor.lastLoginAt = new Date();
+  await advisor.save({ validateBeforeSave: false });
+
+// ── Agar populate ke baad bhi role null hai ─────────────────────────────
+  if (!advisor.role || !advisor.role.code) {
+    const { Role } = require("../../../../modules/auth/models/role/role.model");
+    const defaultRole = await Role.findOne({ code: "gridadvisor" })
+                                  .select("name code isSuperAdmin");
+    if (defaultRole) advisor.role = defaultRole;
+  }
+
+  console.log("role after populate:", advisor.role);
+
+await advisor.populate("role", "name code");
+
+  const token = createToken(advisor);
+
+  res.status(200).json({
+    success: true,
+    message: "GridAdvisor login successful",
+    token,
+    advisor,
+  });
+});
+
+
 // PATCH /gridadvisor/reset-password
 // ════════════════════════════════════════════════════════════════════════════
 exports.resetPassword = async (req, res) => {
@@ -382,7 +411,7 @@ exports.resetPassword = async (req, res) => {
 
     if (!email || !oldPassword || !newPassword) {
       return res.status(400).json({
-        status: "fail",
+        status:  "fail",
         message: "email, oldPassword and newPassword are required",
       });
     }
@@ -407,7 +436,7 @@ exports.resetPassword = async (req, res) => {
 
     try {
       await sendEmail({
-        to: advisor.email,
+        to:      advisor.email,
         subject: "Xoto GRID — Password Reset Successful",
         html: `
           <div style="font-family: Arial, sans-serif;">
@@ -434,8 +463,10 @@ exports.resetPassword = async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════
 exports.updateMyProfile = async (req, res) => {
   try {
-    const blocked = ["password", "role", "status", "employeeId",
-                     "mustResetPassword", "createdBy", "email"];
+    const blocked = [
+      "password", "role", "status", "employeeId",
+      "mustResetPassword", "createdBy", "email",
+    ];
     blocked.forEach(field => delete req.body[field]);
 
     const allowedFields = [
@@ -476,7 +507,7 @@ exports.updateMyProfile = async (req, res) => {
 
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({
-        status: "fail",
+        status:  "fail",
         message: "No valid fields provided to update",
       });
     }
@@ -492,9 +523,9 @@ exports.updateMyProfile = async (req, res) => {
     }
 
     res.status(200).json({
-      status: "success",
+      status:  "success",
       message: "Profile updated successfully",
-      data: { advisor },
+      data:    { advisor },
     });
   } catch (err) {
     if (err.name === "ValidationError") {
