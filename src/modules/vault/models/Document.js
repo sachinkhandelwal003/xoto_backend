@@ -37,7 +37,7 @@ isFromLead: { type: Boolean, default: false },
     mimeType: { type: String, required: true },
     
     uploadedBy: {
-      role: { type: String, enum: ['agent', 'partner', 'admin', 'client'], required: true },
+      role: { type: String, enum: ['agent', 'partner', 'admin', 'client', 'advisor'], required: true },
       userId: { type: mongoose.Schema.Types.ObjectId, required: true },
       userName: { type: String, required: true },
     },

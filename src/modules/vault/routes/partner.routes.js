@@ -17,6 +17,8 @@ import {
   getAffiliatedAgents,
   getPartnerCommissions,
   changePassword
+  ,getPartnersForDropdown
+  
 } from "../controllers/partner.controller.js";
 import { protect, protectMulti ,protectPartner} from "../../../middleware/auth.js";
 
@@ -33,6 +35,7 @@ router.post("/change-password", protect, changePassword);
 // =========================
 router.post("/create", protect, createPartner);
 router.get("/all", protect, getAllPartners);
+router.get("/dropdown", getPartnersForDropdown);
 router.get("/get/:id", protect, getPartnerById);
 router.put("/update/:id", protect, updatePartner);
 router.delete("/delete/:id", protect, deletePartner);
