@@ -4,7 +4,7 @@ const Brochure = require('../models/Brochure');
 const LeadInterest = require('../models/LeadInterest');
 const axios = require('axios');
 const FormData = require('form-data');
-const upload = require('../../../middleware/s3Upload').default; // your multer-s3
+const upload = require('../../../../middleware/s3Upload').default; // your multer-s3
 
 
 // ✅ STEP 1: Upload brochure and get shareable link - FIXED VERSION

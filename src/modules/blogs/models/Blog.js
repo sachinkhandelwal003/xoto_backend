@@ -151,7 +151,7 @@ BlogSchema.methods.toSummary = function () {
     readingTime: this.readingTime,
     viewCount: this.viewCount,
     isPublished: this.isPublished,
-    publishedAt: this.publishedAt,
+    publishedAt: this.publishedAt,  
     createdAt: this.createdAt,
   };
 };

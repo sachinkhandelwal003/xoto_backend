@@ -3,11 +3,12 @@ import Freelancer from "../../../modules/auth/models/Freelancer/freelancer.model
 import Customer from "../../../modules/auth/models/user/customer.model.js"
 import Admin from "../../../modules/auth/models/User.js"
 import Vendor from "../../../modules/auth/models/Vendor/B2cvendor.model.js"
-import Agent from "../../Agent/models/agent.js"
-import Agency from "../../agency/models/index.js"
+import Agent from "../../Grid/Agent/models/agent.js"
+import Agency from "../../Grid/agency/models/index.js"
 import VaultAgent from "../../vault/models/Agent.js"
 import VaultPartner from "../../vault/models/Partner.js"
 import Developer from "../../properties/models/DeveloperModel.js"
+import GridAdvisor from "../../Grid/Advisor/model/index.js"
 
 // Helper function: Role ke basis par model return karne ke liye
 const getModelByRole = (roleName) => {
@@ -25,6 +26,7 @@ const getModelByRole = (roleName) => {
                 case "Agency": return Agency;
                                 case "VaultPartner": return VaultPartner;
                 case "VaultAgent": return VaultAgent;
+                case "GridAdvisor": return GridAdvisor;
 
         default: return null;
     }
@@ -44,7 +46,9 @@ export const getProfileData = async (req, res) => {
             query.populate("payment.preferred_currency services_offered.category services_offered.subcategories.type");
         } else if (user.role.name === "Vendor-B2C") {
             query.populate("store_details.categories");
-        } else {
+        }else if (user.role.name === "GridAdvisor") {
+    query.populate("createdBy", "firstName lastName email");  // ← add karo
+} else {
             query.populate("role");
         }
 
@@ -71,6 +75,15 @@ export const updateProfileData = async (req, res) => {
         delete updateData._id;
         delete updateData.isVerifiedByAdmin;
         delete updateData.isVerified;
+
+        if (user.role.name === "GridAdvisor") {
+    delete updateData.employeeId;
+    delete updateData.status;
+    delete updateData.mustResetPassword;
+    delete updateData.email;
+    delete updateData["identity.isVerified"];
+    delete updateData["bankDetails.isVerified"];
+}
 
         const updatedProfile = await Model.findOneAndUpdate(
             { _id: user._id },

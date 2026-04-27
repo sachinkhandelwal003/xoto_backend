@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const Lead = require("../models/AgentLeaad");
 const LeadInterest = require("../models/LeadInterest");
 const SiteVisit = require("../models/SiteVisit");
-const Property = require("../../properties/models/property.model");
+const Property = require("../../../properties/models/property.model");
 const { getPropertySuggestions } = require("./aiSuggestionService");
 
 /**
