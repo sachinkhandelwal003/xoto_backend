@@ -48,6 +48,51 @@ const updateCaseDocumentStatus = async (caseId) => {
   }
 };
 
+// ✅ NEW: Helper function to copy documents from Lead to Case
+export const copyLeadDocumentsToCase = async (leadId, caseId) => {
+  try {
+    const leadDocs = await Document.find({
+      entityType: 'Lead',
+      entityId: leadId,
+      isDeleted: false
+    });
+
+    for (const doc of leadDocs) {
+      // ✅ When copying, set verificationStatus to 'pending' for Mortgage Ops review
+      // Even if it was verified in Lead, Ops needs to re-verify for Case
+      await Document.create({
+        entityType: 'Case',
+        entityId: caseId,
+        linkedFrom: {
+          entityType: 'Lead',
+          entityId: leadId
+        },
+        isFromLead: true,
+        documentType: doc.documentType,
+        documentCategory: doc.documentCategory,
+        fileName: doc.fileName,
+        fileSizeMb: doc.fileSizeMb,
+        fileUrl: doc.fileUrl,
+        fileHash: doc.fileHash,
+        mimeType: doc.mimeType,
+        uploadedBy: doc.uploadedBy,
+        uploadedAt: doc.uploadedAt,
+        uploadedFromIp: doc.uploadedFromIp,
+        verificationStatus: 'pending', // ✅ Always pending for Ops review
+        verifiedBy: null,
+        verifiedAt: null,
+        encryption: doc.encryption
+      });
+    }
+    
+    console.log(`✅ Copied ${leadDocs.length} documents from Lead ${leadId} to Case ${caseId}`);
+    return leadDocs.length;
+  } catch (error) {
+    console.error('Error copying documents from lead to case:', error);
+    return 0;
+  }
+};
+
 // Helper function to get document category
 function getDocumentCategory(documentType) {
   const identityDocs = ['emirates_id_front', 'emirates_id_back', 'passport', 'visa'];
@@ -85,9 +130,10 @@ export const uploadDocument = async (req, res) => {
     const isPartner = roleDoc?.code === '21';
     const isFreelanceAgent = req.user?.agentType === 'FreelanceAgent';
     const isPartnerAffiliatedAgent = req.user?.agentType === 'PartnerAffiliatedAgent';
-    const isXotoAdvisor =  req.user?.employeeType === 'XotoAdvisor' || 
-                      req.user?.type === 'vaultadvisor' || 
-                      req.user?.role?.code === '26';
+    const isXotoAdvisor = req.user?.employeeType === 'XotoAdvisor' || 
+                          req.user?.type === 'vaultadvisor' || 
+                          req.user?.role?.code === '26';
+    const isMortgageOps = req.user?.employeeType === 'MortgageOps';
     
     // Get partner type if partner
     let isCompanyPartner = false;
@@ -189,10 +235,10 @@ export const uploadDocument = async (req, res) => {
         existingDoc.verificationStatus = isVerified ? 'verified' : 'pending';
         existingDoc.rejectionReason = null;
         existingDoc.uploadedBy = {
-  role: isAdmin ? 'admin' : (isFreelanceAgent ? 'agent' : (isPartner ? 'partner' : (isXotoAdvisor ? 'advisor' : 'client'))),
-  userId: req.user._id,
-  userName: req.user?.fullName || req.user?.companyName || req.user?.email,
-}
+          role: isAdmin ? 'admin' : (isFreelanceAgent ? 'agent' : (isPartner ? 'partner' : (isXotoAdvisor ? 'advisor' : 'client'))),
+          userId: req.user._id,
+          userName: req.user?.fullName || req.user?.companyName || req.user?.email,
+        };
         existingDoc.uploadedAt = new Date();
         if (isVerified) {
           existingDoc.verifiedBy = req.user._id;
@@ -281,6 +327,22 @@ export const uploadDocument = async (req, res) => {
       // XOTO ADVISOR - can upload for cases they created
       else if (isXotoAdvisor && caseData.createdBy?.advisorId?.toString() === req.user._id.toString()) {
         hasPermission = true;
+      }
+      // ✅ MORTGAGE OPS - can upload bank forms to cases assigned to them
+      else if (isMortgageOps) {
+        // Ops can upload bank forms to cases assigned to them
+        if (!caseData.assignedTo?.opsId || caseData.assignedTo.opsId.toString() === req.user._id.toString()) {
+          // Only allow bank forms
+          const allowedDocTypes = ['bank_application_form', 'consent_form'];
+          if (allowedDocTypes.includes(documentType)) {
+            hasPermission = true;
+          } else {
+            return res.status(403).json({
+              success: false,
+              message: `Mortgage Ops can only upload bank forms: ${allowedDocTypes.join(', ')}`
+            });
+          }
+        }
       }
       // INDIVIDUAL PARTNER - can upload for their own cases
       else if (isIndividualPartner && caseData.createdBy?.partnerId?.toString() === req.user._id.toString()) {

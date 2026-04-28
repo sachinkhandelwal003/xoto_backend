@@ -393,7 +393,7 @@ export const sendProposal = async (req, res) => {
     await proposal.generateSecureLink();
     
     // Step 3: Build full secure link
-    const fullSecureLink = `${frontendUrl}/proposal/view/${proposal._id}?token=${proposal.secureLink}`;
+    const fullSecureLink = `${frontendUrl}/proposal/view/link/${proposal._id}?token=${proposal.secureLink}`;
     proposal.fullSecureLink = fullSecureLink;
     await proposal.save();
     
@@ -683,18 +683,30 @@ export const getEligibleBanksForLead = async (req, res) => {
 /**
  * CALCULATE SPECIFIC BANK OFFER (Detailed breakdown for selected bank)
  */
+/**
+ * CALCULATE OFFERS FOR MULTIPLE BANKS (Batch)
+ */
 export const calculateBankOffer = async (req, res) => {
   try {
-    const { leadId, bankProductId, tenureYears, propertyValue, downPayment } = req.body;
+    const { leadId, bankProductIds, tenureYears, propertyValue, downPayment } = req.body;
+    
+    if (!leadId || !bankProductIds || bankProductIds.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "leadId and bankProductIds are required" 
+      });
+    }
+    
+    if (bankProductIds.length > 5) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Maximum 5 banks can be calculated at once" 
+      });
+    }
     
     const lead = await Lead.findById(leadId);
     if (!lead) {
       return res.status(404).json({ success: false, message: "Lead not found" });
-    }
-    
-    const bank = await BankProduct.findById(bankProductId);
-    if (!bank) {
-      return res.status(404).json({ success: false, message: "Bank product not found" });
     }
     
     const finalPropertyValue = propertyValue || lead.propertyDetails.propertyValue;
@@ -703,33 +715,38 @@ export const calculateBankOffer = async (req, res) => {
     const monthlySalary = lead.customerInfo.monthlySalary || 0;
     const nationality = lead.customerInfo.nationality;
     
-    // Calculate LTV
+    // Calculate LTV once (same for all banks)
     const { loanAmount, ltv } = calculateLTV(finalPropertyValue, finalDownPayment);
-    const maxLTV = bank.loanDetails?.maxLoanToValue || 80;
-    const ltvEligible = ltv <= maxLTV;
     
-    // Calculate EMI
-    const interestRate = bank.offerSummary?.initialRate || 5;
-    const emi = calculateEMI(loanAmount, interestRate, finalTenure);
+    // Get all banks in one query
+    const banks = await BankProduct.find({ 
+      _id: { $in: bankProductIds },
+      'meta.isActive': true 
+    });
     
-    // Calculate DBR
-    let dbrResult = null;
-    let dbrEligible = true;
-    if (monthlySalary > 0) {
-      dbrResult = calculateDBR(emi, monthlySalary, nationality);
-      dbrEligible = dbrResult.isEligible;
-    }
+    const results = [];
     
-    // Calculate upfront costs
-    const dldFee = finalPropertyValue * 0.04;
-    const registrationFee = loanAmount * 0.0025;
-    const valuationFee = bank.costBreakdown?.valuationFee || 2500;
-    const processingFee = bank.costBreakdown?.bankProcessingFee || 0;
-    const totalUpfront = dldFee + registrationFee + valuationFee + processingFee;
-    
-    return res.status(200).json({
-      success: true,
-      data: {
+    for (const bank of banks) {
+      const maxLTV = bank.loanDetails?.maxLoanToValue || 80;
+      const ltvEligible = ltv <= maxLTV;
+      const interestRate = bank.offerSummary?.initialRate || 5;
+      const emi = calculateEMI(loanAmount, interestRate, finalTenure);
+      
+      let dbrResult = null;
+      let dbrEligible = true;
+      if (monthlySalary > 0) {
+        dbrResult = calculateDBR(emi, monthlySalary, nationality);
+        dbrEligible = dbrResult.isEligible;
+      }
+      
+      const dldFee = finalPropertyValue * 0.04;
+      const registrationFee = loanAmount * 0.0025;
+      const valuationFee = bank.costBreakdown?.valuationFee || 2500;
+      const processingFee = bank.costBreakdown?.bankProcessingFee || 0;
+      const totalUpfront = dldFee + registrationFee + valuationFee + processingFee;
+      
+      results.push({
+        bankId: bank._id,
         bankName: bank.bankInfo?.bankName,
         bankLogo: bank.bankInfo?.logo,
         interestRate,
@@ -751,17 +768,27 @@ export const calculateBankOffer = async (req, res) => {
           processingFee,
           total: Math.round(totalUpfront)
         },
-        monthlyBreakdown: {
-          principalAndInterest: emi,
-          totalMonthly: emi
-        },
         features: bank.features?.keyFeatures || [],
         isPopular: bank.isPopular || false
+      });
+    }
+    
+    // Sort by interest rate (lowest first)
+    results.sort((a, b) => a.interestRate - b.interestRate);
+    
+    return res.status(200).json({
+      success: true,
+      data: {
+        offers: results,
+        bestRate: results[0]?.interestRate || null,
+        bestRateBank: results[0]?.bankName || null,
+        lowestEmi: Math.min(...results.map(r => r.emi)),
+        totalCalculated: results.length
       }
     });
     
   } catch (error) {
-    console.error("Calculate bank offer error:", error);
+    console.error("Calculate multiple bank offers error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

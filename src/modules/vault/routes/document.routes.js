@@ -16,7 +16,7 @@ const router = express.Router();
 // Upload to Lead (Admin, Partner, Freelance Agent, Xoto Advisor)
 router.post('/:leadId', protectMulti, uploadDocument);
 
-// Upload to Case (Admin, Partner, Xoto Advisor)
+// Upload to Case (Admin, Partner, Xoto Advisor, Mortgage Ops)
 router.post('/cases/:caseId', protectMulti, uploadDocument);
 
 // ==================== ADVISOR VERIFY ROUTES ====================
