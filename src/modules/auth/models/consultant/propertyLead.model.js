@@ -9,6 +9,7 @@ const propertyLeadSchema = new mongoose.Schema({
       'sell',
       'rent',
       'schedule_visit',
+      'hot_property',
       'partner',
       'investor',
       'developer',
