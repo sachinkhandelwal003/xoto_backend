@@ -2,7 +2,7 @@ const express = require("express");
 const { 
   registerReferralPartner, 
   loginReferralPartner 
-} = require("../controllers/referralPartner.controller");
+} = require("../controllers/ReferralPartner.controller");
 
 const router = express.Router();
 
