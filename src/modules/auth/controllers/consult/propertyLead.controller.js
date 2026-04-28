@@ -33,7 +33,7 @@ exports.createPropertyLead = asyncHandler(async (req, res) => {
      Preferred contact logic
   -------------------------- */
   if (!data.preferred_contact) {
-    if (['buy', 'rent', 'schedule_visit', 'partner'].includes(data.type)) {
+    if (['buy', 'rent', 'schedule_visit','hot_property', 'partner'].includes(data.type)) {
       data.preferred_contact = 'whatsapp';
     } else {
       data.preferred_contact = 'call';
