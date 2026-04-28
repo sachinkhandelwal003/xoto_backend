@@ -3,6 +3,10 @@ const mongoose = require('mongoose');
 const customerBasicSchema = new mongoose.Schema(
   {
     fullName: { type: String, required: true },
+    gender: {
+  type: String,
+  enum: ['Male', 'Female', 'Other'],
+},
     preferredName: { type: String, default: null },
     email: { type: String, required: true, lowercase: true },
     mobileNumber: { type: String, required: true },

@@ -30,7 +30,7 @@ router.get('/cases/:caseId', protectMulti, getCaseDocuments);
 router.delete('/:id', protectMulti, deleteDocument);
 
 // ==================== ADMIN ONLY VERIFY ROUTES ====================
-router.post('/:id/verify', protect, verifyDocument);
-router.post('/:id/reject', protect, rejectDocument);
+router.post('/:id/verify', protectMulti, verifyDocument);
+router.post('/:id/reject', protectMulti, rejectDocument);
 
 module.exports = router; 

@@ -128,8 +128,8 @@ export const uploadDocument = async (req, res) => {
     const roleDoc = await Role.findById(req.user.role);
     const isAdmin = roleDoc?.code === '18';
     const isPartner = roleDoc?.code === '21';
-    const isFreelanceAgent = req.user?.agentType === 'FreelanceAgent';
-    const isPartnerAffiliatedAgent = req.user?.agentType === 'PartnerAffiliatedAgent';
+    const isFreelanceAgent = roleDoc?.code === '22';
+    const isPartnerAffiliatedAgent = roleDoc?.code === '22';
     const isXotoAdvisor = req.user?.employeeType === 'XotoAdvisor' || 
                           req.user?.type === 'vaultadvisor' || 
                           req.user?.role?.code === '26';

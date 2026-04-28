@@ -3,6 +3,7 @@ import Lead from '../models/VaultLead.js';
 import Partner from '../models/Partner.js';
 import Proposal from '../models/Proposal.js';
 import Document from '../models/Document.js';
+import Ops from "../models/MortgageOps.js"
 import HistoryService from '../services/history.service.js';
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 
@@ -605,7 +606,7 @@ export const updateCaseStatus = async (req, res) => {
     
     const roleDoc = await Role.findById(req.user.role);
     const isAdmin = roleDoc?.code === '18';
-    const isOps = req.user?.employeeType === 'MortgageOps';
+    const isOps = roleDoc?.code === '23';
     
     if (!isAdmin && !isOps) {
       return res.status(403).json({ success: false, message: "Only Admin or Mortgage Ops can update case status" });
@@ -1062,7 +1063,10 @@ export const opsPickUpCase = async (req, res) => {
     const opsId = req.user._id;
     
     // Check if user is Mortgage Ops
-    if (req.user?.employeeType !== 'MortgageOps') {
+    const roleDoc = await Role.findById(req.user.role);
+    const isOps = roleDoc?.code === '23';
+    
+    if (!isOps) {
       return res.status(403).json({ success: false, message: "Only Mortgage Ops can pick up cases" });
     }
     
@@ -1076,35 +1080,76 @@ export const opsPickUpCase = async (req, res) => {
       return res.status(404).json({ success: false, message: "Case not found or already picked up" });
     }
     
-    // Get Ops name from database
-    const MortgageOps = mongoose.model('MortgageOps');
-    const ops = await MortgageOps.findById(opsId);
+    // Get Ops from database using imported Ops model
+    const ops = await Ops.findById(opsId);
     
+    if (!ops) {
+      return res.status(404).json({ success: false, message: "Mortgage Ops user not found" });
+    }
+    
+    // Check if ops can take more cases (if max capacity is set)
+    const currentWorkload = ops.workload?.currentApplications || 0;
+    const maxCapacity = ops.workload?.maxCapacity || 999;
+    
+    if (currentWorkload >= maxCapacity) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `You have reached your maximum capacity (${maxCapacity} cases). Please complete some cases before picking up new ones.` 
+      });
+    }
+    
+    // Get ops name - handle different possible name structures
+    let opsName = 'Ops User';
+    if (ops.fullName) {
+      opsName = ops.fullName;
+    } else if (ops.name) {
+      opsName = `${ops.name.first_name || ''} ${ops.name.last_name || ''}`.trim();
+    } else if (ops.email) {
+      opsName = ops.email;
+    }
+    
+    // Update case with ops assignment
     caseData.assignedTo = {
       opsId: opsId,
-      opsName: ops?.fullName || ops?.name?.first_name + ' ' + ops?.name?.last_name || 'Ops User',
-      assignedAt: new Date()
+      opsName: opsName,
+      assignedAt: new Date(),
+      assignedBy: null // No admin assigned, ops self-picked
     };
     caseData.currentStatus = 'Assigned - Pending Review';
     await caseData.save();
     
     // Update Ops workload
-    if (ops) {
-      ops.workload.currentApplications = (ops.workload.currentApplications || 0) + 1;
-      await ops.save();
-    }
+    ops.workload = ops.workload || {};
+    ops.workload.currentApplications = currentWorkload + 1;
     
+    // Initialize queueStatus if not exists
+    if (!ops.queueStatus) {
+      ops.queueStatus = {};
+    }
+    ops.queueStatus.pendingReview = (ops.queueStatus.pendingReview || 0) + 1;
+    
+    await ops.save();
+    
+    // Log activity
     await HistoryService.logCaseActivity(caseData, 'CASE_PICKED_UP', await getUserInfo(req), {
-      description: `Case picked up by Ops ${ops?.fullName || 'user'}`
+      description: `Case picked up by Ops ${opsName}`
     });
     
     return res.status(200).json({
       success: true,
       message: "Case picked up successfully",
-      data: caseData
+      data: {
+        case: caseData,
+        opsWorkload: {
+          currentApplications: ops.workload.currentApplications,
+          maxCapacity: ops.workload.maxCapacity,
+          remainingCapacity: ops.workload.maxCapacity - ops.workload.currentApplications
+        }
+      }
     });
     
   } catch (error) {
+    console.error("Pick up case error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -1174,40 +1219,157 @@ export const adminAssignCaseToOps = async (req, res) => {
 };
 
 // Get My Assigned Cases (for Ops)
+// Get My Assigned Cases (for Ops)
 export const getMyAssignedCases = async (req, res) => {
   try {
     const opsId = req.user._id;
     
     // Check if user is Mortgage Ops
-    if (req.user?.employeeType !== 'MortgageOps') {
-      return res.status(403).json({ success: false, message: "Access denied" });
+    const roleDoc = await Role.findById(req.user.role);
+    const isOps = roleDoc?.code === '23';
+    
+    if (!isOps) {
+      return res.status(403).json({ success: false, message: "Access denied. Only Mortgage Ops can access." });
     }
     
-    const cases = await Case.find({
+    // Pagination parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    
+    // Filter parameters
+    const { search, caseStatus, sortBy, sortOrder } = req.query;
+    
+    // Build query
+    let query = {
       'assignedTo.opsId': opsId,
-      isDeleted: false,
-      currentStatus: { $ne: 'Disbursed' }
-    })
-    .populate('createdBy', 'name email')
-    .populate('sourceLeadId', 'customerInfo')
-    .sort({ updatedAt: -1 });
+      isDeleted: false
+    };
+    
+    // Exclude completed cases unless specifically requested
+    const showCompleted = req.query.showCompleted === 'true';
+    if (!showCompleted) {
+      query.currentStatus = { $nin: ['Disbursed', 'Rejected', 'Lost'] };
+    }
+    
+    // Filter by specific status
+    if (caseStatus && caseStatus !== 'all') {
+      query.currentStatus = caseStatus;
+    }
+    
+    // Search functionality
+    if (search) {
+      query.$or = [
+        { caseReference: { $regex: search, $options: 'i' } },
+        { 'clientInfo.fullName': { $regex: search, $options: 'i' } },
+        { 'clientInfo.email': { $regex: search, $options: 'i' } },
+        { 'clientInfo.mobile': { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    // Build sort object
+    let sortObject = { updatedAt: -1 }; // default
+    if (sortBy) {
+      const sortOrderValue = sortOrder === 'desc' ? -1 : 1;
+      const sortFields = {
+        'caseReference': 'caseReference',
+        'createdAt': 'createdAt',
+        'updatedAt': 'updatedAt',
+        'loanAmount': 'loanInfo.requestedAmount',
+        'clientName': 'clientInfo.fullName',
+        'bank': 'loanInfo.selectedBank',
+        'status': 'currentStatus'
+      };
+      if (sortFields[sortBy]) {
+        sortObject = { [sortFields[sortBy]]: sortOrderValue };
+      }
+    }
+    
+    // Get total count
+    const total = await Case.countDocuments(query);
+    
+    // Get paginated cases
+    const cases = await Case.find(query)
+      .populate('createdBy', 'advisorName partnerName adminName')
+      .populate('sourceLeadId', 'customerInfo')
+      .sort(sortObject)
+      .skip(skip)
+      .limit(limit)
+      .lean();
+    
+    // Enhance cases with additional computed fields
+    const enhancedCases = cases.map(c => ({
+      ...c,
+      clientFullName: c.clientInfo?.fullName,
+      clientEmail: c.clientInfo?.email,
+      clientMobile: c.clientInfo?.mobile,
+      selectedBank: c.loanInfo?.selectedBank,
+      requestedLoanAmount: c.loanInfo?.requestedAmount,
+      interestRate: c.loanInfo?.interestRatePercentage,
+      monthlyEMI: c.loanInfo?.monthlyInstallment?.principalAndInterest,
+      documentCompletion: c.documentStatus?.completionPercentage || 0,
+      documentsUploaded: c.documentStatus?.documentsUploadedCount || 0,
+      documentsTotal: c.documentStatus?.requiredDocuments?.length || 0,
+      allDocumentsVerified: c.documentStatus?.allDocumentsVerified || false,
+      assignedDays: Math.floor((Date.now() - new Date(c.assignedTo?.assignedAt || c.createdAt)) / (1000 * 60 * 60 * 24)),
+      assignedHours: Math.floor((Date.now() - new Date(c.assignedTo?.assignedAt || c.createdAt)) / (1000 * 60 * 60))
+    }));
+    
+    // Calculate summary statistics
+    const allAssigned = await Case.find({ 'assignedTo.opsId': opsId, isDeleted: false }).lean();
     
     const summary = {
-      total: cases.length,
-      pendingReview: cases.filter(c => c.currentStatus === 'Assigned - Pending Review').length,
-      underReview: cases.filter(c => c.currentStatus === 'Under Review').length,
-      returned: cases.filter(c => c.currentStatus === 'Returned - Pending Correction').length,
-      bankApplication: cases.filter(c => c.currentStatus === 'Bank Application').length,
-      totalDisbursed: cases.filter(c => c.currentStatus === 'Disbursed').length
+      total: allAssigned.filter(c => !['Disbursed', 'Rejected', 'Lost'].includes(c.currentStatus)).length,
+      totalAllTime: allAssigned.length,
+      pendingReview: allAssigned.filter(c => c.currentStatus === 'Assigned - Pending Review').length,
+      underReview: allAssigned.filter(c => c.currentStatus === 'Under Review').length,
+      returned: allAssigned.filter(c => c.currentStatus === 'Returned - Pending Correction').length,
+      bankApplication: allAssigned.filter(c => c.currentStatus === 'Bank Application').length,
+      preApproved: allAssigned.filter(c => c.currentStatus === 'Pre-Approved').length,
+      valuation: allAssigned.filter(c => c.currentStatus === 'Valuation').length,
+      folIssued: allAssigned.filter(c => c.currentStatus === 'FOL Issued').length,
+      folSigned: allAssigned.filter(c => c.currentStatus === 'FOL Signed').length,
+      disbursed: allAssigned.filter(c => c.currentStatus === 'Disbursed').length,
+      rejected: allAssigned.filter(c => c.currentStatus === 'Rejected').length,
+      lost: allAssigned.filter(c => c.currentStatus === 'Lost').length
     };
+    
+    // Get unique banks for filter
+    const uniqueBanks = [...new Set(allAssigned.map(c => c.loanInfo?.selectedBank).filter(Boolean))];
     
     return res.status(200).json({
       success: true,
       summary,
-      data: cases
+      data: enhancedCases,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        limit: limit,
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPrevPage: page > 1
+      },
+      filters: {
+        availableBanks: uniqueBanks,
+        availableStatuses: [
+          'Assigned - Pending Review',
+          'Under Review',
+          'Returned - Pending Correction',
+          'Bank Application',
+          'Pre-Approved',
+          'Valuation',
+          'FOL Processed',
+          'FOL Issued',
+          'FOL Signed',
+          'Disbursed',
+          'Rejected',
+          'Lost'
+        ]
+      }
     });
     
   } catch (error) {
+    console.error("Get my assigned cases error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
