@@ -30,10 +30,10 @@ const {
 } = require("../controllers/inventory.controller");
 
 
-router.get(   "/hot",              getHotProperties);          // public
-router.put( "/:id/hot",          protectMulti, toggleHotProperty);
-router.get(   "/",            protectMulti, getProperties);
-router.get(   "/:id",         protectMulti, getPropertyById);
+router.get("/hot", getHotProperties);          // public
+router.put("/:id/hot", protectMulti, toggleHotProperty);
+router.get("/", protectMulti, getProperties);
+router.get("/:id", protectMulti, getPropertyById);
 
 // ════════════════════════════════════════════════════════════════════════════
 // PROPERTY ROUTES
@@ -89,15 +89,15 @@ router.get(   "/:id",         protectMulti, getPropertyById);
 //   page, limit
 // ════════════════════════════════════════════════════════════════════════════
 
-router.post(  "/",                   protectMulti, createProperty);
-router.get(   "/",                   protectMulti, getProperties);
-router.get(   "/:id",                protectMulti, getPropertyById);
+router.post("/", protectMulti, createProperty);
+router.get("/", protectMulti, getProperties);
+router.get("/:id", protectMulti, getPropertyById);
 router.put("/:id", protectMulti, updateProperty);
-router.delete("/:id",                protectMulti, deleteProperty);
-router.put( "/:id/approve",        protectMulti, approveProperty);
-router.put( "/:id/reject",         protectMulti, rejectProperty);
-router.patch( "/:id/toggle-status",  protectMulti, toggleListingStatus);
-router.patch( "/:id/feature",        protectMulti, toggleFeatured);
+router.delete("/:id", protectMulti, deleteProperty);
+router.put("/:id/approve", protectMulti, approveProperty);
+router.put("/:id/reject", protectMulti, rejectProperty);
+router.patch("/:id/toggle-status", protectMulti, toggleListingStatus);
+router.patch("/:id/feature", protectMulti, toggleFeatured);
 
 // ════════════════════════════════════════════════════════════════════════════
 // INVENTORY ROUTES
@@ -117,15 +117,15 @@ router.patch( "/:id/feature",        protectMulti, toggleFeatured);
 
 
 
-router.post(  "/inventory",             protectMulti, createInventory);
-router.post(  "/inventory/bulk",        protectMulti, bulkImportInventory);
-router.get(   "/inventory",             protectMulti, getInventoryByProperty);
-router.get(   "/inventory/:unitId",     protectMulti, getSingleInventory);
-router.patch( "/inventory/:id",         protectMulti, updateInventory);
-router.delete("/inventory/:id",         protectMulti, deleteInventory);
-router.post(  "/inventory/:id/reserve", protectMulti, reserveUnit);
-router.post(  "/inventory/:id/book",    protectMulti, bookUnit);
-router.post(  "/inventory/:id/release", protectMulti, releaseUnit);
-router.post(  "/inventory/:id/sold",    protectMulti, markAsSold);
+router.post("/inventory", protectMulti, createInventory);
+router.post("/inventory/bulk", protectMulti, bulkImportInventory);
+router.get("/inventory", protectMulti, getInventoryByProperty);
+router.get("/inventory/:unitId", protectMulti, getSingleInventory);
+router.patch("/inventory/:id", protectMulti, updateInventory);
+router.delete("/inventory/:id", protectMulti, deleteInventory);
+router.post("/inventory/:id/reserve", protectMulti, reserveUnit);
+router.post("/inventory/:id/book", protectMulti, bookUnit);
+router.post("/inventory/:id/release", protectMulti, releaseUnit);
+router.post("/inventory/:id/sold", protectMulti, markAsSold);
 
 module.exports = router;
