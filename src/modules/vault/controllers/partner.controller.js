@@ -318,41 +318,89 @@ export const getAllPartners = async (req, res) => {
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const skip = (page - 1) * limit;
-    const { status, search } = req.query;
+    const { status, search, partnerCategory } = req.query;
 
     let query = { isDeleted: false };
     
-    if (status) query.status = status;
-    if (search) {
+    // Apply status filter
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+    
+    // Apply partner category filter
+    if (partnerCategory && partnerCategory !== 'all') {
+      query.partnerCategory = partnerCategory;
+    }
+    
+    // Apply search filter
+    if (search && search.trim()) {
+      const searchRegex = { $regex: search, $options: 'i' };
+      
       query.$or = [
-        { companyName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { tradeLicenseNumber: { $regex: search, $options: 'i' } }
+        // Company fields
+        { companyName: searchRegex },
+        { email: searchRegex },
+        { tradeLicenseNumber: searchRegex },
+        { dbaName: searchRegex },
+        
+        // Individual partner fields
+        { 'individualDetails.firstName': searchRegex },
+        { 'individualDetails.lastName': searchRegex },
+        { 'individualDetails.emiratesId': searchRegex },
+        { 'individualDetails.nationality': searchRegex },
+        
+        // Primary contact fields
+        { 'primaryContact.name': searchRegex },
+        { 'primaryContact.email': searchRegex },
+        { 'primaryContact.phone': searchRegex },
       ];
     }
 
-    const partners = await Partner.find(query)
-      .select('-password')
-      .populate('role', 'name code')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
+    // Execute queries in parallel for better performance
+    const [partners, total] = await Promise.all([
+      Partner.find(query)
+        .select('-password')
+        .populate('role', 'name code')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(), // Use lean() for better performance
+      Partner.countDocuments(query)
+    ]);
 
-    const total = await Partner.countDocuments(query);
+    // Transform data to include display name and type label
+    const transformedPartners = partners.map(partner => ({
+      ...partner,
+      displayName: partner.partnerCategory === 'company' 
+        ? (partner.dbaName ? `${partner.companyName} (${partner.dbaName})` : partner.companyName)
+        : `${partner.individualDetails?.firstName || ''} ${partner.individualDetails?.lastName || ''}`.trim() || 'N/A',
+      partnerTypeLabel: partner.partnerCategory === 'company' ? 'Company Partner' : 'Individual Partner',
+      isActive: partner.status === 'active' && !partner.isDeleted,
+    }));
 
     return res.status(200).json({
       success: true,
-      data: partners,
+      data: transformedPartners,
       total: total,
       pagination: {
         totalPages: Math.ceil(total / limit),
         currentPage: page,
         totalItems: total,
         limit: limit
+      },
+      filters: {
+        status: status || 'all',
+        partnerCategory: partnerCategory || 'all',
+        search: search || ''
       }
     });
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    console.error('Error fetching partners:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 };
 

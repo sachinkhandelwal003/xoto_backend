@@ -179,6 +179,7 @@ const partnerSchema = new mongoose.Schema(
       required: true,
       select: false
     },
+    profilePic: { type: String, default: null },
 
     // Contacts
     primaryContact: { type: contactSchema, required: true },

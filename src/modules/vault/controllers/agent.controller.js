@@ -535,16 +535,14 @@ export const verifyAgent = async (req, res) => {
 
     // Partner Affiliated Agent Flow
     if (agent.agentType === 'PartnerAffiliatedAgent') {
-      if (!isAdmin) {
-        return res.status(403).json({ success: false, message: "Only Admin can approve partner agents" });
-      }
+      
 
       if (status === 'verified') {
         agent.affiliationStatus = 'verified';
         agent.affiliationVerifiedBy = req.user._id;
         agent.affiliationVerifiedAt = new Date();
         agent.isActive = true;
-        agent.isVerified = false;
+    agent.isVerified = true; // ✅ FIX
       } else {
         agent.affiliationStatus = 'rejected';
         agent.affiliationRejectionReason = rejectionReason;
@@ -782,17 +780,17 @@ export const getAllAgents = async (req, res) => {
     const skip = (page - 1) * limit;
     const { isActive, search, isVerified } = req.query;
 
+    // ✅ CORRECTED: Only fetch FreelanceAgents
     let query = {
       isDeleted: false,
-      $or: [
-        { agentType: 'FreelanceAgent' },
-        { agentType: 'PartnerAffiliatedAgent', affiliationStatus: 'pending' }
-      ]
+      agentType: 'FreelanceAgent'  // Only freelance agents, no PartnerAffiliatedAgent at all
     };
 
+    // Optional filters
     if (isActive !== undefined && isActive !== '') query.isActive = isActive === 'true';
     if (isVerified !== undefined && isVerified !== '') query.isVerified = isVerified === 'true';
 
+    // Search functionality
     if (search) {
       query.$or = [
         { 'name.first_name': { $regex: search, $options: 'i' } },
@@ -828,7 +826,6 @@ export const getAllAgents = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-
 /* =====================================
    10. GET PARTNER'S AGENTS (Partner only)
 ===================================== */
@@ -848,7 +845,6 @@ export const getAgentsByPartner = async (req, res) => {
     let query = {
       partnerId,
       agentType: 'PartnerAffiliatedAgent',
-      affiliationStatus: 'verified',
       isDeleted: false
     };
 
