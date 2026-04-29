@@ -9,6 +9,7 @@ const propertyLeadSchema = new mongoose.Schema({
       'sell',
       'rent',
       'schedule_visit',
+      'hot_property',
       'partner',
       'investor',
       'developer',
@@ -149,6 +150,27 @@ const propertyLeadSchema = new mongoose.Schema({
 
     has_existing_loan: { type: Boolean, default: false }
   },
+
+
+  // propertyLead.model.js — schema me add karo
+assignedAdvisor: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "GridAdvisor",
+  default: null
+},
+assignedAt: {
+  type: Date,
+  default: null
+},
+assignedBy: {
+  type: mongoose.Schema.Types.ObjectId,  // Admin ka _id
+  default: null
+},
+assignmentNotes: {
+  type: String,
+  trim: true,
+  default: null
+},
   // ==============================================================
 
   is_active: { type: Boolean, default: true },

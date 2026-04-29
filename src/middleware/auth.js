@@ -14,11 +14,15 @@ const Freelancer = require("../modules/auth/models/Freelancer/freelancer.model")
 
 const AllUsers = require("../modules/auth/models/user/user.model");
 const Customer = require("../modules/auth/models/user/customer.model");
-const Agent =require("../modules/Agent/models/agent")
-const Agency = require("../modules/agency/models/index")
+const Agent =require("../modules/Grid/Agent/models/agent")
+const Agency = require("../modules/Grid/agency/models/index")
 const Developer =require("../modules/properties/models/DeveloperModel")
 const Partner =require("../modules/vault/models/Partner")
 const VaultAgents =require("../modules/vault/models/Agent")
+const GridAdvisor = require("../modules/Grid/Advisor/model/index");
+const VaultAdvisor =require("../modules/vault/models/XotoAdvisor")
+const VaultOps =require("../modules/vault/models/MortgageOps")
+
 
 const { getUserPermissions } = require("./permission");
 
@@ -79,7 +83,7 @@ exports.createToken = (user, type) => {
   };
 
   // ⭐ ADDED: Agar user Agent, Agency ya Freelancer hai, toh uska detail bhi token mein daal do
-  if (["agent", "agency", "freelancer", "vendorb2c", "vendorb2b", "developer"].includes(detectedType)) {
+  if (["agent", "agency", "freelancer", "vendorb2c", "vendorb2b", "developer", "gridadvisor"  ].includes(detectedType)) {
     payload.first_name = user.first_name;
     payload.last_name = user.last_name;
     payload.phone_number = user.phone_number;
@@ -158,6 +162,9 @@ exports.protectDeveloper = protectBase(Developer, "Developer");
 exports.protectVaultAgent = protectBase(VaultAgents, "VaultAgent");
 
 exports.protectPartner = protectBase(Partner, "Partner");
+exports.protectPartner = protectBase(Partner, "Partner");
+exports.protectVaultAdvisor = protectBase(VaultAdvisor, "VaultAdvisor");
+exports.protectVaultOps = protectBase(VaultOps, "VaultOps");
 // exports.protectVaultAgent = protectBase(VaultAgents, "VaultAgents");
 
 /* ============================================================
@@ -191,7 +198,10 @@ exports.protectMulti = async (req, res, next) => {
   developer: Developer,
       agency: Agency,         // role code 17
         vaultagent: VaultAgents,
-  partner: Partner
+  partner: Partner,
+  gridadvisor: GridAdvisor,
+  vaultadvisor: VaultAdvisor,    // ✅ ADD THIS LINE
+  mortgageops: VaultOps
     };
 
     const Model = entityMap[type];

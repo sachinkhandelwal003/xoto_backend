@@ -5,45 +5,22 @@ import {
   rejectDocument, 
   deleteDocument, 
   getCaseDocuments, 
-  getLeadDocuments 
+  getLeadDocuments,
+  advisorVerifyDocument
 } from '../controllers/document.controller.js';
-import { protect, protectPartner, protectVaultAgent, protectAdmin ,protectMulti } from '../../../middleware/auth.js';
+import { protect, protectMulti, protectVaultAdvisor } from '../../../middleware/auth.js';
 
 const router = express.Router();
 
-// Protect Admin or Partner or FreelanceAgent for document upload
-// Note: Partner-Affiliated Agent is EXCLUDED from upload
-const protectUpload = async (req, res, next) => {
-  try {
-    await protect(req, res, next);
-  } catch (err) {
-    try {
-      await protectPartner(req, res, next);
-    } catch (err2) {
-      try {
-        // Only allow FreelanceAgent, NOT PartnerAffiliatedAgent
-        await protectVaultAgent(req, res, next);
-        // Check if it's FreelanceAgent (PartnerAffiliatedAgent will be rejected in controller)
-        if (req.user?.agentType === 'PartnerAffiliatedAgent') {
-          return res.status(403).json({
-            success: false,
-            message: "Partner-Affiliated Agents cannot upload documents. Your role is only to create leads."
-          });
-        }
-      } catch (err3) {
-        return res.status(401).json({
-          success: false,
-          message: 'Unauthorized. Admin, Partner, or Freelance Agent access required.',
-        });
-      }
-    }
-  }
-};
-
 // ==================== UPLOAD ROUTES ====================
+// Upload to Lead (Admin, Partner, Freelance Agent, Xoto Advisor)
 router.post('/:leadId', protectMulti, uploadDocument);
 
+// Upload to Case (Admin, Partner, Xoto Advisor, Mortgage Ops)
 router.post('/cases/:caseId', protectMulti, uploadDocument);
+
+// ==================== ADVISOR VERIFY ROUTES ====================
+router.put('/advisor/verify/:documentId', protectVaultAdvisor, advisorVerifyDocument);
 
 // ==================== GET DOCUMENTS ====================
 router.get('/:leadId', protectMulti, getLeadDocuments);
@@ -52,7 +29,7 @@ router.get('/cases/:caseId', protectMulti, getCaseDocuments);
 // ==================== DELETE DOCUMENT ====================
 router.delete('/:id', protectMulti, deleteDocument);
 
-// ==================== ADMIN ONLY ROUTES ====================
+// ==================== ADMIN ONLY VERIFY ROUTES ====================
 router.post('/:id/verify', protectMulti, verifyDocument);
 router.post('/:id/reject', protectMulti, rejectDocument);
 

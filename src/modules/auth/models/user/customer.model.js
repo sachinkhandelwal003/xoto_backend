@@ -47,6 +47,20 @@ const customerSchema = new mongoose.Schema(
         }
       }
     },
+    gender: {
+      type: String,
+      enum: ['male', 'female', 'other'],
+      default: 'other'
+    },
+    nationality: {
+      type: String,
+      trim: true
+    },
+    residencyStatus :{
+      type: String,
+      enum: ['national', 'resident', 'non_resident'],
+      default: 'non_resident'
+    },
 
     // ================= PROFILE =================
     profilePic: {
@@ -90,6 +104,12 @@ const customerSchema = new mongoose.Schema(
     isActive: {
       type: Boolean,
       default: true
+    },
+
+    // 🔥🔥🔥 YAHAN ADD KIYA HAI isPremium 🔥🔥🔥
+    isPremium: {
+      type: Boolean,
+      default: false
     },
 
     is_deleted: {

@@ -1,10 +1,10 @@
 import Document from '../models/Document.js';
+import Partner from "../models/Partner.js";
 import Lead from '../models/VaultLead.js';
 import Case from '../models/Case.js';
 import VaultAgent from '../models/Agent.js';
 import HistoryService from '../services/history.service.js';
 import crypto from 'crypto';
-import { updateCaseDocumentStatus } from '../controllers/case.controller.js';
 
 const getUserInfo = async (req) => {
   const roleId = req.user?.role;
@@ -16,6 +16,8 @@ const getUserInfo = async (req) => {
     else if (roleDoc?.code === '21') userRole = 'Partner';
     else if (req.user?.agentType === 'FreelanceAgent') userRole = 'FreelanceAgent';
     else if (req.user?.agentType === 'PartnerAffiliatedAgent') userRole = 'PartnerAffiliatedAgent';
+    else if (req.user?.employeeType === 'XotoAdvisor') userRole = 'XotoAdvisor';
+    else if (req.user?.employeeType === 'MortgageOps') userRole = 'MortgageOps';
   }
   return {
     userId: req.user?._id,
@@ -27,58 +29,90 @@ const getUserInfo = async (req) => {
   };
 };
 
-/* =====================================
-   CHECK IF DOCUMENT CAN BE UPLOADED
-   - Can upload if: 
-     1. No document exists for this type OR
-     2. Previous document was REJECTED (update existing)
-   - Cannot upload if:
-     1. Document already exists and is PENDING
-     2. Document already exists and is VERIFIED
-===================================== */
-const canUploadDocument = async (entityType, entityId, documentType, userId) => {
-  // Check if a document of this type already exists
-  const existingDocument = await Document.findOne({
-    entityType,
-    entityId,
-    documentType,
-    isDeleted: false
-  });
-  
-  if (!existingDocument) {
-    return { allowed: true, action: 'create', message: "No existing document" };
+// Helper function to update case document status
+const updateCaseDocumentStatus = async (caseId) => {
+  const caseData = await Case.findById(caseId);
+  if (caseData && caseData.updateDocumentStatus) {
+    const uploadedCount = await Document.countDocuments({ 
+      entityType: 'Case', 
+      entityId: caseId, 
+      isDeleted: false 
+    });
+    const verifiedCount = await Document.countDocuments({ 
+      entityType: 'Case', 
+      entityId: caseId, 
+      verificationStatus: 'verified',
+      isDeleted: false 
+    });
+    await caseData.updateDocumentStatus(uploadedCount, verifiedCount);
   }
-  
-  // If document exists and is REJECTED, allow UPDATE (not create new)
-  if (existingDocument.verificationStatus === 'rejected') {
-    return { 
-      allowed: true, 
-      action: 'update', 
-      existingDocument: existingDocument,
-      message: "Previous rejected document found. Will update existing document." 
-    };
-  }
-  
-  // If document exists and is PENDING or VERIFIED, do NOT allow
-  if (existingDocument.verificationStatus === 'pending') {
-    return { allowed: false, message: `Document ${documentType} is already uploaded and pending verification. Please wait for admin verification.` };
-  }
-  
-  if (existingDocument.verificationStatus === 'verified') {
-    return { allowed: false, message: `Document ${documentType} is already verified. Cannot upload again.` };
-  }
-  
-  return { allowed: true, action: 'create', message: "Can upload" };
 };
 
+// ✅ NEW: Helper function to copy documents from Lead to Case
+export const copyLeadDocumentsToCase = async (leadId, caseId) => {
+  try {
+    const leadDocs = await Document.find({
+      entityType: 'Lead',
+      entityId: leadId,
+      isDeleted: false
+    });
 
+    for (const doc of leadDocs) {
+      // ✅ When copying, set verificationStatus to 'pending' for Mortgage Ops review
+      // Even if it was verified in Lead, Ops needs to re-verify for Case
+      await Document.create({
+        entityType: 'Case',
+        entityId: caseId,
+        linkedFrom: {
+          entityType: 'Lead',
+          entityId: leadId
+        },
+        isFromLead: true,
+        documentType: doc.documentType,
+        documentCategory: doc.documentCategory,
+        fileName: doc.fileName,
+        fileSizeMb: doc.fileSizeMb,
+        fileUrl: doc.fileUrl,
+        fileHash: doc.fileHash,
+        mimeType: doc.mimeType,
+        uploadedBy: doc.uploadedBy,
+        uploadedAt: doc.uploadedAt,
+        uploadedFromIp: doc.uploadedFromIp,
+        verificationStatus: 'pending', // ✅ Always pending for Ops review
+        verifiedBy: null,
+        verifiedAt: null,
+        encryption: doc.encryption
+      });
+    }
+    
+    console.log(`✅ Copied ${leadDocs.length} documents from Lead ${leadId} to Case ${caseId}`);
+    return leadDocs.length;
+  } catch (error) {
+    console.error('Error copying documents from lead to case:', error);
+    return 0;
+  }
+};
+
+// Helper function to get document category
+function getDocumentCategory(documentType) {
+  const identityDocs = ['emirates_id_front', 'emirates_id_back', 'passport', 'visa'];
+  const financialDocs = ['bank_statements', 'salary_certificate', 'payslips', 'credit_report'];
+  const propertyDocs = ['title_deed', 'ejari', 'sale_agreement', 'noc'];
+  const bankForms = ['bank_application_form', 'consent_form'];
+  
+  if (identityDocs.includes(documentType)) return 'identity';
+  if (financialDocs.includes(documentType)) return 'financial';
+  if (propertyDocs.includes(documentType)) return 'property';
+  if (bankForms.includes(documentType)) return 'bank_form';
+  return 'other';
+}
 
 /* =====================================
-   UPLOAD DOCUMENT - COMPLETE FIXED VERSION
+   UPLOAD DOCUMENT - COMPLETE WITH ADVISOR SUPPORT
 ===================================== */
 export const uploadDocument = async (req, res) => {
   try {
-    const { documentType, documentCategory, fileUrl, fileName, fileSizeMb, mimeType } = req.body;
+    const { documentType, documentCategory, fileUrl, fileName, fileSizeMb, mimeType, isVerified } = req.body;
     const { leadId, caseId } = req.params;
     
     // Validation
@@ -94,8 +128,21 @@ export const uploadDocument = async (req, res) => {
     const roleDoc = await Role.findById(req.user.role);
     const isAdmin = roleDoc?.code === '18';
     const isPartner = roleDoc?.code === '21';
-    const isFreelanceAgent = req.user?.agentType === 'FreelanceAgent';
-    const isPartnerAffiliatedAgent = req.user?.agentType === 'PartnerAffiliatedAgent';
+    const isFreelanceAgent = roleDoc?.code === '22';
+    const isPartnerAffiliatedAgent = roleDoc?.code === '22';
+    const isXotoAdvisor = req.user?.employeeType === 'XotoAdvisor' || 
+                          req.user?.type === 'vaultadvisor' || 
+                          req.user?.role?.code === '26';
+    const isMortgageOps = req.user?.employeeType === 'MortgageOps';
+    
+    // Get partner type if partner
+    let isCompanyPartner = false;
+    let isIndividualPartner = false;
+    if (isPartner) {
+      const partner = await Partner.findById(req.user._id);
+      isCompanyPartner = partner?.partnerCategory === 'company';
+      isIndividualPartner = partner?.partnerCategory === 'individual';
+    }
     
     // Partner-Affiliated Agents CANNOT upload
     if (isPartnerAffiliatedAgent) {
@@ -121,15 +168,41 @@ export const uploadDocument = async (req, res) => {
       if (isAdmin) {
         hasPermission = true;
       }
+      
+      // XOTO ADVISOR - can upload for leads assigned to them
+      else if (isXotoAdvisor) {
+        if (lead.assignedTo?.advisorId?.toString() === req.user._id.toString()) {
+          hasPermission = true;
+        }
+      }
+      
       // FREELANCE AGENT - only their own leads with Referral + Docs
       else if (isFreelanceAgent) {
         if (lead.sourceInfo.createdById.toString() === req.user._id.toString() && 
             lead.referralType === 'Referral + Docs') {
           hasPermission = true;
+          
+          // Restrict document types for Freelance Agent
+          const allowedDocTypes = ['emirates_id_front', 'emirates_id_back', 'passport', 'visa'];
+          if (!allowedDocTypes.includes(documentType)) {
+            return res.status(403).json({ 
+              success: false, 
+              message: `Freelance agents can only upload: ${allowedDocTypes.join(', ')}` 
+            });
+          }
         }
       }
-      // PARTNER - leads from their affiliated agents
-      else if (isPartner) {
+      
+      // INDIVIDUAL PARTNER - can upload for their OWN leads
+      else if (isIndividualPartner) {
+        if (lead.sourceInfo.createdById.toString() === req.user._id.toString() &&
+            lead.sourceInfo.createdByModel === 'Partner') {
+          hasPermission = true;
+        }
+      }
+      
+      // COMPANY PARTNER - leads from their affiliated agents
+      else if (isCompanyPartner) {
         const agent = await VaultAgent.findById(lead.sourceInfo.createdById);
         if (agent && agent.partnerId && agent.partnerId.toString() === req.user._id.toString()) {
           hasPermission = true;
@@ -154,28 +227,27 @@ export const uploadDocument = async (req, res) => {
       let document;
       let isUpdate = false;
       
-      // If document exists and is REJECTED - update it
       if (existingDoc && existingDoc.verificationStatus === 'rejected') {
         existingDoc.fileUrl = fileUrl;
         existingDoc.fileName = fileName || existingDoc.fileName;
         existingDoc.fileSizeMb = fileSizeMb || existingDoc.fileSizeMb;
         existingDoc.mimeType = mimeType || existingDoc.mimeType;
-        existingDoc.verificationStatus = 'pending';
+        existingDoc.verificationStatus = isVerified ? 'verified' : 'pending';
         existingDoc.rejectionReason = null;
         existingDoc.uploadedBy = {
-          role: isAdmin ? 'admin' : (isFreelanceAgent ? 'agent' : 'partner'),
+          role: isAdmin ? 'admin' : (isFreelanceAgent ? 'agent' : (isPartner ? 'partner' : (isXotoAdvisor ? 'advisor' : 'client'))),
           userId: req.user._id,
           userName: req.user?.fullName || req.user?.companyName || req.user?.email,
         };
         existingDoc.uploadedAt = new Date();
+        if (isVerified) {
+          existingDoc.verifiedBy = req.user._id;
+          existingDoc.verifiedAt = new Date();
+        }
         await existingDoc.save();
         document = existingDoc;
         isUpdate = true;
-
-        // 🔥 UPDATE CASE DOCUMENT STATUS AFTER REUPLOAD
-await updateCaseDocumentStatus(caseId);
       }
-      // If no document exists - create new
       else if (!existingDoc) {
         const fileHash = crypto.createHash('md5').update(fileUrl).digest('hex');
         
@@ -183,50 +255,24 @@ await updateCaseDocumentStatus(caseId);
           entityType: 'Lead',
           entityId: leadId,
           documentType,
-          documentCategory,
+          documentCategory: documentCategory || getDocumentCategory(documentType),
           fileName: fileName || 'document',
           fileSizeMb: fileSizeMb || 0,
           fileUrl,
           fileHash,
           mimeType: mimeType || 'application/pdf',
           uploadedBy: {
-            role: isAdmin ? 'admin' : (isFreelanceAgent ? 'agent' : 'partner'),
+            role: isAdmin ? 'admin' : (isFreelanceAgent ? 'agent' : (isPartner ? 'partner' : (isXotoAdvisor ? 'advisor' : 'client'))),
             userId: req.user._id,
             userName: req.user?.fullName || req.user?.companyName || req.user?.email,
           },
           uploadedFromIp: req.ip,
-          verificationStatus: 'pending',
+          verificationStatus: isVerified ? 'verified' : 'pending',
+          verifiedBy: isVerified ? req.user._id : null,
+          verifiedAt: isVerified ? new Date() : null,
           encryption: 'AES-256',
         });
       }
-
-      else if (!existingDoc) {
-  const fileHash = crypto.createHash('md5').update(fileUrl).digest('hex');
-
-  document = await Document.create({
-    entityType: 'Case',
-    entityId: caseId,
-    documentType,
-    documentCategory,
-    fileName: fileName || 'document',
-    fileSizeMb: fileSizeMb || 0,
-    fileUrl,
-    fileHash,
-    mimeType: mimeType || 'application/pdf',
-    uploadedBy: {
-      role: isAdmin ? 'admin' : 'partner',
-      userId: req.user._id,
-      userName: req.user?.fullName || req.user?.companyName || req.user?.email,
-    },
-    uploadedFromIp: req.ip,
-    verificationStatus: 'pending',
-    encryption: 'AES-256',
-  });
-
-  // ✅ ADD THIS
-  await updateCaseDocumentStatus(caseId);
-}
-      // Document exists and is PENDING or VERIFIED - block
       else {
         return res.status(400).json({ 
           success: false, 
@@ -240,17 +286,26 @@ await updateCaseDocumentStatus(caseId);
         entityId: leadId, 
         isDeleted: false 
       });
-      await lead.updateDocumentStatus(uploadedCount, lead.documentCollection.documentsVerified);
+      const verifiedCount = await Document.countDocuments({ 
+        entityType: 'Lead', 
+        entityId: leadId, 
+        verificationStatus: 'verified',
+        isDeleted: false 
+      });
+      await lead.updateDocumentStatus(uploadedCount, verifiedCount);
       
-      // Log history
       await HistoryService.logDocumentActivity(document, isUpdate ? 'DOCUMENT_REUPLOADED' : 'DOCUMENT_UPLOADED', await getUserInfo(req), {
         description: `Document ${document.fileName} ${isUpdate ? 're-uploaded' : 'uploaded'} to Lead`,
       });
       
       return res.status(201).json({ 
         success: true, 
-        message: isUpdate ? "Document re-uploaded successfully" : "Document uploaded successfully", 
-        data: document 
+        message: isUpdate ? "Document re-uploaded successfully" : "Document uploaded successfully",
+        data: {
+          document,
+          documentCollection: lead.documentCollection,
+          allDocumentsVerified: lead.documentCollection.readyForSubmission
+        }
       });
     }
     
@@ -263,15 +318,39 @@ await updateCaseDocumentStatus(caseId);
         return res.status(404).json({ success: false, message: "Case not found" });
       }
       
-      // Permission check for case
+      // ========== PERMISSION CHECK FOR CASE ==========
       let hasPermission = false;
       
       if (isAdmin) {
         hasPermission = true;
-      } else if (isPartner) {
-        if (caseData.createdBy.partnerId.toString() === req.user._id.toString()) {
-          hasPermission = true;
+      }
+      // XOTO ADVISOR - can upload for cases they created
+      else if (isXotoAdvisor && caseData.createdBy?.advisorId?.toString() === req.user._id.toString()) {
+        hasPermission = true;
+      }
+      // ✅ MORTGAGE OPS - can upload bank forms to cases assigned to them
+      else if (isMortgageOps) {
+        // Ops can upload bank forms to cases assigned to them
+        if (!caseData.assignedTo?.opsId || caseData.assignedTo.opsId.toString() === req.user._id.toString()) {
+          // Only allow bank forms
+          const allowedDocTypes = ['bank_application_form', 'consent_form'];
+          if (allowedDocTypes.includes(documentType)) {
+            hasPermission = true;
+          } else {
+            return res.status(403).json({
+              success: false,
+              message: `Mortgage Ops can only upload bank forms: ${allowedDocTypes.join(', ')}`
+            });
+          }
         }
+      }
+      // INDIVIDUAL PARTNER - can upload for their own cases
+      else if (isIndividualPartner && caseData.createdBy?.partnerId?.toString() === req.user._id.toString()) {
+        hasPermission = true;
+      }
+      // COMPANY PARTNER - can upload for cases from their company
+      else if (isCompanyPartner && caseData.createdBy?.partnerId?.toString() === req.user._id.toString()) {
+        hasPermission = true;
       }
       
       if (!hasPermission) {
@@ -281,7 +360,7 @@ await updateCaseDocumentStatus(caseId);
         });
       }
       
-      // Duplicate check
+      // ========== DUPLICATE CHECK FOR CASE ==========
       const existingDoc = await Document.findOne({ 
         entityType: 'Case', 
         entityId: caseId, 
@@ -295,46 +374,52 @@ await updateCaseDocumentStatus(caseId);
       if (existingDoc && existingDoc.verificationStatus === 'rejected') {
         existingDoc.fileUrl = fileUrl;
         existingDoc.fileName = fileName || existingDoc.fileName;
-        existingDoc.verificationStatus = 'pending';
+        existingDoc.fileSizeMb = fileSizeMb || existingDoc.fileSizeMb;
+        existingDoc.mimeType = mimeType || existingDoc.mimeType;
+        existingDoc.verificationStatus = isVerified ? 'verified' : 'pending';
         existingDoc.rejectionReason = null;
         existingDoc.uploadedBy = {
-          role: isAdmin ? 'admin' : 'partner',
+          role: isAdmin ? 'admin' : (isPartner ? 'partner' : (isXotoAdvisor ? 'advisor' : 'client')),
           userId: req.user._id,
           userName: req.user?.fullName || req.user?.companyName || req.user?.email,
         };
         existingDoc.uploadedAt = new Date();
+        if (isVerified) {
+          existingDoc.verifiedBy = req.user._id;
+          existingDoc.verifiedAt = new Date();
+        }
         await existingDoc.save();
-
-  // ✅ ADD THIS
-  await updateCaseDocumentStatus(caseId);
-
-  document = existingDoc;
-  isUpdate = true;
-      } else if (!existingDoc) {
+        document = existingDoc;
+        isUpdate = true;
+        await updateCaseDocumentStatus(caseId);
+      } 
+      else if (!existingDoc) {
         const fileHash = crypto.createHash('md5').update(fileUrl).digest('hex');
         
         document = await Document.create({
           entityType: 'Case',
           entityId: caseId,
           documentType,
-          documentCategory,
+          documentCategory: documentCategory || getDocumentCategory(documentType),
           fileName: fileName || 'document',
           fileSizeMb: fileSizeMb || 0,
           fileUrl,
           fileHash,
           mimeType: mimeType || 'application/pdf',
           uploadedBy: {
-            role: isAdmin ? 'admin' : 'partner',
+            role: isAdmin ? 'admin' : (isPartner ? 'partner' : (isXotoAdvisor ? 'advisor' : 'client')),
             userId: req.user._id,
             userName: req.user?.fullName || req.user?.companyName || req.user?.email,
           },
           uploadedFromIp: req.ip,
-          verificationStatus: 'pending',
+          verificationStatus: isVerified ? 'verified' : 'pending',
+          verifiedBy: isVerified ? req.user._id : null,
+          verifiedAt: isVerified ? new Date() : null,
           encryption: 'AES-256',
         });
-        // 🔥 UPDATE CASE DOCUMENT STATUS
-await updateCaseDocumentStatus(caseId);
-      } else {
+        await updateCaseDocumentStatus(caseId);
+      } 
+      else {
         return res.status(400).json({ 
           success: false, 
           message: `Document ${documentType} is already ${existingDoc.verificationStatus}` 
@@ -347,8 +432,12 @@ await updateCaseDocumentStatus(caseId);
       
       return res.status(201).json({ 
         success: true, 
-        message: isUpdate ? "Document re-uploaded successfully" : "Document uploaded successfully", 
-        data: document 
+        message: isUpdate ? "Document re-uploaded successfully" : "Document uploaded successfully",
+        data: {
+          document,
+          documentCollection: caseData.documentStatus,
+          allDocumentsVerified: caseData.documentStatus?.allDocumentsVerified || false
+        }
       });
     }
     
@@ -394,6 +483,8 @@ export const verifyDocument = async (req, res) => {
         });
         await lead.updateDocumentStatus(lead.documentCollection.documentsUploaded, verifiedCount);
       }
+    } else if (document.entityType === 'Case') {
+      await updateCaseDocumentStatus(document.entityId);
     }
     
     await HistoryService.logDocumentActivity(document, 'DOCUMENT_VERIFIED', await getUserInfo(req), {
@@ -435,7 +526,7 @@ export const rejectDocument = async (req, res) => {
     
     return res.status(200).json({ 
       success: true, 
-      message: "Document rejected. User can now re-upload a new document (same document will be updated).", 
+      message: "Document rejected. User can re-upload.", 
       data: document 
     });
   } catch (error) {
@@ -456,6 +547,10 @@ export const deleteDocument = async (req, res) => {
     }
     
     await document.softDelete(req.user._id);
+    
+    if (document.entityType === 'Case') {
+      await updateCaseDocumentStatus(document.entityId);
+    }
     
     return res.status(200).json({ success: true, message: "Document deleted" });
   } catch (error) {
@@ -492,6 +587,99 @@ export const getLeadDocuments = async (req, res) => {
       isDeleted: false 
     });
     return res.status(200).json({ success: true, data: documents });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/* =====================================
+   ADVISOR VERIFY DOCUMENT
+===================================== */
+export const advisorVerifyDocument = async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { qualityScore, isVerified, reason } = req.body;
+    const advisorId = req.user._id;
+    
+    const document = await Document.findById(documentId);
+    if (!document) {
+      return res.status(404).json({ success: false, message: "Document not found" });
+    }
+    
+    // Check if advisor has permission
+    let hasPermission = false;
+    
+    if (document.entityType === 'Lead') {
+      const lead = await Lead.findOne({
+        _id: document.entityId,
+        'assignedTo.advisorId': advisorId,
+        isDeleted: false
+      });
+      if (lead) hasPermission = true;
+    } else if (document.entityType === 'Case') {
+      const caseData = await Case.findOne({
+        _id: document.entityId,
+        'createdBy.advisorId': advisorId,
+        isDeleted: false
+      });
+      if (caseData) hasPermission = true;
+    }
+    
+    if (!hasPermission) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "You don't have permission to verify this document" 
+      });
+    }
+    
+    if (isVerified) {
+      document.verificationStatus = 'verified';
+      document.verifiedBy = advisorId;
+      document.verifiedAt = new Date();
+      if (qualityScore) {
+        document.qualityCheck.qualityScore = qualityScore;
+        document.qualityCheck.isClear = qualityScore >= 80;
+        document.qualityCheck.isComplete = qualityScore >= 70;
+      }
+    } else {
+      document.verificationStatus = 'rejected';
+      document.rejectionReason = reason || "Document rejected by advisor";
+    }
+    
+    await document.save();
+    
+    // Update document counts
+    if (document.entityType === 'Lead') {
+      const lead = await Lead.findById(document.entityId);
+      if (lead) {
+        const uploadedCount = await Document.countDocuments({ 
+          entityType: 'Lead', 
+          entityId: document.entityId, 
+          isDeleted: false 
+        });
+        const verifiedCount = await Document.countDocuments({ 
+          entityType: 'Lead', 
+          entityId: document.entityId, 
+          verificationStatus: 'verified',
+          isDeleted: false 
+        });
+        await lead.updateDocumentStatus(uploadedCount, verifiedCount);
+      }
+    } else if (document.entityType === 'Case') {
+      await updateCaseDocumentStatus(document.entityId);
+    }
+    
+    await HistoryService.logDocumentActivity(document, isVerified ? 'DOCUMENT_VERIFIED' : 'DOCUMENT_REJECTED', await getUserInfo(req), {
+      description: `Document ${document.fileName} ${isVerified ? 'verified' : 'rejected'} by Advisor`,
+      notes: reason,
+    });
+    
+    return res.status(200).json({ 
+      success: true, 
+      message: `Document ${isVerified ? 'verified' : 'rejected'} successfully`,
+      data: document
+    });
+    
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }

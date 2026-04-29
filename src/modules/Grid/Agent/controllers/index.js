@@ -1,8 +1,8 @@
 import Agent from "../models/agent.js";
 import Agency from "../../agency/models/index.js";
 import bcrypt from "bcryptjs";
-import { Role } from '../../../modules/auth/models/role/role.model.js';
-import { createToken } from '../../../middleware/auth.js';
+import { Role } from '../../../../modules/auth/models/role/role.model.js';
+import { createToken } from '../../../../middleware/auth.js';
 
 /* =====================================
    :one: AGENT SIGNUP

@@ -12,7 +12,7 @@ const {
   addLeadInterest,
   removeLeadInterest
 } = require("../controllers/AgentController");
-const { protect, protectMulti } = require("../../../middleware/auth");
+const { protect, protectMulti } = require("../../../../middleware/auth");
 
 const {
   createSiteVisit,

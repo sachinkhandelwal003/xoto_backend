@@ -28,7 +28,7 @@ const BlogSchema = new mongoose.Schema({
     required: [true, "Content is required"],
   },
   contentHtml: {
-    type: String,      // Pre-processed HTML for fast rendering
+    type: String,      // Pre-processed HTML for fast rendering
     default: "",
   },
   excerpt: {
@@ -64,9 +64,10 @@ const BlogSchema = new mongoose.Schema({
   // ── Author ────────────────────────────────
   authorName: { type: String, required: true, default: "Admin", trim: true },
   authorImage: { type: String, default: "" },
+  authorDesignation: { type: String, default: "Content Writer", trim: true }, // :point_left: Added here
 
   // ── Analytics ─────────────────────────────
-  readingTime: { type: Number, default: 1 },   // Minutes
+  readingTime: { type: Number, default: 1 },   // Minutes
   viewCount: { type: Number, default: 0 },
 
   // ── SEO ───────────────────────────────────
@@ -146,10 +147,11 @@ BlogSchema.methods.toSummary = function () {
     tags: this.tags,
     category: this.category,
     authorName: this.authorName,
+    authorDesignation: this.authorDesignation, // :point_left: Added here
     readingTime: this.readingTime,
     viewCount: this.viewCount,
     isPublished: this.isPublished,
-    publishedAt: this.publishedAt,
+    publishedAt: this.publishedAt,  
     createdAt: this.createdAt,
   };
 };

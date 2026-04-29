@@ -3,30 +3,33 @@ import Freelancer from "../../../modules/auth/models/Freelancer/freelancer.model
 import Customer from "../../../modules/auth/models/user/customer.model.js"
 import Admin from "../../../modules/auth/models/User.js"
 import Vendor from "../../../modules/auth/models/Vendor/B2cvendor.model.js"
-import Agent from "../../Agent/models/agent.js"
-import Agency from "../../agency/models/index.js"
+import Agent from "../../Grid/Agent/models/agent.js"
+import Agency from "../../Grid/agency/models/index.js"
 import VaultAgent from "../../vault/models/Agent.js"
 import VaultPartner from "../../vault/models/Partner.js"
 import Developer from "../../properties/models/DeveloperModel.js"
+import GridAdvisor from "../../Grid/Advisor/model/index.js"
 
 // ── Role ke basis par model return karo ──────────────────────────────
 const getModelByRole = (roleName) => {
-  switch (roleName) {
-    case "Supervisor":
-    case "Accountant":  return AllUsers;
-    case "Freelancer":  return Freelancer;
-    case "Customer":    return Customer;
-    case "SuperAdmin":
-    case "Admin":
-    case "VaultAdmin":  return Admin;
-    case "Vendor-B2C":  return Vendor;
-    case "Agent":       return Agent;
-    case "Developer":   return Developer;
-    case "Agency":      return Agency;
-    case "VaultPartner": return VaultPartner;
-    case "VaultAgent":  return VaultAgent;
-    default:            return null;
-  }
+    switch (roleName) {
+        case "Supervisor":
+        case "Accountant": return AllUsers;
+        case "Freelancer": return Freelancer;
+        case "Customer": return Customer;
+        case "SuperAdmin": return Admin;
+      case "Admin": return Admin;
+            case "VaultAdmin": return Admin;
+        case "Vendor-B2C": return Vendor;
+        case "Agent": return Agent;
+        case "Developer": return Developer;
+                case "Agency": return Agency;
+                                case "VaultPartner": return VaultPartner;
+                case "VaultAgent": return VaultAgent;
+                case "GridAdvisor": return GridAdvisor;
+
+        default: return null;
+    }
 };
 
 // ── GET profile ───────────────────────────────────────────────────────
@@ -38,12 +41,23 @@ export const getProfileData = async (req, res) => {
 
     let query = Model.findOne({ _id: user._id });
 
-    if (user.role.name === "Freelancer") {
-      query.populate("payment.preferred_currency services_offered.category services_offered.subcategories.type");
-    } else if (user.role.name === "Vendor-B2C") {
-      query.populate("store_details.categories");
-    } else {
-      query.populate("role");
+        let query = Model.findOne({ _id: user._id });
+
+        // Specific population based on roles
+        if (user.role.name === "Freelancer") {
+            query.populate("payment.preferred_currency services_offered.category services_offered.subcategories.type");
+        } else if (user.role.name === "Vendor-B2C") {
+            query.populate("store_details.categories");
+        }else if (user.role.name === "GridAdvisor") {
+    query.populate("createdBy", "firstName lastName email");  // ← add karo
+} else {
+            query.populate("role");
+        }
+
+        const data = await query;
+        return res.status(200).json({ data });
+    } catch (error) {
+        return res.status(500).json({ message: "Error fetching data", error: error.message });
     }
 
     // VaultAgent — partner info bhi populate karo
@@ -79,19 +93,20 @@ export const updateProfileData = async (req, res) => {
 
     let finalUpdate = updateData;
 
-    // ── VaultAgent ke liye nested field mapping ──────────────────────
-    // Schema mein name aur phone nested hain:
-    //   name: { first_name, last_name }
-    //   phone: { country_code, number }
-    // Frontend flat fields bhejta hai — dot notation mein convert karo
-    if (user.role.name === "VaultAgent") {
-      const {
-        first_name,
-        last_name,
-        country_code,
-        phone_number,
-        ...rest
-      } = updateData;
+        if (user.role.name === "GridAdvisor") {
+    delete updateData.employeeId;
+    delete updateData.status;
+    delete updateData.mustResetPassword;
+    delete updateData.email;
+    delete updateData["identity.isVerified"];
+    delete updateData["bankDetails.isVerified"];
+}
+
+        const updatedProfile = await Model.findOneAndUpdate(
+            { _id: user._id },
+            { $set: updateData },
+            { new: true, runValidators: true }
+        );
 
       finalUpdate = { ...rest };
 

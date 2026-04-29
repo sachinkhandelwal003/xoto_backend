@@ -1,99 +1,131 @@
-// routes/propertyRoutes.js
-
-const Router = require("express");
-const { protect, protectMulti } = require("../../../middleware/auth");
+const router = require("express").Router();
+const { protectMulti } = require("../../../middleware/auth");
 
 const {
-    // Property Controllers
-    createOffPlanProperty,
-    getDeveloperProperties,
-    getPropertyById,
-    updateProperty,
-    deleteProperty,
-    createSecondaryProperty,
-    getAgentProperties,
-    getAllProperties,
-    approveProperty,
-    rejectProperty,
-    getAgentPropertyById,updateAgentProperty,deleteAgentProperty,getAgencyOwnProperties,getAgencyAllProperties
-  
+  createProperty,
+  getProperties,
+  getPropertyById,
+  updateProperty,
+  deleteProperty,
+  approveProperty,
+  rejectProperty,
+  toggleListingStatus,
+  toggleFeatured,
+  getHotProperties,
+  toggleHotProperty,
 } = require("../controllers/property.controller");
 
 const {
-   
-    
-    // Inventory Controllers
-    createInventory,
-    bulkImportInventory,
-    getInventoryByProperty,
-    updateInventory,
-    deleteInventory,
-    reserveUnit,
-    bookUnit,
-    releaseUnit,
-    markAsSold,getSingleInventory
+  createInventory,
+  bulkImportInventory,
+  getInventoryByProperty,
+  getSingleInventory,
+  updateInventory,
+  deleteInventory,
+  reserveUnit,
+  bookUnit,
+  releaseUnit,
+  markAsSold,
+
 } = require("../controllers/inventory.controller");
 
-const router = Router();
 
-// =========================
-// DEVELOPER PROPERTY ROUTES
-// =========================
-router.post("/developer/property/create-offplan", protectMulti, createOffPlanProperty);
-router.get("/developer/property/offplan", protectMulti, getDeveloperProperties);
-router.get("/developer/property/:id", protectMulti, getPropertyById);
-router.put("/developer/property/:id", protectMulti, updateProperty);
-router.delete("/developer/property/:id", protectMulti, deleteProperty);
+router.get("/hot", getHotProperties);          // public
+router.put("/:id/hot", protectMulti, toggleHotProperty);
+router.get("/", protectMulti, getProperties);
+router.get("/:id", protectMulti, getPropertyById);
 
-// =========================
-// AGENT PROPERTY ROUTES (Secondary)
-// =========================
-router.post("/agent/property/create-secondary", protectMulti, createSecondaryProperty);
-router.get("/agent/property/secondary", protectMulti, getAgentProperties);
-// Get single property by ID (agent's own property)
-router.get("/agent/property/secondary/:id", protectMulti, getAgentPropertyById);
+// ════════════════════════════════════════════════════════════════════════════
+// PROPERTY ROUTES
+// ════════════════════════════════════════════════════════════════════════════
+//
+// POST   /property                   Create listing
+//                                    Developer  → off_plan only (body: propertySubType)
+//                                    Admin      → secondary | rental | commercial
+//                                    Admin      → off_plan on behalf of developer (body: developerId)
+//
+// GET    /property                   Get all listings
+//                                    Admin      → all, all statuses + stats
+//                                    Developer  → own off-plan only
+//                                    Advisor    → approved + active catalogue (PRD §7.3)
+//                                    Agent      → approved + active catalogue (PRD §8.3)
+//
+// GET    /property/:id               Get single listing
+//
+// PATCH  /property/:id               Update listing
+//                                    Developer  → own pending/rejected off-plan only
+//                                    Admin      → anything (staff admin edits live → pending)
+//
+// DELETE /property/:id               Delete listing
+//                                    Developer  → own pending/rejected off-plan only
+//                                    Admin      → anything
+//
+// PATCH  /property/:id/approve       Admin approve listing → goes live
+// PATCH  /property/:id/reject        Admin reject listing  → body: { rejectionReason }
+// PATCH  /property/:id/toggle-status Admin toggle active ↔ inactive
+// PATCH  /property/:id/feature       Super admin toggle featured (PRD §12.6)
+//
+// ── Query filters on GET /property ──────────────────────────────────────────
+//   propertySubType    off_plan | secondary | rental | commercial
+//   approvalStatus     pending | approved | rejected          [admin only]
+//   listingStatus      pending | active | rejected | inactive [admin only]
+//   developerId                                               [admin only]
+//   area, city, country
+//   unitType, bedroomType, bedrooms, bathrooms
+//   minPrice, maxPrice
+//   minArea, maxArea
+//   furnishing, hasView, parkingSpaces
+//   projectStatus      presale | under_construction | ready | sold_out
+//   completionYear, completionQuarter
+//   rentalFrequency    monthly | quarterly | yearly
+//   isImmediate        true | false
+//   isShortTerm        true | false
+//   isFeatured         true | false
+//   isAvailable        true | false                           [admin only]
+//   fromDate, toDate                                          [admin only]
+//   search
+//   sortBy             price | createdAt | updatedAt
+//   sortOrder          asc | desc
+//   page, limit
+// ════════════════════════════════════════════════════════════════════════════
 
-// Update agent's property
-router.put("/agent/property/secondary/:id", protectMulti, updateAgentProperty);
+router.post("/", protectMulti, createProperty);
+router.get("/", protectMulti, getProperties);
+router.get("/:id", protectMulti, getPropertyById);
+router.put("/:id", protectMulti, updateProperty);
+router.delete("/:id", protectMulti, deleteProperty);
+router.put("/:id/approve", protectMulti, approveProperty);
+router.put("/:id/reject", protectMulti, rejectProperty);
+router.patch("/:id/toggle-status", protectMulti, toggleListingStatus);
+router.patch("/:id/feature", protectMulti, toggleFeatured);
 
-// Delete agent's property
-router.delete("/agent/property/secondary/:id", protectMulti, deleteAgentProperty);
-// In your routes file
-router.get("/admin/property/all", protectMulti, getAllProperties);
-router.get("/admin/property/:id", protectMulti, getPropertyById);
+// ════════════════════════════════════════════════════════════════════════════
+// INVENTORY ROUTES
+// ════════════════════════════════════════════════════════════════════════════
+//
+// POST   /inventory               Create unit
+// POST   /inventory/bulk          Bulk import units (CSV)
+// GET    /inventory?propertyId=   Get all units for a property
+// GET    /inventory/:unitId       Get single unit
+// PATCH  /inventory/:id           Update unit
+// DELETE /inventory/:id           Delete unit
+// POST   /inventory/:id/reserve   Reserve unit
+// POST   /inventory/:id/book      Book unit
+// POST   /inventory/:id/release   Release unit (back to available)
+// POST   /inventory/:id/sold      Mark unit as sold
+// ════════════════════════════════════════════════════════════════════════════
 
 
 
-router.get("/agency/properties/all",protectMulti, getAgencyAllProperties);
-
-router.get("/agency/properties/own",protectMulti, getAgencyOwnProperties);
-
-// =========================
-// INVENTORY ROUTES (Developer)
-// =========================
-router.post("/developer/inventory/create", protectMulti, createInventory);
-router.post("/developer/inventory/bulk-import", protectMulti, bulkImportInventory);
-
-router.get("/inventory/:propertyId", protectMulti, getInventoryByProperty);
-router.get("/inventory/unit/:unitId", protectMulti, getSingleInventory);
-router.put("/developer/inventory/:id", protectMulti, updateInventory);
-router.delete("/developer/inventory/:id", protectMulti, deleteInventory);
-
-// =========================
-// INVENTORY ACTIONS (Agent)
-// =========================
+router.post("/inventory", protectMulti, createInventory);
+router.post("/inventory/bulk", protectMulti, bulkImportInventory);
+router.get("/inventory", protectMulti, getInventoryByProperty);
+router.get("/inventory/:unitId", protectMulti, getSingleInventory);
+router.patch("/inventory/:id", protectMulti, updateInventory);
+router.delete("/inventory/:id", protectMulti, deleteInventory);
 router.post("/inventory/:id/reserve", protectMulti, reserveUnit);
 router.post("/inventory/:id/book", protectMulti, bookUnit);
 router.post("/inventory/:id/release", protectMulti, releaseUnit);
 router.post("/inventory/:id/sold", protectMulti, markAsSold);
-
-// =========================
-// ADMIN PROPERTY ROUTES
-// =========================
-// router.get("/admin/property/all", protectMulti, getAllProperties);
-router.put("/admin/property/approve/:id", protectMulti, approveProperty);
-router.put("/admin/property/reject/:id", protectMulti, rejectProperty);
-router.get("/admin/property/:id", protectMulti, getPropertyById);
-
 
 module.exports = router;

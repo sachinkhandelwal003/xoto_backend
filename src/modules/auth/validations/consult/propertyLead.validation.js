@@ -16,7 +16,9 @@ const validate = (req, res, next) => {
 };
 
 const isValidId = (val, field) => {
-  if (!mongoose.Types.ObjectId.isValid(val)) throw new Error(`${field} is invalid`);
+  if (!val || !mongoose.Types.ObjectId.isValid(val)) {
+    throw new Error(`${field} is invalid — received: "${val}"`);
+  }
   return true;
 };
 
@@ -26,6 +28,7 @@ exports.validateCreatePropertyLead = [
     'sell',
     'rent',
     'schedule_visit',
+    'hot_property',
     'partner',
     'investor',
     'developer',
@@ -101,6 +104,7 @@ exports.validateGetPropertyLeads = [
       'sell',
       'rent',
       'schedule_visit',
+      'hot_property',
       'partner',
       'investor',
       'developer',
