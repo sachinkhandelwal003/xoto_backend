@@ -602,7 +602,7 @@ export const submitCaseToXoto = async (req, res) => {
 export const updateCaseStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, notes } = req.body;
+    const { status, notes, approvedAmount, bankReference, disbursedAmount } = req.body;
     
     const roleDoc = await Role.findById(req.user.role);
     const isAdmin = roleDoc?.code === '18';
@@ -621,43 +621,8 @@ export const updateCaseStatus = async (req, res) => {
       return res.status(403).json({ success: false, message: "You can only update cases assigned to you" });
     }
     
-    // ================= COMPLETE VALID TRANSITIONS =================
-    const validTransitions = {
-      'Draft': ['Submitted to Xoto'],
-      'Submitted to Xoto': ['In Ops Queue - Pending Pick-up', 'Bank Application', 'Lost'],
-      'In Ops Queue - Pending Pick-up': ['Assigned - Pending Review'],
-      'Assigned - Pending Review': ['Under Review', 'Returned - Pending Correction'],
-      'Under Review': ['Bank Application', 'Returned - Pending Correction'],
-      'Returned - Pending Correction': ['Resubmitted-After Correction'],
-      'Resubmitted-After Correction': ['Under Review'],
-      'Bank Application': ['Pre-Approved', 'Collecting Documentation', 'Rejected'],
-      'Collecting Documentation': ['Bank Application', 'Lost'],
-      'Pre-Approved': ['Valuation', 'Rejected'],
-      'Valuation': ['FOL Processed', 'Rejected'],
-      'FOL Processed': ['FOL Issued', 'Rejected'],
-      'FOL Issued': ['FOL Signed', 'Rejected'],
-      'FOL Signed': ['Disbursed', 'Rejected'],
-      'Disbursed': [],
-      'Rejected': [],
-      'Lost': []
-    };
-    
-    // Check if current status exists in validTransitions
-    if (!validTransitions[caseData.currentStatus]) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Current status ${caseData.currentStatus} has no valid transitions` 
-      });
-    }
-    
-    // Check if transition is valid
-    if (!validTransitions[caseData.currentStatus].includes(status)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Invalid status transition from ${caseData.currentStatus} to ${status}`,
-        allowedTransitions: validTransitions[caseData.currentStatus]
-      });
-    }
+    // ✅ REMOVED ALL TRANSITION RESTRICTIONS - Ops can update to ANY status
+    // Only basic validation: status must be in enum (handled by schema)
     
     // Special validation for Bank Application
     if (status === 'Bank Application' && !caseData.documentStatus?.allDocumentsVerified) {
@@ -670,24 +635,137 @@ export const updateCaseStatus = async (req, res) => {
     const previousStatus = caseData.currentStatus;
     caseData.currentStatus = status;
     
-    // Handle bank submission
+    // ✅ Handle Pre-Approved - Save approved amount
+    if (status === 'Pre-Approved' && approvedAmount) {
+      caseData.loanInfo.approvedAmount = parseFloat(approvedAmount);
+      caseData.bankDecision = {
+        status: 'Approved',
+        approvedAmount: parseFloat(approvedAmount),
+        interestRate: caseData.loanInfo?.interestRatePercentage,
+        decisionAt: new Date()
+      };
+      
+      if (!caseData.internalNotes) caseData.internalNotes = [];
+      caseData.internalNotes.push({
+        note: `🏦 Bank Pre-Approved: AED ${parseFloat(approvedAmount).toLocaleString()} at ${caseData.loanInfo?.interestRatePercentage}%`,
+        addedBy: req.user?.email || 'System',
+        addedAt: new Date()
+      });
+    }
+    
+    // ✅ Handle FOL Issued - Save FOL amount
+    if (status === 'FOL Issued' && approvedAmount) {
+      caseData.loanInfo.approvedAmount = parseFloat(approvedAmount);
+      
+      if (!caseData.internalNotes) caseData.internalNotes = [];
+      caseData.internalNotes.push({
+        note: `📄 FOL Issued: AED ${parseFloat(approvedAmount).toLocaleString()}`,
+        addedBy: req.user?.email || 'System',
+        addedAt: new Date()
+      });
+    }
+    
+    // ✅ Handle Disbursed - Save disbursed amount and create commission
+    if (status === 'Disbursed') {
+      const finalDisbursedAmount = disbursedAmount || approvedAmount || caseData.loanInfo?.approvedAmount;
+      
+      if (finalDisbursedAmount) {
+        caseData.loanInfo.disbursedAmount = parseFloat(finalDisbursedAmount);
+        caseData.loanInfo.approvedAmount = parseFloat(finalDisbursedAmount);
+        
+        caseData.bankDecision = {
+          status: 'Approved',
+          approvedAmount: parseFloat(finalDisbursedAmount),
+          interestRate: caseData.loanInfo?.interestRatePercentage,
+          decisionAt: new Date()
+        };
+        
+        if (!caseData.internalNotes) caseData.internalNotes = [];
+        caseData.internalNotes.push({
+          note: `💰 Case Disbursed: AED ${parseFloat(finalDisbursedAmount).toLocaleString()}`,
+          addedBy: req.user?.email || 'System',
+          addedAt: new Date()
+        });
+        
+        // Auto-create commission
+        try {
+          const Commission = require('../models/Commission');
+          await Commission.createFromCase(caseData, parseFloat(finalDisbursedAmount));
+        } catch (commissionErr) {
+          console.error("Commission creation error:", commissionErr);
+        }
+        
+        // Update Lead status
+        try {
+          const VaultLead = require('../models/VaultLead');
+          const lead = await VaultLead.findById(caseData.sourceLeadId);
+          if (lead) {
+            lead.currentStatus = 'Disbursed';
+            lead.loanAmountRange = finalDisbursedAmount > 5000000 ? '>5M AED' : '≤5M AED';
+            await lead.save();
+          }
+        } catch (leadErr) {
+          console.error("Lead update error:", leadErr);
+        }
+      }
+    }
+    
+    // Handle Bank Application - Save reference
     if (status === 'Bank Application') {
       caseData.bankSubmission = {
         submittedToBankAt: new Date(),
         bankName: caseData.loanInfo?.selectedBank,
+        bankReferenceNumber: bankReference,
         bankNotes: notes
       };
     }
     
-    // Clear resubmission tracking when moving from Resubmitted to Under Review
-    if (previousStatus === 'Resubmitted-After Correction' && status === 'Under Review') {
-      caseData.lastReturnNotes = null;
-      caseData.returnedBy = null;
-      caseData.returnedAt = null;
+    // Handle Rejection
+    if (status === 'Rejected') {
+      caseData.bankDecision = {
+        status: 'Rejected',
+        decisionAt: new Date()
+      };
+      
+      if (!caseData.internalNotes) caseData.internalNotes = [];
+      caseData.internalNotes.push({
+        note: `❌ Case Rejected by bank. Reason: ${notes || 'Not specified'}`,
+        addedBy: req.user?.email || 'System',
+        addedAt: new Date()
+      });
     }
     
-    // Add notes if provided
-    if (notes) {
+    // Handle Lost
+    if (status === 'Lost') {
+      if (!caseData.internalNotes) caseData.internalNotes = [];
+      caseData.internalNotes.push({
+        note: `📉 Case Lost. Reason: ${notes || 'Not specified'}`,
+        addedBy: req.user?.email || 'System',
+        addedAt: new Date()
+      });
+      
+      // Update Lead to Not Proceeding
+      try {
+        const VaultLead = require('../models/VaultLead');
+        const lead = await VaultLead.findById(caseData.sourceLeadId);
+        if (lead && lead.currentStatus !== 'Disbursed') {
+          lead.currentStatus = 'Not Proceeding';
+          await lead.save();
+        }
+      } catch (leadErr) {
+        console.error("Lead update error:", leadErr);
+      }
+    }
+    
+    // Handle Return for Correction
+    if (status === 'Returned - Pending Correction' && notes) {
+      caseData.lastReturnNotes = notes;
+      caseData.returnedBy = req.user._id;
+      caseData.returnedAt = new Date();
+    }
+    
+    // Add general notes if provided
+    if (notes && !['Returned - Pending Correction', 'Rejected', 'Lost'].includes(status)) {
       if (!caseData.internalNotes) caseData.internalNotes = [];
       caseData.internalNotes.push({ 
         note: notes, 
@@ -1673,5 +1751,205 @@ export const resubmitCaseAfterCorrection = async (req, res) => {
       success: false,
       message: error.message
     });
+  }
+};
+
+
+// ==================== GET CASE AMOUNT DETAILS ====================
+// GET /api/vault/cases/:caseId/amount-details
+export const getCaseAmountDetails = async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    
+    const caseData = await Case.findOne({ _id: caseId, isDeleted: false })
+      .populate('loanInfo.selectedBankProduct')
+      .populate('sourceLeadId', 'customerInfo propertyDetails');
+
+    if (!caseData) {
+      return res.status(404).json({ success: false, message: "Case not found" });
+    }
+
+    // ==================== AMOUNT DETAILS ====================
+    const requestedAmount = caseData.loanInfo?.requestedAmount || 0;
+    const approvedAmount = caseData.loanInfo?.approvedAmount || null;
+    const disbursedAmount = caseData.loanInfo?.disbursedAmount || null;
+    
+    // Get property value
+    const propertyValue = caseData.propertyInfo?.propertyValue || 0;
+    const downPayment = caseData.propertyInfo?.downPayment || 0;
+    const ltvPercentage = caseData.propertyInfo?.ltvPercentage || 
+      (propertyValue > 0 ? ((propertyValue - downPayment) / propertyValue) * 100 : 0);
+    
+    // ==================== BANK OFFER DETAILS ====================
+    const bankOffer = {
+      bankName: caseData.loanInfo?.selectedBank || 'N/A',
+      productName: caseData.loanInfo?.selectedBankProduct?.name || 'N/A',
+      interestRate: caseData.loanInfo?.interestRatePercentage || 0,
+      interestRateType: caseData.loanInfo?.interestRateType || 'Fixed',
+      tenureYears: caseData.loanInfo?.tenureYears || 25,
+      processingFee: caseData.loanInfo?.processingFee || 0,
+      valuationFee: caseData.loanInfo?.valuationFee || 2500,
+      earlySettlementFee: caseData.loanInfo?.earlySettlementFeePercentage || 1,
+      monthlyEMI: caseData.calculations?.emi || 0,
+      dbrPercentage: caseData.calculations?.dbr || 0,
+    };
+
+    // ==================== AMOUNT COMPARISON ====================
+    let amountComparison = {
+      requestedAmount,
+      approvedAmount,
+      disbursedAmount,
+      amountDifference: null,
+      amountStatus: 'pending',
+      message: ''
+    };
+
+    if (approvedAmount && requestedAmount) {
+      amountComparison.amountDifference = approvedAmount - requestedAmount;
+      if (approvedAmount < requestedAmount) {
+        amountComparison.amountStatus = 'reduced';
+        amountComparison.message = `Bank approved AED ${(requestedAmount - approvedAmount).toLocaleString()} less than requested`;
+      } else if (approvedAmount > requestedAmount) {
+        amountComparison.amountStatus = 'increased';
+        amountComparison.message = `Bank approved AED ${(approvedAmount - requestedAmount).toLocaleString()} more than requested`;
+      } else {
+        amountComparison.amountStatus = 'matched';
+        amountComparison.message = 'Bank approved the full requested amount';
+      }
+    }
+
+    if (disbursedAmount && approvedAmount) {
+      if (disbursedAmount !== approvedAmount) {
+        amountComparison.disbursedDifference = disbursedAmount - approvedAmount;
+        amountComparison.message += `. Actual disbursed: AED ${disbursedAmount.toLocaleString()}`;
+      }
+    }
+
+    // ==================== COMMISSION CALCULATION ====================
+    let commissionCalculation = null;
+    
+    if (disbursedAmount) {
+      // Xoto's commission from bank (usually 0.5% - 1% of loan amount)
+      const xotoCommissionRate = 0.01; // 1% - This should come from bank product or config
+      const xotoCommissionFromBank = disbursedAmount * xotoCommissionRate;
+      
+      // Determine recipient based on who created the case
+      let recipientPercentage = 0;
+      let recipientType = null;
+      let recipientName = null;
+      
+      if (caseData.createdBy?.role === 'partner') {
+        recipientType = 'partner';
+        recipientName = caseData.createdBy.partnerName;
+        // Partner gets 80% or 85% based on loan amount
+        recipientPercentage = disbursedAmount <= 5000000 ? 80 : 85;
+      } else if (caseData.createdBy?.role === 'advisor') {
+        recipientType = 'advisor';
+        recipientName = caseData.createdBy.advisorName;
+        recipientPercentage = 0; // Advisors are salaried, no commission
+      }
+      
+      const commissionAmount = (xotoCommissionFromBank * recipientPercentage) / 100;
+      const loanTier = disbursedAmount <= 5000000 ? '≤5M AED' : '>5M AED';
+      
+      commissionCalculation = {
+        loanAmount: disbursedAmount,
+        loanTier,
+        xotoCommissionRate: `${xotoCommissionRate * 100}%`,
+        xotoCommissionFromBank: Math.round(xotoCommissionFromBank),
+        recipientType,
+        recipientName,
+        recipientPercentage,
+        commissionAmount: Math.round(commissionAmount),
+        formula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × ${recipientPercentage}% = ${Math.round(commissionAmount).toLocaleString()} AED`,
+        status: caseData.commissionInfo?.status || 'Pending Disbursement'
+      };
+    }
+
+    // ==================== TIMELINE OF AMOUNT CHANGES ====================
+    const amountTimeline = [];
+    
+    // Extract amount-related notes from internal notes
+    if (caseData.internalNotes && caseData.internalNotes.length > 0) {
+      const amountNotes = caseData.internalNotes.filter(note => 
+        note.note?.includes('Pre-Approved') || 
+        note.note?.includes('FOL Issued') || 
+        note.note?.includes('Disbursed') ||
+        note.note?.includes('Amount')
+      );
+      
+      for (const note of amountNotes) {
+        amountTimeline.push({
+          date: note.addedAt,
+          event: note.note,
+          addedBy: note.addedBy
+        });
+      }
+    }
+
+    // Add bank submission info
+    if (caseData.bankSubmission?.submittedToBankAt) {
+      amountTimeline.push({
+        date: caseData.bankSubmission.submittedToBankAt,
+        event: `Case submitted to ${caseData.bankSubmission.bankName} for processing`,
+        reference: caseData.bankSubmission.bankReferenceNumber,
+        addedBy: 'System'
+      });
+    }
+
+    // Add disbursement info
+    if (caseData.currentStatus === 'Disbursed' && disbursedAmount) {
+      amountTimeline.push({
+        date: caseData.updatedAt,
+        event: `Loan disbursed: AED ${disbursedAmount.toLocaleString()}`,
+        addedBy: 'System',
+        isFinal: true
+      });
+    }
+
+    // Sort timeline by date
+    amountTimeline.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // ==================== SUMMARY ====================
+    const summary = {
+      requestedAmount: requestedAmount.toLocaleString(),
+      approvedAmount: approvedAmount ? approvedAmount.toLocaleString() : 'Pending',
+      disbursedAmount: disbursedAmount ? disbursedAmount.toLocaleString() : 'Pending',
+      propertyValue: propertyValue.toLocaleString(),
+      downPayment: downPayment.toLocaleString(),
+      ltvPercentage: Math.round(ltvPercentage),
+      monthlyEMI: caseData.calculations?.emi?.toLocaleString() || '0',
+      dbrPercentage: caseData.calculations?.dbr || 0,
+      dbrStatus: caseData.expenseDetails?.dbrStatus || 'Eligible',
+      totalUpfrontCost: caseData.calculations?.totalUpfrontCost?.toLocaleString() || '0',
+      totalInterestPayable: caseData.calculations?.totalInterestPayable?.toLocaleString() || '0',
+      totalAmountPayable: caseData.calculations?.totalAmountPayable?.toLocaleString() || '0'
+    };
+
+    // ==================== RESPONSE ====================
+    return res.status(200).json({
+      success: true,
+      data: {
+        caseId: caseData._id,
+        caseReference: caseData.caseReference,
+        currentStatus: caseData.currentStatus,
+        amountComparison,
+        bankOffer,
+        commissionCalculation,
+        amountTimeline,
+        summary,
+        rawData: {
+          requestedAmount,
+          approvedAmount,
+          disbursedAmount,
+          propertyValue,
+          downPayment
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("Get case amount details error:", error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };

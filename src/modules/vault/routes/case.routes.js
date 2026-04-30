@@ -17,7 +17,7 @@ import {
   getMyAssignedCases,
   returnCaseForCorrection,
   submitCaseToBank,
-  updateBankDecision,resubmitCaseAfterCorrection
+  updateBankDecision,resubmitCaseAfterCorrection,getCaseAmountDetails
 } from '../controllers/case.controller.js';
 import { protect, protectMulti,protectVaultOps,protectVaultAdvisor } from '../../../middleware/auth.js';
 
@@ -47,8 +47,9 @@ router.post('/ops/return/:caseId', protectMulti, returnCaseForCorrection);
 router.post('/ops/submit-to-bank/:caseId', protectMulti, submitCaseToBank);
 router.put('/ops/resubmit/:id', protectMulti, resubmitCaseAfterCorrection);
 router.put('/ops/bank-decision/:caseId', protectMulti, updateBankDecision);
+router.get('/ops/bank-decision/:caseId/amount-details', protectMulti, getCaseAmountDetails);
 
 // ==================== CASE DOCUMENTS ====================
 router.get('/:id/documents/status', protectMulti, getCaseDocumentStatus);
 
-module.exports = router;
+module.exports = router;  

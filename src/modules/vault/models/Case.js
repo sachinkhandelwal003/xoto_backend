@@ -141,6 +141,7 @@ const loanSchema = new mongoose.Schema(
   {
     requestedAmount: { type: Number, required: true },
     approvedAmount: { type: Number, default: null },
+      disbursedAmount: { type: Number, default: null },  // ✅ ADD THIS
     tenureYears: { type: Number, required: true },
     tenureMonths: { type: Number, required: true },
     interestRateType: { type: String, enum: ['Fixed', 'Variable'], required: true },
