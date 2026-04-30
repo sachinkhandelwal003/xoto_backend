@@ -621,13 +621,15 @@ export const updateCaseStatus = async (req, res) => {
       return res.status(403).json({ success: false, message: "You can only update cases assigned to you" });
     }
     
+    // ================= COMPLETE VALID TRANSITIONS =================
     const validTransitions = {
       'Draft': ['Submitted to Xoto'],
       'Submitted to Xoto': ['In Ops Queue - Pending Pick-up', 'Bank Application', 'Lost'],
       'In Ops Queue - Pending Pick-up': ['Assigned - Pending Review'],
       'Assigned - Pending Review': ['Under Review', 'Returned - Pending Correction'],
       'Under Review': ['Bank Application', 'Returned - Pending Correction'],
-      'Returned - Pending Correction': ['Under Review'],
+      'Returned - Pending Correction': ['Resubmitted-After Correction'],
+      'Resubmitted-After Correction': ['Under Review'],
       'Bank Application': ['Pre-Approved', 'Collecting Documentation', 'Rejected'],
       'Collecting Documentation': ['Bank Application', 'Lost'],
       'Pre-Approved': ['Valuation', 'Rejected'],
@@ -640,14 +642,25 @@ export const updateCaseStatus = async (req, res) => {
       'Lost': []
     };
     
-    if (!validTransitions[caseData.currentStatus]?.includes(status)) {
+    // Check if current status exists in validTransitions
+    if (!validTransitions[caseData.currentStatus]) {
       return res.status(400).json({ 
         success: false, 
-        message: `Invalid status transition from ${caseData.currentStatus} to ${status}` 
+        message: `Current status ${caseData.currentStatus} has no valid transitions` 
       });
     }
     
-    if (status === 'Bank Application' && !caseData.documentStatus.allDocumentsVerified) {
+    // Check if transition is valid
+    if (!validTransitions[caseData.currentStatus].includes(status)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Invalid status transition from ${caseData.currentStatus} to ${status}`,
+        allowedTransitions: validTransitions[caseData.currentStatus]
+      });
+    }
+    
+    // Special validation for Bank Application
+    if (status === 'Bank Application' && !caseData.documentStatus?.allDocumentsVerified) {
       return res.status(400).json({ 
         success: false, 
         message: "All documents must be verified before bank submission" 
@@ -657,27 +670,42 @@ export const updateCaseStatus = async (req, res) => {
     const previousStatus = caseData.currentStatus;
     caseData.currentStatus = status;
     
+    // Handle bank submission
     if (status === 'Bank Application') {
       caseData.bankSubmission = {
         submittedToBankAt: new Date(),
-        bankName: caseData.loanInfo.selectedBank,
+        bankName: caseData.loanInfo?.selectedBank,
         bankNotes: notes
       };
     }
     
+    // Clear resubmission tracking when moving from Resubmitted to Under Review
+    if (previousStatus === 'Resubmitted-After Correction' && status === 'Under Review') {
+      caseData.lastReturnNotes = null;
+      caseData.returnedBy = null;
+      caseData.returnedAt = null;
+    }
+    
+    // Add notes if provided
     if (notes) {
-      caseData.internalNotes.push({ note: notes, addedBy: req.user?.email || 'System', addedAt: new Date() });
+      if (!caseData.internalNotes) caseData.internalNotes = [];
+      caseData.internalNotes.push({ 
+        note: notes, 
+        addedBy: req.user?.email || 'System', 
+        addedAt: new Date() 
+      });
     }
     
     await caseData.save();
     
-    await HistoryService.logCaseActivity(caseData, 'CASE_STATUS_CHANGED', await getUserInfo(req), {
-      description: `Case status changed from ${previousStatus} to ${status}`,
-      notes,
+    return res.status(200).json({ 
+      success: true, 
+      message: `Case status updated from ${previousStatus} to ${status}`, 
+      data: caseData 
     });
     
-    return res.status(200).json({ success: true, message: "Case status updated", data: caseData });
   } catch (error) {
+    console.error("Update case status error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -1565,5 +1593,85 @@ export const updateBankDecision = async (req, res) => {
     
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+
+
+export const resubmitCaseAfterCorrection = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { correctionNotes } = req.body;
+
+    const caseData = await Case.findOne({
+      _id: id,
+      isDeleted: false
+    });
+
+    if (!caseData) {
+      return res.status(404).json({
+        success: false,
+        message: "Case not found"
+      });
+    }
+
+    // ✅ Status check
+    if (caseData.currentStatus !== 'Returned - Pending Correction') {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status: ${caseData.currentStatus}`
+      });
+    }
+
+    // ✅ Get role
+    const roleDoc = await Role.findById(req.user.role);
+    const userRoleCode = roleDoc?.code;
+
+    // ✅ Authorization
+    const isOwner =
+      caseData.createdBy?.advisorId?.toString() === req.user._id.toString() ||
+      caseData.createdBy?.partnerId?.toString() === req.user._id.toString();
+
+    const isAdmin = userRoleCode === 18;
+
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized"
+      });
+    }
+
+    // ✅ Update status
+    caseData.currentStatus = 'Resubmitted-After Correction';
+
+    // ✅ Track count
+    caseData.resubmissionCount = (caseData.resubmissionCount || 0) + 1;
+
+    // ✅ Add note
+    caseData.internalNotes = caseData.internalNotes || [];
+    caseData.internalNotes.push({
+      note: `Resubmitted (#${caseData.resubmissionCount}): ${correctionNotes || 'Corrections done'}`,
+      addedBy: req.user?.fullName || req.user?.email || 'System',
+      addedAt: new Date()
+    });
+
+    await caseData.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Case resubmitted successfully",
+      data: {
+        caseId: caseData._id,
+        status: caseData.currentStatus
+      }
+    });
+
+  } catch (error) {
+    console.error("Resubmit error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };

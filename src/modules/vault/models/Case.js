@@ -286,6 +286,7 @@ const caseSchema = new mongoose.Schema(
         'Assigned - Pending Review',
         'Under Review',
         'Returned - Pending Correction',
+        'Resubmitted-After Correction' ,
         'Bank Application',
         'Collecting Documentation',
         'Pre-Approved',

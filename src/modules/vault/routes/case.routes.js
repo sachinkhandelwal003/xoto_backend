@@ -17,9 +17,9 @@ import {
   getMyAssignedCases,
   returnCaseForCorrection,
   submitCaseToBank,
-  updateBankDecision
+  updateBankDecision,resubmitCaseAfterCorrection
 } from '../controllers/case.controller.js';
-import { protect, protectMulti,protectVaultOps } from '../../../middleware/auth.js';
+import { protect, protectMulti,protectVaultOps,protectVaultAdvisor } from '../../../middleware/auth.js';
 
 const router = express.Router();
 
@@ -45,6 +45,7 @@ router.post('/ops/assign', protect, adminAssignCaseToOps);
 router.get('/ops/my-cases', protectVaultOps, getMyAssignedCases);
 router.post('/ops/return/:caseId', protectMulti, returnCaseForCorrection);
 router.post('/ops/submit-to-bank/:caseId', protectMulti, submitCaseToBank);
+router.put('/ops/resubmit/:id', protectMulti, resubmitCaseAfterCorrection);
 router.put('/ops/bank-decision/:caseId', protectMulti, updateBankDecision);
 
 // ==================== CASE DOCUMENTS ====================

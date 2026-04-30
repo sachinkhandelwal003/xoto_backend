@@ -11,11 +11,9 @@ const BlogSchema = new mongoose.Schema({
   title: {
     type: String, trim: true,
     required: [true, "Title is required"],
-    maxlength: [200, "Title cannot exceed 200 characters"],
   },
   subHeading: {
     type: String, default: "",
-    maxlength: [300, "Subheading cannot exceed 300 characters"],
   },
   slug: {
     type: String, trim: true, required: true,
@@ -33,7 +31,6 @@ const BlogSchema = new mongoose.Schema({
   },
   excerpt: {
     type: String,
-    maxlength: [500, "Excerpt cannot exceed 500 characters"],
     default: "",
   },
 
@@ -53,8 +50,6 @@ const BlogSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    enum: ['AI', 'Real Estate', 'PropTech', 'Technology', 'Business', 'Other'],
-    default: 'Other',
   },
 
   // ── Publishing ────────────────────────────
