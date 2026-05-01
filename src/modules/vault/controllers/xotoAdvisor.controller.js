@@ -59,7 +59,7 @@ export const createXotoAdvisor = async (req, res) => {
 
     const {
       first_name, last_name, email, phone_number, country_code, password,
-      dateOfBirth, nationality, gender, joinDate, maxLeadsCapacity
+      dateOfBirth, nationality, gender, joinDate, maxLeadsCapacity,profilePic
     } = req.body;
 
     if (!first_name || !last_name || !email || !phone_number || !password) {
@@ -96,6 +96,7 @@ export const createXotoAdvisor = async (req, res) => {
       email,
       phone: { country_code: country_code || '+971', number: phone_number },
       password: hashedPassword,
+        profilePic: profilePic || null,  // 👈 ADD THIS
       role: advisorRole._id,
       dateOfBirth: dateOfBirth || null,
       nationality: nationality || null,
