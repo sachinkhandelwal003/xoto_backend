@@ -31,7 +31,7 @@ router.get('/partner/get', protectPartner, getPartnerLeads);
 router.get('/admin/all', protect, adminGetAllLeads);
 router.get('/admin/unassigned', protect, getUnassignedLeads);
 router.post('/admin/assign-to-advisor', protect, assignLeadToXotoAdvisor);
-router.put('/admin/:id/status', protect, updateLeadStatus);
+router.put('/admin/:id/status', protectMulti, updateLeadStatus);
 
 // ==================== XOTO ADVISOR ROUTES ====================
 router.get('/advisor/my-leads', protectVaultAdvisor, getAdvisorAssignedLeads);
