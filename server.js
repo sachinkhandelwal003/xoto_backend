@@ -158,11 +158,15 @@ const PORT = process.env.PORT || 5000;
 app.use(cors({
   origin: [
     'https://xoto.ae',
-    'https://www.xoto.ae',   // :white_check_mark: ADD THIS (VERY IMPORTANT)
-    'http://localhost:5173'
+    'https://www.xoto.ae',
+    'http://localhost:5173',
+    'http://kotiboxglobaltech.site',
+    'http://www.kotiboxglobaltech.site',
+    'https://kotiboxglobaltech.site',     // For future HTTPS
+    'https://www.kotiboxglobaltech.site'  // For future HTTPS
   ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // :white_check_mark: ADD
-  allowedHeaders: ['Content-Type', 'Authorization'],   // :white_check_mark: ADD
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   credentials: true
 }));
 
