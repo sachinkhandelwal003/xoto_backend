@@ -120,8 +120,17 @@ const customerSchema = new mongoose.Schema(
     deleted_at: {
       type: Date,
       default: null
-    }
+    },
+    favourites: [
+  {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Properties",
+    default: [],
+  }
+]
   },
+
+  
   { timestamps: true }
 );
 
@@ -142,6 +151,8 @@ customerSchema.index({ "mobile.number": 1 });
 
 // ✅ Agent wise filtering
 customerSchema.index({ assignedTo: 1 });
+
+
 
 
 // ================= PRE-SAVE VALIDATION =================

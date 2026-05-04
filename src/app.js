@@ -33,10 +33,14 @@ const AgentLead = require('./modules/Grid/Agent/routes/Agentroute.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
 const referralPartnerRoutes = require("./modules/Grid/ReferralPartner/Routes/ReferralPartner.route.js");
 const rentalProperrty = require('./modules/RentalProperties/routes/Rentproperty.routes.js')
+
+const gridLead = require('./modules/Grid/Lead/routes/gridLead.route.js')
 // const Rentlead = require('./modules/RentalProperties/routes/Rentlead.routes.js')
 // console.log("SkyRoutes Check:", SkyRoutes);
 
 // const SkyRoutes = Skyimport.default || Skyimport;
+
+const feedback = require('./modules/feedback/routes/feedback.route.js');
 
 
 // ==========================================
@@ -165,6 +169,13 @@ app.use('/categories', require('../src/modules/ecommerce/B2C/routes/category.rou
 app.use('/tags', require('../src/modules/ecommerce/B2C/routes/tags.routes'));
 app.use('/blogs', blogRoutes);
 app.use('/vendor/warehouses', require('../src/modules/ecommerce/B2C/routes/warehouse.routes'));
+
+app.use('/gridlead', (req, res, next) => {
+  console.log("GRID LEAD HIT");
+  next();
+}, gridLead);
+
+app.use('/feedback', feedback);  
 
 // History
 app.use('/customer-history', customerHistoryRoutes);
