@@ -1,6 +1,7 @@
 const Property  = require("../models/property.model");
 const Inventory = require("../models/property.inventory.model");
 const Developer = require("../models/DeveloperModel");
+const Customer = require("../../auth/models/user/customer.model");
 
 // ─── Role helpers ─────────────────────────────────────────────────────────────
 const isAdmin = (role) => {
@@ -745,5 +746,76 @@ exports.toggleHotProperty = async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+
+
+// ── Toggle Favourite ──────────────────────────────────────────────────────
+exports.toggleFavourite = async (req, res) => {
+  try {
+    const customerId = req.user._id;
+    const { property_id } = req.body;
+
+    if (!property_id) {
+      return res.status(400).json({ success: false, message: "property_id is required" });
+    }
+
+    const customer = await Customer.findById(customerId);
+    if (!customer) {
+      return res.status(404).json({ success: false, message: "Customer not found" });
+    }
+
+    const alreadyLiked = customer.favourites.some(
+      (id) => id.toString() === property_id.toString()
+    );
+
+    if (alreadyLiked) {
+      // Unlike — remove karo
+      customer.favourites = customer.favourites.filter(
+        (id) => id.toString() !== property_id.toString()
+      );
+    } else {
+      // Like — add karo
+      customer.favourites.push(property_id);
+    }
+
+    await customer.save();
+
+    return res.status(200).json({
+      success: true,
+      message: alreadyLiked ? "Removed from favourites" : "Added to favourites",
+      isFavourited: !alreadyLiked,
+      favourites: customer.favourites,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ── Get All Favourites ────────────────────────────────────────────────────
+// GET /customer/favourites
+exports.getFavourites = async (req, res) => {
+  try {
+    const customerId = req.user._id;
+
+    const customer = await Customer.findById(customerId).populate({
+      path: "favourites",
+      match: { approvalStatus: "approved", listingStatus: "active" },
+      select:
+        "propertyName price currency area city photos mainLogo bedrooms bathrooms builtUpArea builtUpAreaUnit bedroomType propertySubType transactionType",
+    });
+
+    if (!customer) {
+      return res.status(404).json({ success: false, message: "Customer not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      count: customer.favourites.length,
+      data: customer.favourites,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
