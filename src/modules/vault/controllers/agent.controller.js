@@ -1,258 +1,258 @@
-import VaultAgent from '../models/Agent.js';
-import Partner from '../models/Partner.js';
-import Lead from '../models/VaultLead.js';
-import Commission from '../models/Commission.js';
-import HistoryService from '../services/history.service.js';
-import bcrypt from 'bcryptjs';
-import { Role } from '../../../modules/auth/models/role/role.model.js';
-import { createToken } from '../../../middleware/auth.js';
+  import VaultAgent from '../models/Agent.js';
+  import Partner from '../models/Partner.js';
+  import Lead from '../models/VaultLead.js';
+  import Commission from '../models/Commission.js';
+  import HistoryService from '../services/history.service.js';
+  import bcrypt from 'bcryptjs';
+  import { Role } from '../../../modules/auth/models/role/role.model.js';
+  import { createToken } from '../../../middleware/auth.js';
 
-/* =====================================
-   HELPER FUNCTION
-===================================== */
-const checkProfileCompleteness = (agent) => {
-  let completedFields = 0;
-  let totalFields = 5;
-  
-  if (agent.name?.first_name && agent.name?.last_name) completedFields++;
-  if (agent.phone?.number) completedFields++;
-  if (agent.email) completedFields++;
-  if (agent.emiratesId?.number && agent.emiratesId?.frontImageUrl) completedFields++;
-  if (agent.bankDetails?.iban) completedFields++;
-  
-  const percentage = Math.round((completedFields / totalFields) * 100);
-  agent.profileCompletionPercentage = percentage;
-  agent.isProfileComplete = percentage === 100;
-  
-  return agent.isProfileComplete;
-};
-
-const getUserInfo = async (req, user = null) => {
-  let userRole = 'System';
-  
-  try {
-    const roleId = req.user?.role;
-    if (roleId) {
-      const roleDoc = await Role.findById(roleId);
-      const roleCode = roleDoc?.code;
-      
-      if (roleCode === '18') {
-        userRole = 'Admin';
-      } else if (roleCode === '21') {
-        userRole = 'Partner';
-      } else if (req.user?.agentType === 'FreelanceAgent') {
-        userRole = 'FreelanceAgent';
-      } else if (req.user?.agentType === 'PartnerAffiliatedAgent') {
-        userRole = 'PartnerAffiliatedAgent';
-      } else {
-        userRole = 'Agent';
-      }
-    } else {
-      if (req.user?.agentType === 'FreelanceAgent') {
-        userRole = 'FreelanceAgent';
-      } else if (req.user?.agentType === 'PartnerAffiliatedAgent') {
-        userRole = 'PartnerAffiliatedAgent';
-      } else {
-        userRole = 'Agent';
-      }
-    }
-  } catch (error) {
-    console.error("Error getting user role:", error);
-  }
-  
-  return {
-    userId: user?._id || req.user?._id,
-    userRole: userRole,
-    userName: user?.fullName || user?.name || user?.email || req.user?.fullName || req.user?.email || 'System',
-    userEmail: user?.email || req.user?.email || null,
-    ipAddress: req?.ip || null,
-    userAgent: req?.headers?.['user-agent'] || null,
+  /* =====================================
+    HELPER FUNCTION
+  ===================================== */
+  const checkProfileCompleteness = (agent) => {
+    let completedFields = 0;
+    let totalFields = 5;
+    
+    if (agent.name?.first_name && agent.name?.last_name) completedFields++;
+    if (agent.phone?.number) completedFields++;
+    if (agent.email) completedFields++;
+    if (agent.emiratesId?.number && agent.emiratesId?.frontImageUrl) completedFields++;
+    if (agent.bankDetails?.iban) completedFields++;
+    
+    const percentage = Math.round((completedFields / totalFields) * 100);
+    agent.profileCompletionPercentage = percentage;
+    agent.isProfileComplete = percentage === 100;
+    
+    return agent.isProfileComplete;
   };
-};
 
-/* =====================================
-   1. AGENT SELF SIGNUP
-===================================== */
-export const agentSignup = async (req, res) => {
-  try {
-    const {
-      first_name,
-      last_name,
-      email,
-      phone_number,
-      country_code,
-      password,
-      agentMode, // 'freelance' | 'partner'
-      partnerId,
-      maritalStatus,
-      numberOfDependents,
-      dependents,
-      nationality,
-      dateOfBirth,
-      gender
-    } = req.body;
-
-    if (!first_name || !last_name || !password || !phone_number) {
-      return res.status(400).json({
-        success: false,
-        message: "First name, last name, password and phone number are required"
-      });
-    }
-
-    if (!agentMode || !['freelance', 'partner'].includes(agentMode)) {
-      return res.status(400).json({
-        success: false,
-        message: "agentMode must be 'freelance' or 'partner'"
-      });
-    }
-
-    const roleDoc = await Role.findOne({ code: '22' });
-    if (!roleDoc) {
-      return res.status(404).json({
-        success: false,
-        message: "Role not found"
-      });
-    }
-
-    const existingPhone = await VaultAgent.findOne({ 'phone.number': phone_number });
-    if (existingPhone) {
-      return res.status(400).json({
-        success: false,
-        message: "Phone number already registered"
-      });
-    }
-
-    if (email) {
-      const existingEmail = await VaultAgent.findOne({ email });
-      if (existingEmail) {
-        return res.status(400).json({
-          success: false,
-          message: "Email already registered"
-        });
+  const getUserInfo = async (req, user = null) => {
+    let userRole = 'System';
+    
+    try {
+      const roleId = req.user?.role;
+      if (roleId) {
+        const roleDoc = await Role.findById(roleId);
+        const roleCode = roleDoc?.code;
+        
+        if (roleCode === '18') {
+          userRole = 'Admin';
+        } else if (roleCode === '21') {
+          userRole = 'Partner';
+        } else if (req.user?.agentType === 'FreelanceAgent') {
+          userRole = 'FreelanceAgent';
+        } else if (req.user?.agentType === 'PartnerAffiliatedAgent') {
+          userRole = 'PartnerAffiliatedAgent';
+        } else {
+          userRole = 'Agent';
+        }
+      } else {
+        if (req.user?.agentType === 'FreelanceAgent') {
+          userRole = 'FreelanceAgent';
+        } else if (req.user?.agentType === 'PartnerAffiliatedAgent') {
+          userRole = 'PartnerAffiliatedAgent';
+        } else {
+          userRole = 'Agent';
+        }
       }
+    } catch (error) {
+      console.error("Error getting user role:", error);
     }
+    
+    return {
+      userId: user?._id || req.user?._id,
+      userRole: userRole,
+      userName: user?.fullName || user?.name || user?.email || req.user?.fullName || req.user?.email || 'System',
+      userEmail: user?.email || req.user?.email || null,
+      ipAddress: req?.ip || null,
+      userAgent: req?.headers?.['user-agent'] || null,
+    };
+  };
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+  /* =====================================
+    1. AGENT SELF SIGNUP
+  ===================================== */
+  export const agentSignup = async (req, res) => {
+    try {
+      const {
+        first_name,
+        last_name,
+        email,
+        phone_number,
+        country_code,
+        password,
+        agentMode, // 'freelance' | 'partner'
+        partnerId,
+        maritalStatus,
+        numberOfDependents,
+        dependents,
+        nationality,
+        dateOfBirth,
+        gender
+      } = req.body;
 
-    let agentType = 'FreelanceAgent';
-    let partner = null;
-    let affiliationStatus = 'none';
-
-    if (agentMode === 'partner') {
-      if (!partnerId) {
+      if (!first_name || !last_name || !password || !phone_number) {
         return res.status(400).json({
           success: false,
-          message: "Partner selection required"
+          message: "First name, last name, password and phone number are required"
         });
       }
 
-      partner = await Partner.findById(partnerId);
-      if (!partner) {
+      if (!agentMode || !['freelance', 'partner'].includes(agentMode)) {
+        return res.status(400).json({
+          success: false,
+          message: "agentMode must be 'freelance' or 'partner'"
+        });
+      }
+
+      const roleDoc = await Role.findOne({ code: '22' });
+      if (!roleDoc) {
         return res.status(404).json({
           success: false,
-          message: "Partner not found"
+          message: "Role not found"
         });
       }
 
-      agentType = 'PartnerAffiliatedAgent';
-      affiliationStatus = 'pending';
-    }
-
-    const newAgent = await VaultAgent.create({
-      name: { first_name, last_name },
-      phone: { country_code: country_code || '+971', number: phone_number },
-      email: email || null,
-      password: hashedPassword,
-      role: roleDoc._id,
-      agentType,
-      partnerId: partner ? partner._id : null,
-      affiliationStatus,
-      maritalStatus: maritalStatus || null,
-      numberOfDependents: numberOfDependents || 0,
-      dependents: dependents || [],
-      nationality: nationality || null,
-      dateOfBirth: dateOfBirth || null,
-      gender: gender || null,
-      isActive: false,
-      isVerified: false,
-      isPhoneVerified: false,
-      isEmailVerified: false,
-      commissionEligible: false
-    });
-
-    await HistoryService.logAgentActivity(
-      newAgent,
-      'AGENT_REGISTERED',
-      await getUserInfo(req),
-      { description: `Agent ${newAgent.fullName} registered (${agentType})` }
-    );
-
-    const agentResponse = newAgent.toObject();
-    delete agentResponse.password;
-
-    return res.status(201).json({
-      success: true,
-      message: agentMode === 'partner'
-        ? "Registered successfully. Awaiting partner approval."
-        : "Freelance agent registered successfully. Awaiting admin verification.",
-      data: agentResponse
-    });
-
-  } catch (error) {
-    console.error("Agent signup error:", error);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/* =====================================
-   2. ADMIN ONBOARD FREELANCE AGENT
-===================================== */
-export const adminOnboardFreelanceAgent = async (req, res) => {
-  try {
-    const userRole = req.user.role;
-    const roleDoc = await Role.findById(userRole);
-    
-    if (!roleDoc || roleDoc.code !== '18') {
-      return res.status(403).json({ success: false, message: "Access denied. Only Admin can onboard agents." });
-    }
-
-    const {
-      first_name, last_name, email, phone_number, country_code, password,
-      maritalStatus, numberOfDependents, dependents, nationality, dateOfBirth, gender,
-      address, emergencyContact, emiratesIdNumber, emiratesIdExpiryDate,
-      emiratesIdFrontImage, emiratesIdBackImage, passportNumber, passportExpiryDate,
-      passportImage, visaNumber, visaExpiryDate, visaImage, beneficiaryName,
-      bankName, accountNumber, iban, swiftCode, accountType
-    } = req.body;
-
-    if (!first_name || !last_name || !email || !phone_number || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "First name, last name, email, phone number and password are required"
-      });
-    }
-
-    const freelanceRole = await Role.findOne({ code: '22' });
-    if (!freelanceRole) {
-      return res.status(404).json({ success: false, message: "Freelance Agent role not found" });
-    }
-
-    const existingPhone = await VaultAgent.findOne({ 'phone.number': phone_number });
-    if (existingPhone) {
-      return res.status(400).json({ success: false, message: "Phone number already registered" });
-    }
-
-    if (email) {
-      const existingEmail = await VaultAgent.findOne({ email });
-      if (existingEmail) {
-        return res.status(400).json({ success: false, message: "Email already registered" });
+      const existingPhone = await VaultAgent.findOne({ 'phone.number': phone_number });
+      if (existingPhone) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone number already registered"
+        });
       }
+
+      if (email) {
+        const existingEmail = await VaultAgent.findOne({ email });
+        if (existingEmail) {
+          return res.status(400).json({
+            success: false,
+            message: "Email already registered"
+          });
+        }
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      let agentType = 'FreelanceAgent';
+      let partner = null;
+      let affiliationStatus = 'none';
+
+      if (agentMode === 'partner') {
+        if (!partnerId) {
+          return res.status(400).json({
+            success: false,
+            message: "Partner selection required"
+          });
+        }
+
+        partner = await Partner.findById(partnerId);
+        if (!partner) {
+          return res.status(404).json({
+            success: false,
+            message: "Partner not found"
+          });
+        }
+
+        agentType = 'PartnerAffiliatedAgent';
+        affiliationStatus = 'pending';
+      }
+
+      const newAgent = await VaultAgent.create({
+        name: { first_name, last_name },
+        phone: { country_code: country_code || '+971', number: phone_number },
+        email: email || null,
+        password: hashedPassword,
+        role: roleDoc._id,
+        agentType,
+        partnerId: partner ? partner._id : null,
+        affiliationStatus,
+        maritalStatus: maritalStatus || null,
+        numberOfDependents: numberOfDependents || 0,
+        dependents: dependents || [],
+        nationality: nationality || null,
+        dateOfBirth: dateOfBirth || null,
+        gender: gender || null,
+        isActive: false,
+        isVerified: false,
+        isPhoneVerified: false,
+        isEmailVerified: false,
+        commissionEligible: false
+      });
+
+      await HistoryService.logAgentActivity(
+        newAgent,
+        'AGENT_REGISTERED',
+        await getUserInfo(req),
+        { description: `Agent ${newAgent.fullName} registered (${agentType})` }
+      );
+
+      const agentResponse = newAgent.toObject();
+      delete agentResponse.password;
+
+      return res.status(201).json({
+        success: true,
+        message: agentMode === 'partner'
+          ? "Registered successfully. Awaiting partner approval."
+          : "Freelance agent registered successfully. Awaiting admin verification.",
+        data: agentResponse
+      });
+
+    } catch (error) {
+      console.error("Agent signup error:", error);
+      return res.status(500).json({ success: false, message: error.message });
     }
+  };
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+  /* =====================================
+    2. ADMIN ONBOARD FREELANCE AGENT
+  ===================================== */
+  export const adminOnboardFreelanceAgent = async (req, res) => {
+    try {
+      const userRole = req.user.role;
+      const roleDoc = await Role.findById(userRole);
+      
+      if (!roleDoc || roleDoc.code !== '18') {
+        return res.status(403).json({ success: false, message: "Access denied. Only Admin can onboard agents." });
+      }
 
-    const agentData = {
-      name: { first_name, last_name },
+      const {
+        first_name, last_name, email, phone_number, country_code, password,
+        maritalStatus, numberOfDependents, dependents, nationality, dateOfBirth, gender,
+        address, emergencyContact, emiratesIdNumber, emiratesIdExpiryDate,
+        emiratesIdFrontImage, emiratesIdBackImage, passportNumber, passportExpiryDate,
+        passportImage, visaNumber, visaExpiryDate, visaImage, beneficiaryName,
+        bankName, accountNumber, iban, swiftCode, accountType
+      } = req.body;
+
+      if (!first_name || !last_name || !email || !phone_number || !password) {
+        return res.status(400).json({
+          success: false,
+          message: "First name, last name, email, phone number and password are required"
+        });
+      }
+
+      const freelanceRole = await Role.findOne({ code: '22' });
+      if (!freelanceRole) {
+        return res.status(404).json({ success: false, message: "Freelance Agent role not found" });
+      }
+
+      const existingPhone = await VaultAgent.findOne({ 'phone.number': phone_number });
+      if (existingPhone) {
+        return res.status(400).json({ success: false, message: "Phone number already registered" });
+      }
+
+      if (email) {
+        const existingEmail = await VaultAgent.findOne({ email });
+        if (existingEmail) {
+          return res.status(400).json({ success: false, message: "Email already registered" });
+        }
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      const agentData = {
+        name: { first_name, last_name },
       phone: { country_code: country_code || '+971', number: phone_number },
       email: email,
       password: hashedPassword,
@@ -514,6 +514,9 @@ export const agentLogin = async (req, res) => {
 /* =====================================
    5. ADMIN VERIFY AGENT
 ===================================== */
+/* =====================================
+   5. ADMIN VERIFY AGENT (Auto-verify all documents)
+===================================== */
 export const verifyAgent = async (req, res) => {
   try {
     const { id } = req.params;
@@ -535,16 +538,12 @@ export const verifyAgent = async (req, res) => {
 
     // Partner Affiliated Agent Flow
     if (agent.agentType === 'PartnerAffiliatedAgent') {
-      if (!isAdmin) {
-        return res.status(403).json({ success: false, message: "Only Admin can approve partner agents" });
-      }
-
       if (status === 'verified') {
         agent.affiliationStatus = 'verified';
         agent.affiliationVerifiedBy = req.user._id;
         agent.affiliationVerifiedAt = new Date();
         agent.isActive = true;
-        agent.isVerified = false;
+        agent.isVerified = true;
       } else {
         agent.affiliationStatus = 'rejected';
         agent.affiliationRejectionReason = rejectionReason;
@@ -558,34 +557,141 @@ export const verifyAgent = async (req, res) => {
       }
 
       if (action === 'approve_login') {
+        // Only approve login, don't verify documents yet
         agent.isActive = true;
         agent.isVerified = false;
-      } else if (action === 'verify_profile') {
-        agent.isVerified = true;
-        if (agent.emiratesId?.verified && agent.bankDetails?.verified) {
-          agent.commissionEligible = true;
+        agent.commissionEligible = false;
+        
+        await HistoryService.logAgentActivity(agent, 'LOGIN_APPROVED', await getUserInfo(req), {
+          description: `Admin approved login for agent ${agent.fullName}`,
+          metadata: { action: 'approve_login' }
+        });
+        
+      } else if (action === 'verify_profile' || (action === 'verify_all' && status === 'verified')) {
+        
+        // ✅ AUTO-VERIFY ALL DOCUMENTS WHEN ADMIN VERIFIES PROFILE
+        
+        // Check if agent has uploaded required documents
+        const hasEmiratesId = !!(agent.emiratesId?.number && agent.emiratesId?.frontImageUrl);
+        const hasBankDetails = !!(agent.bankDetails?.iban && agent.bankDetails?.beneficiaryName);
+        const hasPassport = !!(agent.passport?.number && agent.passport?.imageUrl);
+        const hasVisa = !!(agent.visa?.number && agent.visa?.imageUrl);
+        
+        // Auto-verify Emirates ID if uploaded
+        if (hasEmiratesId) {
+          agent.emiratesId.verified = true;
+          agent.emiratesId.verifiedAt = new Date();
+          agent.emiratesId.verifiedBy = req.user._id;
         }
+        
+        // Auto-verify Passport if uploaded
+        if (hasPassport) {
+          agent.passport.verified = true;
+          agent.passport.verifiedAt = new Date();
+        }
+        
+        // Auto-verify Visa if uploaded
+        if (hasVisa) {
+          agent.visa.verified = true;
+          agent.visa.verifiedAt = new Date();
+        }
+        
+        // Auto-verify Bank Details if uploaded
+        if (hasBankDetails) {
+          agent.bankDetails.verified = true;
+          agent.bankDetails.verifiedAt = new Date();
+        }
+        
+        // Mark agent as verified
+        agent.isVerified = true;
+        agent.isActive = true;
+        agent.verifiedBy = req.user._id;
+        agent.verifiedAt = new Date();
+        
+        // Check if both Emirates ID and Bank Details are uploaded to make commission eligible
+        if (hasEmiratesId && hasBankDetails) {
+          agent.commissionEligible = true;
+          agent.commissionEligibilityReason = "All required documents verified by Admin";
+        } else {
+          agent.commissionEligible = false;
+          agent.commissionEligibilityReason = hasEmiratesId ? "Bank details not uploaded/verified" : "Emirates ID not uploaded/verified";
+        }
+        
+        // Update profile completion percentage
+        let completedFields = 0;
+        let totalFields = 5;
+        if (agent.name.first_name && agent.name.last_name) completedFields++;
+        if (agent.phone.number) completedFields++;
+        if (agent.email) completedFields++;
+        if (hasEmiratesId) completedFields++;
+        if (hasBankDetails) completedFields++;
+        
+        agent.profileCompletionPercentage = Math.round((completedFields / totalFields) * 100);
+        agent.isProfileComplete = agent.profileCompletionPercentage === 100;
+        
+        await HistoryService.logAgentActivity(agent, 'PROFILE_VERIFIED', await getUserInfo(req), {
+          description: `Admin verified all documents for agent ${agent.fullName}`,
+          metadata: { 
+            emiratesIdVerified: hasEmiratesId,
+            bankDetailsVerified: hasBankDetails,
+            passportVerified: hasPassport,
+            visaVerified: hasVisa,
+            commissionEligible: agent.commissionEligible,
+            profileCompletion: agent.profileCompletionPercentage
+          }
+        });
       }
 
       if (status === 'rejected') {
         agent.isActive = false;
         agent.isVerified = false;
+        agent.commissionEligible = false;
         agent.rejectionReason = rejectionReason;
+        
+        await HistoryService.logAgentActivity(agent, 'AGENT_REJECTED', await getUserInfo(req), {
+          description: `Admin rejected agent ${agent.fullName}`,
+          metadata: { rejectionReason }
+        });
       }
     }
 
     await agent.save();
 
+    // Prepare response with document verification status
+    const responseData = {
+      _id: agent._id,
+      agentType: agent.agentType,
+      isActive: agent.isActive,
+      isVerified: agent.isVerified,
+      affiliationStatus: agent.affiliationStatus,
+      commissionEligible: agent.commissionEligible,
+      documents: {
+        emiratesId: {
+          uploaded: !!(agent.emiratesId?.number && agent.emiratesId?.frontImageUrl),
+          verified: agent.emiratesId?.verified || false
+        },
+        passport: {
+          uploaded: !!(agent.passport?.number && agent.passport?.imageUrl),
+          verified: agent.passport?.verified || false
+        },
+        visa: {
+          uploaded: !!(agent.visa?.number && agent.visa?.imageUrl),
+          verified: agent.visa?.verified || false
+        },
+        bankDetails: {
+          uploaded: !!(agent.bankDetails?.iban && agent.bankDetails?.beneficiaryName),
+          verified: agent.bankDetails?.verified || false
+        }
+      },
+      profileCompletionPercentage: agent.profileCompletionPercentage
+    };
+
     return res.status(200).json({
       success: true,
-      message: "Agent updated successfully",
-      data: {
-        _id: agent._id,
-        agentType: agent.agentType,
-        isActive: agent.isActive,
-        isVerified: agent.isVerified,
-        affiliationStatus: agent.affiliationStatus
-      }
+      message: action === 'approve_login' 
+        ? "Agent login approved successfully" 
+        : "Agent verified successfully with all documents",
+      data: responseData
     });
 
   } catch (error) {
@@ -782,17 +888,17 @@ export const getAllAgents = async (req, res) => {
     const skip = (page - 1) * limit;
     const { isActive, search, isVerified } = req.query;
 
+    // ✅ CORRECTED: Only fetch FreelanceAgents
     let query = {
       isDeleted: false,
-      $or: [
-        { agentType: 'FreelanceAgent' },
-        { agentType: 'PartnerAffiliatedAgent', affiliationStatus: 'pending' }
-      ]
+      agentType: 'FreelanceAgent'  // Only freelance agents, no PartnerAffiliatedAgent at all
     };
 
+    // Optional filters
     if (isActive !== undefined && isActive !== '') query.isActive = isActive === 'true';
     if (isVerified !== undefined && isVerified !== '') query.isVerified = isVerified === 'true';
 
+    // Search functionality
     if (search) {
       query.$or = [
         { 'name.first_name': { $regex: search, $options: 'i' } },
@@ -828,7 +934,6 @@ export const getAllAgents = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-
 /* =====================================
    10. GET PARTNER'S AGENTS (Partner only)
 ===================================== */
@@ -848,7 +953,6 @@ export const getAgentsByPartner = async (req, res) => {
     let query = {
       partnerId,
       agentType: 'PartnerAffiliatedAgent',
-      affiliationStatus: 'verified',
       isDeleted: false
     };
 

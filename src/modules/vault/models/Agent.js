@@ -292,21 +292,19 @@ agentSchema.methods.getCommissionEligibilityStatus = function() {
     if (!this.isVerified) {
       return { eligible: false, reason: 'Profile not verified by admin' };
     }
-    if (!this.isPhoneVerified) {
-      return { eligible: false, reason: 'Phone number not verified' };
-    }
-    if (!this.isActiveAgent()) {
-      return { eligible: false, reason: 'Account is not active' };
-    }
-    if (!this.emiratesId?.number || !this.emiratesId?.frontImageUrl) {
-      return { eligible: false, reason: 'Emirates ID not uploaded' };
-    }
-    if (!this.bankDetails?.iban) {
-      return { eligible: false, reason: 'Bank details not provided' };
-    }
-    if (!this.bankDetails?.verified) {
-      return { eligible: false, reason: 'Bank details not verified by admin' };
-    }
+    // ✅ REMOVED phone verification check
+    // if (!this.isActiveAgent()) {
+    //   return { eligible: false, reason: 'Account is not active' };
+    // }
+    // if (!this.emiratesId?.number || !this.emiratesId?.frontImageUrl) {
+    //   return { eligible: false, reason: 'Emirates ID not uploaded' };
+    // }
+    // if (!this.bankDetails?.iban) {
+    //   return { eligible: false, reason: 'Bank details not provided' };
+    // }
+    // if (!this.bankDetails?.verified) {
+    //   return { eligible: false, reason: 'Bank details not verified by admin' };
+    // }
     return { eligible: true, reason: null };
   }
   
@@ -317,7 +315,6 @@ agentSchema.methods.getCommissionEligibilityStatus = function() {
     if (!this.isActiveAgent()) {
       return { eligible: false, reason: 'Account is not active' };
     }
-    // Partner-affiliated agents don't get direct commission
     return { eligible: false, reason: 'Commission paid to partner company' };
   }
   
