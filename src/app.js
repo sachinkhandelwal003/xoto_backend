@@ -104,6 +104,9 @@ app.use('/freelancer/category', require('../src/modules/auth/routes/freelancer/f
 app.use('/freelancer/subcategory', require('../src/modules/auth/routes/freelancer/freelancersubcategory.routes'));
 
 // Routes
+
+app.use('/vault/statistics', require('./modules/vault/routes/vault.statistics.routes.js'));
+
 app.use('/vault/partner', require('./modules/vault/routes/partner.routes.js'));
 app.use('/vault/advisor', require('./modules/vault/routes/advisor.routes.js'));
 app.use('/vault/ops', require('./modules/vault/routes/ops.routes.js'));
