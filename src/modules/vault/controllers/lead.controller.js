@@ -748,17 +748,30 @@ export const getAdvisorAssignedLeads = async (req, res) => {
    ADVISOR UPDATE LEAD STATUS (Xoto Advisor only)
    Role: Xoto Advisor
 ===================================== */
+/* =====================================
+   ADVISOR UPDATE LEAD STATUS (Xoto Advisor only)
+   Role: Xoto Advisor
+   With SLA Tracking & Document Collection Validation
+   (Document status auto-updates from Document uploads)
+===================================== */
 export const advisorUpdateLeadStatus = async (req, res) => {
   try {
     const { leadId } = req.params;
     const { status, notes } = req.body;
     const advisorId = req.user._id;
 
+    // Get advisor info
+    const advisor = await VaultAdvisor.findById(advisorId);
+    if (!advisor) {
+      return res.status(404).json({ success: false, message: "Advisor not found" });
+    }
+
+    // Find lead assigned to this advisor
     const lead = await Lead.findOne({
       _id: leadId,
       'assignedTo.advisorId': advisorId,
       isDeleted: false
-    });
+    }).populate('assignedTo.advisorId', 'name email');
 
     if (!lead) {
       return res.status(404).json({ 
@@ -767,85 +780,238 @@ export const advisorUpdateLeadStatus = async (req, res) => {
       });
     }
 
+    // Valid statuses
     const validStatuses = [
       'New', 'Assigned', 'Contacted', 'Qualified', 
       'Collecting Documents', 'Application Created', 
-      'Not Proceeding', 'Disbursed'
+      'Not Proceeding'
     ];
 
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ 
         success: false, 
-        message: "Invalid status" 
+        message: "Invalid status. Disbursed can only be updated from Case." 
+      });
+    }
+
+    // ========== DOCUMENT COLLECTION VALIDATION (AUTO-CHECK) ==========
+    // Get latest document collection status (auto-updated from Document uploads)
+    const docCollection = lead.documentCollection || {};
+    const collectionPercentage = docCollection.collectionPercentage || 0;
+    const readyForSubmission = docCollection.readyForSubmission || false;
+    
+    // Check if trying to mark as Qualified without documents
+    if (status === 'Qualified') {
+      if (!readyForSubmission && collectionPercentage < 100) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot mark as Qualified. Document collection is only ${collectionPercentage}% complete. Required: 100%`,
+          data: {
+            required: true,
+            currentPercentage: collectionPercentage,
+            documentsUploaded: docCollection.documentsUploaded || 0,
+            documentsRequired: docCollection.totalDocumentsRequired || 7,
+            documentsPending: docCollection.documentsPending || 7
+          }
+        });
+      }
+    }
+
+    // Check if trying to mark as Application Created without qualification
+    if (status === 'Application Created' && lead.currentStatus !== 'Qualified') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot create application. Lead must be Qualified first. Current status: ${lead.currentStatus}`
+      });
+    }
+
+    // Prevent downgrading status
+    const statusOrder = {
+      'New': 0,
+      'Assigned': 1,
+      'Contacted': 2,
+      'Qualified': 3,
+      'Collecting Documents': 4,
+      'Application Created': 5,
+      'Not Proceeding': 99,
+      'Disbursed': 100
+    };
+
+    if (statusOrder[status] < statusOrder[lead.currentStatus] && lead.currentStatus !== 'Not Proceeding') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot change status from ${lead.currentStatus} back to ${status}`
       });
     }
 
     const previousStatus = lead.currentStatus;
+    
+    // Store messages
+    let advisorMessage = "";
+    let alertType = null;
+    let customerCreated = null;
+
+    // ========== UPDATE LEAD STATUS ==========
     lead.currentStatus = status;
 
-    // Track SLA for Contacted status
+    // ========== START DOCUMENT COLLECTION TRACKING ==========
+    if (status === 'Collecting Documents' && !lead.documentCollection.collectionStartedAt) {
+      lead.documentCollection.collectionStartedAt = new Date();
+      lead.documentCollection.collectionMethod = 'agent_collected';
+      advisorMessage = "📄 Document collection started. System will auto-track uploaded documents.";
+    }
+
+    // ========== SLA TRACKING FOR CONTACTED ==========
     if (status === 'Contacted') {
       lead.sla.firstContactAt = new Date();
-      if (lead.sla.deadline && new Date() > lead.sla.deadline) {
+      
+      const assignedAt = lead.assignedTo?.assignedAt || lead.createdAt;
+      const responseTimeHours = (lead.sla.firstContactAt - new Date(assignedAt)) / (1000 * 60 * 60);
+      lead.sla.responseTimeHours = Math.round(responseTimeHours * 10) / 10;
+      
+      if (lead.sla.deadline && new Date() > new Date(lead.sla.deadline)) {
         lead.sla.breached = true;
         lead.sla.breachedAt = new Date();
+        
+        const hoursLate = ((new Date() - new Date(lead.sla.deadline)) / (1000 * 60 * 60)).toFixed(1);
+        advisorMessage = `⚠️ SLA BREACHED! Lead contacted ${hoursLate} hours late. Response time: ${lead.sla.responseTimeHours} hours.`;
+        alertType = 'SLA_BREACH';
+        
+        await updateAdvisorSLAMetrics(advisorId, true, lead.sla.responseTimeHours);
+      } else {
+        const hoursEarly = ((new Date(lead.sla.deadline) - lead.sla.firstContactAt) / (1000 * 60 * 60)).toFixed(1);
+        advisorMessage = `✅ Lead contacted within SLA! Response time: ${lead.sla.responseTimeHours} hours (${hoursEarly} hours before deadline).`;
+        
+        await updateAdvisorSLAMetrics(advisorId, false, lead.sla.responseTimeHours);
       }
     }
 
-    // Track qualification
+    // ========== TRACK QUALIFICATION ==========
     if (status === 'Qualified') {
       lead.sla.qualificationAt = new Date();
+      
+      if (lead.documentCollection) {
+        lead.documentCollection.readyForSubmission = true;
+        lead.documentCollection.collectionCompletedAt = new Date();
+      }
+      
+      if (lead.sla.firstContactAt) {
+        const timeToQualifyHours = (lead.sla.qualificationAt - new Date(lead.sla.firstContactAt)) / (1000 * 60 * 60);
+        lead.sla.timeToQualifyHours = Math.round(timeToQualifyHours * 10) / 10;
+        advisorMessage = `🎯 Lead qualified! Time from contact: ${lead.sla.timeToQualifyHours} hours. Documents: ${docCollection.documentsUploaded || 0}/${docCollection.totalDocumentsRequired || 7}`;
+      } else {
+        advisorMessage = `🎯 Lead qualified successfully! Documents: ${docCollection.documentsUploaded || 0}/${docCollection.totalDocumentsRequired || 7}`;
+      }
     }
 
+    // ========== MESSAGES ==========
+    if (status === 'Collecting Documents' && lead.documentCollection.collectionStartedAt) {
+      const uploaded = docCollection.documentsUploaded || 0;
+      const total = docCollection.totalDocumentsRequired || 7;
+      advisorMessage = `📄 Document collection: ${uploaded}/${total} uploaded (Auto-tracked). System will auto-update as you upload.`;
+    }
+    
+    if (status === 'Application Created') {
+      advisorMessage = `📝 Application created. Case will be generated automatically.`;
+    }
+    
+    if (status === 'Not Proceeding') {
+      advisorMessage = `❌ Lead marked as Not Proceeding. Reason: ${notes || 'Not provided'}`;
+    }
+
+    // Save notes
     if (notes) {
       lead.notesToXoto = notes;
     }
 
     await lead.save();
 
-    // Create Customer when Qualified
+    // ========== AUTO-CREATE CUSTOMER ON QUALIFIED ==========
     if (status === 'Qualified') {
-      const { email, mobileNumber, fullName, nationality, dateOfBirth } = lead.customerInfo;
-      
-      let customer = await Customer.findOne({
-        $or: [
-          { email: email.toLowerCase() },
-          { "mobile.number": mobileNumber.replace(/^\+971/, '') }
-        ],
-        is_deleted: false
-      });
-      
-      if (!customer) {
-        const customerRole = await Role.findOne({ name: "Customer" });
-        const firstName = fullName.split(' ')[0];
-        const lastName = fullName.split(' ').slice(1).join(' ') || '';
-        
-        customer = await Customer.create({
-          name: { first_name: firstName, last_name: lastName },
-          email: email.toLowerCase(),
-          mobile: { country_code: '+971', number: mobileNumber.replace(/^\+971/, '') },
-          dateOfBirth: dateOfBirth || null,
-          nationality: nationality || null,
-          role: customerRole?._id,
-          assignedTo: lead.sourceInfo.createdById,
-          source: 'vault',
-          isActive: true,
-        });
-        
-        lead.customerId = customer._id;
+      customerCreated = await createOrGetCustomer(lead);
+      if (customerCreated) {
+        lead.customerId = customerCreated._id;
         await lead.save();
+        advisorMessage += `\n\n✅ ${customerCreated.message}`;
       }
     }
 
+    // ========== CHECK FOR EXISTING CASE ==========
+    let existingCase = null;
+    if (status === 'Application Created') {
+      const Case = mongoose.model('Case');
+      existingCase = await Case.findOne({ 
+        sourceLeadId: lead._id,
+        isDeleted: false 
+      });
+      
+      if (!existingCase) {
+        advisorMessage = `⚠️ No case found. Please create a case from the proposal first.`;
+      } else {
+        advisorMessage = `✅ Application created. Case ${existingCase.caseReference} ready.`;
+      }
+    }
+
+    // ========== LOG ACTIVITY ==========
     await HistoryService.logLeadActivity(lead, 'LEAD_STATUS_UPDATED_BY_ADVISOR', await getUserInfo(req), {
       description: `Lead status changed from ${previousStatus} to ${status}`,
+      slaInfo: {
+        responseTime: lead.sla.responseTimeHours,
+        timeToQualify: lead.sla.timeToQualifyHours,
+        breached: lead.sla.breached,
+        deadline: lead.sla.deadline
+      },
+      documentStatus: {
+        uploaded: docCollection.documentsUploaded || 0,
+        total: docCollection.totalDocumentsRequired || 7,
+        percentage: collectionPercentage,
+        readyForSubmission: readyForSubmission
+      },
       notes: notes || null,
+      advisorMessage
     });
 
+    // ========== RETURN RESPONSE ==========
     return res.status(200).json({ 
       success: true, 
-      message: "Lead status updated successfully", 
-      data: lead 
+      message: "Lead status updated successfully",
+      data: {
+        lead: {
+          _id: lead._id,
+          customerName: lead.customerInfo.fullName,
+          previousStatus: previousStatus,
+          currentStatus: status,
+          sla: {
+            deadline: lead.sla.deadline,
+            breached: lead.sla.breached,
+            responseTimeHours: lead.sla.responseTimeHours,
+            firstContactAt: lead.sla.firstContactAt,
+            qualificationAt: lead.sla.qualificationAt,
+            timeToQualifyHours: lead.sla.timeToQualifyHours
+          },
+          documentStatus: {
+            uploaded: docCollection.documentsUploaded || 0,
+            total: docCollection.totalDocumentsRequired || 7,
+            percentage: collectionPercentage,
+            readyForSubmission: readyForSubmission
+          }
+        },
+        advisorMessage: advisorMessage,
+        alert: alertType ? { type: alertType, message: advisorMessage } : null,
+        customerCreated: customerCreated,
+        existingCase: existingCase ? {
+          id: existingCase._id,
+          reference: existingCase.caseReference,
+          status: existingCase.currentStatus
+        } : null,
+        nextActions: getNextAdvisorActions(status, !!existingCase, docCollection),
+        canQualify: readyForSubmission && status !== 'Qualified',
+        documentProgress: {
+          required: true,
+          current: collectionPercentage,
+          canProceed: collectionPercentage === 100
+        }
+      }
     });
 
   } catch (error) {
@@ -853,6 +1019,136 @@ export const advisorUpdateLeadStatus = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// ========== HELPER FUNCTIONS ==========
+
+/**
+ * Update advisor SLA metrics
+ */
+async function updateAdvisorSLAMetrics(advisorId, isBreach, responseTimeHours) {
+  try {
+    const advisor = await VaultAdvisor.findById(advisorId);
+    if (!advisor) return;
+
+    if (!advisor.performanceMetrics) {
+      advisor.performanceMetrics = {
+        totalLeadsAssigned: 0,
+        totalLeadsContacted: 0,
+        totalLeadsQualified: 0,
+        slaBreaches: 0,
+        slaComplianceRate: 100,
+        averageResponseTimeHours: 0
+      };
+    }
+
+    advisor.performanceMetrics.totalLeadsContacted = (advisor.performanceMetrics.totalLeadsContacted || 0) + 1;
+    
+    if (isBreach) {
+      advisor.performanceMetrics.slaBreaches = (advisor.performanceMetrics.slaBreaches || 0) + 1;
+    }
+
+    const currentAvg = advisor.performanceMetrics.averageResponseTimeHours || 0;
+    const totalContacts = advisor.performanceMetrics.totalLeadsContacted;
+    const newAvg = ((currentAvg * (totalContacts - 1)) + responseTimeHours) / totalContacts;
+    advisor.performanceMetrics.averageResponseTimeHours = Math.round(newAvg * 10) / 10;
+
+    const totalAssigned = advisor.performanceMetrics.totalLeadsAssigned || 1;
+    const breaches = advisor.performanceMetrics.slaBreaches || 0;
+    advisor.performanceMetrics.slaComplianceRate = Math.round(((totalAssigned - breaches) / totalAssigned) * 100);
+
+    await advisor.save();
+  } catch (error) {
+    console.error("Error updating advisor SLA metrics:", error);
+  }
+}
+
+/**
+ * Create or get existing customer
+ */
+async function createOrGetCustomer(lead) {
+  try {
+    const { email, mobileNumber, fullName, nationality, dateOfBirth } = lead.customerInfo;
+    
+    let customer = await Customer.findOne({
+      $or: [
+        { email: email.toLowerCase() },
+        { "mobile.number": mobileNumber.replace(/^\+971/, '') }
+      ],
+      is_deleted: false
+    });
+    
+    if (!customer) {
+      const customerRole = await Role.findOne({ name: "Customer" });
+      const firstName = fullName.split(' ')[0];
+      const lastName = fullName.split(' ').slice(1).join(' ') || '';
+      
+      customer = await Customer.create({
+        name: { first_name: firstName, last_name: lastName },
+        email: email.toLowerCase(),
+        mobile: { country_code: '+971', number: mobileNumber.replace(/^\+971/, '') },
+        dateOfBirth: dateOfBirth || null,
+        nationality: nationality || null,
+        role: customerRole?._id,
+        assignedTo: lead.sourceInfo.createdById,
+        source: 'vault',
+        isActive: true,
+      });
+      
+      return {
+        _id: customer._id,
+        name: `${firstName} ${lastName}`,
+        email: email.toLowerCase(),
+        message: `New customer account created for ${fullName}`
+      };
+    }
+    
+    return {
+      _id: customer._id,
+      name: customer.name?.first_name + ' ' + customer.name?.last_name,
+      message: `Existing customer linked to this lead`
+    };
+  } catch (error) {
+    console.error("Error creating customer:", error);
+    return null;
+  }
+}
+
+/**
+ * Get next actions for advisor
+ */
+function getNextAdvisorActions(status, hasCase = false, documentCollection = null) {
+  const uploaded = documentCollection?.documentsUploaded || 0;
+  const total = documentCollection?.totalDocumentsRequired || 7;
+  
+  const actions = {
+    'Contacted': [
+      "Start document collection",
+      "Upload customer documents (EID, Passport, Bank Statements)",
+      "System auto-tracks upload progress"
+    ],
+    'Collecting Documents': [
+      `📄 Documents: ${uploaded}/${total} uploaded (Auto-tracked)`,
+      "Upload remaining documents",
+      "System will auto-update progress",
+      "Once 100% complete, you can mark as Qualified"
+    ],
+    'Qualified': [
+      "Create loan proposal for the customer",
+      "Send proposal via email/WhatsApp",
+      "Wait for customer approval",
+      "Create case after proposal acceptance"
+    ],
+    'Application Created': hasCase ? [
+      "Case ready for processing",
+      "Ops team will review",
+      "Track case status"
+    ] : [
+      "⚠️ Create a case from the proposal first"
+    ]
+  };
+  
+  return actions[status] || ["Update lead notes", "Monitor lead progress"];
+}
 /* =====================================
    10. UPDATE LEAD STATUS (Admin)
    Role: Admin, XotoAdvisor
