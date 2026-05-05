@@ -2,6 +2,7 @@ import Case from '../models/Case.js';
 import Lead from '../models/VaultLead.js';
 import Partner from '../models/Partner.js';
 import Proposal from '../models/Proposal.js';
+import mongoose from "mongoose";
 import Document from '../models/Document.js';
 import Ops from "../models/MortgageOps.js"
 import HistoryService from '../services/history.service.js';
@@ -1755,7 +1756,7 @@ export const resubmitCaseAfterCorrection = async (req, res) => {
 };
 
 
-// ==================== GET CASE AMOUNT DETAILS ====================
+// ==================== GET CASE AMOUNT DETAILS WITH FULL COMMISSION CALCULATION ====================
 // GET /api/vault/cases/:caseId/amount-details
 export const getCaseAmountDetails = async (req, res) => {
   try {
@@ -1787,6 +1788,7 @@ export const getCaseAmountDetails = async (req, res) => {
       interestRate: caseData.loanInfo?.interestRatePercentage || 0,
       interestRateType: caseData.loanInfo?.interestRateType || 'Fixed',
       tenureYears: caseData.loanInfo?.tenureYears || 25,
+      tenureMonths: (caseData.loanInfo?.tenureYears || 25) * 12,
       processingFee: caseData.loanInfo?.processingFee || 0,
       valuationFee: caseData.loanInfo?.valuationFee || 2500,
       earlySettlementFee: caseData.loanInfo?.earlySettlementFeePercentage || 1,
@@ -1825,46 +1827,220 @@ export const getCaseAmountDetails = async (req, res) => {
       }
     }
 
-    // ==================== COMMISSION CALCULATION ====================
-    let commissionCalculation = null;
-    
-    if (disbursedAmount) {
-      // Xoto's commission from bank (usually 0.5% - 1% of loan amount)
-      const xotoCommissionRate = 0.01; // 1% - This should come from bank product or config
-      const xotoCommissionFromBank = disbursedAmount * xotoCommissionRate;
+    // ==================== XOTO BANK MARGIN / COMMISSION RATE ====================
+    // Bank pays Xoto commission typically 0.5% to 1.5% of loan amount
+    // This can be configured per bank product
+    const getXotoCommissionRate = (bankName, loanAmount) => {
+      // Default rate is 1%
+      let rate = 0.01;
       
-      // Determine recipient based on who created the case
-      let recipientPercentage = 0;
-      let recipientType = null;
-      let recipientName = null;
+      // Bank-specific rates (can be moved to database)
+      const bankRates = {
+        'Emirates NBD': 0.01,
+        'Dubai Islamic Bank': 0.012,
+        'ADCB': 0.01,
+        'Mashreq Bank': 0.009,
+        'RAK Bank': 0.011,
+        'HSBC': 0.01,
+        'Standard Chartered': 0.01,
+        'CBD': 0.01
+      };
       
-      if (caseData.createdBy?.role === 'partner') {
-        recipientType = 'partner';
-        recipientName = caseData.createdBy.partnerName;
-        // Partner gets 80% or 85% based on loan amount
-        recipientPercentage = disbursedAmount <= 5000000 ? 80 : 85;
-      } else if (caseData.createdBy?.role === 'advisor') {
-        recipientType = 'advisor';
-        recipientName = caseData.createdBy.advisorName;
-        recipientPercentage = 0; // Advisors are salaried, no commission
+      if (bankRates[bankName]) {
+        rate = bankRates[bankName];
       }
       
-      const commissionAmount = (xotoCommissionFromBank * recipientPercentage) / 100;
-      const loanTier = disbursedAmount <= 5000000 ? '≤5M AED' : '>5M AED';
+      // Tier-based adjustment (higher loan amount might get lower rate)
+      if (loanAmount > 5000000) {
+        rate = rate * 0.95; // 5% reduction for large loans
+      }
+      
+      return rate;
+    };
+    
+    const xotoCommissionRate = getXotoCommissionRate(bankOffer.bankName, disbursedAmount || approvedAmount || requestedAmount);
+    const xotoCommissionFromBank = (disbursedAmount || approvedAmount || requestedAmount) * xotoCommissionRate;
+    
+    // ==================== COMMISSION CALCULATION BASED ON PRD ====================
+    // PRD Commission Structure:
+    // | Persona | Action | ≤5M AED | >5M AED |
+    // |---------|--------|---------|---------|
+    // | Referral Partner | Referral only | 40% | 50% |
+    // | Partner | Full case mgmt | 80% | 85% |
+    // | Partner-Affiliated Agent | Any (via Partner) | Partner decides | Partner decides |
+    // | Xoto Advisor | Salary | 0% | 0% |
+    
+    let commissionCalculation = null;
+    let xotoNetProfit = 0;
+    let totalPayout = 0;
+    
+    if (disbursedAmount || approvedAmount) {
+      const loanAmountForCommission = disbursedAmount || approvedAmount || requestedAmount;
+      const loanTier = loanAmountForCommission <= 5000000 ? '≤5M AED' : '>5M AED';
+      const xotoCommissionFromBankRounded = Math.round(xotoCommissionFromBank);
+      
+      // Determine recipient based on who created the case
+      let primaryRecipient = null;
+      let secondaryRecipient = null;
+      
+      // Check if there's a referral partner associated with the lead
+      let referralPartnerId = null;
+      let referralPartnerName = null;
+      
+      if (caseData.sourceLeadId) {
+        const lead = await mongoose.model('VaultLead').findById(caseData.sourceLeadId);
+        if (lead && lead.sourceInfo?.createdByRole === 'freelance_agent') {
+          const agent = await mongoose.model('VaultAgent').findById(lead.sourceInfo.createdById);
+          if (agent && agent.agentType === 'FreelanceAgent') {
+            referralPartnerId = agent._id;
+            referralPartnerName = agent.fullName;
+          }
+        }
+      }
+      
+      // Case 1: Created by Partner
+      if (caseData.createdBy?.role === 'partner') {
+        const partnerPercentage = loanAmountForCommission <= 5000000 ? 80 : 85;
+        const partnerCommission = (xotoCommissionFromBank * partnerPercentage) / 100;
+        
+        primaryRecipient = {
+          type: 'partner',
+          id: caseData.createdBy.partnerId,
+          name: caseData.createdBy.partnerName,
+          percentage: partnerPercentage,
+          commissionAmount: Math.round(partnerCommission),
+          formula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × ${partnerPercentage}% = ${Math.round(partnerCommission).toLocaleString()} AED`
+        };
+        
+        totalPayout = partnerCommission;
+        xotoNetProfit = xotoCommissionFromBank - partnerCommission;
+        
+        // Check if there's also a referral partner (both should be paid per PRD?)
+        if (referralPartnerId) {
+          const referralPercentage = loanAmountForCommission <= 5000000 ? 40 : 50;
+          const referralCommission = (xotoCommissionFromBank * referralPercentage) / 100;
+          
+          secondaryRecipient = {
+            type: 'referral_partner',
+            id: referralPartnerId,
+            name: referralPartnerName,
+            percentage: referralPercentage,
+            commissionAmount: Math.round(referralCommission),
+            formula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × ${referralPercentage}% = ${Math.round(referralCommission).toLocaleString()} AED`
+          };
+          
+          totalPayout = partnerCommission + referralCommission;
+          xotoNetProfit = xotoCommissionFromBank - totalPayout;
+        }
+      }
+      // Case 2: Created by Referral Partner (Freelance Agent)
+      else if (caseData.createdBy?.role === 'agent' || referralPartnerId) {
+        const referralPercentage = loanAmountForCommission <= 5000000 ? 40 : 50;
+        const referralCommission = (xotoCommissionFromBank * referralPercentage) / 100;
+        
+        primaryRecipient = {
+          type: 'referral_partner',
+          id: referralPartnerId || caseData.createdBy?.userId,
+          name: referralPartnerName || caseData.createdBy?.userName || 'Referral Partner',
+          percentage: referralPercentage,
+          commissionAmount: Math.round(referralCommission),
+          formula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × ${referralPercentage}% = ${Math.round(referralCommission).toLocaleString()} AED`
+        };
+        
+        totalPayout = referralCommission;
+        xotoNetProfit = xotoCommissionFromBank - referralCommission;
+      }
+      // Case 3: Created by Xoto Advisor (Employee - No Commission)
+      else if (caseData.createdBy?.role === 'advisor') {
+        primaryRecipient = {
+          type: 'advisor',
+          id: caseData.createdBy.advisorId,
+          name: caseData.createdBy.advisorName,
+          percentage: 0,
+          commissionAmount: 0,
+          formula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × 0% = 0 AED`,
+          note: 'Xoto Advisor is salaried employee. No commission paid.'
+        };
+        
+        totalPayout = 0;
+        xotoNetProfit = xotoCommissionFromBank;
+      }
       
       commissionCalculation = {
-        loanAmount: disbursedAmount,
+        loanAmount: loanAmountForCommission,
         loanTier,
-        xotoCommissionRate: `${xotoCommissionRate * 100}%`,
-        xotoCommissionFromBank: Math.round(xotoCommissionFromBank),
-        recipientType,
-        recipientName,
-        recipientPercentage,
-        commissionAmount: Math.round(commissionAmount),
-        formula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × ${recipientPercentage}% = ${Math.round(commissionAmount).toLocaleString()} AED`,
-        status: caseData.commissionInfo?.status || 'Pending Disbursement'
+        xotoCommissionRate: `${(xotoCommissionRate * 100).toFixed(2)}%`,
+        xotoCommissionFromBank: xotoCommissionFromBankRounded,
+        xotoNetProfit: Math.round(xotoNetProfit),
+        totalPayout: Math.round(totalPayout),
+        primaryRecipient,
+        secondaryRecipient,
+        calculationTimestamp: new Date().toISOString(),
+        notes: totalPayout > xotoCommissionFromBank ? '⚠️ Warning: Total payout exceeds Xoto commission! Check commission logic.' : null
       };
     }
+
+    // ==================== CUSTOMER PAYMENT CALCULATION ====================
+    const customerPaymentCalculation = {
+      // Monthly Payment Breakdown
+      monthlyPayment: {
+        principalAndInterest: caseData.calculations?.emi || 0,
+        lifeInsurance: caseData.loanInfo?.lifeInsuranceRequired ? 150 : 0,
+        propertyInsurance: caseData.loanInfo?.propertyInsuranceRequired ? 85 : 0,
+        totalMonthlyPayment: (caseData.calculations?.emi || 0) + 
+          (caseData.loanInfo?.lifeInsuranceRequired ? 150 : 0) + 
+          (caseData.loanInfo?.propertyInsuranceRequired ? 85 : 0)
+      },
+      
+      // Total Payment Over Loan Term
+      totalPaymentOverTerm: {
+        totalPrincipal: disbursedAmount || approvedAmount || requestedAmount || 0,
+        totalInterest: caseData.calculations?.totalInterestPayable || 0,
+        totalInsuranceOverTerm: ((caseData.loanInfo?.lifeInsuranceRequired ? 150 : 0) + 
+          (caseData.loanInfo?.propertyInsuranceRequired ? 85 : 0)) * ((caseData.loanInfo?.tenureYears || 25) * 12),
+        grandTotalPayable: (caseData.calculations?.totalAmountPayable || 0) + 
+          ((caseData.loanInfo?.lifeInsuranceRequired ? 150 : 0) + 
+          (caseData.loanInfo?.propertyInsuranceRequired ? 85 : 0)) * ((caseData.loanInfo?.tenureYears || 25) * 12)
+      },
+      
+      // Upfront Costs (Paid at start)
+      upfrontCosts: {
+        downPayment: caseData.propertyInfo?.downPayment || 0,
+        dldFee: (caseData.propertyInfo?.propertyValue || 0) * 0.04,
+        registrationFee: ((disbursedAmount || approvedAmount || requestedAmount) || 0) * 0.0025,
+        valuationFee: caseData.loanInfo?.valuationFee || 2500,
+        processingFee: caseData.loanInfo?.processingFee || 0,
+        agentCommission: caseData.propertyInfo?.transactionDetails?.agentCommission || 0,
+        totalUpfrontCost: caseData.calculations?.totalUpfrontCost || 0
+      },
+      
+      // Amortization Summary
+      amortizationSummary: {
+        loanAmount: disbursedAmount || approvedAmount || requestedAmount || 0,
+        interestRate: caseData.loanInfo?.interestRatePercentage || 0,
+        tenureYears: caseData.loanInfo?.tenureYears || 25,
+        emi: caseData.calculations?.emi || 0,
+        interestToPrincipalRatio: ((caseData.calculations?.totalInterestPayable || 0) / (disbursedAmount || 1)).toFixed(2)
+      }
+    };
+    
+    // Calculate DBR (Debt Burden Ratio) details
+    const monthlyIncome = caseData.incomeDetails?.totalMonthlyIncome || 0;
+    const existingLiabilities = caseData.expenseDetails?.totalMonthlyLiabilities || 0;
+    const proposedEMI = caseData.calculations?.emi || 0;
+    const totalMonthlyObligations = existingLiabilities + proposedEMI;
+    const dbrPercentage = monthlyIncome > 0 ? (totalMonthlyObligations / monthlyIncome) * 100 : 0;
+    
+    const dbrAnalysis = {
+      monthlyIncome,
+      existingLiabilities,
+      proposedEMI,
+      totalMonthlyObligations,
+      dbrPercentage: Math.round(dbrPercentage * 100) / 100,
+      eligibilityStatus: dbrPercentage <= 50 ? 'Eligible' : (dbrPercentage <= 55 ? 'Borderline' : 'Ineligible'),
+      maxAllowedDBR: caseData.clientInfo?.nationality === 'United Arab Emirates' ? 55 : 50,
+      recommendation: dbrPercentage <= 50 ? 'Approved' : (dbrPercentage <= 55 ? 'Conditional Approval' : 'Rejected - High DBR')
+    };
 
     // ==================== TIMELINE OF AMOUNT CHANGES ====================
     const amountTimeline = [];
@@ -1882,7 +2058,8 @@ export const getCaseAmountDetails = async (req, res) => {
         amountTimeline.push({
           date: note.addedAt,
           event: note.note,
-          addedBy: note.addedBy
+          addedBy: note.addedBy,
+          type: 'note'
         });
       }
     }
@@ -1893,7 +2070,8 @@ export const getCaseAmountDetails = async (req, res) => {
         date: caseData.bankSubmission.submittedToBankAt,
         event: `Case submitted to ${caseData.bankSubmission.bankName} for processing`,
         reference: caseData.bankSubmission.bankReferenceNumber,
-        addedBy: 'System'
+        addedBy: 'System',
+        type: 'submission'
       });
     }
 
@@ -1901,9 +2079,10 @@ export const getCaseAmountDetails = async (req, res) => {
     if (caseData.currentStatus === 'Disbursed' && disbursedAmount) {
       amountTimeline.push({
         date: caseData.updatedAt,
-        event: `Loan disbursed: AED ${disbursedAmount.toLocaleString()}`,
+        event: `💰 Loan disbursed: AED ${disbursedAmount.toLocaleString()}`,
         addedBy: 'System',
-        isFinal: true
+        isFinal: true,
+        type: 'disbursement'
       });
     }
 
@@ -1933,17 +2112,41 @@ export const getCaseAmountDetails = async (req, res) => {
         caseId: caseData._id,
         caseReference: caseData.caseReference,
         currentStatus: caseData.currentStatus,
+        createdAt: caseData.createdAt,
+        updatedAt: caseData.updatedAt,
+        
+        // Amount Comparison
         amountComparison,
+        
+        // Bank Offer Details
         bankOffer,
+        
+        // Commission & Money Flow (XOTO side)
         commissionCalculation,
+        
+        // Customer Payment Calculation
+        customerPaymentCalculation,
+        
+        // DBR Analysis
+        dbrAnalysis,
+        
+        // Timeline
         amountTimeline,
+        
+        // Summary
         summary,
+        
+        // Raw Data
         rawData: {
           requestedAmount,
           approvedAmount,
           disbursedAmount,
           propertyValue,
-          downPayment
+          downPayment,
+          interestRate: caseData.loanInfo?.interestRatePercentage,
+          tenureYears: caseData.loanInfo?.tenureYears,
+          monthlyIncome,
+          existingLiabilities
         }
       }
     });

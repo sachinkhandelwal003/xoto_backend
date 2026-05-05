@@ -57,7 +57,7 @@ export const createMortgageOps = async (req, res) => {
 
     const {
       first_name, last_name, email, phone_number, country_code, password,
-      dateOfBirth, nationality, gender, joinDate, maxCapacity
+      dateOfBirth, nationality, gender, joinDate, maxCapacity,profilePic
     } = req.body;
 
     if (!first_name || !last_name || !email || !phone_number || !password) {
@@ -96,6 +96,7 @@ export const createMortgageOps = async (req, res) => {
       phone: { country_code: country_code || '+971', number: phone_number },
       password: hashedPassword,
       employeeCode,
+        profilePic: profilePic || null,  // 👈 ADD THIS
       role: opsRole._id,
       dateOfBirth: dateOfBirth || null,
       nationality: nationality || null,

@@ -33,10 +33,14 @@ const AgentLead = require('./modules/Grid/Agent/routes/Agentroute.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
 const referralPartnerRoutes = require("./modules/Grid/ReferralPartner/Routes/ReferralPartner.route.js");
 const rentalProperrty = require('./modules/RentalProperties/routes/Rentproperty.routes.js')
+
+const gridLead = require('./modules/Grid/Lead/routes/gridLead.route.js')
 // const Rentlead = require('./modules/RentalProperties/routes/Rentlead.routes.js')
 // console.log("SkyRoutes Check:", SkyRoutes);
 
 // const SkyRoutes = Skyimport.default || Skyimport;
+
+const feedback = require('./modules/feedback/routes/feedback.route.js');
 
 
 // ==========================================
@@ -104,6 +108,9 @@ app.use('/freelancer/category', require('../src/modules/auth/routes/freelancer/f
 app.use('/freelancer/subcategory', require('../src/modules/auth/routes/freelancer/freelancersubcategory.routes'));
 
 // Routes
+
+app.use('/vault/statistics', require('./modules/vault/routes/vault.statistics.routes.js'));
+
 app.use('/vault/partner', require('./modules/vault/routes/partner.routes.js'));
 app.use('/vault/advisor', require('./modules/vault/routes/advisor.routes.js'));
 app.use('/vault/ops', require('./modules/vault/routes/ops.routes.js'));
@@ -112,6 +119,7 @@ app.use('/vault/agent', require('./modules/vault/routes/agent.routes.js'));
 app.use('/vault/lead', require('./modules/vault/routes/lead.routes.js'));
 app.use('/vault/lead/proposals', require('./modules/vault/routes/proposal.routes.js'));
 app.use('/vault/cases', require('./modules/vault/routes/case.routes.js'));
+app.use('/vault/commissions', require('./modules/vault/routes/commission.routes.js'));
 
 app.use('/vault/lead/documents', require('./modules/vault/routes/document.routes.js'));
 // Grid Referral Partner 
@@ -161,6 +169,13 @@ app.use('/categories', require('../src/modules/ecommerce/B2C/routes/category.rou
 app.use('/tags', require('../src/modules/ecommerce/B2C/routes/tags.routes'));
 app.use('/blogs', blogRoutes);
 app.use('/vendor/warehouses', require('../src/modules/ecommerce/B2C/routes/warehouse.routes'));
+
+app.use('/gridlead', (req, res, next) => {
+  console.log("GRID LEAD HIT");
+  next();
+}, gridLead);
+
+app.use('/feedback', feedback);  
 
 // History
 app.use('/customer-history', customerHistoryRoutes);
