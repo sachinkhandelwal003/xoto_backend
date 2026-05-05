@@ -45,8 +45,6 @@ export const getProfileData = async (req, res) => {
 
     let query = Model.findOne({ _id: user._id });
 
-        let query = Model.findOne({ _id: user._id });
-
         // Specific population based on roles
         if (user.role.name === "Freelancer") {
             query.populate("payment.preferred_currency services_offered.category services_offered.subcategories.type");
@@ -58,22 +56,16 @@ export const getProfileData = async (req, res) => {
             query.populate("role");
         }
 
+        // VaultAgent — partner info bhi populate karo
+        if (user.role.name === "VaultAgent") {
+          query.populate("partnerId", "companyName status _id");
+        }
+
         const data = await query;
         return res.status(200).json({ data });
     } catch (error) {
         return res.status(500).json({ message: "Error fetching data", error: error.message });
     }
-
-    // VaultAgent — partner info bhi populate karo
-    if (user.role.name === "VaultAgent") {
-      query.populate("partnerId", "companyName status _id");
-    }
-
-    const data = await query;
-    return res.status(200).json({ data });
-  } catch (error) {
-    return res.status(500).json({ message: "Error fetching data", error: error.message });
-  }
 };
 
 // ── PUT update profile ────────────────────────────────────────────────
@@ -95,40 +87,32 @@ export const updateProfileData = async (req, res) => {
     delete updateData.isActive;
     delete updateData.isDeleted;
 
-    let finalUpdate = updateData;
+    let finalUpdate = { ...updateData };
 
-        if (user.role.name === "GridAdvisor") {
-    delete updateData.employeeId;
-    delete updateData.status;
-    delete updateData.mustResetPassword;
-    delete updateData.email;
-    delete updateData["identity.isVerified"];
-    delete updateData["bankDetails.isVerified"];
-}
-
-        const updatedProfile = await Model.findOneAndUpdate(
-            { _id: user._id },
-            { $set: updateData },
-            { new: true, runValidators: true }
-        );
-
-      finalUpdate = { ...rest };
-
-      // name nested
-      if (first_name !== undefined) finalUpdate["name.first_name"] = first_name.trim();
-      if (last_name  !== undefined) finalUpdate["name.last_name"]  = last_name.trim();
-
-      // phone nested
-      if (country_code !== undefined) finalUpdate["phone.country_code"] = country_code;
-      if (phone_number  !== undefined) finalUpdate["phone.number"]       = phone_number.trim();
-
-      // Block sensitive nested paths
-      delete finalUpdate["name"];
-      delete finalUpdate["phone"];
-      delete finalUpdate["emiratesId.verified"];
-      delete finalUpdate["passport.verified"];
-      delete finalUpdate["bankDetails.verified"];
+    if (user.role.name === "GridAdvisor") {
+      delete finalUpdate.employeeId;
+      delete finalUpdate.status;
+      delete finalUpdate.mustResetPassword;
+      delete finalUpdate.email;
+      delete finalUpdate["identity.isVerified"];
+      delete finalUpdate["bankDetails.isVerified"];
     }
+
+    // Handle nested name fields
+    const { first_name, last_name, country_code, phone_number } = req.body;
+    if (first_name !== undefined) finalUpdate["name.first_name"] = first_name.trim();
+    if (last_name  !== undefined) finalUpdate["name.last_name"]  = last_name.trim();
+
+    // Handle nested phone fields
+    if (country_code !== undefined) finalUpdate["phone.country_code"] = country_code;
+    if (phone_number  !== undefined) finalUpdate["phone.number"]       = phone_number.trim();
+
+    // Block sensitive nested paths
+    delete finalUpdate["name"];
+    delete finalUpdate["phone"];
+    delete finalUpdate["emiratesId.verified"];
+    delete finalUpdate["passport.verified"];
+    delete finalUpdate["bankDetails.verified"];
 
     const updatedProfile = await Model.findOneAndUpdate(
       { _id: user._id },
