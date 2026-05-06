@@ -90,7 +90,7 @@ exports.registerReferralPartner = async (req, res) => {
       email, 
       dateOfBirth, 
       password,
-      role: "gridReferralPartner", // Model me direct string save hoga
+      role: "gridReferralPartner", 
       status: "active", 
     });
 

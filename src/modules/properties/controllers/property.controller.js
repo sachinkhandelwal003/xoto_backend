@@ -67,6 +67,8 @@ exports.createProperty = async (req, res) => {
   try {
     const { role, _id: userId } = req.user;
     const { propertySubType }   = req.body;
+    const isAgent = (role) => Number(role?.code) === 16 || role === "agent";
+
 
     if (!isAdmin(role) && !isDevRole(role)) {
       return res.status(403).json({
@@ -81,6 +83,13 @@ exports.createProperty = async (req, res) => {
         message: "Developers can only create off-plan listings",
       });
     }
+
+    if (isAgent(role) && propertySubType !== "secondary") {
+    return res.status(403).json({
+        status: "fail",
+        message: "Agents can only create secondary (resale) listings",
+    });
+}
 
     if (isAdmin(role) && propertySubType === "off_plan" && !req.body.developerId) {
       return res.status(400).json({
