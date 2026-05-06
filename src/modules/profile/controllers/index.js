@@ -12,7 +12,7 @@ import GridAdvisor from "../../Grid/Advisor/model/index.js"
 import VaultAdvisor from "../../vault/models/XotoAdvisor.js";
 import VaultMortgageOps from "../../vault/models/MortgageOps.js";
 
-// Helper function: Role ke basis par model return karne ke liye
+// ── Role ke basis par model return karo ──────────────────────────────
 const getModelByRole = (roleName) => {
     switch (roleName) {
         case "Supervisor":
@@ -36,14 +36,14 @@ const getModelByRole = (roleName) => {
     }
 };
 
+// ── GET profile ───────────────────────────────────────────────────────
 export const getProfileData = async (req, res) => {
-    try {
-        const user = req.user;
-        const Model = getModelByRole(user.role.name);
+  try {
+    const user  = req.user;
+    const Model = getModelByRole(user.role.name);
+    if (!Model) return res.status(400).json({ message: "Invalid Role" });
 
-        if (!Model) return res.status(400).json({ message: "Invalid Role" });
-
-        let query = Model.findOne({ _id: user._id });
+    let query = Model.findOne({ _id: user._id });
 
         // Specific population based on roles
         if (user.role.name === "Freelancer") {
@@ -56,6 +56,11 @@ export const getProfileData = async (req, res) => {
             query.populate("role");
         }
 
+        // VaultAgent — partner info bhi populate karo
+        if (user.role.name === "VaultAgent") {
+          query.populate("partnerId", "companyName status _id");
+        }
+
         const data = await query;
         return res.status(200).json({ data });
     } catch (error) {
@@ -63,85 +68,126 @@ export const getProfileData = async (req, res) => {
     }
 };
 
-
-
-
+// ── PUT update profile ────────────────────────────────────────────────
 export const updateProfileData = async (req, res) => {
-    try {
-        const user = req.user;
-        const updateData = { ...req.body };
-        const Model = getModelByRole(user.role.name);
+  try {
+    const user       = req.user;
+    const updateData = { ...req.body };
+    const Model      = getModelByRole(user.role.name);
+    if (!Model) return res.status(400).json({ message: "Invalid Role" });
 
-        if (!Model) return res.status(400).json({ message: "Invalid Role" });
+    // Security — important fields block karo
+    delete updateData.role;
+    delete updateData._id;
+    delete updateData.password;
+    delete updateData.isVerifiedByAdmin;
+    delete updateData.isVerified;
+    delete updateData.commissionEligible;
+    delete updateData.earnings;
+    delete updateData.isActive;
+    delete updateData.isDeleted;
 
-        // Security: Important fields ko delete karein taaki user bypass na kare
-        delete updateData.role;
-        delete updateData._id;
-        delete updateData.isVerifiedByAdmin;
-        delete updateData.isVerified;
+    let finalUpdate = { ...updateData };
 
-        if (user.role.name === "GridAdvisor") {
-    delete updateData.employeeId;
-    delete updateData.status;
-    delete updateData.mustResetPassword;
-    delete updateData.email;
-    delete updateData["identity.isVerified"];
-    delete updateData["bankDetails.isVerified"];
-}
-
-        const updatedProfile = await Model.findOneAndUpdate(
-            { _id: user._id },
-            { $set: updateData },
-            { new: true, runValidators: true }
-        );
-
-        return res.status(200).json({
-            success: true,
-            message: "Profile updated successfully",
-            data: updatedProfile,
-        });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: "Update failed", error: error.message });
+    if (user.role.name === "GridAdvisor") {
+      delete finalUpdate.employeeId;
+      delete finalUpdate.status;
+      delete finalUpdate.mustResetPassword;
+      delete finalUpdate.email;
+      delete finalUpdate["identity.isVerified"];
+      delete finalUpdate["bankDetails.isVerified"];
     }
+
+    // Handle nested name fields
+    const { first_name, last_name, country_code, phone_number } = req.body;
+    if (first_name !== undefined) finalUpdate["name.first_name"] = first_name.trim();
+    if (last_name  !== undefined) finalUpdate["name.last_name"]  = last_name.trim();
+
+    // Handle nested phone fields
+    if (country_code !== undefined) finalUpdate["phone.country_code"] = country_code;
+    if (phone_number  !== undefined) finalUpdate["phone.number"]       = phone_number.trim();
+
+    // Block sensitive nested paths
+    delete finalUpdate["name"];
+    delete finalUpdate["phone"];
+    delete finalUpdate["emiratesId.verified"];
+    delete finalUpdate["passport.verified"];
+    delete finalUpdate["bankDetails.verified"];
+
+    const updatedProfile = await Model.findOneAndUpdate(
+      { _id: user._id },
+      { $set: finalUpdate },
+      { new: true, runValidators: true }
+    ).populate("role").populate("partnerId", "companyName status _id");
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      data: updatedProfile,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Update failed", error: error.message });
+  }
 };
 
+// ── POST update profile picture / documents ───────────────────────────
 export const updateProfilePicture = async (req, res) => {
-    try {
-        const user = req.user;
-        if (!req.file) {
-            return res.status(400).json({ success: false, message: "Please upload a file" });
-        }
+  try {
+    const user = req.user;
 
-        const Model = getModelByRole(user.role.name);
-        // S3 URL ya local path
-        const fileUrl = req.file.location || req.file.path;
-
-        // --- NAYA LOGIC ---
-        // Frontend se hum batayenge ki kahan save karna hai (e.g., 'id_proof', 'rera_certificate')
-        let fieldToUpdate = req.body.targetField;
-
-        // --- PURANA LOGIC (SAFE GUARD) ---
-        // Agar frontend ne koi field nahi bataya, toh aapka exact purana code chalega!
-        if (!fieldToUpdate) {
-            fieldToUpdate = (user.role.name === "Agent") ? "profile_photo" : "logo";
-        }
-        
-        // Jo bhi field final hua, usme URL daal do
-        const updateData = { [fieldToUpdate]: fileUrl };
-
-        const updatedProfile = await Model.findOneAndUpdate(
-            { _id: user._id },
-            { $set: updateData },
-            { new: true }
-        );
-
-        return res.status(200).json({
-            success: true,
-            // Message ko dynamic kar diya taaki jo upload ho wahi message aaye
-            message: `${fieldToUpdate.replace('_', ' ')} updated successfully`,
-            data: updatedProfile,
-        });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: "File update failed", error: error.message });
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "Please upload a file" });
     }
+
+    const Model = getModelByRole(user.role.name);
+    if (!Model) return res.status(400).json({ message: "Invalid Role" });
+
+    // ✅ S3 URL — multer-s3 req.file.location mein deta hai
+    const fileUrl = req.file.location || req.file.path;
+
+    // Frontend targetField bhejta hai — kahan save karna hai
+    let fieldToUpdate = req.body.targetField;
+
+    // ── Default field per role ────────────────────────────────────────
+    if (!fieldToUpdate) {
+      switch (user.role.name) {
+        case "VaultAgent":  fieldToUpdate = "profilePic";    break; // ✅ schema field
+        case "Agent":       fieldToUpdate = "profile_photo"; break;
+        case "Freelancer":  fieldToUpdate = "profile_photo"; break;
+        default:            fieldToUpdate = "logo";
+      }
+    }
+
+    // ── VaultAgent document fields — nested path handle karo ─────────
+    // Frontend bhejta hai: "emiratesId_front", "emiratesId_back",
+    //                      "passport_image", "visa_image"
+    // Schema mein hain:    "emiratesId.frontImageUrl", "passport.imageUrl" etc.
+    if (user.role.name === "VaultAgent") {
+      const nestedFieldMap = {
+        "emiratesId_front":  "emiratesId.frontImageUrl",
+        "emiratesId_back":   "emiratesId.backImageUrl",
+        "passport_image":    "passport.imageUrl",
+        "visa_image":        "visa.imageUrl",
+        // profilePic top-level hi hai — koi mapping nahi
+      };
+      if (nestedFieldMap[fieldToUpdate]) {
+        fieldToUpdate = nestedFieldMap[fieldToUpdate];
+      }
+    }
+
+    const updateData     = { [fieldToUpdate]: fileUrl };
+    const updatedProfile = await Model.findOneAndUpdate(
+      { _id: user._id },
+      { $set: updateData },
+      { new: true }
+    ).populate("role").populate("partnerId", "companyName status _id");
+
+    return res.status(200).json({
+      success: true,
+      message: `${fieldToUpdate.replace(/[_.]/g, " ")} updated successfully`,
+      data: updatedProfile, // ✅ poora updated profile return karo
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "File update failed", error: error.message });
+  }
 };

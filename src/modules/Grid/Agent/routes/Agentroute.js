@@ -1,66 +1,50 @@
-// routes/leadRoutes.js
-const express = require("express");
-const {
-  createLead,
-  getLeadById,
-  updateLead,
-  deleteLead,
-  getAllLeads,
-  updateLeadStatus,
-  selectProperty,
-  fetchPropertySuggestions,
-  addLeadInterest,
-  removeLeadInterest
-} = require("../controllers/AgentController");
-const { protect, protectMulti } = require("../../../../middleware/auth");
-
-const {
-  createSiteVisit,
-  approveSiteVisit,
-  updateSiteVisitStatus,
-  rescheduleSiteVisit,
-  getSiteVisitsByLead,
-  getSiteVisitsByAgent,
-  getAllSiteVisits,
-  getSiteVisitById,
-  checkReminders
-} = require("../controllers/SiteVisitController");
-
+const express = require('express');
 const router = express.Router();
 
-// =========================
-// LEAD ROUTES
-// =========================
-router.post("/create-lead", protectMulti, createLead);
-router.get("/get-all-leads", protectMulti, getAllLeads);
-router.get("/get-lead/:id",protectMulti, getLeadById);
-router.post("/update-lead/:id",protectMulti, updateLead);
-router.post("/update-status/:id",protectMulti, updateLeadStatus);
-router.delete("/delete-lead/:id",protectMulti, deleteLead);
-router.put("/select-property",protectMulti, selectProperty);
+// Controllers
+const agentCtrl = require('../controllers/index');          // signup, login, profile
+// const leadCtrl = require('../controllers/LeadController');           // leads
+// const siteVisitCtrl = require('../controllers/SiteVisitController'); // site visits
 
-// =========================
-// PROPERTY SUGGESTIONS (AI)
-// =========================
-router.get("/fetch-properties",protectMulti, fetchPropertySuggestions);
+// Middleware (already supports agents via decoded.role === 'agent')
+const { protectMulti } = require('../../../../middleware/auth');
 
-// =========================
-// LEAD INTERESTS (Manual Add/Remove)
-// =========================
-router.post("/add-interest",protectMulti, addLeadInterest);
-router.delete("/remove-interest/:interestId",protectMulti, removeLeadInterest);
+// ─────────────────────────────────────────────────────────────
+//  PUBLIC ROUTES (no authentication required)
+// ─────────────────────────────────────────────────────────────
+router.post('/agent-signup', agentCtrl.agentSignup);
+router.post('/login-agent',  agentCtrl.agentLogin);
 
-// =========================
-// SITE VISIT ROUTES
-// =========================
-router.post("/create-site-visit",protectMulti, createSiteVisit);
-router.get("/get-all-site-visits",protectMulti, getAllSiteVisits);
-router.get("/site-visit/:id",protectMulti, getSiteVisitById);
-router.post("/approve-site-visit/:id",protectMulti, approveSiteVisit);
-router.post("/update-site-visit/:id",protectMulti, updateSiteVisitStatus);
-router.post("/reschedule-site-visit/:id",protectMulti, rescheduleSiteVisit);
-router.get("/by-lead/:leadId",protectMulti, getSiteVisitsByLead);
-router.get("/by-agent/:agentId",protectMulti, getSiteVisitsByAgent);
-router.get("/check-reminders",protectMulti, checkReminders);
+// ─────────────────────────────────────────────────────────────
+//  PROTECTED ROUTES (require valid agent token)
+// ─────────────────────────────────────────────────────────────
+router.use(protectMulti);
+
+// Agent Profile
+// router.get('/me', agentCtrl.getAgentProfile);
+// router.put('/me', agentCtrl.updateAgentProfile);
+
+// Lead Management
+// router.post('/lead/create-lead',                leadCtrl.createLead);
+// router.get('/lead/get-all-leads',               leadCtrl.getAllLeads);
+// router.get('/lead/get-lead/:id',                leadCtrl.getLeadById);
+// router.put('/lead/update-lead/:id',             leadCtrl.updateLead);
+// router.put('/lead/update-status/:id',           leadCtrl.updateLeadStatus);
+// router.post('/lead/add-interest',               leadCtrl.addLeadInterest);
+// router.put('/lead/select-property',             leadCtrl.selectProperty);
+// router.delete('/lead/remove-interest/:interestId', leadCtrl.removeLeadInterest);
+// router.delete('/lead/delete-lead/:id',          leadCtrl.deleteLead);
+// router.get('/lead/fetch-properties',            leadCtrl.fetchPropertySuggestions);
+
+// Site Visits
+// router.post('/site-visit/create-site-visit',    siteVisitCtrl.createSiteVisit);
+// router.get('/site-visit/get-all-site-visits',   siteVisitCtrl.getAllSiteVisits);
+// router.get('/site-visit/:id',                   siteVisitCtrl.getSiteVisitById);
+// router.post('/site-visit/approve-site-visit/:id', siteVisitCtrl.approveSiteVisit);
+// router.post('/site-visit/update-site-visit/:id', siteVisitCtrl.updateSiteVisitStatus);
+// router.post('/site-visit/reschedule-site-visit/:id', siteVisitCtrl.rescheduleSiteVisit);
+// router.get('/site-visit/by-lead/:leadId',       siteVisitCtrl.getSiteVisitsByLead);
+// router.get('/site-visit/by-agent/:agentId',     siteVisitCtrl.getSiteVisitsByAgent);
+// router.get('/site-visit/check-reminders',       siteVisitCtrl.checkReminders);
 
 module.exports = router;

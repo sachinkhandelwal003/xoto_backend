@@ -37,7 +37,7 @@ router.post("/create", protect, createPartner);
 router.get("/all", protect, getAllPartners);
 router.get("/dropdown", getPartnersForDropdown);
 router.get("/get/:id", protect, getPartnerById);
-router.put("/update/:id", protect, updatePartner);
+router.put("/update/:id", updatePartner);
 router.delete("/delete/:id", protect, deletePartner);
 router.post("/suspend/:id", protect, suspendPartner);
 router.post("/activate/:id", protect, activatePartner);
