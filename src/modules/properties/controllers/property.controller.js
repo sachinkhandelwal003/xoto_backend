@@ -795,13 +795,37 @@ exports.toggleFavourite = async (req, res) => {
 
 // ── Get All Favourites ────────────────────────────────────────────────────
 // GET /customer/favourites
+// exports.getFavourites = async (req, res) => {
+//   try {
+//     const customerId = req.user._id;
+
+//     const customer = await Customer.findById(customerId).populate({
+//       path: "favourites",
+//       match: { approvalStatus: "approved", listingStatus: "active" },
+//       select:
+//         "propertyName price currency area city photos mainLogo bedrooms bathrooms builtUpArea builtUpAreaUnit bedroomType propertySubType transactionType",
+//     });
+
+//     if (!customer) {
+//       return res.status(404).json({ success: false, message: "Customer not found" });
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       count: customer.favourites.length,
+//       data: customer.favourites,
+//     });
+//   } catch (err) {
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
 exports.getFavourites = async (req, res) => {
   try {
     const customerId = req.user._id;
 
     const customer = await Customer.findById(customerId).populate({
       path: "favourites",
-      match: { approvalStatus: "approved", listingStatus: "active" },
       select:
         "propertyName price currency area city photos mainLogo bedrooms bathrooms builtUpArea builtUpAreaUnit bedroomType propertySubType transactionType",
     });
@@ -810,12 +834,19 @@ exports.getFavourites = async (req, res) => {
       return res.status(404).json({ success: false, message: "Customer not found" });
     }
 
+    const validFavourites = (customer.favourites || []).filter(Boolean);
+
+    // ← YAHAN ADD KARO — 304 aur caching band karo
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
+
     return res.status(200).json({
       success: true,
-      count: customer.favourites.length,
-      data: customer.favourites,
+      count: validFavourites.length,
+      data: validFavourites,
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
-};
+};  
