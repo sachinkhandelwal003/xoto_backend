@@ -33,6 +33,7 @@ const {
 
 
 router.get("/hot", getHotProperties);          // public
+router.get("/public", getProperties);
 router.put("/:id/hot", protectMulti, toggleHotProperty);
 
 

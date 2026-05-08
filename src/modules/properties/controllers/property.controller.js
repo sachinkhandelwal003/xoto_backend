@@ -277,7 +277,8 @@ exports.createProperty = async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════
 exports.getProperties = async (req, res) => {
   try {
-    const { role, _id: userId } = req.user;
+   const role = req.user?.role;
+   const userId = req.user?._id;
     const { page, limit, skip } = paginate(req.query);
 
     const {

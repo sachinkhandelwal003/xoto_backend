@@ -9,7 +9,6 @@ const virtualStagingRoutes = require('./modules/ImageEnhancer/Routes/VirtualRout
 const upload = require("../src/middleware/s3Upload.js").default
 const { uploadFileToS3 } = require("./modules/s3/upload.js");
 const {downloadImageAsPDF} =require("./modules/s3/downloadUpload.js")
-const aiRoutes = require('./modules/Grid/Agent/routes/AIroutes.js');
 const blogRoutes = require('../src/modules/blogs/routes/index.js').default;
 const mortgageRoutes = require('./modules/mortgages/routes/index.js');
 const bankMortgageProductRoutes = require('./modules/mortgages/routes/bankMortgageProduct.routes.js');
@@ -22,12 +21,10 @@ const app = express();
 const Notification = require("../src/modules/Notification/Routes/NotificationRoutes.js").default
 const PropertyLead = require("./modules/auth/routes/consult/propertyLead.route").default
 const ProfileData = require("./modules/profile/routes/index.js").default
-const agentRoutes = require('./modules/Grid/Agent/routes/index.js');
-const brochureRoutes = require('./modules/Grid/Agent/routes/brochureRoutes.js');
+const agentRoutes = require('./modules/Grid/Agent/routes/Agentroute.js');
 const customerHistoryRoutes = require('../src/modules/history/routes/customerHistory.routes.js');
 const inventoryRoutes = require("./modules/ecommerce/B2C/routes/inventory.routes");
 const GridAdvisor = require('./modules/Grid/Advisor/routes/index.js')
-const AgentLead = require('./modules/Grid/Agent/routes/Agentroute.js')
 // const stripeRoutes = require('./modules/auth/routes/ai/Striperoutes.js');
 // const AgentLead = require('./modules/Agent/routes/Agentroute.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
@@ -95,9 +92,6 @@ app.use('/mortgages', mortgageRoutes);
 app.use('/bank/products', bankMortgageProductRoutes);
 
 app.use('/agent', agentRoutes);
-app.use('/brochure', brochureRoutes);
-
-app.use('/agent/lead', AgentLead);
 app.use('/landing/lead', (req, res, next) => {
   console.log('request came on /landing/lead');
   next();
@@ -158,7 +152,6 @@ app.use('/freelancer', require('../src/modules/auth/routes/freelancer/freelancer
 app.use('/freelancer/projects/invoice', require('../src/modules/auth/routes/freelancer/invoice.route'));
 app.use('/otp', otpRoutes);
 // agent AI features
-app.use('/aiii', aiRoutes);
 // ⚠️ Stripe route yahan se hata diya gaya hai, line number 36 pe daal diya gaya hai.
 app.use('/attributes', require('../src/modules/ecommerce/B2C/routes/attribute.routes'));
 app.use('/materials', require('../src/modules/ecommerce/B2C/routes/material.routes'));
