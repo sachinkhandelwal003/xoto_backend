@@ -9,7 +9,7 @@ import {
   createWebsiteLead,
   createPartnerLead,
   getUnassignedLeads,
-  assignLeadToXotoAdvisor,advisorUpdateLeadStatus,getAdvisorAssignedLeads,advisorUpdateLeadInfo
+  assignLeadToXotoAdvisor,advisorUpdateLeadStatus,getAdvisorAssignedLeads,advisorUpdateLeadInfo,calculateLeadEligibility
 } from '../controllers/lead.controller.js';
 import { protect, protectPartner, protectMulti, protectVaultAgent ,protectVaultAdvisor} from '../../../middleware/auth.js';
 
@@ -20,10 +20,12 @@ router.post('/website', createWebsiteLead);  // Website lead capture
 
 // ==================== AGENT ROUTES ====================
 router.post('/create', protectVaultAgent, createLead);
+// Routes
+router.post('/:leadId/calculate-eligibility', protectVaultAdvisor, calculateLeadEligibility);
 router.get('/my-leads', protectVaultAgent, getMyLeads);
 router.get('/:id', getLeadById);
 
-// ==================== PARTNER ROUTES ====================
+// ==================== PARTNER ROUTES ==================== 
 router.post('/partner/create', protectPartner, createPartnerLead);  // Individual partner creates lead
 router.get('/partner/get', protectPartner, getPartnerLeads);
 

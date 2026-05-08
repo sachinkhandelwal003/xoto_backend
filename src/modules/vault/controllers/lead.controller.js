@@ -52,16 +52,27 @@ export const createLead = async (req, res) => {
     
     const { customerInfo, propertyDetails, referralType, notesToXoto } = req.body;
     
-    // Validation
-    if (!customerInfo?.fullName || !customerInfo?.email || !customerInfo?.mobileNumber) {
-      return res.status(400).json({ success: false, message: "Customer name, email and mobile number are required" });
+    // ✅ PRD COMPLIANT: Only Name and Phone Number are required (Section 4.3)
+    if (!customerInfo?.fullName || !customerInfo?.mobileNumber) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Customer name and mobile number are required" 
+      });
     }
     
-    if (!propertyDetails?.propertyType || !propertyDetails?.propertyValue) {
-      return res.status(400).json({ success: false, message: "Property type and value are required" });
+    // UAE phone format validation (PRD Section 4.3)
+    const phoneRegex = /^[0-9]{10,15}$/;
+    if (!phoneRegex.test(customerInfo.mobileNumber)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid UAE phone number format" 
+      });
     }
     
-    // Duplicate check (180 days)
+    // ✅ Email is now optional (PRD doesn't require at lead stage)
+    // ✅ Property details are now optional (will be captured during Application creation - Section 5.3)
+    
+    // Duplicate check (180 days) - PRD Section 2.2
     const existingLead = await Lead.findOne({
       'customerInfo.mobileNumber': customerInfo.mobileNumber,
       createdAt: { $gte: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000) },
@@ -69,16 +80,44 @@ export const createLead = async (req, res) => {
     });
     
     if (existingLead) {
-      return res.status(400).json({ success: false, message: "Duplicate lead within 180 days" });
+      return res.status(400).json({ 
+        success: false, 
+        message: "This customer's application is currently open with Xoto." 
+      });
     }
     
-    const loanAmount = propertyDetails.propertyValue - (propertyDetails.downPaymentAmount || 0);
-    const loanAmountRange = loanAmount <= 5000000 ? '≤5M AED' : '>5M AED';
+    // Calculate loan amount ONLY if property details are provided
+    let loanAmount = 0;
+    let loanAmountRange = null;
     let commissionTier = null;
+    let expectedCommission = null;
     
-    if (agent.agentType === 'FreelanceAgent') {
-      commissionTier = agent.getCommissionPercentage(loanAmount, referralType);
+    if (propertyDetails?.propertyValue) {
+      loanAmount = propertyDetails.propertyValue - (propertyDetails.downPaymentAmount || 0);
+      loanAmountRange = loanAmount <= 5000000 ? '≤5M AED' : '>5M AED';
+      
+      if (agent.agentType === 'FreelanceAgent') {
+        commissionTier = agent.getCommissionPercentage(loanAmount, referralType);
+        expectedCommission = commissionTier ? (loanAmount * (commissionTier / 100) * 0.01) : null;
+      }
     }
+    
+    // Prepare property details with defaults if not provided
+    const finalPropertyDetails = propertyDetails ? {
+      propertyType: propertyDetails.propertyType || null,
+      propertySubtype: propertyDetails.propertySubtype || null,
+      propertyValue: propertyDetails.propertyValue || null,
+      downPaymentAmount: propertyDetails.downPaymentAmount || null,
+      loanAmountRequired: propertyDetails.loanAmountRequired || null,
+      propertyAddress: {
+        building: propertyDetails.propertyAddress?.building || null,
+        area: propertyDetails.propertyAddress?.area || null,
+        city: propertyDetails.propertyAddress?.city || 'Dubai',
+      },
+      propertyAgeYears: propertyDetails.propertyAgeYears || null,
+      isOffPlan: propertyDetails.isOffPlan || false,
+      completionDate: propertyDetails.completionDate || null,
+    } : {};
     
     const lead = await Lead.create({
       sourceInfo: {
@@ -92,13 +131,36 @@ export const createLead = async (req, res) => {
         sourceIp: req.ip,
         userAgent: req.headers['user-agent'],
       },
-      customerInfo,
-      propertyDetails,
-      loanRequirements: { preferredTenureYears: 25, preferredInterestRateType: 'Fixed' },
+      customerInfo: {
+        fullName: customerInfo.fullName,
+        mobileNumber: customerInfo.mobileNumber,
+        email: customerInfo.email || null,  // ✅ Optional now
+        gender: customerInfo.gender || null,
+        preferredName: customerInfo.preferredName || null,
+        alternativePhone: customerInfo.alternativePhone || null,
+        whatsappNumber: customerInfo.whatsappNumber || null,
+        dateOfBirth: customerInfo.dateOfBirth || null,
+        nationality: customerInfo.nationality || null,
+        maritalStatus: customerInfo.maritalStatus || null,
+        numberOfDependents: customerInfo.numberOfDependents || 0,
+        occupation: customerInfo.occupation || null,
+        employer: customerInfo.employer || null,
+        monthlySalary: customerInfo.monthlySalary || null,
+      },
+      propertyDetails: finalPropertyDetails,
+      loanRequirements: {
+        preferredTenureYears: req.body.loanRequirements?.preferredTenureYears || 25,
+        preferredInterestRateType: req.body.loanRequirements?.preferredInterestRateType || 'Fixed',
+        preferredBanks: req.body.loanRequirements?.preferredBanks || [],
+        feeFinancingPreference: req.body.loanRequirements?.feeFinancingPreference !== undefined ? req.body.loanRequirements.feeFinancingPreference : true,
+        lifeInsurancePreference: req.body.loanRequirements?.lifeInsurancePreference !== undefined ? req.body.loanRequirements.lifeInsurancePreference : true,
+        propertyInsurancePreference: req.body.loanRequirements?.propertyInsurancePreference !== undefined ? req.body.loanRequirements.propertyInsurancePreference : true,
+        specialRequirements: req.body.loanRequirements?.specialRequirements || null,
+      },
       referralType: referralType || 'Referral Only',
-      commissionTier,
-      loanAmountRange,
-      expectedCommission: commissionTier ? (loanAmount * (commissionTier / 100) * 0.01) : null,
+      commissionTier: commissionTier,
+      loanAmountRange: loanAmountRange,
+      expectedCommission: expectedCommission,
       notesToXoto: notesToXoto || null,
       currentStatus: 'New',
       duplicateCheck: { isDuplicate: false, checkPerformedAt: new Date() },
@@ -106,9 +168,12 @@ export const createLead = async (req, res) => {
     
     await agent.updateOne({ $inc: { 'earnings.totalLeadsSubmitted': 1 } });
     
-    await HistoryService.logLeadActivity(lead, 'LEAD_CREATED', await getUserInfo(req), {
-      description: `Lead created for ${customerInfo.fullName}`,
-    });
+    // ✅ Keep history service as is (not removed)
+    if (HistoryService && HistoryService.logLeadActivity) {
+      await HistoryService.logLeadActivity(lead, 'LEAD_CREATED', await getUserInfo(req), {
+        description: `Lead created for ${customerInfo.fullName}`,
+      });
+    }
     
     const message = agent.agentType === 'FreelanceAgent' 
       ? "Lead created successfully. Awaiting admin assignment to Xoto Advisor."
@@ -1324,3 +1389,53 @@ export const advisorUpdateLeadInfo = async (req, res) => {
 
 
 
+// ==================== CALCULATE LEAD ELIGIBILITY API ====================
+export const calculateLeadEligibility = async (req, res) => {
+  try {
+    const { leadId } = req.params;
+    const {
+      monthlySalary,
+      otherIncome,
+      existingLoanEMIs,
+      creditCardPayments,
+      estimatedPropertyValue,
+      estimatedLoanAmount,
+    } = req.body;
+    
+    const lead = await Lead.findById(leadId);
+    if (!lead) {
+      return res.status(404).json({ success: false, message: "Lead not found" });
+    }
+    
+    // Update financial data
+    if (!lead.financialCalculation) lead.financialCalculation = {};
+    
+    if (monthlySalary !== undefined) lead.customerInfo.monthlySalary = monthlySalary;
+    if (otherIncome !== undefined) lead.financialCalculation.otherIncome = otherIncome;
+    if (existingLoanEMIs !== undefined) lead.financialCalculation.existingLoanEMIs = existingLoanEMIs;
+    if (creditCardPayments !== undefined) lead.financialCalculation.creditCardPayments = creditCardPayments;
+    if (estimatedPropertyValue !== undefined) lead.financialCalculation.estimatedPropertyValue = estimatedPropertyValue;
+    if (estimatedLoanAmount !== undefined) lead.financialCalculation.estimatedLoanAmount = estimatedLoanAmount;
+    
+    // Calculate eligibility
+    lead.calculateEligibility();
+    await lead.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: "Eligibility calculated successfully",
+      data: {
+        dbrPercentage: lead.financialCalculation.dbrPercentage,
+        dbrStatus: lead.financialCalculation.dbrStatus,
+        estimatedLTV: lead.financialCalculation.estimatedLTV,
+        isEligible: lead.financialCalculation.isEligible,
+        recommendedLoanAmount: lead.financialCalculation.recommendedLoanAmount,
+        eligibilityNotes: lead.financialCalculation.eligibilityNotes,
+      }
+    });
+    
+  } catch (error) {
+    console.error("Calculate eligibility error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};    

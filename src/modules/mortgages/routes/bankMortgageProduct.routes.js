@@ -13,7 +13,12 @@ const {
   updateBankProductRate,
   deleteBankProduct,
   hardDeleteBankProduct,
-  getBankProductStats
+  getBankProductStats,  createBankForm,
+  getAllBankForms,
+  getFormsByBankProduct,
+  recordFormDownload,
+  updateBankForm,
+  archiveBankForm,createBulkBankForms
 } = require("../controllers/bankMortgageProduct.controller");
 const { protect } = require("../../../middleware/auth");
 
@@ -37,4 +42,16 @@ router.patch("/update-rate/:id", protect, updateBankProductRate);
 router.delete("/delete-bank-product/:id", protect, deleteBankProduct);
 router.delete("/hard-delete/:id", protect, hardDeleteBankProduct);
 
+// bank products forms
+
+// Admin only routes
+router.post("/create-bank-form", createBankForm);
+router.post("/create-bulk-bank-forms", protect, createBulkBankForms);
+router.put("/update-bank-form/:formId", protect, updateBankForm);
+router.delete("/archive-bank-form/:formId", protect, archiveBankForm);
+
+// Protected routes (all authenticated users)
+router.get("/bank-forms", getAllBankForms);
+router.get("/bank-forms/bank-product/:bankProductId", protect, getFormsByBankProduct);
+router.post("/bank-forms/:formId/download", protect, recordFormDownload);
 module.exports = router;
