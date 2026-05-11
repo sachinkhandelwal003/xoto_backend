@@ -25,6 +25,7 @@ const agentRoutes = require('./modules/Grid/Agent/routes/Agentroute.js');
 const customerHistoryRoutes = require('../src/modules/history/routes/customerHistory.routes.js');
 const inventoryRoutes = require("./modules/ecommerce/B2C/routes/inventory.routes");
 const GridAdvisor = require('./modules/Grid/Advisor/routes/index.js')
+const developer = require('./modules/Grid/Developer/routes/developer.route.js')
 // const stripeRoutes = require('./modules/auth/routes/ai/Striperoutes.js');
 // const AgentLead = require('./modules/Agent/routes/Agentroute.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
@@ -75,7 +76,8 @@ app.use('/dashboard', require('./modules/auth/routes/dashboardview/dashboard.rou
 
 app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/projectfreelancer.route'));
 app.use('/property', require('../src/modules/properties/routes/index.js'));
-app.use('/developer', require('../src/modules/properties/routes/developer.routes.js'));  //for testing route
+// app.use('/developer', require('../src/modules'));  //for testing route
+app.use('/developer', developer);  
 app.use('/properties', require('../src/modules/properties/routes/property.routes.js'));  //for testing route
 
 app.use('/products', require('../src/modules/products/routes/index.js'));

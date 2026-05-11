@@ -7,7 +7,7 @@ import Agent from "../../Grid/Agent/models/agent.js"
 import Agency from "../../Grid/agency/models/index.js"
 import VaultAgent from "../../vault/models/Agent.js"
 import VaultPartner from "../../vault/models/Partner.js"
-import Developer from "../../properties/models/DeveloperModel.js"
+import Developer from "../../Grid/Developer/models/developer.model.js"
 import GridAdvisor from "../../Grid/Advisor/model/index.js"
 import VaultAdvisor from "../../vault/models/XotoAdvisor.js";
 import VaultMortgageOps from "../../vault/models/MortgageOps.js";

@@ -1,6 +1,6 @@
 const Property  = require("../models/property.model");
 const Inventory = require("../models/property.inventory.model");
-const Developer = require("../models/DeveloperModel");
+const Developer = require("../../Grid/Developer/models/developer.model");
 const Customer = require("../../auth/models/user/customer.model");
 
 // ─── Role helpers ─────────────────────────────────────────────────────────────
