@@ -6,7 +6,6 @@ exports.suggestAdvisor = async ({ area, preferred_city, type }) => {
   // Step 1 — base filter: only active advisors
   const baseFilter = { status: 'active' };
 
-  // Step 2 — location + propertyType match (PRD 4.5)
   const locationFilter = location
     ? { ...baseFilter, 'specialisation.locations': { $regex: location, $options: 'i' } }
     : baseFilter;  

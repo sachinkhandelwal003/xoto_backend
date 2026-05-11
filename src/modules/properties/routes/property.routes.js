@@ -14,7 +14,8 @@ const {
   getHotProperties,
   toggleHotProperty,
   toggleFavourite,
-  getFavourites
+  getFavourites,
+  requestChanges, 
 } = require("../controllers/property.controller");
 
 const {
@@ -33,6 +34,7 @@ const {
 
 
 router.get("/hot", getHotProperties);          // public
+router.get("/public", getProperties);
 router.put("/:id/hot", protectMulti, toggleHotProperty);
 
 
@@ -104,8 +106,9 @@ router.put("/:id", protectMulti, updateProperty);
 router.delete("/:id", protectMulti, deleteProperty);
 router.put("/:id/approve", protectMulti, approveProperty);
 router.put("/:id/reject", protectMulti, rejectProperty);
-router.patch("/:id/toggle-status", protectMulti, toggleListingStatus);
-router.patch("/:id/feature", protectMulti, toggleFeatured);
+router.put("/:id/request-changes", protectMulti, requestChanges);
+router.put("/:id/toggle-status", protectMulti, toggleListingStatus);
+router.put("/:id/feature", protectMulti, toggleFeatured);
 
 
 
