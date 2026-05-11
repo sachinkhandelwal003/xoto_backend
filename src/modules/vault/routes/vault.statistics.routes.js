@@ -1,7 +1,7 @@
 // routes/vault.statistics.routes.js
 
 import express from 'express';
-import { protect, protectPartner,protectVaultOps,protectVaultAgent } from '../../../middleware/auth.js';
+import { protect, protectPartner,protectVaultOps,protectVaultAgent,protectVaultAdvisor } from '../../../middleware/auth.js';
 import {
   getAdminDashboardStats,
   getPartnerDashboardStats,
@@ -25,12 +25,12 @@ router.get('/admin/stats', protect, getAdminDashboardStats);
 router.get('/partner/stats', protectPartner, getPartnerDashboardStats);
 
 // Advisor only
-router.get('/advisor/stats', protect, getAdvisorDashboardStats);
+router.get('/advisor/stats', protectVaultAdvisor, getAdvisorDashboardStats);
 
 // Ops only
-router.get('/ops/stats', protect, getOpsDashboardStats);
+router.get('/ops/stats', protectVaultOps, getOpsDashboardStats);
 
 // Freelance Agent only
-router.get('/agent/stats', protect, getAgentDashboardStats);
+router.get('/agent/stats', protectVaultAgent, getAgentDashboardStats);
 
 module.exports = router;

@@ -33,6 +33,10 @@ const OfferSummarySchema = new mongoose.Schema(
     currency: { type: String, default: "AED" },
     totalUpfrontCost: { type: Number, required: true },
     maxLoanAmount: { type: Number, default: null },
+    productValidity: {
+      doesNotExpire: { type: Boolean, default: true },
+      expiryDate: { type: Date, default: null }
+    }
   },
   { _id: false }
 );
@@ -49,6 +53,11 @@ const LoanDetailsSchema = new mongoose.Schema(
     minLoanToValue: { type: Number, default: 20 },
     maxLoanToValue: { type: Number, default: 85 },
     interestType: { type: String, enum: ["CONVENTIONAL", "ISLAMIC"], default: "CONVENTIONAL" },
+    salaryTransfer: { 
+      type: String, 
+      enum: ["STL", "NSTL", "Both"],
+      default: "Both" 
+    },
     overpaymentAllowedPercent: { type: Number, default: 25 },
     earlySettlementFee: { type: String, default: "1% of outstanding amount" },
     earlySettlementFreeAfterYears: { type: Number, default: 3 },
@@ -79,6 +88,32 @@ const CostBreakdownSchema = new mongoose.Schema(
     totalUpfrontCost: { type: Number, required: true },
     payableByBuyer: { type: Number, default: 0 },
     payableBySeller: { type: Number, default: 0 },
+    bankPreApprovalFee: { 
+      type: Number, 
+      default: 0,
+      description: "Bank pre-approval/application fee"
+    },
+    isBankPreApprovalFeeFree: { 
+      type: Boolean, 
+      default: false 
+    },
+    minimumBankProcessingFee: { 
+      type: Number, 
+      default: 0,
+      description: "Minimum bank processing fee"
+    },
+    buyoutFee: { 
+      type: Number, 
+      default: 0 
+    },
+    isBuyoutFeeNA: { 
+      type: Boolean, 
+      default: false 
+    },
+    propertyValuationFeeInclusiveVAT: { 
+      type: Boolean, 
+      default: true 
+    }
   },
   { _id: false }
 );
@@ -110,19 +145,14 @@ const EligibilitySchema = new mongoose.Schema(
     maxLTV: { type: Number, default: 85 },
     eligibleNationalities: [{ type: String }],
     eligibleEmploymentTypes: [{ type: String, enum: ["Salaried", "Self-Employed", "Both"] }],
+    eligibleResidencyStatus: [{ 
+      type: String, 
+      enum: ["UAE National", "UAE Resident", "Non-Resident", "All"],
+      default: ["All"] 
+    }],
     minExperienceYears: { type: Number, default: 1 },
     minEmploymentYears: { type: Number, default: 1 },
     visaRequired: { type: Boolean, default: true },
-  },
-  { _id: false }
-);
-
-// Documentation Schema
-const DocumentationSchema = new mongoose.Schema(
-  {
-    requiredDocs: [{ type: String }],
-    processingTime: { type: String, default: "5-7 working days" },
-    approvalValidity: { type: String, default: "60 days" },
   },
   { _id: false }
 );
@@ -149,7 +179,6 @@ const BankMortgageOfferSchema = new mongoose.Schema(
     costBreakdown: { type: CostBreakdownSchema, required: true },
     insurance: { type: InsuranceSchema, default: () => ({}) },
     eligibility: { type: EligibilitySchema, default: () => ({}) },
-    documentation: { type: DocumentationSchema, default: () => ({}) },
     features: { type: FeaturesSchema, default: () => ({}) },
     reviews: {
       averageRating: { type: Number, default: 0 },
@@ -183,6 +212,8 @@ BankMortgageOfferSchema.index({ "bankInfo.bankCode": 1 });
 BankMortgageOfferSchema.index({ "offerSummary.initialRate": -1 });
 BankMortgageOfferSchema.index({ isPopular: 1, isFeatured: 1 });
 BankMortgageOfferSchema.index({ displayOrder: 1 });
+BankMortgageOfferSchema.index({ "eligibility.eligibleResidencyStatus": 1 });
+BankMortgageOfferSchema.index({ "loanDetails.salaryTransfer": 1 });
 
 // ======================
 // VIRTUALS
@@ -195,11 +226,17 @@ BankMortgageOfferSchema.virtual("formattedInitialRate").get(function () {
   return `${this.offerSummary.initialRate}%`;
 });
 
+BankMortgageOfferSchema.virtual("isProductExpired").get(function () {
+  if (this.offerSummary.productValidity.doesNotExpire) return false;
+  if (!this.offerSummary.productValidity.expiryDate) return false;
+  return new Date() > this.offerSummary.productValidity.expiryDate;
+});
+
 // ======================
 // METHODS
 // ======================
 BankMortgageOfferSchema.methods.isCustomerEligible = function (customerData) {
-  const { monthlySalary, age, nationality, employmentType, loanAmount } = customerData;
+  const { monthlySalary, age, nationality, employmentType, residencyStatus, loanAmount } = customerData;
   
   if (monthlySalary && this.eligibility.minSalary && monthlySalary < this.eligibility.minSalary) {
     return { eligible: false, reason: `Minimum salary requirement: ${this.eligibility.minSalary} AED` };
@@ -214,6 +251,20 @@ BankMortgageOfferSchema.methods.isCustomerEligible = function (customerData) {
         !this.eligibility.eligibleNationalities.includes(nationality) &&
         !this.eligibility.eligibleNationalities.includes("GCC")) {
       return { eligible: false, reason: "Nationality not eligible for this product" };
+    }
+  }
+  
+  if (residencyStatus && this.eligibility.eligibleResidencyStatus?.length) {
+    if (!this.eligibility.eligibleResidencyStatus.includes("All") &&
+        !this.eligibility.eligibleResidencyStatus.includes(residencyStatus)) {
+      return { eligible: false, reason: "Residency status not eligible for this product" };
+    }
+  }
+  
+  if (employmentType && this.eligibility.eligibleEmploymentTypes?.length) {
+    if (!this.eligibility.eligibleEmploymentTypes.includes("Both") &&
+        !this.eligibility.eligibleEmploymentTypes.includes(employmentType)) {
+      return { eligible: false, reason: "Employment type not eligible for this product" };
     }
   }
   
@@ -246,13 +297,27 @@ BankMortgageOfferSchema.statics.getPopularProducts = function (limit = 10) {
     .limit(limit);
 };
 
+BankMortgageOfferSchema.statics.getProductsByResidency = function (residencyStatus, limit = 50) {
+  return this.find({ 
+    "meta.isActive": true,
+    "eligibility.eligibleResidencyStatus": { $in: [residencyStatus, "All"] }
+  }).sort({ displayOrder: 1 }).limit(limit);
+};
+
+BankMortgageOfferSchema.statics.getProductsBySalaryTransfer = function (salaryTransferRequirement, limit = 50) {
+  return this.find({ 
+    "meta.isActive": true,
+    "loanDetails.salaryTransfer": { $in: [salaryTransferRequirement, "Both"] }
+  }).sort({ displayOrder: 1 }).limit(limit);
+};
+
 BankMortgageOfferSchema.set("toJSON", { virtuals: true });
 BankMortgageOfferSchema.set("toObject", { virtuals: true });
 
 const BankMortgageProduct = mongoose.model(
   "BankMortgageProduct",
   BankMortgageOfferSchema,
-  "BankMortgageProduct"
+  "BankMortgageProducts"
 );
 
 module.exports = BankMortgageProduct;
