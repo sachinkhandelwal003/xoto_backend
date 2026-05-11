@@ -162,7 +162,7 @@ exports.bulkImportInventory = async (req, res) => {
  */
 exports.getInventoryByProperty = async (req, res) => {
     try {
-        const { propertyId } = req.params;
+        const { propertyId } = req.query;
         const developerId = req.user._id;
         const page = Number(req.query.page);
         const limit = Number(req.query.limit) ;
