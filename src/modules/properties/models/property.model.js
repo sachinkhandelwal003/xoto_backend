@@ -98,10 +98,11 @@ isHot:      { type: Boolean, default: false },
     // ══════════════════════════════════════════════════════════════
     // LOCATION
     // ══════════════════════════════════════════════════════════════
-    area: {
-      type:     String,
-      required: function () { return this.propertySubType !== "off_plan"; },
-    },
+   area: {
+  type:     String,
+  required: true,
+  trim:     true,
+},
     city:    { type: String, default: "Dubai" },
     country: { type: String, default: "UAE" },
     coordinates: {
@@ -254,6 +255,8 @@ isHot:      { type: Boolean, default: false },
       default: "pending",
     },
     rejectionReason: { type: String, default: "" },
+    adminComments:   { type: String, default: "" },
+    adminNotes:      { type: String, default: "" },
     approvedBy: {
       type:    mongoose.Schema.Types.ObjectId,
       ref:     "User",
@@ -263,6 +266,17 @@ isHot:      { type: Boolean, default: false },
     isAvailable:             { type: Boolean, default: true },
     isFeatured:              { type: Boolean, default: false },
     showContactOnlyVerified: { type: Boolean, default: true },
+
+    approvalStatus: {
+  type:    String,
+  enum:    ["pending", "approved", "rejected", "changes_requested"],  // add this
+  default: "pending",
+},
+listingStatus: {
+  type:    String,
+  enum:    ["pending", "active", "rejected", "inactive", "changes_requested"],  // add
+  default: "pending",
+},
 
     // ══════════════════════════════════════════════════════════════
     // STATISTICS (PRD §9.4, §9.6)

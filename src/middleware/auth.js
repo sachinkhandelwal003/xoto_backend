@@ -16,12 +16,14 @@ const AllUsers = require("../modules/auth/models/user/user.model");
 const Customer = require("../modules/auth/models/user/customer.model");
 const Agent =require("../modules/Grid/Agent/models/agent")
 const Agency = require("../modules/Grid/agency/models/index")
-const Developer =require("../modules/properties/models/DeveloperModel")
+const Developer =require("../modules/Grid/Developer/models/developer.model")
 const Partner =require("../modules/vault/models/Partner")
 const VaultAgents =require("../modules/vault/models/Agent")
 const GridAdvisor = require("../modules/Grid/Advisor/model/index");
 const VaultAdvisor =require("../modules/vault/models/XotoAdvisor")
-const VaultOps =require("../modules/vault/models/MortgageOps")
+const VaultOps =require("../modules/vault/models/MortgageOps");
+const GridReferralPartner = require("../modules/Grid/ReferralPartner/Model/ReferralPartner.model");
+
 
 
 const { getUserPermissions } = require("./permission");
@@ -201,7 +203,8 @@ exports.protectMulti = async (req, res, next) => {
   partner: Partner,
   gridadvisor: GridAdvisor,
   vaultadvisor: VaultAdvisor,    // ✅ ADD THIS LINE
-  mortgageops: VaultOps
+  mortgageops: VaultOps,
+  gridreferralpartner:  GridReferralPartner , 
     };
 
     const Model = entityMap[type];
@@ -222,14 +225,23 @@ exports.protectMulti = async (req, res, next) => {
         StatusCodes.UNAUTHORIZED
       );
 
-    if (!entity.role) {
-      entity.role = decoded.role || {
-        code: "guest",
-        name: "Guest",
-        level: 0,
-        isSuperAdmin: false,
-      };
-    }
+
+      if (!entity.role || typeof entity.role === "string") {
+  entity.role = decoded.role || {
+    code: 25,
+    name: "gridReferralPartner",
+    level: 0,
+    isSuperAdmin: false,
+  };
+}
+    // if (!entity.role) {
+    //   entity.role = decoded.role || {
+    //     code: "guest",
+    //     name: "Guest",
+    //     level: 0,
+    //     isSuperAdmin: false,
+    //   };
+    // }
 
     if (entity.role._id) {
       try {

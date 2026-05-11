@@ -47,6 +47,7 @@
     "socket.io": "^4.8.3",
     "stripe": "^22.0.1",
     "twilio": "^5.8.2",
+    "uuid": "^14.0.0",
     "winston": "^3.17.0"
   },
   "devDependencies": {

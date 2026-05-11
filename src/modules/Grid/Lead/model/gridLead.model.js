@@ -184,7 +184,7 @@ const gridLeadSchema = new mongoose.Schema({
   assigned_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   assigned_at: { type: Date, default: null },
 
-  created_by_agent: { type: mongoose.Schema.Types.ObjectId, ref: 'Agent' },
+  created_by_agent: { type: mongoose.Schema.Types.ObjectId, ref: 'GridAgent' },
   uploaded_by:      { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 
   // ==============================================================

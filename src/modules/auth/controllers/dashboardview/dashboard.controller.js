@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const PropertyLead = require('../../models/consultant/propertyLead.model')
 const Freelancer = require('../../models/Freelancer/freelancer.model');
 const VendorB2C = require('../../models/Vendor/B2cvendor.model');
-const Developer = require('../../../properties/models/DeveloperModel');
+const Developer = require('../../../Grid/Developer/models/developer.model');
 const Property = require('../../../properties/models/PropertyModel');
 const Estimate = require('../../../auth/models/leads/estimate.model');
 const Project = require('../../../auth/models/Freelancer/projectfreelancer.model');
@@ -14,7 +14,7 @@ const MileStonebill = require("../../../auth/controllers/freelancer/models/MileS
 const getDateRange = (range) => {
   const now = new Date();
   let from = new Date();
-
+   
   switch (range) {
     case '30d':
       from.setDate(now.getDate() - 30);

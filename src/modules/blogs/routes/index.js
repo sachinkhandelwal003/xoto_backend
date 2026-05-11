@@ -9,7 +9,7 @@ import {
   deleteBlogsBYId,
   bulkDelete,
   bulkPublish,
-} from "../controllers/index";
+} from "../controllers/index.js";
 
 const router = Router();
 

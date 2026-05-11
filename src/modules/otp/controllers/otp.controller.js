@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import Agent from '../../../modules/Grid/Agent/models/agent.js';
 import VendorB2C from '../../../modules/auth/models/Vendor/B2cvendor.model.js';
 import Freelancer from "../../../modules/auth/models/Freelancer/freelancer.model.js"
-import Developer from "../../../modules/properties/models/DeveloperModel.js"
+import Developer from "../../../modules/Grid/Developer/models/developer.model.js"
 import sendEmail from '../../../utils/sendEmail.js';
 import { StatusCodes } from '../../../utils/constants/statusCodes.js';
 const generateOtp = () => {
