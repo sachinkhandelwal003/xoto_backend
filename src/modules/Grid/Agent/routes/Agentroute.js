@@ -61,7 +61,7 @@
 
 const express  = require("express");
 const router   = express.Router();
-const presCtrl = require("../controllers/presentationController");
+const presCtrl = require("../controllers/PresentationController");
 const agentCtrl = require("../controllers/index");
 const { protectMulti } = require("../../../../middleware/auth");
 
