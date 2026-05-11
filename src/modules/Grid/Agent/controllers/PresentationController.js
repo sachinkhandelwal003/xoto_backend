@@ -253,75 +253,95 @@ exports.updatePresentation = async (req, res) => {
 //  GENERATE PDF + SHARE LINK
 //  POST /agent/lead/presentations/:id/generate
 // ══════════════════════════════════════════════════════════════
+
 exports.generatePresentation = async (req, res) => {
   try {
     const { id } = req.params;
+    const BASE_URL = process.env.BASE_URL || "http://localhost:5000";
 
-    const presentation = await Presentation.findOne({ _id: id, agent: req.user._id })
+    const presentation = await Presentation.findOne({
+      _id: id,
+      agent: req.user._id
+    })
       .populate("properties.property")
       .populate("lead")
       .populate("agent");
 
-    if (!presentation)
-      return res.status(404).json({ success: false, message: "Presentation not found" });
+    if (!presentation) {
+      return res.status(404).json({
+        success: false,
+        message: "Presentation not found"
+      });
+    }
 
-    if (!presentation.properties.length)
-      return res.status(400).json({ success: false, message: "Add at least one property before generating" });
+    if (!presentation.properties.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Add at least one property before generating"
+      });
+    }
 
-    // ── Step 1: Build PDF buffer (awaited — no callback hell) ─
+    // Step 1: Build PDF
     let pdfBuffer;
     try {
       pdfBuffer = await buildPDFBuffer(presentation);
     } catch (pdfErr) {
       console.error("PDF build error:", pdfErr);
-      return res.status(500).json({ success: false, message: "PDF generation failed", detail: pdfErr.message });
-    }
-
-    // ── Step 2: Upload to S3 ──────────────────────────────────
-    let pdfUrl = "";
-    try {
-    const fakeReq = {
-  file: {
-    buffer: pdfBuffer,
-    originalname: `presentation-${id}-${Date.now()}.pdf`,
-    mimetype: "application/pdf",
-    size: pdfBuffer.length,
-    location: ""
-  }
-};
-
-const fakeRes = {
-  status: () => ({
-    json: (data) => data
-  })
-};
-
-const s3Response = await uploadFileToS3(fakeReq, fakeRes);
-
-      // Handle both S3 SDK v2 (Location) and v3 (url / Location)
-      pdfUrl = s3Response?.Location || s3Response?.url || "";
-
-      if (!pdfUrl) {
-        console.error("S3 response missing URL. Full response:", JSON.stringify(s3Response));
-        return res.status(500).json({ success: false, message: "PDF upload failed — S3 returned no URL. Check S3 credentials and bucket config." });
-      }
-    } catch (s3Err) {
-      console.error("S3 upload error:", s3Err);
       return res.status(500).json({
         success: false,
-        message: "PDF upload failed",
-        detail:  s3Err.message,
+        message: "PDF generation failed",
+        detail: pdfErr.message
       });
     }
 
-    // ── Step 3: Save and respond ──────────────────────────────
+    // Step 2: Save PDF locally
+   const fs = require("fs");
+const path = require("path");
+
+const fileName = `presentation-${id}-${Date.now()}.pdf`;
+
+let pdfUrl = "";
+
+try {
+  // FIX: define uploadsDir first
+  const uploadsDir = path.resolve("uploads");
+
+  // create uploads folder if missing
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+
+  // final file path
+  const filePath = path.join(uploadsDir, fileName);
+
+  console.log("Saving PDF to:", filePath);
+
+  // save actual PDF
+  fs.writeFileSync(filePath, pdfBuffer);
+
+  // final URL
+  pdfUrl = `${BASE_URL}/uploads/${fileName}`;
+
+  console.log("PDF saved successfully:", pdfUrl);
+
+} catch (error) {
+  console.error("PDF save error:", error);
+
+  return res.status(500).json({
+    success: false,
+    message: "PDF save failed",
+    detail: error.message
+  });
+}
+
+    // Step 3: Save DB
     const shareToken = uuidv4();
 
-    presentation.pdfUrl         = pdfUrl;
-    presentation.shareToken     = shareToken;
-    presentation.shareLink      = `${process.env.BASE_URL}/presentation/share/${shareToken}`;
-    presentation.status         = "generated";
-    presentation.generatedAt    = new Date();
+    presentation.pdfUrl = pdfUrl;
+    presentation.shareToken = shareToken;
+    presentation.shareLink = `${BASE_URL}/presentation/share/${shareToken}`;
+    presentation.status = "generated";
+    presentation.generatedAt = new Date();
     presentation.pipelineStatus = "not_sent";
 
     await presentation.save();
@@ -329,16 +349,22 @@ const s3Response = await uploadFileToS3(fakeReq, fakeRes);
     return res.status(200).json({
       success: true,
       message: "Presentation generated successfully",
-      data: { ...presentation.toObject(), shareLink: presentation.shareLink },
+      data: {
+        ...presentation.toObject(),
+        shareLink: presentation.shareLink
+      }
     });
 
   } catch (err) {
     console.error("Generate error:", err);
-    if (!res.headersSent) {
-      res.status(500).json({ success: false, message: err.message });
-    }
+
+    return res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
+
 
 // ══════════════════════════════════════════════════════════════
 //  LIST ALL

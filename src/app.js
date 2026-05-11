@@ -85,7 +85,6 @@ app.use('/products', require('../src/modules/products/routes/index.js'));
 app.use('/profile', ProfileData);
 app.post("/upload", upload.single("file"), uploadFileToS3)
 app.get("/download-pdf", downloadImageAsPDF)
-
 app.use('/accountant', require('./modules/auth/routes/accountant/Accountant.routes'));
 app.use('/users', require('./modules/auth/routes/user/user.routes'));
 app.use('/consult', require('./modules/auth/routes/consult/consult.routes'));
