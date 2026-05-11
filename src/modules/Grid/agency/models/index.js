@@ -1,217 +1,223 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 
-const AgencySchema = new mongoose.Schema(
+const partnerAgreementSchema = new mongoose.Schema({
+  fileUrl: { type: String },
+  signedDate: { type: Date },
+  expiryDate: { type: Date },
+  version: { type: String },
+  status: {
+    type: String,
+    enum: ['pending', 'active', 'expired'],
+    default: 'pending',
+  },
+}, { _id: false });
+
+const addressSchema = new mongoose.Schema({
+  country:     { type: String, default: '' },
+  state:       { type: String, default: '' },
+  city:        { type: String, default: '' },
+  zipCode:     { type: String, default: '' },
+  addressLine: { type: String, default: '' },
+}, { _id: false });
+
+const operatingLocationSchema = new mongoose.Schema({
+  country: { type: String, default: '' },
+  city:    { type: String, default: '' },
+}, { _id: false });
+
+const agencySchema = new mongoose.Schema(
   {
-    // =========================
-    // BASIC INFO
-    // =========================
-    agency_name: {
+    // ── Core Identity ──────────────────────────────────────────────
+    companyName: {
       type: String,
       required: true,
-      trim: true
+      trim: true,
     },
 
-    email: {
+    reraRegistrationNumber: {
       type: String,
       required: true,
       unique: true,
-      lowercase: true,
-      trim: true
+      trim: true,
     },
 
-    role: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Role",
-      default: null
-    },
-
-    password: {
+    // ── Documents & Media ──────────────────────────────────────────
+    tradeLicenceUrl: {
       type: String,
-      required: true,
-      select: false
+      default: '',
     },
 
-    // =========================
-    // CONTACT
-    // =========================
-    country_code: {
+    reraLicenceUrl: {
       type: String,
-      default: "+971"
+      default: '',
     },
 
-    mobile_number: {
+    letterOfAuthorityUrl: {
       type: String,
-      required: true,
-      unique: true,
-      trim: true
-    },
-
-    address: {
-      type: String,
-      default: ""
-    },
-
-    city: {
-      type: String,
-      default: ""
-    },
-
-    // =========================
-    // MEDIA
-    // =========================
-    profile_photo: {
-      type: String,
-      default: ""
+      default: '',
     },
 
     logo: {
       type: String,
-      default: ""
+      default: '',
     },
 
-    // =========================
-    // DOCUMENTS
-    // =========================
-    trade_license: {
+    profilePhoto: {
       type: String,
-      default: ""
+      default: '',
     },
 
-    letter_of_authority: {
+    // ── Role ───────────────────────────────────────────────────────
+    role: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Role',
+      default: null,
+    },
+
+    // ── Primary Contact ────────────────────────────────────────────
+    primaryContactName: {
       type: String,
-      default: ""
+      required: true,
+      trim: true,
     },
 
-    rera_license: {
+    primaryContactEmail: {
       type: String,
-      default: ""
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
     },
 
-    // =========================
-    // AGENTS UNDER THIS AGENCY
-    // =========================
+    primaryContactPhone: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    // ── Location ───────────────────────────────────────────────────
+    address: {
+      type: addressSchema,
+      default: () => ({}),
+    },
+
+    operatingLocation: {
+      type: operatingLocationSchema,
+      default: () => ({}),
+    },
+
+    // ── Auth ───────────────────────────────────────────────────────
+    password: {
+      type: String,
+      select: false,
+    },
+
+    tempPassword: {
+      type: Boolean,
+      default: true,
+    },
+
+    // ── Subscription / Presentation Tier ──────────────────────────
+    subscriptionTier: {
+      type: String,
+      enum: ['basic', 'standard', 'premium'],
+      default: 'basic',
+    },
+
+    presentationQuota: {
+      type: Number,
+      default: 100,
+    },
+
+    presentationsUsed: {
+      type: Number,
+      default: 0,
+    },
+
+    // ── Stats (PRD 11.1 Dashboard) ─────────────────────────────────
+    totalLeads: {
+      type: Number,
+      default: 0,
+    },
+
+    activeLeads: {
+      type: Number,
+      default: 0,
+    },
+
+    commissionEarned: {
+      type: Number,
+      default: 0,
+    },
+
+    commissionPending: {
+      type: Number,
+      default: 0,
+    },
+
+    totalDeals: {
+      type: Number,
+      default: 0,
+    },
+
+    // ── Partner Agreement (PRD 8.5) ────────────────────────────────
+    partnerAgreement: {
+      type: partnerAgreementSchema,
+      default: () => ({}),
+    },
+
+    // ── Agency Team ────────────────────────────────────────────────
     agents: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Agent"
-      }
+        ref: 'Agent',
+      },
     ],
 
-    totalAgents: {
-      type: Number,
-      default: 0
-    },
-
-    // =========================
-    // COMMISSION STRUCTURE
-    // =========================
-    commissionStructure: {
-      agentPercentage: {
-        type: Number,
-        default: 70,
-        description: "Agent gets this % of commission"
-      },
-      agencyPercentage: {
-        type: Number,
-        default: 30,
-        description: "Agency keeps this % of commission"
-      }
-    },
-
-    // =========================
-    // STATUS
-    // =========================
-    onboarding_status: {
-      type: String,
-      enum: ["registered", "pending", "approved", "rejected"],
-      default: "registered"
-    },
-
-    is_email_verified: {
+    // ── Status ────────────────────────────────────────────────────
+    isActive: {
       type: Boolean,
-      default: false
+      default: true,
     },
 
-    is_mobile_verified: {
+    isSuspended: {
       type: Boolean,
-      default: false
+      default: false,
     },
 
-    is_active: {
-      type: Boolean,
-      default: true
+    // ── Created by Admin ───────────────────────────────────────────
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
     },
-
-    rejection_reason: {
-      type: String,
-      default: ""
-    },
-
-    subscription_status: {
-      type: String,
-      enum: ["free", "basic", "premium"],
-      default: "free"
-    },
-
-    subscription_expiry: {
-      type: Date,
-      default: null
-    },
-
-    // =========================
-    // PASSWORD RESET
-    // =========================
-    resetPasswordToken: {
-      type: String,
-      default: null
-    },
-
-    resetPasswordExpires: {
-      type: Date,
-      default: null
-    },
-
-    // =========================
-    // STATS
-    // =========================
-    totalDeals: {
-      type: Number,
-      default: 0
-    },
-
-    totalCommission_earned: {
-      type: Number,
-      default: 0
-    }
-
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
-// =========================
-// INDEXES
-// =========================
-AgencySchema.index({ email: 1 });
-AgencySchema.index({ mobile_number: 1 });
-AgencySchema.index({ onboarding_status: 1 });
-AgencySchema.index({ subscription_status: 1 });
-AgencySchema.index({ is_active: 1 });
-
-// =========================
-// VIRTUAL: Agency Name with City
-// =========================
-AgencySchema.virtual("agency_details").get(function () {
-  return `${this.agency_name} (${this.city})`;
+// ── Pre-save: hash password ────────────────────────────────────────
+agencySchema.pre('save', async function (next) {
+  if (!this.isModified('password') || !this.password) return next();
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+  next();
 });
 
-// =========================
-// REMOVE PASSWORD FROM RESPONSE
-// =========================
-AgencySchema.methods.toJSON = function () {
-  const obj = this.toObject();
-  delete obj.password;
-  delete obj.__v;
-  return obj;
+// ── Instance Method: Compare Password ─────────────────────────────
+agencySchema.methods.comparePassword = async function (candidate) {
+  return bcrypt.compare(candidate, this.password);
 };
 
-module.exports = mongoose.model("Agency", AgencySchema);
+// ── Virtual: Presentation Balance ─────────────────────────────────
+agencySchema.virtual('presentationBalance').get(function () {
+  return Math.max(0, this.presentationQuota - this.presentationsUsed);
+});
+
+agencySchema.set('toJSON', { virtuals: true });
+
+const Agency = mongoose.models.Agency || mongoose.model('Agency', agencySchema);
+
+module.exports = Agency;

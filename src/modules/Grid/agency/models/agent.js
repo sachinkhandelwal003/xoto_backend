@@ -1,151 +1,265 @@
 const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 
-const AgentSchema = new mongoose.Schema({
+const bankDetailsSchema = new mongoose.Schema(
+  {
+    accountHolderName: {
+      type: String,
+      default: "",
+    },
+    bankName: {
+      type: String,
+      default: "",
+    },
+    iban: {
+      type: String,
+      default: "",
+    },
+    accountNumber: {
+      type: String,
+      default: "",
+    },
+  },
+  { _id: false }
+);
 
-    name: {
-        type: String,
-        trim: true,
-        default: "",
-        required: false
+const agentSchema = new mongoose.Schema(
+  {
+    // ─────────────────────────────────
+    // Basic Identity
+    // ─────────────────────────────────
+
+    first_name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    last_name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    fullName: {
+      type: String,
     },
 
     email: {
-        type: String,
-        lowercase: true,
-        default: "",
-        required: false,
-    },
-
-    phone_number: {
-        type: String,
-        trim: true,
-        default: "",
-        required: false
-    },
-
-    country_code: {
-        type: String,
-        trim: true,
-        default: "+91",
-        required: false
+      type: String,
+      required: true,
+      lowercase: true,
+      trim: true,
+      unique: true,
     },
 
     password: {
-        type: String,
-        required: false
+      type: String,
+      required: true,
     },
 
-    profile_photo: {
-        type: String,
-        default: "",
-        required: false
+    country_code: {
+      type: String,
+      required: true,
+      default: "+971",
     },
 
-
-    agentType: {
-        type: String,
-        enum: ["individual", "agency"],
-        default: "individual",
-        required: false
+    phone_number: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
     },
-
-    agencyId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Agency",
-        default: null,
-        required: false
-    },
-
-    letterOfAuthority: {
-        type: String,
-        default: "",
-        required: false
-    },
-
 
     country: {
-        type: String,
-        default: "",
-        required: false
+      type: String,
+      default: "UAE",
     },
 
-    city: {
-        type: String,
-        default: "",
-        required: false
+    operating_city: {
+      type: String,
+      required: true,
     },
 
-    operatingRegions: [{
-        type: String,
-        required: false
-    }],
-
-    status: {
-        type: String,
-        enum: ["pending", "approved", "rejected", "suspended"],
-        default: "pending",
-        required: false
+    specialization: {
+      type: String,
+      default: "",
     },
 
-    isVerifiedByAdmin: {
-        type: Boolean,
-        default: false,
-        required: false
+    // ─────────────────────────────────
+    // Agency Affiliation
+    // ─────────────────────────────────
+
+    agency: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Agency",
+      required: true,
     },
+
+    agencyApprovalStatus: {
+      type: String,
+      enum: ["pending", "approved", "declined"],
+      default: "pending",
+    },
+
+    agencyApprovedAt: {
+      type: Date,
+    },
+
+    agencyDeclinedAt: {
+      type: Date,
+    },
+
+    agencyDeclineNote: {
+      type: String,
+      default: "",
+    },
+
+    // ─────────────────────────────────
+    // Admin Final Verification
+    // ─────────────────────────────────
+
+    adminApprovalStatus: {
+      type: String,
+      enum: ["pending", "approved", "declined"],
+      default: "pending",
+    },
+
+    adminApprovedAt: {
+      type: Date,
+    },
+
+    adminDeclinedAt: {
+      type: Date,
+    },
+
+    adminDeclineNote: {
+      type: String,
+      default: "",
+    },
+
+    // ─────────────────────────────────
+    // Profile Completion Docs
+    // ─────────────────────────────────
+
+    profile_photo: {
+      type: String,
+      default: "",
+    },
+
+    emiratesIdUrl: {
+      type: String,
+      default: "",
+    },
+
+    reraCardNumber: {
+      type: String,
+      default: "",
+    },
+
+    reraCardUrl: {
+      type: String,
+      default: "",
+    },
+
+    bankDetails: {
+      type: bankDetailsSchema,
+      default: () => ({}),
+    },
+
+    profileComplete: {
+      type: Boolean,
+      default: false,
+    },
+
+    // ─────────────────────────────────
+    // Status
+    // ─────────────────────────────────
 
     isActive: {
-        type: Boolean,
-        default: true,
-        required: false
+      type: Boolean,
+      default: true,
     },
 
-
-    subscriptionPlan: {
-        type: String,
-        enum: ["free", "paid"],
-        default: "free",
-        required: false
+    isFlagged: {
+      type: Boolean,
+      default: false,
     },
 
-    subscriptionExpiry: {
-        type: Date,
-        default: null,
-        required: false
+    onboarding_status: {
+      type: String,
+      enum: ["pending", "approved", "declined"],
+      default: "pending",
     },
 
+    // ─────────────────────────────────
+    // Performance Stats
+    // ─────────────────────────────────
 
-    notificationSettings_email: {
-        type: Boolean, default: true,
-        required: false
-    },
-    notificationSettings_sms: {
-        type: Boolean, default: false,
-        required: false
-    },
-    notificationSettings_whatsapp: {
-        type: Boolean, default: true,
-        required: false
+    totalLeads: {
+      type: Number,
+      default: 0,
     },
 
-    presentationsGenerated_count: {
-        type: Number,
-        default: 0,
-        required: false
+    activeLeads: {
+      type: Number,
+      default: 0,
     },
 
-    leadsCreated_count: {
-        type: Number,
-        default: 0,
-        required: false
+    presentationsGenerated: {
+      type: Number,
+      default: 0,
     },
 
-    dealsClosed_count: {
-        type: Number,
-        default: 0,
-        required: false
+    dealsClosedCount: {
+      type: Number,
+      default: 0,
     },
 
-}, { timestamps: true });
+    commissionEarned: {
+      type: Number,
+      default: 0,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
 
-const Agent = mongoose.model("Agent", AgentSchema, "Agents");
+// Auto fullName
+agentSchema.pre("save", function (next) {
+  this.fullName = `${this.first_name} ${this.last_name}`;
+  next();
+});
+
+// Password Hash
+agentSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
+
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+  next();
+});
+
+// Compare Password
+agentSchema.methods.comparePassword = async function (candidate) {
+  return bcrypt.compare(candidate, this.password);
+};
+
+// Platform Access Rule
+agentSchema.virtual("canAccessPlatform").get(function () {
+  return (
+    this.agencyApprovalStatus === "approved" &&
+    this.adminApprovalStatus === "approved" &&
+    this.isActive
+  );
+});
+
+agentSchema.set("toJSON", { virtuals: true });
+
+const Agent =
+  mongoose.models.GridAgent ||
+  mongoose.model("GridAgent", agentSchema);
+
 module.exports = Agent;
+

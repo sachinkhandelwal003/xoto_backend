@@ -1,66 +1,87 @@
-// routes/leadRoutes.js
-const express = require("express");
-const {
-  createLead,
-  getLeadById,
-  updateLead,
-  deleteLead,
-  getAllLeads,
-  updateLeadStatus,
-  selectProperty,
-  fetchPropertySuggestions,
-  addLeadInterest,
-  removeLeadInterest
-} = require("../controllers/AgentController");
-const { protect, protectMulti } = require("../../../../middleware/auth");
+// const express = require('express');
+// const router = express.Router();
+// const presCtrl = require('../controllers/presentationController');
 
-const {
-  createSiteVisit,
-  approveSiteVisit,
-  updateSiteVisitStatus,
-  rescheduleSiteVisit,
-  getSiteVisitsByLead,
-  getSiteVisitsByAgent,
-  getAllSiteVisits,
-  getSiteVisitById,
-  checkReminders
-} = require("../controllers/SiteVisitController");
 
-const router = express.Router();
+// // Controllers
+// const agentCtrl = require('../controllers/index');          // signup, login, profile
+// // const leadCtrl = require('../controllers/LeadController');           // leads
+// // const siteVisitCtrl = require('../controllers/SiteVisitController'); // site visits
 
-// =========================
-// LEAD ROUTES
-// =========================
-router.post("/create-lead", protectMulti, createLead);
-router.get("/get-all-leads", protectMulti, getAllLeads);
-router.get("/get-lead/:id",protectMulti, getLeadById);
-router.post("/update-lead/:id",protectMulti, updateLead);
-router.post("/update-status/:id",protectMulti, updateLeadStatus);
-router.delete("/delete-lead/:id",protectMulti, deleteLead);
-router.put("/select-property",protectMulti, selectProperty);
+// // Middleware (already supports agents via decoded.role === 'agent')
+// const { protectMulti } = require('../../../../middleware/auth');
 
-// =========================
-// PROPERTY SUGGESTIONS (AI)
-// =========================
-router.get("/fetch-properties",protectMulti, fetchPropertySuggestions);
+// // ─────────────────────────────────────────────────────────────
+// //  PUBLIC ROUTES (no authentication required)
+// // ─────────────────────────────────────────────────────────────
+// router.post('/agent-signup', agentCtrl.agentSignup);
+// router.post('/login-agent',  agentCtrl.agentLogin);
 
-// =========================
-// LEAD INTERESTS (Manual Add/Remove)
-// =========================
-router.post("/add-interest",protectMulti, addLeadInterest);
-router.delete("/remove-interest/:interestId",protectMulti, removeLeadInterest);
+// // ─────────────────────────────────────────────────────────────
+// //  PROTECTED ROUTES (require valid agent token)
+// // ─────────────────────────────────────────────────────────────
+// router.use(protectMulti);
 
-// =========================
-// SITE VISIT ROUTES
-// =========================
-router.post("/create-site-visit",protectMulti, createSiteVisit);
-router.get("/get-all-site-visits",protectMulti, getAllSiteVisits);
-router.get("/site-visit/:id",protectMulti, getSiteVisitById);
-router.post("/approve-site-visit/:id",protectMulti, approveSiteVisit);
-router.post("/update-site-visit/:id",protectMulti, updateSiteVisitStatus);
-router.post("/reschedule-site-visit/:id",protectMulti, rescheduleSiteVisit);
-router.get("/by-lead/:leadId",protectMulti, getSiteVisitsByLead);
-router.get("/by-agent/:agentId",protectMulti, getSiteVisitsByAgent);
-router.get("/check-reminders",protectMulti, checkReminders);
+
+// // Presentation routes
+// router.post('/presentations',            presCtrl.createPresentationDraft);
+// router.patch('/presentations/:id',       presCtrl.updatePresentation);
+// router.post('/presentations/:id/generate', presCtrl.generatePresentation);
+// router.get('/presentations',             presCtrl.listPresentations);
+// router.get('/presentations/:id',         presCtrl.getPresentation);
+// // Agent Profile
+// // router.get('/me', agentCtrl.getAgentProfile);
+// // router.put('/me', agentCtrl.updateAgentProfile);
+
+// // Lead Management
+// // router.post('/lead/create-lead',                leadCtrl.createLead);
+// // router.get('/lead/get-all-leads',               leadCtrl.getAllLeads);
+// // router.get('/lead/get-lead/:id',                leadCtrl.getLeadById);
+// // router.put('/lead/update-lead/:id',             leadCtrl.updateLead);
+// // router.put('/lead/update-status/:id',           leadCtrl.updateLeadStatus);
+// // router.post('/lead/add-interest',               leadCtrl.addLeadInterest);
+// // router.put('/lead/select-property',             leadCtrl.selectProperty);
+// // router.delete('/lead/remove-interest/:interestId', leadCtrl.removeLeadInterest);
+// // router.delete('/lead/delete-lead/:id',          leadCtrl.deleteLead);
+// // router.get('/lead/fetch-properties',            leadCtrl.fetchPropertySuggestions);
+
+// // Site Visits
+// // router.post('/site-visit/create-site-visit',    siteVisitCtrl.createSiteVisit);
+// // router.get('/site-visit/get-all-site-visits',   siteVisitCtrl.getAllSiteVisits);
+// // router.get('/site-visit/:id',                   siteVisitCtrl.getSiteVisitById);
+// // router.post('/site-visit/approve-site-visit/:id', siteVisitCtrl.approveSiteVisit);
+// // router.post('/site-visit/update-site-visit/:id', siteVisitCtrl.updateSiteVisitStatus);
+// // router.post('/site-visit/reschedule-site-visit/:id', siteVisitCtrl.rescheduleSiteVisit);
+// // router.get('/site-visit/by-lead/:leadId',       siteVisitCtrl.getSiteVisitsByLead);
+// // router.get('/site-visit/by-agent/:agentId',     siteVisitCtrl.getSiteVisitsByAgent);
+// // router.get('/site-visit/check-reminders',       siteVisitCtrl.checkReminders);
+
+// module.exports = router;
+
+
+const express  = require("express");
+const router   = express.Router();
+const presCtrl = require("../controllers/presentationController");
+const agentCtrl = require("../controllers/index");
+const { protectMulti } = require("../../../../middleware/auth");
+
+// ── PUBLIC ───────────────────────────────────────────────────
+router.post("/agent-signup", agentCtrl.agentSignup);
+router.post("/login-agent",  agentCtrl.agentLogin);
+
+// Public share view — no auth needed (PRD 10.1)
+router.get("/presentations/share/:token", presCtrl.sharePresentation);
+
+// ── PROTECTED ────────────────────────────────────────────────
+router.use(protectMulti);
+
+// Presentations (PRD Section 10)
+router.post("/presentations",                presCtrl.createPresentationDraft); // create draft
+router.put("/presentations/:id",           presCtrl.updatePresentation);      // edit draft
+router.post("/presentations/:id/generate",   presCtrl.generatePresentation);    // generate PDF + share link
+router.post("/presentations/:id/share",      presCtrl.shareViaChannel);         // mark shared via whatsapp/email
+router.get("/presentations",                 presCtrl.listPresentations);        // list all
+router.get("/presentations/:id",             presCtrl.getPresentation);          // get single
+router.delete("/presentations/:id",          presCtrl.archivePresentation);      // archive
 
 module.exports = router;

@@ -1,227 +1,120 @@
-import Agent from "../models/agent.js";
-import Agency from "../../agency/models/index.js";
-import bcrypt from "bcryptjs";
-import { Role } from '../../../../modules/auth/models/role/role.model.js';
-import { createToken } from '../../../../middleware/auth.js';
+const Agent  = require("../models/agent.js");
+const Agency = require("../../agency/models/index.js");
+const bcrypt = require("bcryptjs");
+const { Role } = require('../../../../modules/auth/models/role/role.model.js');
+const { createToken } = require('../../../../middleware/auth.js');
 
 /* =====================================
    :one: AGENT SIGNUP
 ===================================== */
-export const agentSignup = async (req, res) => {
+exports.agentSignup = async (req, res) => {
   try {
-    const allowedFields = [
-      "first_name",
-      "last_name",
-      "email",
-      "phone_number",
-      "country_code",
-      "operating_city",
-      "specialization",
-      "country",
-      "rera_number",
-      "profile_photo",
-      "id_proof",
-      "rera_certificate",
-      "agency_id"
-    ];
-
-    let safeData = {};
-
-    allowedFields.forEach((field) => {
-      if (req.body[field] !== undefined) {
-        safeData[field] = req.body[field];
-      }
-    });
-
-    const { first_name, last_name, email, password, phone_number, agency_id } = req.body;
-
-    if (!first_name || !last_name || !password || !phone_number) {
-      return res.status(400).json({
-        success: false,
-        message: "First name, last name, password and phone number are required"
-      });
+    const { fullName, email, phone, password, location, agency } = req.body;
+    if (!fullName || !phone || !password || !agency) {
+      return res.status(400).json({ success: false, message: 'Full name, phone, password, and agency are required' });
     }
 
-    const roleDoc = await Role.findOne({ code: 16 });
-    if (!roleDoc) {
-      return res.status(404).json({
-        success: false,
-        message: "Role with code 16 not found"
-      });
-    }
+    // Check for duplicate phone
+    const existing = await Agent.findOne({ phone_number: phone });
 
-    const existingEmail = await Agent.findOne({ email });
-    if (existingEmail) {
-      return res.status(400).json({
-        success: false,
-        message: "Email already registered"
-      });
-    }
+    if (existing) return res.status(400).json({ success: false, message: 'Phone number already registered' });
 
-    const existingPhone = await Agent.findOne({ phone_number });
-    if (existingPhone) {
-      return res.status(400).json({
-        success: false,
-        message: "Phone number already exists"
-      });
-    }
-
-    // Check agency if provided
-    let agency = null;
-    let agentType = "independent";
-    let onboarding_status = "pending";
-    let isVerified = false;
-
-    if (agency_id) {
-      agency = await Agency.findById(agency_id);
-      if (agency) {
-        agentType = "agency_agent";
-        if (agency.onboarding_status === "approved") {
-          onboarding_status = "approved";
-          isVerified = true;
-        }
-      } else {
-        return res.status(404).json({
-          success: false,
-          message: "Agency not found"
-        });
-      }
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
+    // Verify agency exists and is active
+    const agencyDoc = await Agency.findOne({ _id: agency, isActive: true, isSuspended: false });
+    if (!agencyDoc) return res.status(400).json({ success: false, message: 'Selected agency not found or inactive' });
+const agentRole = await Role.findOne({ code: 16 });
     const newAgent = await Agent.create({
-      ...safeData,
-      first_name,
-      last_name,
-      password: hashedPassword,
-      role: roleDoc._id,
-      agency: agency_id || null,
-      agentType: agentType,
-      is_email_verified: true,
-      is_mobile_verified: true,
-      isVerified: isVerified,
-      onboarding_status: onboarding_status,
-      status: true
+      fullName,
+      email: email || undefined,
+      phone,
+      password,   // hashed by pre-save hook
+      location: location || undefined,
+      agency,
+        role: agentRole ? agentRole._id : null,
+      agencyApprovalStatus: 'pending',
+      adminApprovalStatus: 'pending',
+      isActive: false,
     });
 
-    // If agent belongs to agency, add to agency's agents list
-    if (agency_id && agency) {
-      await Agency.findByIdAndUpdate(agency_id, {
-        $push: { agents: newAgent._id },
-        $inc: { totalAgents: 1 }
-      });
-    }
+    // Optionally push agent to agency's agents array
+    await Agency.findByIdAndUpdate(agency, { $push: { agents: newAgent._id } });
 
-    return res.status(201).json({
+    res.status(201).json({
       success: true,
-      message: agency_id 
-        ? "Agent registered under agency successfully" 
-        : "Registration successful. Waiting for admin approval.",
-      agent: {
-        _id: newAgent._id,
-        email: newAgent.email,
-        agency: newAgent.agency,
-        agentType: newAgent.agentType,
-        onboarding_status: newAgent.onboarding_status
-      }
+      message: 'Registration submitted. Awaiting agency and admin approval.',
+      data: { _id: newAgent._id, phone: newAgent.phone, agency: newAgent.agency },
     });
-
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
 /* =====================================
    :two: AGENT LOGIN
 ===================================== */
-export const agentLogin = async (req, res) => {
+exports.agentLogin = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { phone, password } = req.body;
+    if (!phone || !password)
+      return res.status(400).json({ success: false, message: 'Phone and password required' });
 
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password required",
-      });
-    }
+    let agent = null;
 
-    const agent = await Agent.findOne({ email })
-      .select('+password')
-      .populate('role')
-      .populate('agency', 'agency_name logo onboarding_status');
+    // Try 1: search by phone field directly
+    agent = await Agent.findOne({ phone });
 
-    if (!agent) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid credentials",
-      });
-    }
+    // Try 2: split country_code + phone_number
+    if (!agent && phone.startsWith('+')) {
+      const numberWithoutPlus = phone.slice(1);
+      const splits = [
+        { country_code: '+' + numberWithoutPlus.slice(0, 1), phone_number: numberWithoutPlus.slice(1) },
+        { country_code: '+' + numberWithoutPlus.slice(0, 2), phone_number: numberWithoutPlus.slice(2) },
+        { country_code: '+' + numberWithoutPlus.slice(0, 3), phone_number: numberWithoutPlus.slice(3) },
+        { country_code: '+' + numberWithoutPlus.slice(0, 4), phone_number: numberWithoutPlus.slice(4) },
+      ];
 
-    const isMatch = await bcrypt.compare(password, agent.password);
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid credentials",
-      });
-    }
-
-    if (!agent.is_email_verified) {
-      return res.status(403).json({
-        success: false,
-        message: "Please verify your email first",
-      });
-    }
-
-    if (!agent.is_mobile_verified) {
-      return res.status(403).json({
-        success: false,
-        message: "Please verify your mobile number first",
-      });
-    }
-
-    if (agent.agentType === "independent" && !agent.isVerified) {
-      return res.status(403).json({
-        success: false,
-        message: "Account not approved by admin yet",
-      });
-    }
-
-    if (agent.agentType === "agency_agent" && agent.agency) {
-      if (agent.agency.onboarding_status !== "approved") {
-        return res.status(403).json({
-          success: false,
-          message: "Your agency is not approved yet",
+      for (const split of splits) {
+        agent = await Agent.findOne({
+          country_code: split.country_code,
+          phone_number: split.phone_number,
         });
+        if (agent) break;
       }
     }
 
-    const token = createToken(agent);
-    const agentResponse = agent.toObject();
-    delete agentResponse.password;
+    if (!agent)
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
 
-    return res.status(200).json({
-      success: true,
-      message: "Login successful",
-      token,
-      agent: agentResponse,
+    if (!agent.password)
+      return res.status(401).json({ success: false, message: 'Password not set.' });
+
+    const isMatch = await bcrypt.compare(password, agent.password);
+    if (!isMatch)
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+
+    if (agent.agencyApprovalStatus !== 'approved' || agent.adminApprovalStatus !== 'approved')
+      return res.status(403).json({ success: false, message: 'Account not fully approved yet.' });
+
+    // ✅ Populate role before token creation
+    const agentWithRole = await Agent.findById(agent._id).populate({
+      path: 'role',
+      strictPopulate: false,
     });
 
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    const token = createToken(agentWithRole || agent, 'agent');
+    const agentData = (agentWithRole || agent).toObject();
+    delete agentData.password;
+
+    res.status(200).json({ success: true, token, data: agentData });
+  } catch (err) {
+    console.error('[Agent Login]', err);
+    res.status(500).json({ success: false, message: err.message });
   }
 };
-
 /* =====================================
    :three: UPDATE AGENT
 ===================================== */
-export const updateAgent = async (req, res) => {
+exports.updateAgent    = async (req, res) =>{
   try {
     const { id } = req.query;
 
@@ -278,7 +171,7 @@ export const updateAgent = async (req, res) => {
 /* =====================================
    GET ALL AGENTS - ADMIN ONLY (Independent Agents)
 ===================================== */
-export const getAllAgents = async (req, res) => {
+exports.getAllAgents    = async (req, res) => {
   try {
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
@@ -345,7 +238,7 @@ export const getAllAgents = async (req, res) => {
 /* =====================================
    GET AGENT BY ID - ADMIN
 ===================================== */
-export const getAgentById = async (req, res) => {
+exports.getAgentById = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -385,7 +278,7 @@ export const getAgentById = async (req, res) => {
 /* =====================================
    GET ALL AGENTS UNDER AGENCY (Agency Owner)
 ===================================== */
-export const getAgencyAgents = async (req, res) => {
+exports.getAgencyAgents = async (req, res) => {
   try {
     const agencyId = req.user._id;
     const page = Number(req.query.page) || 1;
@@ -454,7 +347,7 @@ export const getAgencyAgents = async (req, res) => {
 /* =====================================
    GET SINGLE AGENT UNDER AGENCY
 ===================================== */
-export const getAgencyAgentById = async (req, res) => {
+exports.getAgencyAgentById = async (req, res) => {
   try {
     const agencyId = req.user._id;
     const { agentId } = req.params;
@@ -488,7 +381,7 @@ export const getAgencyAgentById = async (req, res) => {
 /* =====================================
    :six: DELETE AGENT
 ===================================== */
-export const deleteAgent = async (req, res) => {
+exports.deleteAgent = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -525,7 +418,7 @@ export const deleteAgent = async (req, res) => {
 /* =====================================
    :seven: APPROVE AGENT
 ===================================== */
-export const approveAgent = async (req, res) => {
+exports.approveAgent = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -558,7 +451,7 @@ export const approveAgent = async (req, res) => {
 /* =====================================
    :eight: REJECT AGENT
 ===================================== */
-export const rejectAgent = async (req, res) => {
+exports.rejectAgent = async (req, res) => {
   try {
     const { id } = req.params;
     const { rejection_reason } = req.body;
