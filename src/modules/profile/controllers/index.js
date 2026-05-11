@@ -11,7 +11,7 @@ import Developer from "../../properties/models/DeveloperModel.js"
 import GridAdvisor from "../../Grid/Advisor/model/index.js"
 import VaultAdvisor from "../../vault/models/XotoAdvisor.js";
 import VaultMortgageOps from "../../vault/models/MortgageOps.js";
-
+import GridReferralPartner from "../../Grid/ReferralPartner/Model/ReferralPartner.model.js";
 // ── Role ke basis par model return karo ──────────────────────────────
 const getModelByRole = (roleName) => {
     switch (roleName) {
@@ -31,6 +31,8 @@ const getModelByRole = (roleName) => {
                 case "GridAdvisor": return GridAdvisor;
                 case "Vault-Advisor": return VaultAdvisor;
                 case "Vault-Mortgage-Ops": return VaultMortgageOps;
+                case "gridreferralpartner":
+  return GridReferralPartner;
 
         default: return null;
     }

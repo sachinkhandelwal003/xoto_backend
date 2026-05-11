@@ -239,20 +239,13 @@ exports.getAllPermissions = asyncHandler(async (req, res) => {
 // ✅ YOUR CODE IS PERFECT - Add this endpoint for frontend
 exports.getMyPermissions = asyncHandler(async (req, res) => {
   try {
-    // 🧩 Get roleId from authenticated user (works with both protectMulti and protectFreelancer)
-    const roleId = req.user?.role?._id || req.user?.role?.id;
-    
-    console.log('👤 User in getMyPermissions:', {
-      userId: req.user?._id,
-      userType: req.user?.constructor?.modelName,
-      role: req.user?.role,
-      roleId: roleId
-    });
+    const roleId = req.user?.role?._id || req.user?.role?.id || null;
 
     if (!roleId) {
-      return res.status(StatusCodes.UNAUTHORIZED).json({
-        success: false,
-        message: 'User role not found in token. Please log in again.',
+      return res.status(200).json({ 
+        success: true, 
+        total: 0, 
+        permissions: [] 
       });
     }
 
@@ -265,8 +258,6 @@ exports.getMyPermissions = asyncHandler(async (req, res) => {
       .populate('moduleId', 'name route icon subModules')
       .populate('grantedBy', 'name email')
       .lean();
-
-    console.log(`📋 Found ${permissions.length} permissions for role ${roleId}`);
 
     const formatted = permissions.map((perm) => {
       const subModule =
@@ -303,13 +294,13 @@ exports.getMyPermissions = asyncHandler(async (req, res) => {
       };
     });
 
-    res.status(StatusCodes.OK).json({
+    res.status(200).json({
       success: true,
       total: formatted.length,
       permissions: formatted,
     });
   } catch (error) {
-    console.error('❌ Error in getMyPermissions:', error);
+    console.error('Error in getMyPermissions:', error);
     throw error;
   }
-});
+});       

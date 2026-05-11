@@ -11,7 +11,7 @@ const isAdmin = (role) => {
            Number(role?.code) === 0    ||
            Number(role?.code) === 1;
   }
-  return role === "GridAdvisor" || role === "agent" || role === "xoto_super_admin" || role === "xoto_staff_admin";
+  return role === role === "xoto_super_admin" || role === "xoto_staff_admin";
 };
 
 const isSuperAdmin = (role) => {
@@ -145,12 +145,12 @@ exports.createProperty = async (req, res) => {
     let approvedBy     = null;
     let approvedAt     = null;
 
-    if (isAdmin(role) && propertySubType !== "off_plan" && isSuperAdmin(role)) {
-      approvalStatus = "approved";
-      listingStatus  = "active";
-      approvedBy     = userId;
-      approvedAt     = new Date();
-    }
+if (isSuperAdmin(role)) {
+  approvalStatus = "approved";
+  listingStatus  = "active";
+  approvedBy     = userId;
+  approvedAt     = new Date();
+}
 
     const {
       transactionType, projectOption, existingProjectId, developerName,
@@ -472,29 +472,32 @@ exports.updateProperty = async (req, res) => {
       return res.status(404).json({ status: "fail", message: "Property not found or no permission" });
     }
 
-    if (isDevRole(role) && property.approvalStatus === "approved") {
-      return res.status(403).json({
-        status:  "fail",
-        message: "Approved listings cannot be edited. Contact Xoto admin.",
-      });
-    }
+ let extraUpdates = {};
 
-    let extraUpdates = {};
-    if (isStaffAdmin(role) && property.approvalStatus === "approved") {
-      extraUpdates = {
-        approvalStatus: "pending",
-        listingStatus:  "pending",
-        approvedBy:     null,
-        approvedAt:     null,
-      };
-    }
+if (
+  isDevRole(role) &&
+  (
+    property.approvalStatus === "approved" ||
+    property.approvalStatus === "changes_requested"
+  )
+) {
+  extraUpdates = {
+    approvalStatus: "pending",
+    listingStatus: "pending",
+    approvedBy: null,
+    approvedAt: null,
+    adminComments: "", // clear old admin comment
+    rejectionReason: "", // optional cleanup
+  };
+}
+
 
     const {
       approvalStatus: _a, listingStatus: _l,
       developer: _d, createdByAdmin: _c,
       approvedBy: _ab, approvedAt: _at,
-      isHot: _h,                            // ← isHot bhi strip karo — separate route se manage hoga
-      ...safeBody
+      isHot: _h,  
+      ...safeBody                       
     } = req.body;
 
     const updated = await Property.findByIdAndUpdate(
@@ -532,12 +535,12 @@ exports.deleteProperty = async (req, res) => {
       return res.status(404).json({ status: "fail", message: "Property not found or no permission" });
     }
 
-    if (isDevRole(role) && property.approvalStatus === "approved") {
-      return res.status(403).json({
-        status:  "fail",
-        message: "Approved listings cannot be deleted. Contact Xoto admin.",
-      });
-    }
+  if (property.approvalStatus === "approved" && !isSuperAdmin(role)) {
+  return res.status(403).json({
+    status:  "fail",
+    message: "Only Super Admin can delete approved listings",
+  });
+}
 
     await Inventory.deleteMany({ propertyId: property._id });
     await Property.findByIdAndDelete(req.params.id);
@@ -594,7 +597,7 @@ exports.rejectProperty = async (req, res) => {
     if (!property) return res.status(404).json({ status: "fail", message: "Property not found" });
 
     property.approvalStatus  = "rejected";
-    property.listingStatus   = "rejected";
+    property.listingStatus   = "inactive";
     property.rejectionReason = rejectionReason;
     await property.save();
 
@@ -602,6 +605,22 @@ exports.rejectProperty = async (req, res) => {
   } catch (err) {
     return res.status(500).json({ status: "error", message: err.message });
   }
+};
+
+// PATCH /properties/:id/request-changes
+exports.requestChanges = async (req, res) => {
+  const { role } = req.user;
+  if (!isAdmin(role)) return res.status(403).json({ status: "fail", message: "Admin only" });
+
+  const { adminComments } = req.body;
+  if (!adminComments) return res.status(400).json({ status: "fail", message: "adminComments required" });
+
+  const property = await Property.findByIdAndUpdate(
+    req.params.id,
+    { approvalStatus: "changes_requested", listingStatus: "pending", adminComments },
+    { new: true }
+  );
+  return res.status(200).json({ status: "success", message: "Changes requested", data: property });
 };
 
 // ════════════════════════════════════════════════════════════════════════════

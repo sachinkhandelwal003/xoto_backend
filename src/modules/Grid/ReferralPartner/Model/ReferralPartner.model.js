@@ -44,18 +44,58 @@ const userSchema = new mongoose.Schema({
     iban: { type: String },
     accountHolderName: { type: String }
   },
+  // Add these fields to userSchema:
+idDocumentType: {
+  type: String,
+  enum: ["passport", "emirates_id"],
+  default: null,
+},
+idDocumentUrl: { type: String, default: null },
+
+bankDetails: {
+  bankName:          { type: String, default: "" },
+  accountNumber:     { type: String, default: "" },
+  iban:              { type: String, default: "" },
+  accountHolderName: { type: String, default: "" },
+},
+
+isPayoutEligible:   { type: Boolean, default: false },
+isProfileComplete:  { type: Boolean, default: false },
+
+// Profile completion percentage helper fields
+profileCompletionSteps: {
+  basicInfo:   { type: Boolean, default: true  }, // filled at registration
+  idVerified:  { type: Boolean, default: false },
+  bankAdded:   { type: Boolean, default: false },
+},
   isProfileComplete: { type: Boolean, default: false }
 }, { timestamps: true });
 
 // Password hash karne ka hook
+// Replace current pre-save with this:
 userSchema.pre("save", async function(next) {
-  if (!this.isModified("password")) return next();
-  this.password = await bcrypt.hash(this.password, 12);
-  
-  // Check if profile is complete
-  if (this.idDocumentUrl && this.bankDetails?.iban) {
-    this.isProfileComplete = true;
+  // Hash password only if modified
+  if (this.isModified("password")) {
+    this.password = await bcrypt.hash(this.password, 12);
   }
+
+  // Auto-calculate profile completion
+  const idDone   = !!this.idDocumentUrl;
+  const bankDone = !!(
+    this.bankDetails?.iban &&
+    this.bankDetails?.accountNumber &&
+    this.bankDetails?.accountHolderName
+  );
+
+  this.profileCompletionSteps = {
+    basicInfo:  true,
+    idVerified: idDone,
+    bankAdded:  bankDone,
+  };
+
+  this.isPayoutEligible  = idDone && bankDone;
+  this.isProfileComplete = idDone && bankDone;
+
   next();
 });
 
@@ -65,4 +105,4 @@ userSchema.methods.correctPassword = async function(candidatePassword) {
 };
 
 // "User" ki jagah "ReferralPartner" likh do
-module.exports = mongoose.models.gridReferralPartner || mongoose.model("gridReferralPartner", userSchema);
+module.exports = mongoose.models.GridReferralPartner || mongoose.model("GridReferralPartner", userSchema);
