@@ -25,7 +25,7 @@ const agentRoutes = require('./modules/Grid/Agent/routes/Agentroute.js');
 const customerHistoryRoutes = require('../src/modules/history/routes/customerHistory.routes.js');
 const inventoryRoutes = require("./modules/ecommerce/B2C/routes/inventory.routes");
 const GridAdvisor = require('./modules/Grid/Advisor/routes/index.js')
-const developer = require('./modules/Grid/Developer/routes/developer.route.js')
+const developer = require('./modules/Grid/Developer/Routes/developer.route.js')
 // const stripeRoutes = require('./modules/auth/routes/ai/Striperoutes.js');
 // const AgentLead = require('./modules/Agent/routes/Agentroute.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
@@ -39,7 +39,7 @@ const gridLead = require('./modules/Grid/Lead/routes/gridLead.route.js')
 // const SkyRoutes = Skyimport.default || Skyimport;
 
 const feedback = require('./modules/feedback/routes/feedback.route.js');
-const presentationController = require('./modules/Grid/Agent/controllers/presentationController');
+const presentationController = require('./modules/Grid/Agent/controllers/PresentationController');
 
 // ==========================================
 // ⚠️ FIX: Stripe Route Yahan Upar Move Kiya Hai 
@@ -84,7 +84,6 @@ app.use('/products', require('../src/modules/products/routes/index.js'));
 app.use('/profile', ProfileData);
 app.post("/upload", upload.single("file"), uploadFileToS3)
 app.get("/download-pdf", downloadImageAsPDF)
-
 app.use('/accountant', require('./modules/auth/routes/accountant/Accountant.routes'));
 app.use('/users', require('./modules/auth/routes/user/user.routes'));
 app.use('/consult', require('./modules/auth/routes/consult/consult.routes'));

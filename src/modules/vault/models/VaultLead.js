@@ -33,6 +33,8 @@ const customerBasicSchema = new mongoose.Schema(
   { _id: false }
 );
 
+
+
 // ==================== PROPERTY DETAILS (PRD Section 5.3) ====================
 // Property details are captured during APPLICATION creation, NOT at lead stage
 // Making all fields optional at lead stage
@@ -157,15 +159,14 @@ const leadSchema = new mongoose.Schema(
         enum: ['VaultAgent', 'Partner', 'Admin'], 
         default: null 
       },
-      financialCalculation: { type: leadFinancialSchema, default: () => ({}) },
 
-      financialCalculation: { type: leadFinancialSchema, default: () => ({}) },
       createdByName: { type: String, required: true },
       createdAt: { type: Date, default: Date.now },
       submissionMethod: { type: String, enum: ['manual_entry', 'contacts_import', 'website_form', 'api'], default: 'manual_entry' },
       sourceIp: { type: String, default: null },
       userAgent: { type: String, default: null },
     },
+
 
     customerInfo: { type: customerBasicSchema, required: true },
     
@@ -179,7 +180,61 @@ const leadSchema = new mongoose.Schema(
     propertyDetails: { type: propertyDetailsSchema, default: () => ({}) },  // Changed from required to optional
 
     loanRequirements: { type: loanRequirementsSchema, default: () => ({}) },
-
+// Add this after loanRequirements or before referralType
+eligibility: {
+  checked: {
+    type: Boolean,
+    default: false,
+  },
+  latestEligibilityCheckId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "LeadEligibilityCheck",
+    default: null,
+  },
+  isEligible: {
+    type: Boolean,
+    default: false,
+  },
+  checkedAt: {
+    type: Date,
+    default: null,
+  },
+  checkedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "VaultAdvisor",
+    default: null,
+  },
+  eligibilityScore: {
+    type: Number,
+    default: 0,
+  },
+  riskGrade: {
+    type: String,
+    enum: ["Excellent", "Good", "Average", "Risky"],
+    default: "Good",
+  },
+  dbrPercentage: {
+    type: Number,
+    default: 0,
+  },
+  dbrStatus: {
+    type: String,
+    enum: ["Eligible", "Borderline", "Ineligible"],
+    default: "Eligible",
+  },
+  estimatedLTV: {
+    type: Number,
+    default: 0,
+  },
+  recommendedLoanAmount: {
+    type: Number,
+    default: 0,
+  },
+  eligibilityNotes: {
+    type: String,
+    default: null,
+  },
+},
     referralType: {
       type: String,
       enum: ['Referral Only', 'Referral + Docs'],
@@ -287,135 +342,8 @@ leadSchema.methods.updateDocumentStatus = function (uploadedCount, verifiedCount
   return this.save();
 };
 // ==================== DBR & LTV CALCULATION METHOD FOR LEAD ====================
-leadSchema.methods.calculateEligibility = function () {
-  const monthlySalary = this.customerInfo?.monthlySalary || 0;
-  const otherIncome = this.financialCalculation?.otherIncome || 0;
-  const totalMonthlyIncome = monthlySalary + otherIncome;
-  
-  // Existing liabilities
-  const existingLoanEMIs = this.financialCalculation?.existingLoanEMIs || 0;
-  const creditCardPayments = this.financialCalculation?.creditCardPayments || 0;
-  const existingLiabilities = existingLoanEMIs + creditCardPayments;
-  
-  // Property & Loan estimates
-  const propertyValue = this.propertyDetails?.propertyValue || this.financialCalculation?.estimatedPropertyValue || 0;
-  const requestedLoanAmount = this.financialCalculation?.estimatedLoanAmount || 0;
-  
-  // Calculate LTV (Loan to Value)
-  let ltv = 0;
-  let maxLoanByLTV = 0;
-  let recommendedLoanAmount = 0;
-  
-  if (propertyValue > 0) {
-    // Based on PRD: Max LTV 85% for UAE Nationals/Residents, 75% for Non-Residents
-    const residencyStatus = this.customerInfo?.nationality === 'UAE National' ? 'UAE National' : 
-                           (this.customerInfo?.residencyStatus || 'UAE Resident');
-    let maxLTV = 85; // Default for UAE Nationals/Residents
-    if (residencyStatus === 'Non-Resident') maxLTV = 75;
-    if (propertyValue > 5000000) maxLTV = 80; // For properties above 5M AED
-    
-    maxLoanByLTV = propertyValue * (maxLTV / 100);
-    ltv = requestedLoanAmount > 0 ? (requestedLoanAmount / propertyValue) * 100 : 0;
-  }
-  
-  // Calculate proposed EMI
-  let proposedEMI = 0;
-  if (requestedLoanAmount > 0) {
-    const interestRate = 4.0; // Default rate, can be dynamic
-    const tenureYears = this.loanRequirements?.preferredTenureYears || 25;
-    const monthlyRate = interestRate / 100 / 12;
-    const months = tenureYears * 12;
-    if (monthlyRate > 0) {
-      proposedEMI = requestedLoanAmount * monthlyRate * Math.pow(1 + monthlyRate, months) /
-                    (Math.pow(1 + monthlyRate, months) - 1);
-    } else {
-      proposedEMI = requestedLoanAmount / months;
-    }
-    proposedEMI = Math.round(proposedEMI);
-  }
-  
-  // Calculate DBR (Debt Burden Ratio)
-  const totalCommitments = proposedEMI + existingLiabilities;
-  let dbrPercentage = 0;
-  let dbrStatus = 'Eligible';
-  let maxAllowedDBR = 50; // 50% for expats, 55% for UAE nationals
-  
-  if (totalMonthlyIncome > 0) {
-    dbrPercentage = (totalCommitments / totalMonthlyIncome) * 100;
-    
-    // UAE Nationals have 55% DBR limit (PRD Section 4.5)
-    const isUAENational = this.customerInfo?.nationality === 'UAE National' ||
-                          this.customerInfo?.nationality === 'Emirati';
-    maxAllowedDBR = isUAENational ? 55 : 50;
-    
-    if (dbrPercentage > maxAllowedDBR) {
-      dbrStatus = 'Ineligible';
-    } else if (dbrPercentage > maxAllowedDBR - 5) {
-      dbrStatus = 'Borderline';
-    } else {
-      dbrStatus = 'Eligible';
-    }
-  }
-  
-  // Calculate max loan based on DBR
-  let maxLoanAmountBasedOnDBR = 0;
-  let isEligible = false;
-  let eligibilityNotes = null;
-  
-  if (totalMonthlyIncome > 0 && maxAllowedDBR > 0) {
-    const maxEMIPossible = (totalMonthlyIncome * maxAllowedDBR / 100) - existingLiabilities;
-    if (maxEMIPossible > 0) {
-      const interestRate = 4.0;
-      const tenureYears = this.loanRequirements?.preferredTenureYears || 25;
-      const monthlyRate = interestRate / 100 / 12;
-      const months = tenureYears * 12;
-      if (monthlyRate > 0) {
-        maxLoanAmountBasedOnDBR = maxEMIPossible * (Math.pow(1 + monthlyRate, months) - 1) /
-                                   (monthlyRate * Math.pow(1 + monthlyRate, months));
-      } else {
-        maxLoanAmountBasedOnDBR = maxEMIPossible * months;
-      }
-      maxLoanAmountBasedOnDBR = Math.round(maxLoanAmountBasedOnDBR);
-    }
-  }
-  
-  // Determine final eligibility
-  recommendedLoanAmount = Math.min(maxLoanByLTV || requestedLoanAmount, maxLoanAmountBasedOnDBR || requestedLoanAmount);
-  isEligible = dbrStatus === 'Eligible' && (requestedLoanAmount <= recommendedLoanAmount);
-  
-  if (!isEligible && dbrStatus !== 'Eligible') {
-    eligibilityNotes = `DBR too high: ${dbrPercentage.toFixed(1)}% (Max: ${maxAllowedDBR}%)`;
-  } else if (!isEligible && requestedLoanAmount > maxLoanByLTV) {
-    eligibilityNotes = `Loan amount exceeds LTV limit: LTV ${ltv.toFixed(1)}% (Max: ${maxLTV}%)`;
-  } else if (!isEligible && requestedLoanAmount > maxLoanAmountBasedOnDBR) {
-    eligibilityNotes = `Loan exceeds affordability: Max based on income is AED ${maxLoanAmountBasedOnDBR.toLocaleString()}`;
-  } else if (isEligible) {
-    eligibilityNotes = `Customer is eligible for loan up to AED ${recommendedLoanAmount.toLocaleString()}`;
-  }
-  
-  // Save calculations
-  this.financialCalculation = {
-    monthlySalary,
-    otherIncome: this.financialCalculation?.otherIncome || 0,
-    totalMonthlyIncome,
-    existingLoanEMIs,
-    creditCardPayments,
-    totalMonthlyLiabilities: existingLiabilities,
-    estimatedPropertyValue: propertyValue,
-    estimatedLoanAmount: requestedLoanAmount,
-    estimatedLTV: Math.round(ltv * 100) / 100,
-    proposedEMI,
-    totalCommitments,
-    dbrPercentage: Math.round(dbrPercentage * 100) / 100,
-    dbrStatus,
-    isEligible,
-    eligibilityNotes,
-    maxLoanAmountBasedOnDBR,
-    recommendedLoanAmount,
-  };
-  
-  return this;
-};
+// ==================== DBR & LTV CALCULATION METHOD FOR LEAD ====================
+
 
 const VaultLead = mongoose.model('VaultLead', leadSchema);
 module.exports = VaultLead;

@@ -14,7 +14,7 @@ const MileStonebill = require("../../../auth/controllers/freelancer/models/MileS
 const getDateRange = (range) => {
   const now = new Date();
   let from = new Date();
-
+   
   switch (range) {
     case '30d':
       from.setDate(now.getDate() - 30);

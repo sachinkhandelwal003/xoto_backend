@@ -3,7 +3,7 @@ const GridAgent = require("../../Agent/models/agent");
 
 const propertyEntrySchema = new mongoose.Schema(
   {
-    property:   { type: mongoose.Schema.Types.ObjectId, ref: "Property", required: true },
+    property:   { type: mongoose.Schema.Types.ObjectId, ref: "Properties", required: true },
     customNote: { type: String, default: "" },
     order:      { type: Number, default: 0 }
   },
@@ -19,6 +19,7 @@ const viewTrackingSchema = new mongoose.Schema(
   },
   { _id: false }
 );
+
 
 const presentationSchema = new mongoose.Schema(
   {
@@ -82,7 +83,9 @@ const presentationSchema = new mongoose.Schema(
     sharedAt:          { type: Date },
   },
   { timestamps: true }
+  
 );
+
 
 // Index for fast token lookup
 presentationSchema.index({ shareToken: 1 });
