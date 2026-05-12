@@ -11,7 +11,7 @@ const isAdmin = (role) => {
            Number(role?.code) === 0    ||
            Number(role?.code) === 1;
   }
-  return role === role === "xoto_super_admin" || role === "xoto_staff_admin";
+ return role === "xoto_super_admin" || role === "xoto_staff_admin"; 
 };
 
 const isSuperAdmin = (role) => {
@@ -65,8 +65,20 @@ const paginationMeta = (total, page, limit) => ({
 // ════════════════════════════════════════════════════════════════════════════
 exports.createProperty = async (req, res) => {
   try {
-    const { role, _id: userId } = req.user;
-    const { propertySubType }   = req.body;
+    console.log("=== 💾 CREATE PROPERTY - RECEIVED PAYLOAD ===");
+    console.log("req.body FULL:", JSON.stringify(req.body, null, 2));
+    console.log("req.user:", req.user);
+    
+    // Log individual important fields
+    console.log("🔍 req.body.projectName:", req.body.projectName);
+    console.log("🔍 req.body.propertyName:", req.body.propertyName);
+    console.log("🔍 req.body.locality:", req.body.locality);
+    console.log("🔍 req.body.overview:", req.body.overview);
+    console.log("🔍 req.body.priceRangeFrom:", req.body.priceRangeFrom);
+    console.log("🔍 req.body.priceRangeTo:", req.body.priceRangeTo);
+    const { role } = req.user;
+    const userId = req.user._id;
+    const { propertySubType } = req.body;
 
     if (!isAdmin(role) && !isDevRole(role)) {
       return res.status(403).json({
@@ -94,6 +106,8 @@ exports.createProperty = async (req, res) => {
       price, price_min,
       rentalFrequency, reraPermitNumber,
       developerId,
+      // New PRD fields
+      projectName, overview, locality,
     } = req.body;
 
     if (!propertySubType) {
@@ -108,14 +122,32 @@ exports.createProperty = async (req, res) => {
       });
     }
 
-    if (!propertyName || !description || !area) {
+    const isDraft = (req.body.status === "draft" || req.body.approvalStatus === "draft");
+
+    console.log("projectName:", projectName);
+    console.log("propertyName:", propertyName);
+    console.log("overview:", overview);
+    console.log("description:", description);
+    console.log("locality:", locality);
+    console.log("area:", area);
+    console.log("isDraft:", isDraft);
+    
+    const finalPropertyName = projectName || propertyName;
+    const finalDescription = overview || description;
+    const finalArea = locality || area;
+
+    console.log("finalPropertyName:", finalPropertyName);
+    console.log("finalDescription:", finalDescription);
+    console.log("finalArea:", finalArea);
+
+    if (!isDraft && (!finalPropertyName || !finalDescription || !finalArea)) {
       return res.status(400).json({
         status:  "fail",
-        message: "propertyName, description and area are required",
+        message: "Project name, description and location are required",
       });
     }
 
-    if (!price && !price_min) {
+    if (!isDraft && !price && !price_min) {
       return res.status(400).json({ status: "fail", message: "price is required" });
     }
 
@@ -131,17 +163,30 @@ exports.createProperty = async (req, res) => {
     const devId = isDevRole(role) ? userId : developerId;
 
     if (propertySubType === "off_plan") {
-      const developer = await Developer.findById(devId);
-      if (!developer) {
-        return res.status(404).json({ status: "fail", message: "Developer not found" });
-      }
+     console.log("devId:", devId);
+
+const developer = await Developer.findOne({
+  $or: [
+    { _id: devId },
+    { userId: devId },
+  ],
+});
+
+console.log("developer found:", developer);
+
+if (!developer) {
+  return res.status(404).json({
+    status: "fail",
+    message: "Developer not found",
+  });
+}
       if (developer.accountStatus !== "active") {
         return res.status(403).json({ status: "fail", message: "Developer account is not active" });
       }
     }
 
-    let approvalStatus = "pending";
-    let listingStatus  = "pending";
+    let approvalStatus = req.body.approvalStatus || "pending";
+    let listingStatus  = req.body.listingStatus || "pending";
     let approvedBy     = null;
     let approvedAt     = null;
 
@@ -152,15 +197,27 @@ if (isSuperAdmin(role)) {
   approvedAt     = new Date();
 }
 
+// Preserve draft status if requested
+if (req.body.status === "draft" || req.body.approvalStatus === "draft") {
+  approvalStatus = "draft";
+  listingStatus = "pending";
+}
+
+console.log("=== 📋 Status handling ===");
+console.log("req.body.status:", req.body.status);
+console.log("req.body.approvalStatus:", req.body.approvalStatus);
+console.log("Final approvalStatus:", approvalStatus);
+console.log("Final listingStatus:", listingStatus);
+
     const {
       transactionType, projectOption, existingProjectId, developerName,
       unitNumber, floorNumber, unitType, bedroomType, bedrooms, bathrooms,
       builtUpArea, builtUpArea_min, builtUpArea_max, builtUpAreaUnit,
-      price_max, currency,
+      price_max, currency, parkingSpaces,
       city, country, coordinates, proximity,
       mainLogo, photos, videoUrl, brochure,
       amenities, facilities,
-      hasView, viewType, parkingSpaces, furnishing, ownershipType, availableFrom,
+      hasView, viewType, furnishing, ownershipType, availableFrom,
       isFeatured, showContactOnlyVerified,
       totalUnits, completionDate, projectStatus, floors,
       serviceChargeInfo, readinessProgress, paymentPlan,
@@ -168,8 +225,30 @@ if (isSuperAdmin(role)) {
       commission, shareCommission, shareCommissionPercentage,
       minimumContract, isImmediate, cheques, isShortTerm,
       dldRegistrationNumber,
-    } = req.body;
 
+      // New PRD fields (already destructured earlier: projectName, overview, locality, price, price_min, description, rentalFrequency, reraPermitNumber)
+      priceRange,
+      location,
+      media,
+      youtubeVideos,
+      buildings,
+      floorPlans,
+      inventory,
+      parkingAllocation,
+      furnishingStatus,
+      numberOfFloors,
+      serviceCharge,
+      constructionProgress,
+      developmentStatus,
+      saleStatus,
+      developerDetails,
+      status,
+      propertyType,
+    } = req.body;
+console.log("=== STATUS DEBUG ===");
+console.log("req.body.status:", req.body.status);
+console.log("req.body.approvalStatus:", req.body.approvalStatus);
+console.log("isDraft:", isDraft);
     const property = await Property.create({
       developer:      propertySubType === "off_plan" ? devId : (developerId || null),
       createdByAdmin: isAdmin(role) ? userId : null,
@@ -178,8 +257,12 @@ if (isSuperAdmin(role)) {
       transactionType: transactionType || (propertySubType === "rental" ? "rent" : "sell"),
       projectOption:    projectOption    || "new",
       existingProjectId: existingProjectId || null,
-      propertyName,
+      propertyName: projectName || propertyName,
+      projectName: projectName || propertyName,
       developerName:    developerName    || "",
+      locality: locality || "",
+      propertyType: propertyType || "Residential",
+      overview: overview || description,
 
       unitNumber:  unitNumber  || "",
       floorNumber: floorNumber || 0,
@@ -193,35 +276,52 @@ if (isSuperAdmin(role)) {
       builtUpArea_max: builtUpArea_max || builtUpArea || 0,
       builtUpAreaUnit: builtUpAreaUnit || "sqft",
 
-      price:     price     || price_min || 0,
-      price_min: price_min || price     || 0,
-      price_max: price_max || price     || 0,
+      price:     price     || price_min || priceRange?.from || 0,
+      price_min: price_min || price     || priceRange?.from || 0,
+      price_max: price_max || price     || priceRange?.to || 0,
+      priceRange: priceRange || { from: price_min || 0, to: price_max || 0 },
       currency:  currency  || "AED",
 
-      area,
+      area: area || locality || "",
       city:    city    || "Dubai",
       country: country || "UAE",
       coordinates: coordinates || { lat: null, lng: null },
+      location: location || { address: "", latitude: null, longitude: null },
       proximity:   proximity   || {},
 
-      mainLogo: mainLogo || "",
+      mainLogo: mainLogo || media?.mainLogo || "",
       photos: {
-        architecture: photos?.architecture || [],
-        interior:     photos?.interior     || [],
-        lobby:        photos?.lobby        || [],
-        other:        photos?.other        || [],
+        architecture: photos?.architecture || media?.architectureImages || [],
+        interior:     photos?.interior     || media?.interiorImages || [],
+        lobby:        photos?.lobby        || media?.lobbyImages || [],
+        other:        photos?.other        || media?.otherImages || [],
+      },
+      media: {
+        mainLogo: media?.mainLogo || mainLogo || "",
+        architectureImages: media?.architectureImages || photos?.architecture || [],
+        interiorImages: media?.interiorImages || photos?.interior || [],
+        lobbyImages: media?.lobbyImages || photos?.lobby || [],
+        otherImages: media?.otherImages || photos?.other || [],
+        youtubeVideos: media?.youtubeVideos || youtubeVideos || [],
       },
       videoUrl: videoUrl || "",
       brochure: brochure || "",
+      youtubeVideos: youtubeVideos || media?.youtubeVideos || [],
 
-      description,
+      description: description || overview || "",
       amenities:  amenities  || [],
       facilities: facilities || {},
+
+      buildings: buildings || [],
+      floorPlans: floorPlans || [],
+      inventory: inventory || [],
+      parkingAllocation: parkingAllocation || "",
 
       hasView:       hasView       || false,
       viewType:      viewType      || [],
       parkingSpaces: parkingSpaces || 0,
       furnishing:    furnishing    || "unfurnished",
+      furnishingStatus: furnishingStatus || "Unfurnished",
       ownershipType: ownershipType || "freehold",
       availableFrom: availableFrom || null,
 
@@ -232,9 +332,13 @@ if (isSuperAdmin(role)) {
         fullDate: completionDate?.fullDate ? new Date(completionDate.fullDate) : null,
       },
       projectStatus:     projectStatus     || "presale",
-      floors:            floors            || 0,
-      serviceChargeInfo: serviceChargeInfo || "",
-      readinessProgress: readinessProgress || "0%",
+      developmentStatus: developmentStatus || "Planned",
+      floors:            floors            || numberOfFloors || 0,
+      numberOfFloors:    numberOfFloors    || floors || 0,
+      serviceChargeInfo: serviceChargeInfo || serviceCharge || "",
+      serviceCharge:     serviceCharge     || serviceChargeInfo || "",
+      readinessProgress: readinessProgress || `${constructionProgress || 0}%`,
+      constructionProgress: constructionProgress || 0,
       paymentPlan:       paymentPlan       || [],
       eoiAmount:         eoiAmount         || 0,
       resaleConditions:  resaleConditions  || "",
@@ -251,15 +355,34 @@ if (isSuperAdmin(role)) {
       reraPermitNumber:      reraPermitNumber      || null,
       dldRegistrationNumber: dldRegistrationNumber || null,
 
+      saleStatus: saleStatus || "Available",
+      developerDetails: developerDetails || {},
+      status: status || "draft",
+
       isFeatured:              isFeatured              || false,
-      isHot:                   false,                          // ← new field, default false
+      isHot:                   false,
       showContactOnlyVerified: showContactOnlyVerified !== undefined ? showContactOnlyVerified : true,
-      approvalStatus,
+     approvalStatus:
+  req.body.approvalStatus ||
+  (status === "draft" ? "draft" : approvalStatus || "pending"), 
       listingStatus,
       approvedBy,
       approvedAt,
       isAvailable: true,
     });
+
+    console.log("=== 💾 Property data to be saved ===");
+    console.log("developer:", property.developer);
+    console.log("projectName:", property.projectName);
+    console.log("propertyName:", property.propertyName);
+    console.log("locality:", property.locality);
+    console.log("propertyType:", property.propertyType);
+    console.log("priceRange:", property.priceRange);
+    console.log("developmentStatus:", property.developmentStatus);
+    console.log("saleStatus:", property.saleStatus);
+    console.log("isFeatured:", property.isFeatured);
+    console.log("media.mainLogo:", property.media?.mainLogo);
+    console.log("Full property to save:", JSON.stringify(property, null, 2));
 
     const msg = approvalStatus === "approved"
       ? "Listing created and published successfully"
@@ -277,6 +400,7 @@ if (isSuperAdmin(role)) {
 // ════════════════════════════════════════════════════════════════════════════
 exports.getProperties = async (req, res) => {
   try {
+    console.log("req.user in getProperties:", req.user);
    const role = req.user?.role;
    const userId = req.user?._id;
     const { page, limit, skip } = paginate(req.query);
@@ -286,12 +410,13 @@ exports.getProperties = async (req, res) => {
       area, city, country,
       unitType, bedroomType, bedrooms, bathrooms,
       minPrice, maxPrice, minArea, maxArea,
-      furnishing, hasView, parkingSpaces,
+      furnishing, hasView, furnishingStatus, parkingSpaces,
       projectStatus, completionYear, completionQuarter,
       rentalFrequency, isImmediate, isShortTerm,
-      isFeatured, isHot, isAvailable,           // ← isHot added
+      isFeatured, isHot, isAvailable,
       fromDate, toDate,
       search, sortBy, sortOrder,
+      status, developmentStatus, saleStatus, locality,
     } = req.query;
 
     let query = {};
@@ -303,8 +428,15 @@ exports.getProperties = async (req, res) => {
       query.approvalStatus = "approved";
       query.listingStatus  = "active";
     }
+    console.log("Final query in getProperties:", query);
+    console.log("isDevRole:", isDevRole(role));
+    console.log("userId:", userId);
 
     if (propertySubType) query.propertySubType = propertySubType;
+    if (status) query.status = status;
+    if (developmentStatus) query.developmentStatus = developmentStatus;
+    if (saleStatus) query.saleStatus = saleStatus;
+    if (locality) query.locality = locality;
 
     if (area)    query.area    = { $regex: area,    $options: "i" };
     if (city)    query.city    = { $regex: city,    $options: "i" };
@@ -359,7 +491,14 @@ exports.getProperties = async (req, res) => {
       const re = { $regex: search, $options: "i" };
       query.$and = [
         ...(query.$and || []),
-        { $or: [{ propertyName: re }, { description: re }, { area: re }, { developerName: re }] },
+        { $or: [
+          { propertyName: re },
+          { projectName: re },
+          { description: re },
+          { area: re },
+          { locality: re },
+          { developerName: re }
+        ] },
       ];
     }
 
@@ -377,6 +516,27 @@ exports.getProperties = async (req, res) => {
         .populate("createdByAdmin", "firstName lastName email")
         .populate("approvedBy",     "firstName lastName email"),
     ]);
+    console.log("=== 📋 getProperties - Properties found ===");
+    console.log("Total properties in DB:", total);
+    console.log("Number of properties found:", properties.length);
+    
+    properties.forEach((p, i) => {
+      console.log(`=== 📋 Property ${i+1} from DB:`, {
+        _id: p._id,
+        developer: p.developer,
+        projectName: p.projectName,
+        propertyName: p.propertyName,
+        locality: p.locality,
+        area: p.area,
+        priceRange: p.priceRange,
+        price_min: p.price_min,
+        price_max: p.price_max,
+        approvalStatus: p.approvalStatus,
+        status: p.status
+      });
+    });
+    
+    console.log("=== 📋 Full properties array:", JSON.stringify(properties, null, 2));
 
     let stats = null;
     if (isAdmin(role)) {
@@ -475,7 +635,22 @@ exports.updateProperty = async (req, res) => {
 
  let extraUpdates = {};
 
-if (
+console.log("=== ✏️ Update Property - Status handling ===");
+console.log("req.body.status:", req.body.status);
+console.log("req.body.approvalStatus:", req.body.approvalStatus);
+console.log("Current approvalStatus:", property.approvalStatus);
+
+// Preserve draft status if requested
+if (req.body.status === "draft" || req.body.approvalStatus === "draft") {
+  extraUpdates = {
+    approvalStatus: "draft",
+    listingStatus: "pending",
+    approvedBy: null,
+    approvedAt: null,
+  };
+  console.log("→ Keeping as draft");
+}
+else if (
   isDevRole(role) &&
   (
     property.approvalStatus === "approved" ||
@@ -490,8 +665,87 @@ if (
     adminComments: "", // clear old admin comment
     rejectionReason: "", // optional cleanup
   };
+  console.log("→ Setting to pending");
 }
 
+console.log("Final extraUpdates:", extraUpdates);
+
+    const {
+      propertyName, description, area,
+      price, price_min,
+      projectName, overview, locality,
+      transactionType, projectOption, existingProjectId, developerName,
+      unitNumber, floorNumber, unitType, bedroomType, bedrooms, bathrooms,
+      builtUpArea, builtUpArea_min, builtUpArea_max, builtUpAreaUnit,
+      price_max, currency, parkingSpaces,
+      city, country, coordinates, proximity,
+      mainLogo, photos, videoUrl, brochure,
+      amenities, facilities,
+      hasView, viewType, furnishing, ownershipType, availableFrom,
+      isFeatured, showContactOnlyVerified,
+      totalUnits, completionDate, projectStatus, floors,
+      serviceChargeInfo, readinessProgress, paymentPlan,
+      eoiAmount, resaleConditions,
+      commission, shareCommission, shareCommissionPercentage,
+      minimumContract, isImmediate, cheques, isShortTerm,
+      dldRegistrationNumber,
+      priceRange,
+      location,
+      media,
+      youtubeVideos,
+      buildings,
+      floorPlans,
+      inventory,
+      parkingAllocation,
+      furnishingStatus,
+      numberOfFloors,
+      serviceCharge,
+      constructionProgress,
+      developmentStatus,
+      saleStatus,
+      developerDetails,
+      status,
+      propertyType,
+    } = req.body;
+
+    const finalPropertyName = projectName || propertyName;
+    const finalDescription = overview || description;
+    const finalArea = locality || area;
+
+    const fieldUpdates = {
+      propertyName: finalPropertyName,
+      projectName: finalPropertyName,
+      overview: finalDescription,
+      description: finalDescription,
+      locality: finalArea,
+      area: finalArea,
+      price: price || price_min || priceRange?.from || property.price,
+      price_min: price_min || price || priceRange?.from || property.price_min,
+      price_max: price_max || price || priceRange?.to || property.price_max,
+      priceRange: priceRange || { from: price_min || price || property.price_min, to: price_max || price || property.price_max },
+      mainLogo: mainLogo || media?.mainLogo || property.mainLogo,
+      photos: {
+        architecture: photos?.architecture || media?.architectureImages || property.photos?.architecture,
+        interior: photos?.interior || media?.interiorImages || property.photos?.interior,
+        lobby: photos?.lobby || media?.lobbyImages || property.photos?.lobby,
+        other: photos?.other || media?.otherImages || property.photos?.other,
+      },
+      media: {
+        mainLogo: media?.mainLogo || mainLogo || property.media?.mainLogo,
+        architectureImages: media?.architectureImages || photos?.architecture || property.media?.architectureImages,
+        interiorImages: media?.interiorImages || photos?.interior || property.media?.interiorImages,
+        lobbyImages: media?.lobbyImages || photos?.lobby || property.media?.lobbyImages,
+        otherImages: media?.otherImages || photos?.other || property.media?.otherImages,
+        youtubeVideos: media?.youtubeVideos || youtubeVideos || property.media?.youtubeVideos,
+      },
+      youtubeVideos: youtubeVideos || media?.youtubeVideos || property.youtubeVideos,
+      floors: floors || numberOfFloors || property.floors,
+      numberOfFloors: numberOfFloors || floors || property.numberOfFloors,
+      serviceChargeInfo: serviceChargeInfo || serviceCharge || property.serviceChargeInfo,
+      serviceCharge: serviceCharge || serviceChargeInfo || property.serviceCharge,
+      readinessProgress: readinessProgress || `${constructionProgress || property.constructionProgress}%`,
+      constructionProgress: constructionProgress || property.constructionProgress,
+    };
 
     const {
       approvalStatus: _a, listingStatus: _l,
@@ -503,7 +757,7 @@ if (
 
     const updated = await Property.findByIdAndUpdate(
       req.params.id,
-      { ...safeBody, ...extraUpdates },
+      { ...safeBody, ...fieldUpdates, ...extraUpdates },
       { new: true, runValidators: true }
     );
 

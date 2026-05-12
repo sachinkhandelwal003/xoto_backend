@@ -30,10 +30,11 @@ const PropertySchema = new mongoose.Schema(
       enum:    ["rent", "sell"],
       default: "sell",
     },
-isFeatured: { type: Boolean, default: false },
-isHot:      { type: Boolean, default: false },
+    isFeatured: { type: Boolean, default: false },
+    isHot:      { type: Boolean, default: false },
+
     // ══════════════════════════════════════════════════════════════
-    // PROJECT INFO
+    // PROJECT INFO (PRD §9.3 Step 1)
     // ══════════════════════════════════════════════════════════════
     projectOption: {
       type:    String,
@@ -47,13 +48,20 @@ isHot:      { type: Boolean, default: false },
     },
     propertyName: {
       type:     String,
-      required: true,
       trim:     true,
     },
+    projectName: { type: String, default: "" }, // alias for propertyName
     developerName: {
       type:    String,
       default: "",
     },
+    locality: { type: String, default: "" },
+    propertyType: {
+      type: String,
+      enum: ["Residential", "Commercial", "Mixed-Use"],
+      default: "Residential",
+    },
+    overview: { type: String, default: "" },
 
     // ══════════════════════════════════════════════════════════════
     // UNIT DETAILS
@@ -65,7 +73,7 @@ isHot:      { type: Boolean, default: false },
       type: String,
       enum: [
         "apartment", "villa", "townhouse", "duplex", "penthouse",
-        "plot", "office", "retail", "warehouse",
+        "plot", "office", "retail", "warehouse", "Apartment", "Villa & Townhouse", "Commercial", "Plot"
       ],
       required: function () {
         return this.propertySubType !== "off_plan";
@@ -93,21 +101,29 @@ isHot:      { type: Boolean, default: false },
     price:     { type: Number, default: 0 },
     price_min: { type: Number, default: 0 },
     price_max: { type: Number, default: 0 },
+    priceRange: {
+      from: { type: Number, default: 0 },
+      to: { type: Number, default: 0 },
+    },
     currency:  { type: String, default: "AED" },
 
     // ══════════════════════════════════════════════════════════════
     // LOCATION
     // ══════════════════════════════════════════════════════════════
-   area: {
-  type:     String,
-  required: true,
-  trim:     true,
-},
+    area: {
+      type:     String,
+      trim:     true,
+    },
     city:    { type: String, default: "Dubai" },
     country: { type: String, default: "UAE" },
     coordinates: {
       lat: { type: Number, default: null },
       lng: { type: Number, default: null },
+    },
+    location: {
+      address: { type: String, default: "" },
+      latitude: { type: Number, default: null },
+      longitude: { type: Number, default: null },
     },
     proximity: {
       airport: { type: String, default: "" },
@@ -126,13 +142,22 @@ isHot:      { type: Boolean, default: false },
       lobby:        [{ type: String }],
       other:        [{ type: String }],
     },
+    media: {
+      mainLogo: { type: String, default: "" },
+      architectureImages: [{ type: String }],
+      interiorImages: [{ type: String }],
+      lobbyImages: [{ type: String }],
+      otherImages: [{ type: String }],
+      youtubeVideos: [{ type: String }],
+    },
     videoUrl: { type: String, default: "" },
     brochure: { type: String, default: "" },
+    youtubeVideos: [{ type: String }],
 
     // ══════════════════════════════════════════════════════════════
     // DESCRIPTION
     // ══════════════════════════════════════════════════════════════
-    description: { type: String, required: true, trim: true },
+    description: { type: String, default: "" },
 
     // ══════════════════════════════════════════════════════════════
     // AMENITIES & FACILITIES (PRD §9.3 Step 2)
@@ -151,6 +176,41 @@ isHot:      { type: Boolean, default: false },
     },
 
     // ══════════════════════════════════════════════════════════════
+    // BUILDINGS (PRD §9.3 Step 2)
+    // ══════════════════════════════════════════════════════════════
+    buildings: [
+      {
+        title: { type: String },
+        image: { type: String },
+        description: { type: String },
+      }
+    ],
+
+    // ══════════════════════════════════════════════════════════════
+    // FLOOR PLANS (PRD §9.3 Step 2)
+    // ══════════════════════════════════════════════════════════════
+    floorPlans: [
+      {
+        unitType: { type: String },
+        areaFrom: { type: Number },
+        areaTo: { type: Number },
+      }
+    ],
+
+    // ══════════════════════════════════════════════════════════════
+    // INVENTORY (PRD §9.3 Step 3)
+    // ══════════════════════════════════════════════════════════════
+    inventory: [
+      {
+        unitType: { type: String },
+        units: { type: Number },
+        sqft: { type: Number },
+        sqm: { type: Number },
+      }
+    ],
+    parkingAllocation: { type: String, default: "" },
+
+    // ══════════════════════════════════════════════════════════════
     // FEATURES
     // ══════════════════════════════════════════════════════════════
     hasView:       { type: Boolean, default: false },
@@ -164,6 +224,11 @@ isHot:      { type: Boolean, default: false },
       type:    String,
       enum:    ["furnished", "semi_furnished", "unfurnished"],
       default: "unfurnished",
+    },
+    furnishingStatus: {
+      type: String,
+      enum: ["Unfurnished", "Semi-Furnished", "Fully Furnished"],
+      default: "Unfurnished"
     },
     ownershipType: {
       type:    String,
@@ -215,9 +280,17 @@ isHot:      { type: Boolean, default: false },
       enum:    ["presale", "under_construction", "ready", "sold_out"],
       default: "presale",
     },
+    developmentStatus: {
+      type: String,
+      enum: ["Planned", "Under Construction", "Completed"],
+      default: "Planned"
+    },
     floors:            { type: Number, default: 0 },
+    numberOfFloors:    { type: Number, default: 0 },
     serviceChargeInfo: { type: String, default: "" },
+    serviceCharge:     { type: String, default: "" },
     readinessProgress: { type: String, default: "0%" },
+    constructionProgress: { type: Number, default: 0 },
 
     paymentPlan: [{
       title: { type: String },
@@ -242,16 +315,41 @@ isHot:      { type: Boolean, default: false },
     shareCommissionPercentage: { type: Number, default: 0 },
 
     // ══════════════════════════════════════════════════════════════
+    // SALE STATUS
+    // ══════════════════════════════════════════════════════════════
+    saleStatus: {
+      type: String,
+      enum: ["Available", "Reserved", "Sold"],
+      default: "Available"
+    },
+
+    // ══════════════════════════════════════════════════════════════
+    // DEVELOPER DETAILS
+    // ══════════════════════════════════════════════════════════════
+    developerDetails: {
+      companyName: { type: String },
+      contactName: { type: String },
+      email: { type: String },
+      phone: { type: String },
+      logo: { type: String },
+    },
+
+    // ══════════════════════════════════════════════════════════════
     // STATUS & APPROVAL (PRD §12.1)
     // ══════════════════════════════════════════════════════════════
     approvalStatus: {
       type:    String,
-      enum:    ["pending", "approved", "rejected"],
+      enum:    ["pending", "approved", "rejected", "changes_requested", "draft"],
       default: "pending",
+    },
+    status: {
+      type: String,
+      enum: ["pending", "approved", "rejected", "draft"],
+      default: "draft"
     },
     listingStatus: {
       type:    String,
-      enum:    ["pending", "active", "rejected", "inactive"],
+      enum:    ["pending", "active", "rejected", "inactive", "changes_requested"],
       default: "pending",
     },
     rejectionReason: { type: String, default: "" },
@@ -266,17 +364,6 @@ isHot:      { type: Boolean, default: false },
     isAvailable:             { type: Boolean, default: true },
     isFeatured:              { type: Boolean, default: false },
     showContactOnlyVerified: { type: Boolean, default: true },
-
-    approvalStatus: {
-  type:    String,
-  enum:    ["pending", "approved", "rejected", "changes_requested"],  // add this
-  default: "pending",
-},
-listingStatus: {
-  type:    String,
-  enum:    ["pending", "active", "rejected", "inactive", "changes_requested"],  // add
-  default: "pending",
-},
 
     // ══════════════════════════════════════════════════════════════
     // STATISTICS (PRD §9.4, §9.6)

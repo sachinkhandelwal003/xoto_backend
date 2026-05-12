@@ -102,7 +102,7 @@ router.get("/:id", protectMulti, getPropertyById);
 router.post("/", protectMulti, createProperty);
 router.get("/", protectMulti, getProperties);
 router.get("/:id", protectMulti, getPropertyById);
-router.put("/:id", protectMulti, updateProperty);
+router.patch("/:id", protectMulti, updateProperty);
 router.delete("/:id", protectMulti, deleteProperty);
 router.put("/:id/approve", protectMulti, approveProperty);
 router.put("/:id/reject", protectMulti, rejectProperty);
