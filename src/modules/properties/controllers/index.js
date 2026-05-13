@@ -803,7 +803,7 @@ export const createInventory = async (req, res) => {
 
 export const getInventoryByProperty = async (req, res) => {
   try {
-    const { projectId } = req.params;
+    const projectId = req.query.propertyId || req.params.projectId;
     
     // Get pagination parameters from query
     const page = parseInt(req.query.page) || 1;

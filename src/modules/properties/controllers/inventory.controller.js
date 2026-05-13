@@ -3,6 +3,32 @@
 const Inventory = require("../models/property.inventory.model");
 const Property = require("../models/property.model");
 
+// ─── Role helpers ─────────────────────────────────────────────────────────────
+const isAdmin = (role) => {
+  if (!role) return false;
+  if (typeof role === "object") {
+    return role?.isSuperAdmin === true ||
+           Number(role?.code) === 0    ||
+           Number(role?.code) === 1;
+  }
+ return role === "xoto_super_admin" || role === "xoto_staff_admin"; 
+};
+
+const isDevRole = (role) => {
+  if (!role) return false;
+  if (typeof role === "object") return Number(role?.code) === 17;
+  return role === "developer";
+};
+
+const isCatalogue = (role) => {
+  if (!role) return false;
+  if (typeof role === "object") {
+    return Number(role?.code) === 16 ||
+           Number(role?.code) === 18;
+  }
+  return role === "GridAdvisor" || role === "agent";
+};
+
 /**
  * @route   POST /api/developer/inventory/create
  * @desc    Developer creates inventory for off-plan property
@@ -156,20 +182,52 @@ exports.bulkImportInventory = async (req, res) => {
     }
 };
 
+const mongoose = require("mongoose");
+
 /**
- * @route   GET /api/developer/inventory/:propertyId
- * @desc    Developer gets inventory by property
+ * @route   GET /api/properties/inventory?propertyId=
+ * @desc    Get inventory by property
  */
 exports.getInventoryByProperty = async (req, res) => {
     try {
+        console.log("=== 📦 getInventoryByProperty RECEIVED ===");
         const { propertyId } = req.query;
-        const developerId = req.user._id;
-        const page = Number(req.query.page);
-        const limit = Number(req.query.limit) ;
+        const userId = req.user._id;
+        const role = req.user.role;
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 12;
         const skip = (page - 1) * limit;
-        const status = req.query.status; // available, reserved, booked, sold
+        const status = req.query.status;
+        const unitType = req.query.unitType;
 
-        const property = await Property.findOne({ _id: propertyId });
+        console.log("📋 Input params:", { propertyId, userId, role, page, limit, status, unitType });
+
+        // FIX: REMOVE the ObjectId.isValid check - just check if propertyId exists
+        if (!propertyId) {
+            console.log("❌ Missing propertyId");
+            return res.status(400).json({
+                success: false,
+                message: "Property ID is required"
+            });
+        }
+
+        // Build property query based on user role
+        let propertyQuery = { _id: propertyId };
+        
+        if (isDevRole(role)) {
+            propertyQuery.$or = [
+                { developer: userId },
+                { developerId: userId }
+            ];
+        } else if (!isAdmin(role)) {
+            propertyQuery.approvalStatus = "approved";
+            propertyQuery.listingStatus = "active";
+        }
+
+        // Check if property exists
+        const property = await Property.findOne(propertyQuery);
+        console.log("🏠 Property found:", property ? property._id : "NOT FOUND");
+
         if (!property) {
             return res.status(404).json({
                 success: false,
@@ -177,8 +235,12 @@ exports.getInventoryByProperty = async (req, res) => {
             });
         }
 
+        // Rest of your code remains the same...
         let query = { propertyId };
         if (status) query.status = status;
+        if (unitType) query.unitType = unitType;
+
+        console.log("🔍 Query:", query);
 
         const total = await Inventory.countDocuments(query);
         const inventory = await Inventory.find(query)
@@ -186,7 +248,8 @@ exports.getInventoryByProperty = async (req, res) => {
             .skip(skip)
             .limit(limit);
 
-        // Get counts by status
+        console.log("📦 Found inventory items:", inventory.length);
+
         const counts = {
             total: await Inventory.countDocuments({ propertyId }),
             available: await Inventory.countDocuments({ propertyId, status: "available" }),
@@ -208,6 +271,7 @@ exports.getInventoryByProperty = async (req, res) => {
         });
 
     } catch (error) {
+        console.error("❌ getInventoryByProperty ERROR:", error);
         return res.status(500).json({
             success: false,
             message: error.message

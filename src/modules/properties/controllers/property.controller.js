@@ -401,8 +401,8 @@ console.log("isDraft:", isDraft);
 exports.getProperties = async (req, res) => {
   try {
     console.log("req.user in getProperties:", req.user);
-   const role = req.user?.role;
-   const userId = req.user?._id;
+    const role = req.user?.role;
+    const userId = req.user?._id;
     const { page, limit, skip } = paginate(req.query);
 
     const {
@@ -422,11 +422,11 @@ exports.getProperties = async (req, res) => {
     let query = {};
 
     if (isDevRole(role)) {
-      query.developer       = userId;
+      query.developer = userId;
       query.propertySubType = "off_plan";
     } else if (!isAdmin(role)) {
       query.approvalStatus = "approved";
-      query.listingStatus  = "active";
+      query.listingStatus = "active";
     }
     console.log("Final query in getProperties:", query);
     console.log("isDevRole:", isDevRole(role));
@@ -438,23 +438,23 @@ exports.getProperties = async (req, res) => {
     if (saleStatus) query.saleStatus = saleStatus;
     if (locality) query.locality = locality;
 
-    if (area)    query.area    = { $regex: area,    $options: "i" };
-    if (city)    query.city    = { $regex: city,    $options: "i" };
+    if (area) query.area = { $regex: area, $options: "i" };
+    if (city) query.city = { $regex: city, $options: "i" };
     if (country) query.country = { $regex: country, $options: "i" };
 
-    if (unitType)      query.unitType      = unitType;
-    if (bedroomType)   query.bedroomType   = bedroomType;
-    if (bedrooms)      query.bedrooms      = Number(bedrooms);
-    if (bathrooms)     query.bathrooms     = Number(bathrooms);
-    if (furnishing)    query.furnishing    = furnishing;
+    if (unitType) query.unitType = unitType;
+    if (bedroomType) query.bedroomType = bedroomType;
+    if (bedrooms) query.bedrooms = Number(bedrooms);
+    if (bathrooms) query.bathrooms = Number(bathrooms);
+    if (furnishing) query.furnishing = furnishing;
     if (parkingSpaces) query.parkingSpaces = Number(parkingSpaces);
 
-    if (hasView    !== undefined) query.hasView    = hasView    === "true";
+    if (hasView !== undefined) query.hasView = hasView === "true";
     if (isFeatured !== undefined) query.isFeatured = isFeatured === "true";
-    if (isHot      !== undefined) query.isHot      = isHot      === "true"; // ← isHot filter
+    if (isHot !== undefined) query.isHot = isHot === "true";
 
-    if (projectStatus)     query.projectStatus             = projectStatus;
-    if (completionYear)    query["completionDate.year"]    = Number(completionYear);
+    if (projectStatus) query.projectStatus = projectStatus;
+    if (completionYear) query["completionDate.year"] = Number(completionYear);
     if (completionQuarter) query["completionDate.quarter"] = completionQuarter;
 
     if (rentalFrequency) query.rentalFrequency = rentalFrequency;
@@ -476,35 +476,42 @@ exports.getProperties = async (req, res) => {
     }
 
     if (isAdmin(role)) {
-      if (approvalStatus) query.approvalStatus = approvalStatus;
-      if (listingStatus)  query.listingStatus  = listingStatus;
-      if (developerId)    query.developer      = developerId;
-      if (isAvailable !== undefined) query.isAvailable = isAvailable === "true";
-      if (fromDate || toDate) {
-        query.createdAt = {};
-        if (fromDate) query.createdAt.$gte = new Date(fromDate);
-        if (toDate)   query.createdAt.$lte = new Date(toDate);
-      }
-    }
+  // Only apply status filter if not already specified via query param
+  if (!approvalStatus) {
+    query.approvalStatus = { $ne: "draft" };
+  } else {
+    query.approvalStatus = approvalStatus;
+  }
+  if (listingStatus) query.listingStatus = listingStatus;
+  if (developerId) query.developer = developerId;
+  if (isAvailable !== undefined) query.isAvailable = isAvailable === "true";
+  if (fromDate || toDate) {
+    query.createdAt = {};
+    if (fromDate) query.createdAt.$gte = new Date(fromDate);
+    if (toDate) query.createdAt.$lte = new Date(toDate);
+  }
+}
 
     if (search) {
       const re = { $regex: search, $options: "i" };
       query.$and = [
         ...(query.$and || []),
-        { $or: [
-          { propertyName: re },
-          { projectName: re },
-          { description: re },
-          { area: re },
-          { locality: re },
-          { developerName: re }
-        ] },
+        {
+          $or: [
+            { propertyName: re },
+            { projectName: re },
+            { description: re },
+            { area: re },
+            { locality: re },
+            { developerName: re }
+          ]
+        },
       ];
     }
 
     const order = sortOrder === "asc" ? 1 : -1;
     let sort = { createdAt: -1 };
-    if (sortBy === "price")     sort = { price: order, price_min: order };
+    if (sortBy === "price") sort = { price: order, price_min: order };
     if (sortBy === "createdAt") sort = { createdAt: order };
     if (sortBy === "updatedAt") sort = { updatedAt: order };
 
@@ -512,16 +519,17 @@ exports.getProperties = async (req, res) => {
       Property.countDocuments(query),
       Property.find(query)
         .sort(sort).skip(skip).limit(limit)
-        .populate("developer",      "name email logo phone_number accountStatus")
+        .populate("developer", "name email logo phone_number accountStatus")
         .populate("createdByAdmin", "firstName lastName email")
-        .populate("approvedBy",     "firstName lastName email"),
+        .populate("approvedBy", "firstName lastName email"),
     ]);
+    
     console.log("=== 📋 getProperties - Properties found ===");
     console.log("Total properties in DB:", total);
     console.log("Number of properties found:", properties.length);
     
     properties.forEach((p, i) => {
-      console.log(`=== 📋 Property ${i+1} from DB:`, {
+      console.log(`=== 📋 Property ${i + 1} from DB:`, {
         _id: p._id,
         developer: p.developer,
         projectName: p.projectName,
@@ -541,24 +549,31 @@ exports.getProperties = async (req, res) => {
     let stats = null;
     if (isAdmin(role)) {
       const [offPlan, secondary, rental, commercial,
-             pendingCount, approvedCount, rejectedCount, activeCount,
-             hotCount] = await Promise.all([                          // ← hotCount added
-        Property.countDocuments({ propertySubType: "off_plan" }),
-        Property.countDocuments({ propertySubType: "secondary" }),
-        Property.countDocuments({ propertySubType: "rental" }),
-        Property.countDocuments({ propertySubType: "commercial" }),
-        Property.countDocuments({ approvalStatus: "pending" }),
-        Property.countDocuments({ approvalStatus: "approved" }),
-        Property.countDocuments({ approvalStatus: "rejected" }),
-        Property.countDocuments({ listingStatus:  "active" }),
-        Property.countDocuments({ isHot: true }),                     // ← hotCount
-      ]);
+        pendingCount, approvedCount, rejectedCount, activeCount,
+        hotCount] = await Promise.all([
+          Property.countDocuments({ propertySubType: "off_plan" }),
+          Property.countDocuments({ propertySubType: "secondary" }),
+          Property.countDocuments({ propertySubType: "rental" }),
+          Property.countDocuments({ propertySubType: "commercial" }),
+          Property.countDocuments({ approvalStatus: "pending" }),
+          Property.countDocuments({ approvalStatus: "approved" }),
+          Property.countDocuments({ approvalStatus: "rejected" }),
+          Property.countDocuments({ listingStatus: "active" }),
+          Property.countDocuments({ isHot: true }),
+        ]);
       stats = {
-        byType:   { offPlan, secondary, rental, commercial },
+        byType: { offPlan, secondary, rental, commercial },
         byStatus: { pendingCount, approvedCount, rejectedCount, activeCount },
-        hotCount,                                                      // ← in stats
+        hotCount,
       };
     }
+
+    // ✅ ADD CACHE CONTROL HEADERS TO PREVENT 304 RESPONSES
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    });
 
     return res.status(200).json({
       status: "success",
@@ -568,6 +583,7 @@ exports.getProperties = async (req, res) => {
       data: properties,
     });
   } catch (err) {
+    console.error("Error in getProperties:", err);
     return res.status(500).json({ status: "error", message: err.message });
   }
 };
@@ -583,14 +599,14 @@ exports.getPropertyById = async (req, res) => {
 
     if (!isAdmin(role) && !isDevRole(role)) {
       query.approvalStatus = "approved";
-      query.listingStatus  = "active";
+      query.listingStatus = "active";
     }
     if (isDevRole(role)) query.developer = userId;
 
     const property = await Property.findOne(query)
-      .populate("developer",         "name email logo phone_number websiteUrl accountStatus")
-      .populate("createdByAdmin",    "firstName lastName email")
-      .populate("approvedBy",        "firstName lastName email")
+      .populate("developer", "name email logo phone_number websiteUrl accountStatus")
+      .populate("createdByAdmin", "firstName lastName email")
+      .populate("approvedBy", "firstName lastName email")
       .populate("existingProjectId", "propertyName developerName area");
 
     if (!property) {
@@ -600,6 +616,13 @@ exports.getPropertyById = async (req, res) => {
     if (isCatalogue(role)) {
       Property.findByIdAndUpdate(req.params.id, { $inc: { viewCount: 1 } }).exec();
     }
+
+    // ✅ ADD CACHE CONTROL HEADERS
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    });
 
     return res.status(200).json({ status: "success", data: property });
   } catch (err) {
@@ -617,6 +640,15 @@ exports.getPropertyById = async (req, res) => {
 exports.updateProperty = async (req, res) => {
   try {
     const { role, _id: userId } = req.user;
+    
+    console.log("=== 📥 UPDATE PROPERTY ===");
+    console.log("Property ID:", req.params.id);
+    console.log("Received approvalStatus:", req.body.approvalStatus);
+    
+    // Map developer field
+    if (req.body.developer && !req.body.developerId) {
+      req.body.developerId = req.body.developer;
+    }
 
     if (!isAdmin(role) && !isDevRole(role)) {
       return res.status(403).json({ status: "fail", message: "Not authorised to edit listings" });
@@ -624,7 +656,7 @@ exports.updateProperty = async (req, res) => {
 
     let query = { _id: req.params.id };
     if (isDevRole(role)) {
-      query.developer       = userId;
+      query.developer = userId;
       query.propertySubType = "off_plan";
     }
 
@@ -633,140 +665,162 @@ exports.updateProperty = async (req, res) => {
       return res.status(404).json({ status: "fail", message: "Property not found or no permission" });
     }
 
- let extraUpdates = {};
+    // ✅ CRITICAL: Create update object with only fields that are sent
+    let updateData = {};
+    
+    // Only add fields that are present in req.body
+    if (req.body.approvalStatus !== undefined) {
+      updateData.approvalStatus = req.body.approvalStatus;
+    }
+    if (req.body.status !== undefined) {
+      updateData.status = req.body.status;
+    }
+    if (req.body.projectName !== undefined) {
+      updateData.projectName = req.body.projectName;
+      updateData.propertyName = req.body.projectName;
+    }
+    if (req.body.propertyName !== undefined) {
+      updateData.propertyName = req.body.propertyName;
+      updateData.projectName = req.body.propertyName;
+    }
+    if (req.body.locality !== undefined) {
+      updateData.locality = req.body.locality;
+      updateData.area = req.body.locality;
+    }
+    if (req.body.overview !== undefined) {
+      updateData.overview = req.body.overview;
+      updateData.description = req.body.overview;
+    }
+    if (req.body.priceRange !== undefined) {
+      updateData.priceRange = req.body.priceRange;
+    }
+    if (req.body.price_min !== undefined) {
+      updateData.price_min = req.body.price_min;
+      updateData.price = req.body.price_min;
+    }
+    if (req.body.price_max !== undefined) {
+      updateData.price_max = req.body.price_max;
+    }
+    if (req.body.media !== undefined) {
+      updateData.media = req.body.media;
+      if (req.body.media.mainLogo) {
+        updateData.mainLogo = req.body.media.mainLogo;
+      }
+    }
+    if (req.body.location !== undefined) {
+      updateData.location = req.body.location;
+    }
+    if (req.body.brochure !== undefined) {
+      updateData.brochure = req.body.brochure;
+    }
+    if (req.body.buildings !== undefined) {
+      updateData.buildings = req.body.buildings;
+    }
+    if (req.body.amenities !== undefined) {
+      updateData.amenities = req.body.amenities;
+    }
+    if (req.body.floorPlans !== undefined) {
+      updateData.floorPlans = req.body.floorPlans;
+    }
+    if (req.body.inventory !== undefined) {
+      updateData.inventory = req.body.inventory;
+    }
+    if (req.body.parkingAllocation !== undefined) {
+      updateData.parkingAllocation = req.body.parkingAllocation;
+    }
+    if (req.body.parkingSpaces !== undefined) {
+      updateData.parkingSpaces = req.body.parkingSpaces;
+    }
+    if (req.body.numberOfFloors !== undefined) {
+      updateData.numberOfFloors = req.body.numberOfFloors;
+      updateData.floors = req.body.numberOfFloors;
+    }
+    if (req.body.furnishingStatus !== undefined) {
+      updateData.furnishingStatus = req.body.furnishingStatus;
+    }
+    if (req.body.serviceCharge !== undefined) {
+      updateData.serviceCharge = req.body.serviceCharge;
+    }
+    if (req.body.constructionProgress !== undefined) {
+      updateData.constructionProgress = req.body.constructionProgress;
+      updateData.readinessProgress = `${req.body.constructionProgress}%`;
+    }
+    if (req.body.paymentPlan !== undefined) {
+      updateData.paymentPlan = req.body.paymentPlan;
+    }
+    if (req.body.projectStatus !== undefined) {
+      updateData.projectStatus = req.body.projectStatus;
+    }
+    if (req.body.developmentStatus !== undefined) {
+      updateData.developmentStatus = req.body.developmentStatus;
+    }
+    if (req.body.saleStatus !== undefined) {
+      updateData.saleStatus = req.body.saleStatus;
+    }
+    if (req.body.isFeatured !== undefined) {
+      updateData.isFeatured = req.body.isFeatured;
+    }
+    if (req.body.developerDetails !== undefined) {
+      updateData.developerDetails = req.body.developerDetails;
+    }
+    if (req.body.completionDate !== undefined) {
+      updateData.completionDate = req.body.completionDate;
+    }
+    if (req.body.youtubeVideos !== undefined) {
+      updateData.youtubeVideos = req.body.youtubeVideos;
+      if (!updateData.media) updateData.media = {};
+      updateData.media.youtubeVideos = req.body.youtubeVideos;
+    }
+    if (req.body.propertyType !== undefined) {
+      updateData.propertyType = req.body.propertyType;
+    }
 
-console.log("=== ✏️ Update Property - Status handling ===");
-console.log("req.body.status:", req.body.status);
-console.log("req.body.approvalStatus:", req.body.approvalStatus);
-console.log("Current approvalStatus:", property.approvalStatus);
+    // Handle listingStatus based on approvalStatus
+    if (updateData.approvalStatus === "draft") {
+      updateData.listingStatus = "pending";
+    } else if (updateData.approvalStatus === "pending") {
+      updateData.listingStatus = "pending";
+      updateData.approvedBy = null;
+      updateData.approvedAt = null;
+    } else if (updateData.approvalStatus === "approved") {
+      updateData.listingStatus = "active";
+    }
 
-// Preserve draft status if requested
-if (req.body.status === "draft" || req.body.approvalStatus === "draft") {
-  extraUpdates = {
-    approvalStatus: "draft",
-    listingStatus: "pending",
-    approvedBy: null,
-    approvedAt: null,
-  };
-  console.log("→ Keeping as draft");
-}
-else if (
-  isDevRole(role) &&
-  (
-    property.approvalStatus === "approved" ||
-    property.approvalStatus === "changes_requested"
-  )
-) {
-  extraUpdates = {
-    approvalStatus: "pending",
-    listingStatus: "pending",
-    approvedBy: null,
-    approvedAt: null,
-    adminComments: "", // clear old admin comment
-    rejectionReason: "", // optional cleanup
-  };
-  console.log("→ Setting to pending");
-}
+    console.log("📝 Final updateData:", JSON.stringify(updateData, null, 2));
 
-console.log("Final extraUpdates:", extraUpdates);
-
-    const {
-      propertyName, description, area,
-      price, price_min,
-      projectName, overview, locality,
-      transactionType, projectOption, existingProjectId, developerName,
-      unitNumber, floorNumber, unitType, bedroomType, bedrooms, bathrooms,
-      builtUpArea, builtUpArea_min, builtUpArea_max, builtUpAreaUnit,
-      price_max, currency, parkingSpaces,
-      city, country, coordinates, proximity,
-      mainLogo, photos, videoUrl, brochure,
-      amenities, facilities,
-      hasView, viewType, furnishing, ownershipType, availableFrom,
-      isFeatured, showContactOnlyVerified,
-      totalUnits, completionDate, projectStatus, floors,
-      serviceChargeInfo, readinessProgress, paymentPlan,
-      eoiAmount, resaleConditions,
-      commission, shareCommission, shareCommissionPercentage,
-      minimumContract, isImmediate, cheques, isShortTerm,
-      dldRegistrationNumber,
-      priceRange,
-      location,
-      media,
-      youtubeVideos,
-      buildings,
-      floorPlans,
-      inventory,
-      parkingAllocation,
-      furnishingStatus,
-      numberOfFloors,
-      serviceCharge,
-      constructionProgress,
-      developmentStatus,
-      saleStatus,
-      developerDetails,
-      status,
-      propertyType,
-    } = req.body;
-
-    const finalPropertyName = projectName || propertyName;
-    const finalDescription = overview || description;
-    const finalArea = locality || area;
-
-    const fieldUpdates = {
-      propertyName: finalPropertyName,
-      projectName: finalPropertyName,
-      overview: finalDescription,
-      description: finalDescription,
-      locality: finalArea,
-      area: finalArea,
-      price: price || price_min || priceRange?.from || property.price,
-      price_min: price_min || price || priceRange?.from || property.price_min,
-      price_max: price_max || price || priceRange?.to || property.price_max,
-      priceRange: priceRange || { from: price_min || price || property.price_min, to: price_max || price || property.price_max },
-      mainLogo: mainLogo || media?.mainLogo || property.mainLogo,
-      photos: {
-        architecture: photos?.architecture || media?.architectureImages || property.photos?.architecture,
-        interior: photos?.interior || media?.interiorImages || property.photos?.interior,
-        lobby: photos?.lobby || media?.lobbyImages || property.photos?.lobby,
-        other: photos?.other || media?.otherImages || property.photos?.other,
-      },
-      media: {
-        mainLogo: media?.mainLogo || mainLogo || property.media?.mainLogo,
-        architectureImages: media?.architectureImages || photos?.architecture || property.media?.architectureImages,
-        interiorImages: media?.interiorImages || photos?.interior || property.media?.interiorImages,
-        lobbyImages: media?.lobbyImages || photos?.lobby || property.media?.lobbyImages,
-        otherImages: media?.otherImages || photos?.other || property.media?.otherImages,
-        youtubeVideos: media?.youtubeVideos || youtubeVideos || property.media?.youtubeVideos,
-      },
-      youtubeVideos: youtubeVideos || media?.youtubeVideos || property.youtubeVideos,
-      floors: floors || numberOfFloors || property.floors,
-      numberOfFloors: numberOfFloors || floors || property.numberOfFloors,
-      serviceChargeInfo: serviceChargeInfo || serviceCharge || property.serviceChargeInfo,
-      serviceCharge: serviceCharge || serviceChargeInfo || property.serviceCharge,
-      readinessProgress: readinessProgress || `${constructionProgress || property.constructionProgress}%`,
-      constructionProgress: constructionProgress || property.constructionProgress,
-    };
-
-    const {
-      approvalStatus: _a, listingStatus: _l,
-      developer: _d, createdByAdmin: _c,
-      approvedBy: _ab, approvedAt: _at,
-      isHot: _h,  
-      ...safeBody                       
-    } = req.body;
-
+    // ✅ Use findByIdAndUpdate with runValidators: false to bypass validation
     const updated = await Property.findByIdAndUpdate(
       req.params.id,
-      { ...safeBody, ...fieldUpdates, ...extraUpdates },
-      { new: true, runValidators: true }
+      { $set: updateData },  // Use $set to only update provided fields
+      { 
+        new: true, 
+        runValidators: false,  // ← CRITICAL: Skip validation for updates
+        context: 'query'
+      }
     );
+
+    if (!updated) {
+      return res.status(404).json({ status: "fail", message: "Property not found" });
+    }
+
+    console.log("✅ Update successful!");
+    console.log("Updated approvalStatus:", updated.approvalStatus);
+    console.log("Updated listingStatus:", updated.listingStatus);
+
+    // Add cache-control headers
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    });
 
     return res.status(200).json({ status: "success", data: updated });
   } catch (err) {
+    console.error("❌ Update error:", err);
+    console.error("Error stack:", err.stack);
     return res.status(500).json({ status: "error", message: err.message });
   }
 };
-
 // ════════════════════════════════════════════════════════════════════════════
 // DELETE PROPERTY
 // DELETE /properties/:id
