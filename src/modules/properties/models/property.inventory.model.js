@@ -2,20 +2,20 @@
 
 const mongoose = require("mongoose");
 
-const InventorySchema = new mongoose.Schema(
+const PropertyInventorySchema = new mongoose.Schema(
     {
         // =========================
         // RELATIONSHIPS
         // =========================
         propertyId: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: "Property",
+            ref: "Properties",
             required: true
         },
         
         developerId: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: "Developer",
+            ref: "Developers",
             required: true
         },
 
@@ -30,7 +30,8 @@ const InventorySchema = new mongoose.Schema(
         
         buildingName: {
             type: String,
-            default: ""
+            default: "",
+            trim: true
         },
         
         floorNumber: {
@@ -124,7 +125,7 @@ const InventorySchema = new mongoose.Schema(
         // Booking Details
         bookedBy: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: "Agent",
+            ref: "User",
             default: null
         },
         
@@ -142,7 +143,7 @@ const InventorySchema = new mongoose.Schema(
         // Reservation Details
         reservedBy: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: "Agent",
+            ref: "User",
             default: null
         },
         
@@ -159,7 +160,7 @@ const InventorySchema = new mongoose.Schema(
         // Sale Details
         soldBy: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: "Agent",
+            ref: "User",
             default: null
         },
         
@@ -216,14 +217,18 @@ const InventorySchema = new mongoose.Schema(
 );
 
 // Indexes
-InventorySchema.index({ propertyId: 1 });
-InventorySchema.index({ developerId: 1 });
-InventorySchema.index({ status: 1 });
-InventorySchema.index({ unitNumber: 1 });
-InventorySchema.index({ propertyId: 1, status: 1 });
+PropertyInventorySchema.index({ propertyId: 1 });
+PropertyInventorySchema.index({ developerId: 1 });
+PropertyInventorySchema.index({ status: 1 });
+PropertyInventorySchema.index({ unitNumber: 1 });
+PropertyInventorySchema.index({ propertyId: 1, status: 1 });
+PropertyInventorySchema.index({ unitType: 1 });
 
 // Compound unique index for unit number per property
-InventorySchema.index({ propertyId: 1, unitNumber: 1 }, { unique: true });
+PropertyInventorySchema.index({ propertyId: 1, unitNumber: 1 }, { unique: true });
 
-const Inventory = mongoose.model("Inventories", InventorySchema, "Inventories");
-module.exports = Inventory;
+// ✅ FIX: Prevent overwrite error
+const PropertyInventory = mongoose.models.PropertyInventory || 
+                          mongoose.model("PropertyInventory", PropertyInventorySchema, "PropertyInventories");
+
+module.exports = PropertyInventory;

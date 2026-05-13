@@ -1,6 +1,20 @@
 const router = require("express").Router();
 const { protectMulti } = require("../../../middleware/auth");
 
+
+// Debug: Import and check what we're getting
+const indexExports = require("../controllers/index.js");
+console.log("🔍 index.js exports:", Object.keys(indexExports));
+console.log("🔍 createInventory type:", typeof indexExports.createInventory);
+console.log("🔍 bulkImportInventory type:", typeof indexExports.bulkImportInventory);
+console.log("🔍 getInventoryByProperty type:", typeof indexExports.getInventoryByProperty);
+console.log("🔍 updateInventory type:", typeof indexExports.updateInventory);
+console.log("🔍 deleteInventory type:", typeof indexExports.deleteInventory);
+console.log("🔍 reserveUnit type:", typeof indexExports.reserveUnit);
+console.log("🔍 bookUnit type:", typeof indexExports.bookUnit);
+console.log("🔍 releaseUnit type:", typeof indexExports.releaseUnit);
+
+
 const {
   createProperty,
   getProperties,
@@ -27,7 +41,7 @@ const {
   reserveUnit,
   bookUnit,
   releaseUnit,
-} = require("../controllers/index.js");
+} = require("../controllers/inventory.controller.js"); 
 
 
 router.get("/hot", getHotProperties);          // public

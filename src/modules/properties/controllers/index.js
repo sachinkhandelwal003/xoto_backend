@@ -1,7 +1,6 @@
 import mongoose from "mongoose";
 import Property from "../models/PropertyModel.js";
 import Developer from "../models/DeveloperModel.js";
-import Inventory from "../models/Inventory.js";
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { createToken } from '../../../middleware/auth.js';
 import bcrypt from "bcryptjs";

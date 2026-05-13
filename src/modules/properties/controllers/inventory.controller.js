@@ -2,7 +2,7 @@
 
 const Inventory = require("../models/property.inventory.model");
 const Property = require("../models/property.model");
-
+const mongoose = require("mongoose");
 // ─── Role helpers ─────────────────────────────────────────────────────────────
 const isAdmin = (role) => {
   if (!role) return false;
@@ -30,7 +30,7 @@ const isCatalogue = (role) => {
 };
 
 /**
- * @route   POST /api/developer/inventory/create
+ * @route   POST /api/properties/inventory
  * @desc    Developer creates inventory for off-plan property
  */
 exports.createInventory = async (req, res) => {
@@ -38,9 +38,31 @@ exports.createInventory = async (req, res) => {
         const developerId = req.user._id;
         const { propertyId, units } = req.body;
 
+        console.log("=== CREATE INVENTORY ===");
+        console.log("developerId:", developerId);
+        console.log("propertyId:", propertyId);
+        console.log("units:", JSON.stringify(units, null, 2));
+
+        // Validate required fields
+        if (!propertyId || !units || !Array.isArray(units) || units.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "propertyId and units array are required"
+            });
+        }
+
         // Check if property exists and belongs to developer
-        const property = await Property.findOne({ _id: propertyId, developer: developerId });
+        const property = await Property.findOne({ 
+            _id: propertyId,
+            $or: [
+                { developer: developerId },
+                { developerId: developerId },
+                { createdBy: developerId }
+            ]
+        });
+
         if (!property) {
+            console.log("Property not found. propertyId:", propertyId, "developerId:", developerId);
             return res.status(404).json({
                 success: false,
                 message: "Property not found or you don't have permission"
@@ -55,15 +77,24 @@ exports.createInventory = async (req, res) => {
         }
 
         const createdUnits = [];
+        const skippedUnits = [];
 
         for (const unit of units) {
+            // Validate unit has required fields
+            if (!unit.unitNumber) {
+                skippedUnits.push({ unit, reason: "Missing unitNumber" });
+                continue;
+            }
+
+            // Check for duplicate unit number in same property
             const existingUnit = await Inventory.findOne({
                 propertyId,
                 unitNumber: unit.unitNumber
             });
 
             if (existingUnit) {
-                continue; // Skip duplicate unit numbers
+                skippedUnits.push({ unitNumber: unit.unitNumber, reason: "Unit number already exists" });
+                continue;
             }
 
             const newUnit = await Inventory.create({
@@ -72,22 +103,30 @@ exports.createInventory = async (req, res) => {
                 unitNumber: unit.unitNumber,
                 buildingName: unit.buildingName || "",
                 floorNumber: unit.floorNumber || 0,
-                unitType: unit.unitType,
-                bedroomType: unit.bedroomType,
+                unitType: unit.unitType || "apartment",
+                bedroomType: unit.bedroomType || "1bed",
                 bedrooms: unit.bedrooms || 0,
                 bathrooms: unit.bathrooms || 0,
-                area: unit.area,
+                area: unit.area || 0,
                 areaUnit: unit.areaUnit || "sqft",
-                price: unit.price,
+                price: unit.price || 0,
                 currency: unit.currency || "AED",
                 hasView: unit.hasView || false,
                 viewType: unit.viewType || [],
                 parkingSpaces: unit.parkingSpaces || 0,
                 furnishing: unit.furnishing || "unfurnished",
-                status: "available"
+                status: unit.status || "available"
             });
 
             createdUnits.push(newUnit);
+        }
+
+        if (createdUnits.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "No valid units to create",
+                skipped: skippedUnits
+            });
         }
 
         // Update property total units
@@ -97,10 +136,21 @@ exports.createInventory = async (req, res) => {
         return res.status(201).json({
             success: true,
             message: `${createdUnits.length} units added to inventory`,
-            data: createdUnits
+            data: createdUnits,
+            ...(skippedUnits.length > 0 && { skipped: skippedUnits })
         });
 
     } catch (error) {
+        console.error("Create inventory error:", error);
+        
+        // Handle duplicate key error
+        if (error.code === 11000) {
+            return res.status(400).json({
+                success: false,
+                message: "Duplicate unit number found in this property"
+            });
+        }
+
         return res.status(500).json({
             success: false,
             message: error.message
@@ -109,7 +159,7 @@ exports.createInventory = async (req, res) => {
 };
 
 /**
- * @route   POST /api/developer/inventory/bulk-import
+ * @route   POST /api/properties/inventory/bulk
  * @desc    Developer bulk imports inventory via Excel/CSV
  */
 exports.bulkImportInventory = async (req, res) => {
@@ -117,7 +167,22 @@ exports.bulkImportInventory = async (req, res) => {
         const developerId = req.user._id;
         const { propertyId, units } = req.body;
 
-        const property = await Property.findOne({ _id: propertyId, developer: developerId });
+        if (!propertyId || !units || !Array.isArray(units)) {
+            return res.status(400).json({
+                success: false,
+                message: "propertyId and units array are required"
+            });
+        }
+
+        const property = await Property.findOne({ 
+            _id: propertyId,
+            $or: [
+                { developer: developerId },
+                { developerId: developerId },
+                { createdBy: developerId }
+            ]
+        });
+
         if (!property) {
             return res.status(404).json({
                 success: false,
@@ -131,13 +196,27 @@ exports.bulkImportInventory = async (req, res) => {
         for (let i = 0; i < units.length; i++) {
             const unit = units[i];
             try {
+                // Validate required fields
+                if (!unit.unitNumber || !unit.area || !unit.price) {
+                    errors.push({ 
+                        row: i + 1, 
+                        unitNumber: unit.unitNumber || "missing", 
+                        error: "unitNumber, area, and price are required" 
+                    });
+                    continue;
+                }
+
                 const existingUnit = await Inventory.findOne({
                     propertyId,
                     unitNumber: unit.unitNumber
                 });
 
                 if (existingUnit) {
-                    errors.push({ row: i + 1, unitNumber: unit.unitNumber, error: "Unit number already exists" });
+                    errors.push({ 
+                        row: i + 1, 
+                        unitNumber: unit.unitNumber, 
+                        error: "Unit number already exists" 
+                    });
                     continue;
                 }
 
@@ -147,20 +226,28 @@ exports.bulkImportInventory = async (req, res) => {
                     unitNumber: unit.unitNumber,
                     buildingName: unit.buildingName || "",
                     floorNumber: unit.floorNumber || 0,
-                    unitType: unit.unitType,
-                    bedroomType: unit.bedroomType,
+                    unitType: unit.unitType || "apartment",
+                    bedroomType: unit.bedroomType || "1bed",
                     bedrooms: unit.bedrooms || 0,
                     bathrooms: unit.bathrooms || 0,
                     area: unit.area,
                     areaUnit: unit.areaUnit || "sqft",
                     price: unit.price,
                     currency: unit.currency || "AED",
-                    status: "available"
+                    hasView: unit.hasView || false,
+                    viewType: unit.viewType || [],
+                    parkingSpaces: unit.parkingSpaces || 0,
+                    furnishing: unit.furnishing || "unfurnished",
+                    status: unit.status || "available"
                 });
 
                 createdUnits.push(newUnit);
             } catch (err) {
-                errors.push({ row: i + 1, unitNumber: unit.unitNumber, error: err.message });
+                errors.push({ 
+                    row: i + 1, 
+                    unitNumber: unit.unitNumber || "unknown", 
+                    error: err.message 
+                });
             }
         }
 
@@ -170,11 +257,15 @@ exports.bulkImportInventory = async (req, res) => {
 
         return res.status(201).json({
             success: true,
-            message: `${createdUnits.length} units imported successfully`,
-            data: { created: createdUnits, errors: errors }
+            message: `${createdUnits.length} units imported, ${errors.length} errors`,
+            data: { 
+                created: createdUnits, 
+                errors: errors 
+            }
         });
 
     } catch (error) {
+        console.error("Bulk import error:", error);
         return res.status(500).json({
             success: false,
             message: error.message
@@ -182,15 +273,12 @@ exports.bulkImportInventory = async (req, res) => {
     }
 };
 
-const mongoose = require("mongoose");
-
 /**
- * @route   GET /api/properties/inventory?propertyId=
- * @desc    Get inventory by property
+ * @route   GET /api/properties/inventory
+ * @desc    Get inventory by property with filtering and pagination
  */
 exports.getInventoryByProperty = async (req, res) => {
     try {
-        console.log("=== 📦 getInventoryByProperty RECEIVED ===");
         const { propertyId } = req.query;
         const userId = req.user._id;
         const role = req.user.role;
@@ -200,11 +288,7 @@ exports.getInventoryByProperty = async (req, res) => {
         const status = req.query.status;
         const unitType = req.query.unitType;
 
-        console.log("📋 Input params:", { propertyId, userId, role, page, limit, status, unitType });
-
-        // FIX: REMOVE the ObjectId.isValid check - just check if propertyId exists
         if (!propertyId) {
-            console.log("❌ Missing propertyId");
             return res.status(400).json({
                 success: false,
                 message: "Property ID is required"
@@ -217,7 +301,8 @@ exports.getInventoryByProperty = async (req, res) => {
         if (isDevRole(role)) {
             propertyQuery.$or = [
                 { developer: userId },
-                { developerId: userId }
+                { developerId: userId },
+                { createdBy: userId }
             ];
         } else if (!isAdmin(role)) {
             propertyQuery.approvalStatus = "approved";
@@ -226,7 +311,6 @@ exports.getInventoryByProperty = async (req, res) => {
 
         // Check if property exists
         const property = await Property.findOne(propertyQuery);
-        console.log("🏠 Property found:", property ? property._id : "NOT FOUND");
 
         if (!property) {
             return res.status(404).json({
@@ -235,12 +319,10 @@ exports.getInventoryByProperty = async (req, res) => {
             });
         }
 
-        // Rest of your code remains the same...
+        // Build inventory query
         let query = { propertyId };
         if (status) query.status = status;
         if (unitType) query.unitType = unitType;
-
-        console.log("🔍 Query:", query);
 
         const total = await Inventory.countDocuments(query);
         const inventory = await Inventory.find(query)
@@ -248,15 +330,49 @@ exports.getInventoryByProperty = async (req, res) => {
             .skip(skip)
             .limit(limit);
 
-        console.log("📦 Found inventory items:", inventory.length);
-
+        // Get counts by status
         const counts = {
-            total: await Inventory.countDocuments({ propertyId }),
-            available: await Inventory.countDocuments({ propertyId, status: "available" }),
-            reserved: await Inventory.countDocuments({ propertyId, status: "reserved" }),
-            booked: await Inventory.countDocuments({ propertyId, status: "booked" }),
-            sold: await Inventory.countDocuments({ propertyId, status: "sold" })
+            totalUnits: await Inventory.countDocuments({ propertyId }),
+            byStatus: {
+                available: await Inventory.countDocuments({ propertyId, status: "available" }),
+                reserved: await Inventory.countDocuments({ propertyId, status: "reserved" }),
+                booked: await Inventory.countDocuments({ propertyId, status: "booked" }),
+                sold: await Inventory.countDocuments({ propertyId, status: "sold" })
+            },
+            byUnitType: {}
         };
+
+        // Get breakdown by unit type
+        const unitTypeBreakdown = await Inventory.aggregate([
+            { $match: { propertyId: new mongoose.Types.ObjectId(propertyId) } },
+            {
+                $group: {
+                    _id: "$unitType",
+                    total: { $sum: 1 },
+                    available: { $sum: { $cond: [{ $eq: ["$status", "available"] }, 1, 0] } },
+                    reserved: { $sum: { $cond: [{ $eq: ["$status", "reserved"] }, 1, 0] } },
+                    booked: { $sum: { $cond: [{ $eq: ["$status", "booked"] }, 1, 0] } },
+                    sold: { $sum: { $cond: [{ $eq: ["$status", "sold"] }, 1, 0] } },
+                    minPrice: { $min: "$price" },
+                    maxPrice: { $max: "$price" }
+                }
+            }
+        ]);
+
+        // Format unit type breakdown
+        unitTypeBreakdown.forEach(item => {
+            counts.byUnitType[item._id] = {
+                total: item.total,
+                available: item.available,
+                reserved: item.reserved,
+                booked: item.booked,
+                sold: item.sold,
+                pricing: {
+                    min: item.minPrice,
+                    max: item.maxPrice
+                }
+            };
+        });
 
         return res.status(200).json({
             success: true,
@@ -271,7 +387,7 @@ exports.getInventoryByProperty = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("❌ getInventoryByProperty ERROR:", error);
+        console.error("getInventoryByProperty ERROR:", error);
         return res.status(500).json({
             success: false,
             message: error.message
@@ -279,6 +395,10 @@ exports.getInventoryByProperty = async (req, res) => {
     }
 };
 
+/**
+ * @route   GET /api/properties/inventory/:unitId
+ * @desc    Get single inventory unit
+ */
 exports.getSingleInventory = async (req, res) => {
   try {
     const { unitId } = req.params;
@@ -304,8 +424,9 @@ exports.getSingleInventory = async (req, res) => {
     });
   }
 };
+
 /**
- * @route   PUT /api/developer/inventory/:id
+ * @route   PATCH /api/properties/inventory/:id
  * @desc    Developer updates inventory unit
  */
 exports.updateInventory = async (req, res) => {
@@ -313,7 +434,7 @@ exports.updateInventory = async (req, res) => {
         const { id } = req.params;
         const developerId = req.user._id;
 
-        const inventory = await Inventory.findById(id).populate("propertyId");
+        const inventory = await Inventory.findById(id);
         if (!inventory) {
             return res.status(404).json({
                 success: false,
@@ -350,7 +471,7 @@ exports.updateInventory = async (req, res) => {
 };
 
 /**
- * @route   DELETE /api/developer/inventory/:id
+ * @route   DELETE /api/properties/inventory/:id
  * @desc    Developer deletes inventory unit
  */
 exports.deleteInventory = async (req, res) => {
@@ -397,13 +518,13 @@ exports.deleteInventory = async (req, res) => {
 // =========================
 
 /**
- * @route   POST /api/inventory/:id/reserve
- * @desc    Agent reserves a unit
+ * @route   POST /api/properties/inventory/:id/reserve
+ * @desc    Reserve a unit
  */
 exports.reserveUnit = async (req, res) => {
     try {
         const { id } = req.params;
-        const agentId = req.user._id;
+        const userId = req.user._id;
         const { customerId, expiryDays } = req.body;
 
         const inventory = await Inventory.findById(id);
@@ -425,7 +546,7 @@ exports.reserveUnit = async (req, res) => {
         expiryDate.setDate(expiryDate.getDate() + (expiryDays || 7));
 
         inventory.status = "reserved";
-        inventory.reservedBy = agentId;
+        inventory.reservedBy = userId;
         inventory.reservedAt = new Date();
         inventory.reservationExpiresAt = expiryDate;
 
@@ -450,13 +571,13 @@ exports.reserveUnit = async (req, res) => {
 };
 
 /**
- * @route   POST /api/inventory/:id/book
- * @desc    Agent books a unit (after payment)
+ * @route   POST /api/properties/inventory/:id/book
+ * @desc    Book a unit
  */
 exports.bookUnit = async (req, res) => {
     try {
         const { id } = req.params;
-        const agentId = req.user._id;
+        const userId = req.user._id;
         const { customerId, downPayment, paymentPlan } = req.body;
 
         const inventory = await Inventory.findById(id);
@@ -475,7 +596,7 @@ exports.bookUnit = async (req, res) => {
         }
 
         inventory.status = "booked";
-        inventory.bookedBy = agentId;
+        inventory.bookedBy = userId;
         inventory.bookedByCustomer = customerId;
         inventory.bookedAt = new Date();
         inventory.downPayment = downPayment || 0;
@@ -500,7 +621,7 @@ exports.bookUnit = async (req, res) => {
 };
 
 /**
- * @route   POST /api/inventory/:id/release
+ * @route   POST /api/properties/inventory/:id/release
  * @desc    Release a reserved unit
  */
 exports.releaseUnit = async (req, res) => {
@@ -545,13 +666,13 @@ exports.releaseUnit = async (req, res) => {
 };
 
 /**
- * @route   POST /api/inventory/:id/sold
- * @desc    Mark unit as sold (after full payment)
+ * @route   POST /api/properties/inventory/:id/sold
+ * @desc    Mark unit as sold
  */
 exports.markAsSold = async (req, res) => {
     try {
         const { id } = req.params;
-        const agentId = req.user._id;
+        const userId = req.user._id;
         const { salePrice, commissionAmount } = req.body;
 
         const inventory = await Inventory.findById(id);
@@ -570,7 +691,7 @@ exports.markAsSold = async (req, res) => {
         }
 
         inventory.status = "sold";
-        inventory.soldBy = agentId;
+        inventory.soldBy = userId;
         inventory.soldAt = new Date();
         inventory.salePrice = salePrice || inventory.price;
         inventory.commissionAmount = commissionAmount || 0;
@@ -578,7 +699,6 @@ exports.markAsSold = async (req, res) => {
         await inventory.save();
 
         // Update property sold units count
-        const property = await Property.findById(inventory.propertyId);
         const soldCount = await Inventory.countDocuments({ propertyId: inventory.propertyId, status: "sold" });
         await Property.findByIdAndUpdate(inventory.propertyId, { soldUnits: soldCount });
 
