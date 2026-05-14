@@ -42,7 +42,7 @@ const {
   getDeveloperStats,
   toggleAccountStatus,
 
-} = require("../controllers/developer.controller");
+} = require("../Controllers/developer.controller");
 const { protectMulti } = require('../../../../middleware/auth');
 
 // =========================

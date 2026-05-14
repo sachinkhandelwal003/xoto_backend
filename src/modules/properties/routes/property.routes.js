@@ -1,5 +1,11 @@
 const router = require("express").Router();
 const { protectMulti } = require("../../../middleware/auth");
+const inventoryCategories = require("../config/inventory.categories.config");
+
+// Debug: Import and check what we're getting
+const indexExports = require("../controllers/index.js");
+
+
 
 const {
   createProperty,
@@ -15,22 +21,22 @@ const {
   toggleHotProperty,
   toggleFavourite,
   getFavourites,
-  requestChanges, 
+  requestChanges,
+  getRequiredConfigForProperty,
+  getDeveloperDashboard
 } = require("../controllers/property.controller");
 
 const {
   createInventory,
   bulkImportInventory,
   getInventoryByProperty,
-  getSingleInventory,
   updateInventory,
   deleteInventory,
   reserveUnit,
   bookUnit,
   releaseUnit,
-  markAsSold,
-
-} = require("../controllers/inventory.controller");
+  autoGenerateInventory
+} = require("../controllers/inventory.controller.js"); 
 
 
 router.get("/hot", getHotProperties);          // public
@@ -42,8 +48,35 @@ router.put("/:id/hot", protectMulti, toggleHotProperty);
 router.post("/favourites/toggle", protectMulti, toggleFavourite);  // like/unlike
 router.get("/favourites", protectMulti, getFavourites);             // saved properties
 
+// Inventory Categories
+router.get("/inventory-categories", (req, res) => {
+  res.status(200).json({
+    success: true,
+    data: inventoryCategories
+  });
+});
+
+router.get("/inventory-categories/:category", (req, res) => {
+  const category = req.params.category;
+  if (!inventoryCategories[category]) {
+    return res.status(404).json({
+      success: false,
+      message: "Category not found"
+    });
+  }
+  res.status(200).json({
+    success: true,
+    data: inventoryCategories[category]
+  });
+});
+
+// Developer Dashboard
+router.get("/developer/dashboard", protectMulti, getDeveloperDashboard);
+
+// Get required config for a specific property
+router.get("/:propertyId/required-config", protectMulti, getRequiredConfigForProperty);
+
 router.get("/", protectMulti, getProperties);
-router.get("/:id", protectMulti, getPropertyById);
 
 // ════════════════════════════════════════════════════════════════════════════
 // PROPERTY ROUTES
@@ -99,46 +132,31 @@ router.get("/:id", protectMulti, getPropertyById);
 //   page, limit
 // ════════════════════════════════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════════════════════════════════
+// INVENTORY ROUTES (MUST COME BEFORE :id ROUTE!)
+// ════════════════════════════════════════════════════════════════════════════
+router.post("/inventory", protectMulti, createInventory);
+router.post("/inventory/auto-generate", protectMulti, autoGenerateInventory);
+router.post("/inventory/bulk", protectMulti, bulkImportInventory);
+router.get("/inventory", protectMulti, getInventoryByProperty);
+router.patch("/inventory/:id", protectMulti, updateInventory);
+router.delete("/inventory/:id", protectMulti, deleteInventory);
+router.post("/inventory/:id/reserve", protectMulti, reserveUnit);
+router.post("/inventory/:id/book", protectMulti, bookUnit);
+router.post("/inventory/:id/release", protectMulti, releaseUnit);
+
+// ════════════════════════════════════════════════════════════════════════════
+// PROPERTY ROUTES
+// ════════════════════════════════════════════════════════════════════════════
 router.post("/", protectMulti, createProperty);
 router.get("/", protectMulti, getProperties);
 router.get("/:id", protectMulti, getPropertyById);
-router.put("/:id", protectMulti, updateProperty);
+router.patch("/:id", protectMulti, updateProperty);
 router.delete("/:id", protectMulti, deleteProperty);
 router.put("/:id/approve", protectMulti, approveProperty);
 router.put("/:id/reject", protectMulti, rejectProperty);
 router.put("/:id/request-changes", protectMulti, requestChanges);
 router.put("/:id/toggle-status", protectMulti, toggleListingStatus);
 router.put("/:id/feature", protectMulti, toggleFeatured);
-
-
-
-// ════════════════════════════════════════════════════════════════════════════
-// INVENTORY ROUTES
-// ════════════════════════════════════════════════════════════════════════════
-//
-// POST   /inventory               Create unit
-// POST   /inventory/bulk          Bulk import units (CSV)
-// GET    /inventory?propertyId=   Get all units for a property
-// GET    /inventory/:unitId       Get single unit
-// PATCH  /inventory/:id           Update unit
-// DELETE /inventory/:id           Delete unit
-// POST   /inventory/:id/reserve   Reserve unit
-// POST   /inventory/:id/book      Book unit
-// POST   /inventory/:id/release   Release unit (back to available)
-// POST   /inventory/:id/sold      Mark unit as sold
-// ════════════════════════════════════════════════════════════════════════════
-
-
-
-router.post("/inventory", protectMulti, createInventory);
-router.post("/inventory/bulk", protectMulti, bulkImportInventory);
-router.get("/inventory", protectMulti, getInventoryByProperty);
-router.get("/inventory/:unitId", protectMulti, getSingleInventory);
-router.patch("/inventory/:id", protectMulti, updateInventory);
-router.delete("/inventory/:id", protectMulti, deleteInventory);
-router.post("/inventory/:id/reserve", protectMulti, reserveUnit);
-router.post("/inventory/:id/book", protectMulti, bookUnit);
-router.post("/inventory/:id/release", protectMulti, releaseUnit);
-router.post("/inventory/:id/sold", protectMulti, markAsSold);
 
 module.exports = router;
