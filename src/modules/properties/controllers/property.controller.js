@@ -1023,6 +1023,13 @@ exports.getDeveloperDashboard = async (req, res) => {
     const activeProjects = properties.length;
     const totalUnits = inventory.length;
 
+    // Calculate pending approval listings count
+    const pendingApprovalCount = properties.filter(p => 
+      p.approvalStatus === "pending" || 
+      p.approvalStatus === "changes_requested" || 
+      p.listingStatus === "pending"
+    ).length;
+
     // Calculate overall inventory status counts
     const inventoryStats = {
       total: totalUnits,
@@ -1114,8 +1121,8 @@ exports.getDeveloperDashboard = async (req, res) => {
         },
         {
           label: "Pending Approvals (Admin)",
-          value: "0",
-          change: -10,
+          value: pendingApprovalCount.toString(),
+          change: 0,
           bg: "#fee2e2",
           color: "#e11d48"
         }
@@ -1156,13 +1163,17 @@ exports.rejectProperty = async (req, res) => {
       return res.status(400).json({ status: "fail", message: "rejectionReason is required" });
     }
 
-    const property = await Property.findById(req.params.id);
-    if (!property) return res.status(404).json({ status: "fail", message: "Property not found" });
+    const property = await Property.findByIdAndUpdate(
+      req.params.id,
+      {
+        approvalStatus: "rejected",
+        listingStatus: "inactive",
+        rejectionReason
+      },
+      { new: true }
+    );
 
-    property.approvalStatus  = "rejected";
-    property.listingStatus   = "inactive";
-    property.rejectionReason = rejectionReason;
-    await property.save();
+    if (!property) return res.status(404).json({ status: "fail", message: "Property not found" });
 
     return res.status(200).json({ status: "success", message: "Property rejected", data: property });
   } catch (err) {
@@ -1332,6 +1343,126 @@ exports.toggleHotProperty = async (req, res) => {
 };
 
 
+
+// ════════════════════════════════════════════════════════════════════════════
+// GET DEVELOPER ANALYTICS
+// GET /properties/developer/analytics
+// ════════════════════════════════════════════════════════════════════════════
+exports.getDeveloperAnalytics = async (req, res) => {
+  try {
+    const developerId = req.user._id;
+
+    // Get all properties for the developer
+    const properties = await Property.find({ developer: developerId });
+    const propertyIds = properties.map(p => p._id);
+
+    // Get all inventory units for these properties
+    const allInventory = [];
+    for (const p of properties) {
+      if (p.inventoryCategory === "residential_tower" && p.floorConfigurations) {
+        p.floorConfigurations.forEach(fc => {
+          fc.units.forEach(u => {
+            allInventory.push({
+              ...u,
+              propertyId: p._id,
+              propertyName: p.projectName || p.propertyName
+            });
+          });
+        });
+      }
+    }
+
+    // Calculate basic stats from properties
+    const totalProperties = properties.length;
+    const liveProperties = properties.filter(p => p.approvalStatus === "approved").length;
+    const pendingProperties = properties.filter(p => p.approvalStatus === "pending").length;
+    const draftProperties = properties.filter(p => p.approvalStatus === "draft").length;
+    const rejectedProperties = properties.filter(p => p.approvalStatus === "rejected").length;
+
+    // Calculate inventory stats
+    const totalUnits = allInventory.length;
+    const availableUnits = allInventory.filter(u => !u.status || u.status === "available").length;
+    const reservedUnits = allInventory.filter(u => u.status === "reserved").length;
+    const soldUnits = allInventory.filter(u => u.status === "sold" || u.status === "spa_signed").length;
+
+    // Calculate listing views and wishlists (from property fields)
+    const totalViews = properties.reduce((sum, p) => sum + (p.viewCount || 0), 0);
+    const totalWishlists = properties.reduce((sum, p) => sum + (p.wishlistCount || 0), 0);
+
+    // Prepare project-wise performance data
+    const projectPerformance = properties.map(p => {
+      const projectInventory = allInventory.filter(u => u.propertyId.toString() === p._id.toString());
+      const projectAvailable = projectInventory.filter(u => !u.status || u.status === "available").length;
+      const projectReserved = projectInventory.filter(u => u.status === "reserved").length;
+      const projectSold = projectInventory.filter(u => u.status === "sold" || u.status === "spa_signed").length;
+
+      return {
+        key: p._id.toString(),
+        project: p.projectName || p.propertyName || "Untitled Project",
+        views: p.viewCount || 0,
+        wishlists: p.wishlistCount || 0,
+        leads: 0, // Placeholder until we have enquiry model
+        bookings: projectSold,
+        unsold: projectAvailable + projectReserved,
+        available: projectAvailable,
+        reserved: projectReserved,
+        sold: projectSold
+      };
+    }).sort((a, b) => b.views - a.views); // Sort by views descending
+
+    // Prepare analytics data
+    const analyticsData = {
+      // Enquiry & Interests Metrics (placeholders for now)
+      totalInterestRegistrations: 0,
+      interestRegistrationsThisMonth: 0,
+      interestRegistrationsLastMonth: 0,
+      leadsAssignedToAgents: 0,
+      enquirySourceBreakdown: { platformCustomer: 0, agentLead: 0 },
+
+      // Deals & Transaction Metrics
+      totalDealsClosed: soldUnits,
+      dealsClosedPerProject: projectPerformance.map(p => ({
+        project: p.project,
+        deals: p.sold
+      })),
+      unitsSoldVsReservedVsAvailable: [
+        { name: "Available", value: availableUnits },
+        { name: "Reserved", value: reservedUnits },
+        { name: "Sold", value: soldUnits }
+      ],
+      averageTimeToDeal: 0, // Placeholder
+      unitsSoldThisQuarter: soldUnits,
+      unitsSoldLastQuarter: 0, // Placeholder
+
+      // Listing Performance Metrics
+      totalListingViews: totalViews,
+      totalWishlists: totalWishlists,
+      averageApprovalTime: 0, // Placeholder
+      listingsByStatus: {
+        live: liveProperties,
+        pendingApproval: pendingProperties,
+        draft: draftProperties,
+        rejected: rejectedProperties
+      },
+      editSubmissionHistory: 0, // Placeholder
+
+      // Agent Engagement Metrics (placeholders)
+      agentsWhoShortlisted: 0,
+      presentationsGenerated: 0,
+      presentationsShared: 0,
+
+      // Project Performance Data
+      projectPerformance
+    };
+
+    return res.status(200).json({
+      status: "success",
+      data: analyticsData
+    });
+  } catch (err) {
+    return res.status(500).json({ status: "error", message: err.message });
+  }
+};
 
 // ── Toggle Favourite ──────────────────────────────────────────────────────
 exports.toggleFavourite = async (req, res) => {

@@ -23,7 +23,8 @@ const {
   getFavourites,
   requestChanges,
   getRequiredConfigForProperty,
-  getDeveloperDashboard
+  getDeveloperDashboard,
+  getDeveloperAnalytics
 } = require("../controllers/property.controller");
 
 const {
@@ -72,6 +73,8 @@ router.get("/inventory-categories/:category", (req, res) => {
 
 // Developer Dashboard
 router.get("/developer/dashboard", protectMulti, getDeveloperDashboard);
+// Developer Analytics
+router.get("/developer/analytics", protectMulti, getDeveloperAnalytics);
 
 // Get required config for a specific property
 router.get("/:propertyId/required-config", protectMulti, getRequiredConfigForProperty);
