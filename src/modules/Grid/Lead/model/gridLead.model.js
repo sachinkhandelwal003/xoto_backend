@@ -8,7 +8,7 @@ const gridLeadSchema = new mongoose.Schema({
   // ==============================================================
   lead_type: {
     type: String,
-    enum: ['platform', 'agent', 'general'],
+    enum: ['platform', 'agent','referral', 'general'],
     required: true,
     index: true,
   },
@@ -100,6 +100,26 @@ const gridLeadSchema = new mongoose.Schema({
     utm_medium:    { type: String, trim: true },
     utm_campaign:  { type: String, trim: true }
   },
+  nurturing: {
+  is_nurturing:        { type: Boolean, default: false },
+  nurturing_reason:    { type: String, default: '' },   // 'no_match' | 'budget_mismatch' | 'area_unavailable'
+  nurturing_started_at: { type: Date, default: null },
+  notify_when_available: { type: Boolean, default: true }, // jab match aaye tab alert karo
+  last_nudge_sent_at:  { type: Date, default: null },
+},
+
+// Advisor's alternative suggestions for this lead
+advisor_suggestions: [{
+  property_id:   { type: mongoose.Schema.Types.ObjectId, ref: 'Properties' },
+  suggested_by:  { type: mongoose.Schema.Types.ObjectId, ref: 'GridAdvisor' },
+  suggested_at:  { type: Date, default: Date.now },
+  note:          { type: String },           // "Ye thoda over budget hai but area perfect hai"
+  client_reaction: {
+    type: String,
+    enum: ['interested', 'not_interested', 'maybe', 'pending'],
+    default: 'pending'
+  }
+}],
 
   // ==============================================================
   // CUSTOMER REQUIREMENTS
