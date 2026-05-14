@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
 const GridReferralPartner = require("../Model/ReferralPartner.model.js");
 const { Role } = require("../../../../modules/auth/models/role/role.model.js");
+const GridLead = require("../../../Grid/Lead/model/gridLead.model.js"); // adjust path
 
 const signToken = (user, roleData) => {
   return jwt.sign(
@@ -147,11 +148,11 @@ exports.getProfile = async (req, res) => {
 
 exports.updateBasicInfo = async (req, res) => {
   try {
-    const { firstName, lastName, email, dateOfBirth } = req.body;
+    const { firstName, lastName, email, dateOfBirth, profilePhotoUrl } = req.body; // ✅ add profilePhotoUrl
 
     const partner = await GridReferralPartner.findByIdAndUpdate(
       req.user._id,
-      { firstName, lastName, email, dateOfBirth },
+      { firstName, lastName, email, dateOfBirth, profilePhotoUrl }, // ✅ add here too
       { new: true, runValidators: true }
     ).select("-password");
 
@@ -237,5 +238,315 @@ exports.updateBankDetails = async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+// ─── Referral Partner Dashboard ─────────────────────────────────────────
+exports.getDashboard = async (req, res) => {
+  try {
+    const partnerId = req.user._id; // from protectMulti middleware
+
+    // 1. Partner profile
+    const partner = await GridReferralPartner.findById(partnerId).lean();
+    if (!partner) {
+      return res.status(404).json({ status: "fail", message: "Partner not found" });
+    }
+
+    // 2. All leads referred by this partner (not deleted)
+    const leads = await GridLead.find({
+      referred_by_partner: partnerId,
+      is_deleted: false,
+    }).lean();
+
+    // ── Stats ────────────────────────────────────────────────────────────
+    const activeLeads = leads.filter(
+      l => !["completed", "not_proceeding"].includes(l.status)
+    );
+    const convertedLeads = leads.filter(l => l.status === "completed");
+    const totalSubmitted = leads.length;
+    const totalConverted = convertedLeads.length;
+    const conversionRate = totalSubmitted > 0
+      ? `${Math.round((totalConverted / totalSubmitted) * 100)}%`
+      : "0%";
+
+    // Commission earned: sum of deal_record.commission_amount
+    const commissionEarned = convertedLeads.reduce(
+      (sum, l) => sum + (l.deal_record?.commission_amount || 0), 0
+    );
+
+    // Profile completion (use the fields from your partner model)
+    const idDone   = !!partner.idDocumentUrl;
+    const bankDone = !!(
+      partner.bankDetails?.iban &&
+      partner.bankDetails?.accountNumber
+    );
+    const profileComplete = partner.isPayoutEligible && partner.isProfileComplete;
+
+    const stats = {
+      activeLeads: activeLeads.length,
+      submitted: totalSubmitted,
+      converted: totalConverted,
+      conversionRate,
+      commissionEarned,
+    };
+
+    // ── Recent Leads (latest 5) ──────────────────────────────────────────
+    const recentLeads = leads
+      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+      .slice(0, 5)
+      .map(l => ({
+        _id: l._id,
+        customerName: l.full_name || l.contact_info?.name?.first_name
+          ? `${l.contact_info.name.first_name || ""} ${l.contact_info.name.last_name || ""}`.trim()
+          : "Unknown",
+        customerPhone: l.contact_info?.mobile?.number || "—",
+        requirements: {
+          area: l.requirements?.location_preferences?.[0]?.area || "Not specified",
+          budget: l.requirements?.budget_min || l.requirements?.budget_max || null,
+        },
+        status: l.status, // as stored (e.g. "in_discussion", "site_visit_scheduled")
+        lastActivity: l.updatedAt,
+      }));
+
+    // ── Leaderboard (top referral partners by total earnings) ────────────
+    const partnerEarnings = await GridLead.aggregate([
+      {
+        $match: {
+          status: "completed",
+          referred_by_partner: { $ne: null },
+          is_deleted: false,
+        },
+      },
+      {
+        $group: {
+          _id: "$referred_by_partner",
+          totalEarnings: { $sum: { $ifNull: ["$deal_record.commission_amount", 0] } },
+          convertedCount: { $sum: 1 },
+        },
+      },
+      { $sort: { totalEarnings: -1 } },
+      { $limit: 10 },
+    ]);
+
+    // Get partner details for these IDs
+    const topIds = partnerEarnings.map(p => p._id);
+    const topPartners = await GridReferralPartner.find({
+      _id: { $in: topIds },
+    }).lean();
+
+    const partnerMap = {};
+    topPartners.forEach(p => {
+      partnerMap[p._id.toString()] = p;
+    });
+
+    let leaderboard = partnerEarnings.map((entry, idx) => {
+      const p = partnerMap[entry._id.toString()];
+      if (!p) return null;
+      return {
+        rank: idx + 1,
+        name: `${p.firstName} ${p.lastName}`,
+        earnings: entry.totalEarnings,
+        conversionRate: "N/A", // could compute if needed
+        isCurrentUser: p._id.toString() === partnerId.toString(),
+      };
+    }).filter(Boolean);
+
+    // Ensure current partner is always present
+    const currentInList = leaderboard.some(lb => lb.isCurrentUser);
+    if (!currentInList && totalConverted > 0) {
+      leaderboard.push({
+        rank: leaderboard.length + 1,
+        name: `${partner.firstName} ${partner.lastName}`,
+        earnings: commissionEarned,
+        conversionRate,
+        isCurrentUser: true,
+      });
+    } else if (!currentInList) {
+      leaderboard.push({
+        rank: leaderboard.length + 1,
+        name: `${partner.firstName} ${partner.lastName}`,
+        earnings: 0,
+        conversionRate: "0%",
+        isCurrentUser: true,
+      });
+    }
+
+    // Monthly rank: find position of current partner in leaderboard
+    const monthlyRank = leaderboard.findIndex(lb => lb.isCurrentUser) + 1;
+
+    res.status(200).json({
+      status: "success",
+      data: {
+        partner: {
+          firstName: partner.firstName,
+          lastName: partner.lastName,
+          profileCompletion: {
+            percentage: profileComplete ? 100 : (idDone ? 66 : 33),
+            basicInfo: true,
+            identity: idDone,
+            bankDetails: bankDone,
+          },
+          leaderboard: {
+            monthlyRank: monthlyRank || null,
+          },
+        },
+        stats,
+        leads: recentLeads,
+        leaderboard: leaderboard.slice(0, 5),
+      },
+    });
+  } catch (err) {
+    console.error("Dashboard error:", err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+// In ReferralPartner.controller.js
+exports.changePassword = async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    const partner = await GridReferralPartner.findById(req.user._id).select("+password");
+    if (!partner) return res.status(404).json({ message: "Not found" });
+
+    const isCorrect = await partner.correctPassword(oldPassword);
+    if (!isCorrect) return res.status(401).json({ message: "Current password is incorrect" });
+
+    partner.password = newPassword;
+    await partner.save();
+
+    res.status(200).json({ status: "success", message: "Password changed successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.getLeaderboard = async (req, res) => {
+  try {
+    const { period = "monthly" } = req.query; // monthly, quarterly, annual, weekly
+    const currentPartnerId = req.user._id;
+
+    // Define date range based on period
+    const now = new Date();
+    let startDate;
+    switch (period) {
+      case "weekly":
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case "quarterly":
+        startDate = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+        break;
+      case "annual":
+        startDate = new Date(now.getFullYear(), 0, 1);
+        break;
+      case "monthly":
+      default:
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+    }
+
+    // Aggregate completed leads within period, grouped by referral partner
+    const earningsAgg = await GridLead.aggregate([
+      {
+        $match: {
+          status: "completed",
+          referred_by_partner: { $ne: null },
+          is_deleted: false,
+          updatedAt: { $gte: startDate },
+        },
+      },
+      {
+        $group: {
+          _id: "$referred_by_partner",
+          totalEarnings: { $sum: { $ifNull: ["$deal_record.commission_amount", 0] } },
+          convertedCount: { $sum: 1 },
+        },
+      },
+      { $sort: { totalEarnings: -1 } },
+    ]);
+
+    // Aggregate total leads submitted (not just completed) in the same period
+    const totalLeadsAgg = await GridLead.aggregate([
+      {
+        $match: {
+          referred_by_partner: { $ne: null },
+          is_deleted: false,
+          createdAt: { $gte: startDate },
+        },
+      },
+      {
+        $group: {
+          _id: "$referred_by_partner",
+          totalLeads: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // Build a map from partner ID to total leads
+    const totalLeadsMap = {};
+    totalLeadsAgg.forEach(item => {
+      totalLeadsMap[item._id.toString()] = item.totalLeads;
+    });
+
+    // Get partner details for those who have earnings
+    const partnerIds = earningsAgg.map(e => e._id);
+    const partners = await GridReferralPartner.find({
+      _id: { $in: partnerIds },
+    }).lean();
+
+    const partnerMap = {};
+    partners.forEach(p => {
+      partnerMap[p._id.toString()] = p;
+    });
+
+    // Build leaderboard array
+    let leaderboard = earningsAgg.map((entry, index) => {
+      const p = partnerMap[entry._id.toString()];
+      if (!p) return null;
+      const totalLeads = totalLeadsMap[entry._id.toString()] || 0;
+      const conversionRate = totalLeads > 0
+        ? `${Math.round((entry.convertedCount / totalLeads) * 100)}%`
+        : "0%";
+      return {
+        rank: index + 1,
+        name: `${p.firstName} ${p.lastName}`,
+        earnings: entry.totalEarnings,
+        conversionRate,
+        isCurrentUser: p._id.toString() === currentPartnerId.toString(),
+      };
+    }).filter(Boolean);
+
+    // If current partner not in list (maybe zero earnings), add them at the end
+    const currentInList = leaderboard.some(lb => lb.isCurrentUser);
+    if (!currentInList) {
+      // Find current partner's total leads and earnings in period
+      const currentEarningsData = earningsAgg.find(
+        e => e._id.toString() === currentPartnerId.toString()
+      );
+      const currentTotalLeads = totalLeadsMap[currentPartnerId.toString()] || 0;
+      const currentEarnings = currentEarningsData ? currentEarningsData.totalEarnings : 0;
+      const currentConverted = currentEarningsData ? currentEarningsData.convertedCount : 0;
+      const currentConversionRate = currentTotalLeads > 0
+        ? `${Math.round((currentConverted / currentTotalLeads) * 100)}%`
+        : "0%";
+
+      leaderboard.push({
+        rank: leaderboard.length + 1,
+        name: `${req.user.firstName} ${req.user.lastName}`,
+        earnings: currentEarnings,
+        conversionRate: currentConversionRate,
+        isCurrentUser: true,
+      });
+    }
+
+    res.status(200).json({
+      status: "success",
+      data: {
+        period,
+        leaderboard,
+      },
+    });
+  } catch (err) {
+    console.error("Leaderboard error:", err);
+    res.status(500).json({ status: "error", message: err.message });
   }
 };

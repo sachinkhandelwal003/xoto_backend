@@ -21,6 +21,13 @@ const gridLeadSchema = new mongoose.Schema({
     ]
   },
 
+  referred_by_partner: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'GridReferralPartner',
+  default: null,
+  index: true
+},
+
   // ==============================================================
   // SECTION 1.4 - CUSTOMER TRACK
   // ==============================================================

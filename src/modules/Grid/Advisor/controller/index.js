@@ -534,3 +534,142 @@ exports.updateMyProfile = async (req, res) => {
     res.status(500).json({ status: "error", message: err.message });
   }
 };
+
+// Dashboard 
+
+// ════════════════════════════════════════════════════════════════════════════
+// GET DASHBOARD FOR LOGGED-IN GRID ADVISOR
+// GET /gridadvisor/me/dashboard
+// ════════════════════════════════════════════════════════════════════════════
+exports.getMyDashboard = async (req, res) => {
+  try {
+    // ✅ YOUR TOKEN PAYLOAD HAS "id", NOT "_id"
+const advisorId = req.user._id || req.user.id;
+    // 1. Fetch advisor data (lean for speed)
+    const advisor = await GridAdvisor.findById(advisorId)
+      .select("-password -loginLink -loginLinkExpiresAt")
+      .lean();
+
+    if (!advisor) {
+      return res.status(404).json({ status: "fail", message: "Advisor not found" });
+    }
+
+    // 2. Lead stats – wrap in try/catch in case Lead model doesn't exist yet
+    let leadStats = {
+      totalActive: 0,
+      breakdown: {},
+      urgentCount: 0,
+      urgentLeads: [],
+      recent: [],
+    };
+    let activityFeed = [];
+
+    try {
+      const Lead = require("../../Lead/model/gridLead.model.js");  // adjust path if needed
+    const leads = await Lead.find({ assigned_to: advisorId }).lean();
+
+const activeLeads = leads.filter(
+  l => !["completed", "not_proceeding"].includes(l.status)
+);
+
+      // Status breakdown
+      const statusBreakdown = {};
+      activeLeads.forEach(l => {
+        statusBreakdown[l.status] = (statusBreakdown[l.status] || 0) + 1;
+      });
+
+      // Urgent leads (Hot uncontacted or inactivity >24h)
+      const now = Date.now();
+      const urgentLeads = activeLeads.filter(l => {
+        if (l.classification === "Hot" && l.status === "New" && (now - new Date(l.createdAt)) > 3600000)
+          return true;
+        const lastUpdate = l.lastStatusUpdate || l.updatedAt;
+        if (lastUpdate && (now - new Date(lastUpdate)) > 86400000)
+          return true;
+        return false;
+      });
+
+      // Recent leads (most recently updated 5)
+      const recentLeads = activeLeads
+        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+        .slice(0, 5)
+        .map(l => ({
+          _id: l._id,
+          customerName: l.contact_info?.name
+  ? `${l.contact_info.name.first_name || ""} ${l.contact_info.name.last_name || ""}`.trim() || "Unknown"
+  : "Unknown",
+          customerPhone: l.contact_info?.mobile?.number || "—",
+requirementsSummary: l.requirements?.location_preferences?.[0]?.area || "No area",
+          status: l.status,
+         budget: l.requirements?.budget_min ? `₹${l.requirements.budget_min}` : "—",
+
+          lastActivity: l.updatedAt,
+        }));
+
+      leadStats = {
+        totalActive: activeLeads.length,
+        breakdown: statusBreakdown,
+        urgentCount: urgentLeads.length,
+        urgentLeads: urgentLeads.slice(0, 3),
+        recent: recentLeads,
+      };
+
+      activityFeed = recentLeads.map(l => ({
+        message: `Lead ${l._id} - status: ${l.status}`,
+        timestamp: l.lastActivity,
+        leadId: l._id,
+      }));
+    } catch (e) {
+      console.warn("Lead model not available, using empty stats:", e.message);
+      // keep leadStats as default empty
+    }
+
+    // Next best action
+    let nextAction = "View all leads";
+    if (leadStats.urgentLeads.some(l => l.status === "New"))
+      nextAction = "Contact new hot lead";
+    else if (leadStats.breakdown?.["Offer Made"] > 0)
+      nextAction = "Review pending offers";
+    else if (advisor.profileCompletion?.percentage < 100)
+      nextAction = "Complete your profile";
+
+    res.status(200).json({
+      status: "success",
+      data: {
+        advisor: {
+          _id: advisor._id,
+          fullName: `${advisor.firstName} ${advisor.lastName}`,
+          profileCompletion: advisor.profileCompletion,
+          leaderboard: advisor.leaderboard,
+          workload: advisor.workload,
+        },
+        leadStats,
+        activityFeed,
+        nextAction,
+      },
+    });
+  } catch (err) {
+    console.error("Dashboard error:", err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+// GET /gridadvisor/me
+exports.getMyProfile = async (req, res) => {
+  try {
+    const advisor = await GridAdvisor.findById(req.user._id || req.user.id)
+      .select("-password -loginLink -loginLinkExpiresAt")
+      .lean();
+
+    if (!advisor) {
+      return res.status(404).json({ status: "fail", message: "Advisor not found" });
+    }
+
+    res.status(200).json({
+      status: "success",
+      advisor,
+    });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+};
