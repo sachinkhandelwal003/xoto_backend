@@ -71,13 +71,15 @@ const PropertySchema = new mongoose.Schema(
 
     unitType: {
       type: String,
-      enum: [
-        "apartment", "villa", "townhouse", "duplex", "penthouse",
-        "plot", "office", "retail", "warehouse", "Apartment", "Villa & Townhouse", "Commercial", "Plot"
-      ],
+      enum: ["apartment", "villa", "townhouse", "duplex", "penthouse", "plot", "office", "retail", "warehouse"],
       required: function () {
         return this.propertySubType !== "off_plan";
       },
+    },
+    unitTypes: {
+      type: [String],
+      enum: ["apartment", "villa", "townhouse", "duplex", "penthouse", "plot", "office", "retail", "warehouse"],
+      default: []
     },
     bedroomType: {
       type:    String,
@@ -364,6 +366,67 @@ const PropertySchema = new mongoose.Schema(
     isAvailable:             { type: Boolean, default: true },
     isFeatured:              { type: Boolean, default: false },
     showContactOnlyVerified: { type: Boolean, default: true },
+
+    // ══════════════════════════════════════════════════════════════
+    // INVENTORY CATEGORY (MAIN DRIVER FOR INVENTORY LOGIC)
+    // ══════════════════════════════════════════════════════════════
+    inventoryCategory: {
+      type: String,
+      enum: [
+        "residential_tower",
+        "villa_community",
+        "townhouse_cluster",
+        "commercial_office",
+        "commercial_retail",
+        "warehouse",
+        "land_plot",
+        "hotel_apartment"
+      ],
+      default: "residential_tower"
+    },
+    
+    // ══════════════════════════════════════════════════════════════
+    // FLOOR & BUILDING CONFIGURATIONS (FOR AUTO-INVENTORY)
+    // ══════════════════════════════════════════════════════════════
+    buildingNames: { type: [String], default: [] },
+    floorConfigurations: [
+      {
+        buildingName: { type: String, default: "" },
+        floorNumber: { type: Number, required: true },
+        units: [
+          {
+            unitType: {
+              type: String,
+              enum: ["apartment", "villa", "townhouse", "duplex", "penthouse", "plot", "office", "retail", "warehouse"],
+              required: true
+            },
+            bedroomType: {
+              type: String,
+              enum: ["studio", "1bed", "2bed", "3bed", "4bed", "5bed", "6bed", "7bed", "8plus"],
+              required: true
+            },
+            bedrooms: { type: Number, default: 0 },
+            bathrooms: { type: Number, default: 0 },
+            area: { type: Number, required: true },
+            areaUnit: { type: String, enum: ["sqft", "sqm"], default: "sqft" },
+            price: { type: Number, required: true },
+            count: { type: Number, default: 1 },
+            hasView: { type: Boolean, default: false },
+            viewType: {
+              type: [String],
+              enum: ["sea", "city", "garden", "landmark", "pool", "park"],
+              default: []
+            },
+            parkingSpaces: { type: Number, default: 0 },
+            furnishing: {
+              type: String,
+              enum: ["furnished", "semi_furnished", "unfurnished"],
+              default: "unfurnished"
+            }
+          }
+        ]
+      }
+    ],
 
     // ══════════════════════════════════════════════════════════════
     // STATISTICS (PRD §9.4, §9.6)

@@ -2,7 +2,369 @@
 
 const Inventory = require("../models/property.inventory.model");
 const Property = require("../models/property.model");
+const { inventoryCategories, determineInventoryCategory } = require("../config/inventory.categories.config");
 const mongoose = require("mongoose");
+
+// ─── AUTO GENERATE INVENTORY ─────────────────────────────────────────────────
+exports.autoGenerateInventory = async (req, res) => {
+  try {
+    const developerId = req.user._id;
+    const { propertyId, config } = req.body;
+
+    if (!propertyId) {
+      return res.status(400).json({
+        success: false,
+        message: "propertyId is required"
+      });
+    }
+
+    // Get property
+    const property = await Property.findOne({
+      _id: propertyId,
+      $or: [
+        { developer: developerId },
+        { developerId: developerId },
+        { createdBy: developerId }
+      ]
+    });
+
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found or you don't have permission"
+      });
+    }
+
+    const generatedUnits = [];
+    let unitCounter = 1;
+
+    // If config is provided, use it to generate units
+    if (config) {
+      const category = determineInventoryCategory(property.unitType, property.propertyType, property.unitTypes);
+      
+      switch (category) {
+        case "residential_tower":
+          if (config.towers && config.towers.length > 0 && config.floorConfigs && config.floorConfigs.length > 0) {
+            for (const floorConfig of config.floorConfigs) {
+              const tower = config.towers.find(t => t.name === floorConfig.towerName);
+              if (!tower) continue;
+              
+              const startFloor = floorConfig.startFloor || 1;
+              const endFloor = floorConfig.endFloor || tower.totalFloors || 10;
+              
+              for (let floorNum = startFloor; floorNum <= endFloor; floorNum++) {
+                const count = tower.unitsPerFloor || 2;
+                for (let i = 0; i < count; i++) {
+                  const unitNumber = `${tower.name.replace(/\s+/g, '')}-${floorNum}${String(unitCounter).padStart(2, '0')}`;
+                  
+                  const existingUnit = await Inventory.findOne({ propertyId, unitNumber });
+                  if (existingUnit) continue;
+                  
+                  const extraFields = { tower: tower.name };
+                  
+                  const unitData = {
+                    propertyId,
+                    developerId: property.developer || developerId,
+                    unitNumber,
+                    buildingName: tower.name,
+                    floorNumber: floorNum,
+                    unitType: "apartment",
+                    bedroomType: floorConfig.bedroomType,
+                    bedrooms: parseInt(floorConfig.bedroomType.replace('bed', '')) || 1,
+                    bathrooms: parseInt(floorConfig.bedroomType.replace('bed', '')) || 1,
+                    area: floorConfig.area,
+                    areaUnit: floorConfig.areaUnit || "sqft",
+                    price: floorConfig.price,
+                    currency: floorConfig.currency || (property.currency || "AED"),
+                    hasView: floorConfig.hasView !== undefined ? floorConfig.hasView : (property.hasView || false),
+                    viewType: floorConfig.viewType || (property.viewType || []),
+                    parkingSpaces: floorConfig.parkingSpaces !== undefined ? floorConfig.parkingSpaces : (property.parkingSpaces || 0),
+                    furnishing: floorConfig.furnishing || (property.furnishing || "unfurnished"),
+                    extraFields,
+                    status: floorConfig.status || "available"
+                  };
+                  
+                  const newUnit = await Inventory.create(unitData);
+                  
+                  generatedUnits.push(newUnit);
+                  unitCounter++;
+                }
+              }
+            }
+          }
+          break;
+          
+        case "villa_community":
+          if (config.villaTypes && config.villaTypes.length > 0) {
+            for (const villaType of config.villaTypes) {
+              const count = villaType.count || 10;
+              for (let i = 0; i < count; i++) {
+                const unitNumber = `VILLA-${String(unitCounter).padStart(3, '0')}`;
+                
+                const existingUnit = await Inventory.findOne({ propertyId, unitNumber });
+                if (existingUnit) continue;
+                
+                const unitData = {
+                  propertyId,
+                  developerId: property.developer || developerId,
+                  unitNumber,
+                  buildingName: null,
+                  floorNumber: null,
+                  unitType: "villa",
+                  bedroomType: villaType.bedroomType,
+                  bedrooms: parseInt(villaType.bedroomType.replace('bed', '')) || 3,
+                  bathrooms: parseInt(villaType.bedroomType.replace('bed', '')) || 3,
+                  area: villaType.area,
+                  areaUnit: villaType.areaUnit || "sqft",
+                  price: villaType.price,
+                  currency: villaType.currency || (property.currency || "AED"),
+                  hasView: villaType.hasView !== undefined ? villaType.hasView : (property.hasView || false),
+                  viewType: villaType.viewType || (property.viewType || []),
+                  parkingSpaces: villaType.parkingSpaces !== undefined ? villaType.parkingSpaces : (property.parkingSpaces || 0),
+                  furnishing: villaType.furnishing || (property.furnishing || "unfurnished"),
+                  status: villaType.status || "available"
+                };
+                
+                const newUnit = await Inventory.create(unitData);
+                
+                generatedUnits.push(newUnit);
+                unitCounter++;
+              }
+            }
+          }
+          break;
+          
+        case "townhouse_cluster":
+          if (config.townhouseTypes && config.townhouseTypes.length > 0) {
+            for (const townhouseType of config.townhouseTypes) {
+              const count = townhouseType.count || 15;
+              for (let i = 0; i < count; i++) {
+                const unitNumber = `TOWNHOUSE-${String(unitCounter).padStart(3, '0')}`;
+                
+                const existingUnit = await Inventory.findOne({ propertyId, unitNumber });
+                if (existingUnit) continue;
+                
+                const unitData = {
+                  propertyId,
+                  developerId: property.developer || developerId,
+                  unitNumber,
+                  buildingName: null,
+                  floorNumber: null,
+                  unitType: "townhouse",
+                  bedroomType: townhouseType.bedroomType,
+                  bedrooms: parseInt(townhouseType.bedroomType.replace('bed', '')) || 3,
+                  bathrooms: parseInt(townhouseType.bedroomType.replace('bed', '')) || 3,
+                  area: townhouseType.area,
+                  areaUnit: townhouseType.areaUnit || "sqft",
+                  price: townhouseType.price,
+                  currency: townhouseType.currency || (property.currency || "AED"),
+                  hasView: townhouseType.hasView !== undefined ? townhouseType.hasView : (property.hasView || false),
+                  viewType: townhouseType.viewType || (property.viewType || []),
+                  parkingSpaces: townhouseType.parkingSpaces !== undefined ? townhouseType.parkingSpaces : (property.parkingSpaces || 0),
+                  furnishing: townhouseType.furnishing || (property.furnishing || "unfurnished"),
+                  status: townhouseType.status || "available"
+                };
+                
+                const newUnit = await Inventory.create(unitData);
+                
+                generatedUnits.push(newUnit);
+                unitCounter++;
+              }
+            }
+          }
+          break;
+          
+        case "commercial_office":
+          if (config.floors && config.floors.length > 0) {
+            for (const floorConfig of config.floors) {
+              for (let i = 0; i < floorConfig.unitsPerFloor; i++) {
+                const unitNumber = `OFFICE-${floorConfig.floorNumber}-${String(unitCounter).padStart(2, '0')}`;
+                
+                const existingUnit = await Inventory.findOne({ propertyId, unitNumber });
+                if (existingUnit) continue;
+                
+                const unitData = {
+                  propertyId,
+                  developerId: property.developer || developerId,
+                  unitNumber,
+                  buildingName: "Office Tower",
+                  floorNumber: floorConfig.floorNumber,
+                  unitType: "office",
+                  bedroomType: null,
+                  bedrooms: 0,
+                  bathrooms: 1,
+                  area: floorConfig.area,
+                  areaUnit: floorConfig.areaUnit || "sqft",
+                  price: floorConfig.price,
+                  currency: floorConfig.currency || (property.currency || "AED"),
+                  hasView: floorConfig.hasView !== undefined ? floorConfig.hasView : (property.hasView || false),
+                  viewType: floorConfig.viewType || (property.viewType || []),
+                  parkingSpaces: floorConfig.parkingSpaces !== undefined ? floorConfig.parkingSpaces : (property.parkingSpaces || 0),
+                  furnishing: floorConfig.furnishing || (property.furnishing || "unfurnished"),
+                  status: floorConfig.status || "available"
+                };
+                
+                const newUnit = await Inventory.create(unitData);
+                
+                generatedUnits.push(newUnit);
+                unitCounter++;
+              }
+            }
+          }
+          break;
+          
+        case "commercial_retail":
+          if (config.floors && config.floors.length > 0) {
+            for (const floorConfig of config.floors) {
+              for (let i = 0; i < floorConfig.unitsPerFloor; i++) {
+                const unitNumber = `SHOP-${floorConfig.floorNumber}-${String(unitCounter).padStart(2, '0')}`;
+                
+                const existingUnit = await Inventory.findOne({ propertyId, unitNumber });
+                if (existingUnit) continue;
+                
+                const unitData = {
+                  propertyId,
+                  developerId: property.developer || developerId,
+                  unitNumber,
+                  buildingName: "Retail Mall",
+                  floorNumber: floorConfig.floorNumber,
+                  unitType: "retail",
+                  bedroomType: null,
+                  bedrooms: 0,
+                  bathrooms: 1,
+                  area: floorConfig.area,
+                  areaUnit: floorConfig.areaUnit || "sqft",
+                  price: floorConfig.price,
+                  currency: floorConfig.currency || (property.currency || "AED"),
+                  hasView: floorConfig.hasView !== undefined ? floorConfig.hasView : (property.hasView || false),
+                  viewType: floorConfig.viewType || (property.viewType || []),
+                  parkingSpaces: floorConfig.parkingSpaces !== undefined ? floorConfig.parkingSpaces : (property.parkingSpaces || 0),
+                  furnishing: floorConfig.furnishing || (property.furnishing || "unfurnished"),
+                  status: floorConfig.status || "available"
+                };
+                
+                const newUnit = await Inventory.create(unitData);
+                
+                generatedUnits.push(newUnit);
+                unitCounter++;
+              }
+            }
+          }
+          break;
+          
+        case "land_plot":
+          if (config.plotTypes && config.plotTypes.length > 0) {
+            for (const plotType of config.plotTypes) {
+              for (let i = 0; i < plotType.count; i++) {
+                const unitNumber = `PLOT-${String(unitCounter).padStart(3, '0')}`;
+                
+                const existingUnit = await Inventory.findOne({ propertyId, unitNumber });
+                if (existingUnit) continue;
+                
+                const unitData = {
+                  propertyId,
+                  developerId: property.developer || developerId,
+                  unitNumber,
+                  buildingName: null,
+                  floorNumber: null,
+                  unitType: "plot",
+                  bedroomType: null,
+                  bedrooms: 0,
+                  bathrooms: 0,
+                  area: plotType.area,
+                  areaUnit: plotType.areaUnit || "sqft",
+                  price: plotType.price,
+                  currency: plotType.currency || (property.currency || "AED"),
+                  status: plotType.status || "available"
+                };
+                
+                const newUnit = await Inventory.create(unitData);
+                
+                generatedUnits.push(newUnit);
+                unitCounter++;
+              }
+            }
+          }
+          break;
+          
+        case "warehouse":
+          if (config.warehouses && config.warehouses.length > 0) {
+            for (const warehouse of config.warehouses) {
+              for (let i = 0; i < warehouse.count; i++) {
+                const unitNumber = `WH-${warehouse.name.replace(/\s+/g, '')}-${String(unitCounter).padStart(3, '0')}`;
+                
+                const existingUnit = await Inventory.findOne({ propertyId, unitNumber });
+                if (existingUnit) continue;
+                
+                const unitData = {
+                  propertyId,
+                  developerId: property.developer || developerId,
+                  unitNumber,
+                  buildingName: warehouse.name,
+                  floorNumber: null,
+                  unitType: "warehouse",
+                  bedroomType: null,
+                  bedrooms: 0,
+                  bathrooms: 0,
+                  area: warehouse.area,
+                  areaUnit: warehouse.areaUnit || "sqft",
+                  price: warehouse.price,
+                  currency: warehouse.currency || (property.currency || "AED"),
+                  parkingSpaces: warehouse.parkingSpaces !== undefined ? warehouse.parkingSpaces : 2,
+                  status: warehouse.status || "available"
+                };
+                
+                const newUnit = await Inventory.create(unitData);
+                
+                generatedUnits.push(newUnit);
+                unitCounter++;
+              }
+            }
+          }
+          break;
+      }
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Config is required to generate inventory. Please fill the config form."
+      });
+    }
+
+    // Update property statistics by aggregating from inventory
+    const stats = await Inventory.aggregate([
+      { $match: { propertyId: new mongoose.Types.ObjectId(propertyId) } },
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Build stats object
+    const statsObj = { totalInventory: generatedUnits.length };
+    stats.forEach(s => {
+      const statusKey = `${s._id.toLowerCase()}Units`;
+      statsObj[statusKey] = s.count;
+    });
+
+    await Property.findByIdAndUpdate(propertyId, statsObj);
+
+    return res.status(201).json({
+      success: true,
+      message: `${generatedUnits.length} units auto-generated successfully for ${property.inventoryCategory}`,
+      data: generatedUnits
+    });
+
+  } catch (error) {
+    console.error("Auto generate inventory error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 // ─── Role helpers ─────────────────────────────────────────────────────────────
 const isAdmin = (role) => {
   if (!role) return false;
@@ -287,6 +649,8 @@ exports.getInventoryByProperty = async (req, res) => {
         const skip = (page - 1) * limit;
         const status = req.query.status;
         const unitType = req.query.unitType;
+        const floorNumber = req.query.floorNumber;
+        const buildingName = req.query.buildingName;
 
         if (!propertyId) {
             return res.status(400).json({
@@ -323,10 +687,12 @@ exports.getInventoryByProperty = async (req, res) => {
         let query = { propertyId };
         if (status) query.status = status;
         if (unitType) query.unitType = unitType;
+        if (floorNumber) query.floorNumber = Number(floorNumber);
+        if (buildingName) query.buildingName = buildingName;
 
         const total = await Inventory.countDocuments(query);
         const inventory = await Inventory.find(query)
-            .sort({ floorNumber: 1, unitNumber: 1 })
+            .sort({ buildingName: 1, floorNumber: 1, unitNumber: 1 })
             .skip(skip)
             .limit(limit);
 
@@ -339,7 +705,9 @@ exports.getInventoryByProperty = async (req, res) => {
                 booked: await Inventory.countDocuments({ propertyId, status: "booked" }),
                 sold: await Inventory.countDocuments({ propertyId, status: "sold" })
             },
-            byUnitType: {}
+            byUnitType: {},
+            byFloor: {},
+            byBuilding: {}
         };
 
         // Get breakdown by unit type
@@ -359,6 +727,24 @@ exports.getInventoryByProperty = async (req, res) => {
             }
         ]);
 
+        // Get breakdown by floor
+        const floorBreakdown = await Inventory.aggregate([
+            { $match: { propertyId: new mongoose.Types.ObjectId(propertyId) } },
+            {
+                $group: {
+                    _id: { floor: "$floorNumber", building: "$buildingName" },
+                    total: { $sum: 1 },
+                    available: { $sum: { $cond: [{ $eq: ["$status", "available"] }, 1, 0] } },
+                    reserved: { $sum: { $cond: [{ $eq: ["$status", "reserved"] }, 1, 0] } },
+                    booked: { $sum: { $cond: [{ $eq: ["$status", "booked"] }, 1, 0] } },
+                    sold: { $sum: { $cond: [{ $eq: ["$status", "sold"] }, 1, 0] } },
+                    minPrice: { $min: "$price" },
+                    maxPrice: { $max: "$price" }
+                }
+            },
+            { $sort: { "_id.building": 1, "_id.floor": 1 } }
+        ]);
+
         // Format unit type breakdown
         unitTypeBreakdown.forEach(item => {
             counts.byUnitType[item._id] = {
@@ -374,10 +760,62 @@ exports.getInventoryByProperty = async (req, res) => {
             };
         });
 
+        // Format floor and building breakdown
+        floorBreakdown.forEach(item => {
+            const buildingKey = item._id.building || "Unnamed Building";
+            const floorKey = item._id.floor;
+            
+            if (!counts.byBuilding[buildingKey]) {
+                counts.byBuilding[buildingKey] = {
+                    total: 0,
+                    available: 0,
+                    reserved: 0,
+                    booked: 0,
+                    sold: 0,
+                    floors: {}
+                };
+            }
+            
+            counts.byBuilding[buildingKey].total += item.total;
+            counts.byBuilding[buildingKey].available += item.available;
+            counts.byBuilding[buildingKey].reserved += item.reserved;
+            counts.byBuilding[buildingKey].booked += item.booked;
+            counts.byBuilding[buildingKey].sold += item.sold;
+            
+            counts.byBuilding[buildingKey].floors[floorKey] = {
+                total: item.total,
+                available: item.available,
+                reserved: item.reserved,
+                booked: item.booked,
+                sold: item.sold,
+                pricing: {
+                    min: item.minPrice,
+                    max: item.maxPrice
+                }
+            };
+            
+            if (!counts.byFloor[floorKey]) {
+                counts.byFloor[floorKey] = {
+                    total: 0,
+                    available: 0,
+                    reserved: 0,
+                    booked: 0,
+                    sold: 0
+                };
+            }
+            
+            counts.byFloor[floorKey].total += item.total;
+            counts.byFloor[floorKey].available += item.available;
+            counts.byFloor[floorKey].reserved += item.reserved;
+            counts.byFloor[floorKey].booked += item.booked;
+            counts.byFloor[floorKey].sold += item.sold;
+        });
+
         return res.status(200).json({
             success: true,
             data: inventory,
             counts: counts,
+            floorConfigurations: property.floorConfigurations,
             pagination: {
                 totalPages: Math.ceil(total / limit),
                 currentPage: page,

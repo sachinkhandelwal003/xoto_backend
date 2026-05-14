@@ -1,18 +1,10 @@
 const router = require("express").Router();
 const { protectMulti } = require("../../../middleware/auth");
-
+const inventoryCategories = require("../config/inventory.categories.config");
 
 // Debug: Import and check what we're getting
 const indexExports = require("../controllers/index.js");
-console.log("🔍 index.js exports:", Object.keys(indexExports));
-console.log("🔍 createInventory type:", typeof indexExports.createInventory);
-console.log("🔍 bulkImportInventory type:", typeof indexExports.bulkImportInventory);
-console.log("🔍 getInventoryByProperty type:", typeof indexExports.getInventoryByProperty);
-console.log("🔍 updateInventory type:", typeof indexExports.updateInventory);
-console.log("🔍 deleteInventory type:", typeof indexExports.deleteInventory);
-console.log("🔍 reserveUnit type:", typeof indexExports.reserveUnit);
-console.log("🔍 bookUnit type:", typeof indexExports.bookUnit);
-console.log("🔍 releaseUnit type:", typeof indexExports.releaseUnit);
+
 
 
 const {
@@ -29,7 +21,9 @@ const {
   toggleHotProperty,
   toggleFavourite,
   getFavourites,
-  requestChanges, 
+  requestChanges,
+  getRequiredConfigForProperty,
+  getDeveloperDashboard
 } = require("../controllers/property.controller");
 
 const {
@@ -41,6 +35,7 @@ const {
   reserveUnit,
   bookUnit,
   releaseUnit,
+  autoGenerateInventory
 } = require("../controllers/inventory.controller.js"); 
 
 
@@ -52,6 +47,34 @@ router.put("/:id/hot", protectMulti, toggleHotProperty);
 // Fav Property 
 router.post("/favourites/toggle", protectMulti, toggleFavourite);  // like/unlike
 router.get("/favourites", protectMulti, getFavourites);             // saved properties
+
+// Inventory Categories
+router.get("/inventory-categories", (req, res) => {
+  res.status(200).json({
+    success: true,
+    data: inventoryCategories
+  });
+});
+
+router.get("/inventory-categories/:category", (req, res) => {
+  const category = req.params.category;
+  if (!inventoryCategories[category]) {
+    return res.status(404).json({
+      success: false,
+      message: "Category not found"
+    });
+  }
+  res.status(200).json({
+    success: true,
+    data: inventoryCategories[category]
+  });
+});
+
+// Developer Dashboard
+router.get("/developer/dashboard", protectMulti, getDeveloperDashboard);
+
+// Get required config for a specific property
+router.get("/:propertyId/required-config", protectMulti, getRequiredConfigForProperty);
 
 router.get("/", protectMulti, getProperties);
 
@@ -113,6 +136,7 @@ router.get("/", protectMulti, getProperties);
 // INVENTORY ROUTES (MUST COME BEFORE :id ROUTE!)
 // ════════════════════════════════════════════════════════════════════════════
 router.post("/inventory", protectMulti, createInventory);
+router.post("/inventory/auto-generate", protectMulti, autoGenerateInventory);
 router.post("/inventory/bulk", protectMulti, bulkImportInventory);
 router.get("/inventory", protectMulti, getInventoryByProperty);
 router.patch("/inventory/:id", protectMulti, updateInventory);

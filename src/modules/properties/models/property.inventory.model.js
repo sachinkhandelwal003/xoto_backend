@@ -36,19 +36,24 @@ const PropertyInventorySchema = new mongoose.Schema(
         
         floorNumber: {
             type: Number,
-            default: 0
+            default: null
         },
         
         unitType: {
             type: String,
-            enum: ["apartment", "villa", "townhouse", "duplex", "penthouse"],
+            enum: [
+                "apartment", "villa", "townhouse", "duplex", "penthouse",
+                "plot", "office", "retail", "warehouse", "hotel_apartment"
+            ],
             required: true
         },
         
         bedroomType: {
             type: String,
             enum: ["studio", "1bed", "2bed", "3bed", "4bed", "5bed", "6bed", "7bed", "8plus"],
-            required: true
+            required: function() {
+                return ["apartment", "villa", "townhouse", "duplex", "penthouse", "hotel_apartment"].includes(this.unitType);
+            }
         },
         
         bedrooms: {
@@ -114,11 +119,19 @@ const PropertyInventorySchema = new mongoose.Schema(
         },
 
         // =========================
+        // EXTRA FIELDS (FLEXIBLE FOR ALL PROPERTY TYPES)
+        // =========================
+        extraFields: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {}
+        },
+
+        // =========================
         // UNIT STATUS
         // =========================
         status: {
             type: String,
-            enum: ["available", "reserved", "booked", "sold"],
+            enum: ["available", "hold", "reserved", "booked", "spa_signed", "sold", "handover", "cancelled"],
             default: "available"
         },
         

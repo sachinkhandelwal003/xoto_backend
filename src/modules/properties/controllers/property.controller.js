@@ -2,7 +2,7 @@ const Property  = require("../models/property.model");
 const Inventory = require("../models/property.inventory.model");
 const Developer = require("../../Grid/Developer/models/developer.model");
 const Customer = require("../../auth/models/user/customer.model");
-
+const { inventoryCategories, determineInventoryCategory } = require("../config/inventory.categories.config");
 // ─── Role helpers ─────────────────────────────────────────────────────────────
 const isAdmin = (role) => {
   if (!role) return false;
@@ -244,6 +244,10 @@ console.log("Final listingStatus:", listingStatus);
       developerDetails,
       status,
       propertyType,
+      unitTypes,
+      inventoryCategory,
+      buildingNames,
+      floorConfigurations,
     } = req.body;
 console.log("=== STATUS DEBUG ===");
 console.log("req.body.status:", req.body.status);
@@ -362,13 +366,42 @@ console.log("isDraft:", isDraft);
       isFeatured:              isFeatured              || false,
       isHot:                   false,
       showContactOnlyVerified: showContactOnlyVerified !== undefined ? showContactOnlyVerified : true,
-     approvalStatus:
-  req.body.approvalStatus ||
-  (status === "draft" ? "draft" : approvalStatus || "pending"), 
+      approvalStatus:
+        req.body.approvalStatus ||
+        (status === "draft" ? "draft" : approvalStatus || "pending"),
       listingStatus,
       approvedBy,
       approvedAt,
       isAvailable: true,
+      
+      unitTypes: unitTypes || [],
+      
+      // Inventory config
+      inventoryCategory: inventoryCategory || determineInventoryCategory(unitType, propertyType, unitTypes),
+      buildingNames: buildingNames || [],
+      floorConfigurations: 
+        (inventoryCategory || determineInventoryCategory(unitType, propertyType, unitTypes)) === "residential_tower" && 
+        (!floorConfigurations || floorConfigurations.length === 0)
+          ? [
+              {
+                buildingName: "Tower A",
+                floorNumber: 1,
+                units: [
+                  { unitType: "apartment", bedroomType: "1bed", bedrooms: 1, bathrooms: 1, area: 800, price: 800000, count: 2 },
+                  { unitType: "apartment", bedroomType: "2bed", bedrooms: 2, bathrooms: 2, area: 1200, price: 1200000, count: 2 }
+                ]
+              },
+              {
+                buildingName: "Tower A",
+                floorNumber: 2,
+                units: [
+                  { unitType: "apartment", bedroomType: "1bed", bedrooms: 1, bathrooms: 1, area: 800, price: 850000, count: 2 },
+                  { unitType: "apartment", bedroomType: "2bed", bedrooms: 2, bathrooms: 2, area: 1200, price: 1300000, count: 2 },
+                  { unitType: "apartment", bedroomType: "3bed", bedrooms: 3, bathrooms: 3, area: 1600, price: 1800000, count: 1 }
+                ]
+              }
+            ]
+          : floorConfigurations || [],
     });
 
     console.log("=== 💾 Property data to be saved ===");
@@ -613,6 +646,37 @@ exports.getPropertyById = async (req, res) => {
       return res.status(404).json({ status: "fail", message: "Property not found" });
     }
 
+    // Get inventory data for this property
+    const inventory = await Inventory.find({ propertyId: property._id });
+
+    // Calculate inventory stats
+    const totalUnits = inventory.length;
+    const availableUnits = inventory.filter(u => u.status === "available").length;
+    const reservedUnits = inventory.filter(u => u.status === "reserved").length;
+    const bookedUnits = inventory.filter(u => u.status === "booked").length;
+    const spaSignedUnits = inventory.filter(u => u.status === "spa_signed").length;
+    const soldUnits = inventory.filter(u => u.status === "sold").length;
+    const holdUnits = inventory.filter(u => u.status === "hold").length;
+    const handoverUnits = inventory.filter(u => u.status === "handover").length;
+    const cancelledUnits = inventory.filter(u => u.status === "cancelled").length;
+
+    // Combine data
+    const combinedData = {
+      ...property.toObject(),
+      inventory,
+      inventoryStats: {
+        total: totalUnits,
+        available: availableUnits,
+        hold: holdUnits,
+        reserved: reservedUnits,
+        booked: bookedUnits,
+        spa_signed: spaSignedUnits,
+        sold: soldUnits,
+        handover: handoverUnits,
+        cancelled: cancelledUnits
+      }
+    };
+
     if (isCatalogue(role)) {
       Property.findByIdAndUpdate(req.params.id, { $inc: { viewCount: 1 } }).exec();
     }
@@ -624,7 +688,7 @@ exports.getPropertyById = async (req, res) => {
       'Expires': '0',
     });
 
-    return res.status(200).json({ status: "success", data: property });
+    return res.status(200).json({ status: "success", data: combinedData });
   } catch (err) {
     if (err.name === "CastError") {
       return res.status(400).json({ status: "fail", message: "Invalid property ID" });
@@ -774,6 +838,51 @@ exports.updateProperty = async (req, res) => {
     if (req.body.propertyType !== undefined) {
       updateData.propertyType = req.body.propertyType;
     }
+    if (req.body.unitTypes !== undefined) {
+      updateData.unitTypes = req.body.unitTypes;
+    }
+    if (req.body.inventoryCategory !== undefined) {
+      updateData.inventoryCategory = req.body.inventoryCategory;
+    } else if (req.body.unitType || req.body.unitTypes) {
+      updateData.inventoryCategory = determineInventoryCategory(
+        req.body.unitType, 
+        req.body.propertyType || property.propertyType, 
+        req.body.unitTypes || property.unitTypes
+      );
+    }
+    if (req.body.buildingNames !== undefined) {
+      updateData.buildingNames = req.body.buildingNames;
+    }
+    if (req.body.floorConfigurations !== undefined) {
+      updateData.floorConfigurations = req.body.floorConfigurations;
+    } else if (
+      (req.body.inventoryCategory === "residential_tower" || 
+       (req.body.unitType && determineInventoryCategory(req.body.unitType, req.body.propertyType, req.body.unitTypes) === "residential_tower") ||
+       (req.body.unitTypes && determineInventoryCategory(null, req.body.propertyType, req.body.unitTypes) === "residential_tower") ||
+       (property.inventoryCategory === "residential_tower" && !req.body.inventoryCategory && !req.body.unitType && !req.body.unitTypes)) && 
+      (!property.floorConfigurations || property.floorConfigurations.length === 0)
+    ) {
+      // Add default floor configs if updating to residential_tower
+      updateData.floorConfigurations = [
+        {
+          buildingName: "Tower A",
+          floorNumber: 1,
+          units: [
+            { unitType: "apartment", bedroomType: "1bed", bedrooms: 1, bathrooms: 1, area: 800, price: 800000, count: 2 },
+            { unitType: "apartment", bedroomType: "2bed", bedrooms: 2, bathrooms: 2, area: 1200, price: 1200000, count: 2 }
+          ]
+        },
+        {
+          buildingName: "Tower A",
+          floorNumber: 2,
+          units: [
+            { unitType: "apartment", bedroomType: "1bed", bedrooms: 1, bathrooms: 1, area: 800, price: 850000, count: 2 },
+            { unitType: "apartment", bedroomType: "2bed", bedrooms: 2, bathrooms: 2, area: 1200, price: 1300000, count: 2 },
+            { unitType: "apartment", bedroomType: "3bed", bedrooms: 3, bathrooms: 3, area: 1600, price: 1800000, count: 1 }
+          ]
+        }
+      ];
+    }
 
     // Handle listingStatus based on approvalStatus
     if (updateData.approvalStatus === "draft") {
@@ -885,6 +994,151 @@ exports.approveProperty = async (req, res) => {
     return res.status(200).json({ status: "success", message: "Property approved and now live", data: property });
   } catch (err) {
     return res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// GET DEVELOPER DASHBOARD
+// GET /properties/developer/dashboard
+// ════════════════════════════════════════════════════════════════════════════
+exports.getDeveloperDashboard = async (req, res) => {
+  try {
+    const { role, _id: userId } = req.user;
+
+    if (!isDevRole(role)) {
+      return res.status(403).json({
+        status: "fail",
+        message: "Only developers can access this endpoint"
+      });
+    }
+
+    // Get developer's properties
+    const properties = await Property.find({ developer: userId });
+    const propertyIds = properties.map(p => p._id);
+
+    // Get all inventory units for these properties
+    const inventory = await Inventory.find({ propertyId: { $in: propertyIds } });
+
+    // Calculate active projects and units
+    const activeProjects = properties.length;
+    const totalUnits = inventory.length;
+
+    // Calculate overall inventory status counts
+    const inventoryStats = {
+      total: totalUnits,
+      available: 0,
+      hold: 0,
+      reserved: 0,
+      booked: 0,
+      spa_signed: 0,
+      sold: 0,
+      handover: 0,
+      cancelled: 0
+    };
+
+    // Calculate property-wise inventory status
+    const propertyWiseInventory = properties.map(property => {
+      const propertyInventory = inventory.filter(unit => 
+        unit.propertyId.toString() === property._id.toString()
+      );
+      
+      const propertyStats = {
+        total: propertyInventory.length,
+        available: 0,
+        hold: 0,
+        reserved: 0,
+        booked: 0,
+        spa_signed: 0,
+        sold: 0,
+        handover: 0,
+        cancelled: 0
+      };
+
+      propertyInventory.forEach(unit => {
+        if (propertyStats[unit.status] !== undefined) {
+          propertyStats[unit.status]++;
+        }
+        if (inventoryStats[unit.status] !== undefined) {
+          inventoryStats[unit.status]++;
+        }
+      });
+
+      return {
+        propertyId: property._id,
+        propertyName: property.projectName || property.propertyName || "Unnamed Property",
+        stats: propertyStats,
+        inventory: propertyInventory
+      };
+    });
+
+    // Calculate deal funnel (mock data for now)
+    const dealFunnel = [
+      { stage: "Leads", count: 0 },
+      { stage: "Site Visits", count: 0 },
+      { stage: "Negotiation", count: 0 },
+      { stage: "Closed", count: inventoryStats.sold }
+    ];
+
+    // Mock deals closed
+    const dealsClosed = [];
+
+    // Mock inventory status for pie chart (overall)
+    const inventoryStatusPie = [
+      { name: "Available", value: inventoryStats.available },
+      { name: "Reserved", value: inventoryStats.reserved },
+      { name: "Sold", value: inventoryStats.sold }
+    ].filter(s => s.value > 0);
+
+    const dashboardData = {
+      stats: [
+        {
+          label: "Active Projects / Units",
+          value: `${activeProjects} / ${totalUnits}`,
+          change: 0,
+          bg: "#e0f2fe",
+          color: "#0284c7"
+        },
+        {
+          label: "Interest Registrations (This vs Last Month)",
+          value: "0",
+          change: 0,
+          bg: "#fef3c7",
+          color: "#d97706"
+        },
+        {
+          label: "Reserved / Sold Units",
+          value: `${inventoryStats.reserved} / ${inventoryStats.sold}`,
+          change: 0,
+          bg: "#d1fae5",
+          color: "#059669"
+        },
+        {
+          label: "Pending Approvals (Admin)",
+          value: "0",
+          change: -10,
+          bg: "#fee2e2",
+          color: "#e11d48"
+        }
+      ],
+      inventoryStatus: inventoryStatusPie,
+      propertyWiseInventory: propertyWiseInventory,
+      dealFunnel: dealFunnel,
+      dealsClosed: dealsClosed,
+      inventoryStats: inventoryStats,
+      properties: properties,
+      inventory: inventory
+    };
+
+    return res.status(200).json({
+      status: "success",
+      data: dashboardData
+    });
+  } catch (err) {
+    console.error("❌ Developer dashboard error:", err);
+    return res.status(500).json({
+      status: "error",
+      message: err.message
+    });
   }
 };
 
@@ -1177,4 +1431,72 @@ exports.getFavourites = async (req, res) => {
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
-};  
+};
+
+// ─── GET REQUIRED CONFIG FOR PROPERTY ───────────────────────────────────────────────────────
+exports.getRequiredConfigForProperty = async (req, res) => {
+  try {
+    const { role, _id: userId } = req.user;
+    const propertyId = req.params.propertyId;
+
+    let query = { _id: propertyId };
+    if (isDevRole(role)) {
+      query.$or = [
+        { developer: userId },
+        { developerId: userId },
+        { createdBy: userId }
+      ];
+    }
+
+    const property = await Property.findOne(query);
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found or you don't have permission"
+      });
+    }
+
+    console.log("=== FULL PROPERTY DATA ===");
+    console.log(JSON.stringify(property, null, 2));
+    console.log("=== Property data for config request ===");
+    console.log({
+      unitType: property.unitType,
+      unitTypes: property.unitTypes,
+      propertyType: property.propertyType
+    });
+
+    const category = determineInventoryCategory(property.unitType, property.propertyType, property.unitTypes);
+    const categoryConfig = inventoryCategories[category];
+
+    console.log("Determined category:", category);
+    console.log("Category config found:", !!categoryConfig);
+
+    if (!categoryConfig) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid inventory category"
+      });
+    }
+
+    const propertyUnitTypes = (property.unitTypes || []).map(t => t.toLowerCase());
+    const categoryUnitTypes = (categoryConfig.unitTypes || []);
+    const mismatchedTypes = propertyUnitTypes.filter(pt => !categoryUnitTypes.includes(pt));
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        category,
+        categoryConfig,
+        propertyUnitTypes,
+        categoryUnitTypes,
+        mismatchedTypes: mismatchedTypes.length > 0 ? mismatchedTypes : null,
+        message: mismatchedTypes.length > 0 
+          ? "Some property unit types don't match the inventory category!" 
+          : "All unit types match!"
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
