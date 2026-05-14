@@ -6,6 +6,8 @@ import mongoose from "mongoose";
 import Document from '../models/Document.js';
 import Ops from "../models/MortgageOps.js"
 import HistoryService from '../services/history.service.js';
+import BankForm from '../../mortgages/models/Bankproductdocuments.js'
+
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 
 // ==================== HELPER FUNCTIONS ====================
@@ -120,6 +122,7 @@ const getUserInfo = async (req) => {
 };
 
 // ==================== CREATE CASE ====================
+// ==================== CREATE CASE (NO DOCUMENT COPY) ====================
 export const createCase = async (req, res) => {
   try {
     const { 
@@ -136,10 +139,11 @@ export const createCase = async (req, res) => {
       loanInfo,
       currentStatus,
       internalNotes,
-      customerNotes
+      customerNotes,
+      skipProposalValidation = false
     } = req.body;
 
-    // Validation
+    // ========== VALIDATION ==========
     if (!sourceLeadId) {
       return res.status(400).json({ success: false, message: "sourceLeadId is required" });
     }
@@ -160,7 +164,7 @@ export const createCase = async (req, res) => {
       return res.status(400).json({ success: false, message: "loanInfo with selectedBankProduct is required" });
     }
 
-    // Check for duplicate case
+    // ========== CHECK FOR DUPLICATE CASE ==========
     const existingCase = await Case.findOne({ sourceLeadId, isDeleted: false });
     if (existingCase) {
       return res.status(400).json({
@@ -170,7 +174,7 @@ export const createCase = async (req, res) => {
       });
     }
 
-    // Check if case reference is unique
+    // ========== CHECK UNIQUE CASE REFERENCE ==========
     const existingCaseRef = await Case.findOne({ caseReference, isDeleted: false });
     if (existingCaseRef) {
       return res.status(400).json({
@@ -179,13 +183,21 @@ export const createCase = async (req, res) => {
       });
     }
 
-    // Fetch Lead (just to verify it exists)
+    // ========== FETCH LEAD ==========
     const lead = await Lead.findById(sourceLeadId);
     if (!lead) {
       return res.status(404).json({ success: false, message: "Lead not found" });
     }
 
-    // Get user role
+    // ========== CHECK LEAD STATUS ==========
+    if (!skipProposalValidation && lead.currentStatus !== 'Qualified') {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Lead must be Qualified to create a case. Current status: ${lead.currentStatus}` 
+      });
+    }
+
+    // ========== USER ROLE & PERMISSION ==========
     const roleDoc = await Role.findById(req.user.role);
     const isAdmin = roleDoc?.code === '18';
     const isPartner = roleDoc?.code === '21';
@@ -195,7 +207,7 @@ export const createCase = async (req, res) => {
       return res.status(403).json({ success: false, message: "Not authorized to create case" });
     }
 
-    // Set createdBy based on role
+    // ========== SET createdBy BASED ON ROLE ==========
     let createdBy = {};
     if (isAdmin) {
       createdBy = { 
@@ -224,13 +236,13 @@ export const createCase = async (req, res) => {
       };
     }
 
-    // Calculate tenure months
+    // ========== CALCULATE TENURE MONTHS ==========
     const tenureMonths = (loanInfo.tenureYears || 25) * 12;
 
-    // Get user name for notes
+    // ========== GET USER NAME FOR NOTES ==========
     const userName = req.user?.fullName || req.user?.email || 'System';
 
-    // Format internalNotes and customerNotes properly
+    // ========== FORMAT NOTES ==========
     const formattedInternalNotes = Array.isArray(internalNotes) 
       ? internalNotes 
       : (internalNotes && typeof internalNotes === 'string' && internalNotes.trim() 
@@ -243,7 +255,7 @@ export const createCase = async (req, res) => {
           ? [{ note: customerNotes, addedBy: userName, addedAt: new Date() }] 
           : []);
 
-    // Create Case with data provided from frontend
+    // ========== CREATE CASE (NO DOCUMENT COPY) ==========
     const caseData = await Case.create({
       caseReference,
       sourceLeadId: sourceLeadId,
@@ -253,16 +265,16 @@ export const createCase = async (req, res) => {
       clientInfo: {
         fullName: clientInfo.fullName,
         preferredName: clientInfo.preferredName || null,
-        gender: clientInfo.gender || 'Male',
-        dateOfBirth: clientInfo.dateOfBirth ? new Date(clientInfo.dateOfBirth) : null,
-        nationality: clientInfo.nationality,
-        maritalStatus: clientInfo.maritalStatus || 'Single',
-        numberOfDependents: clientInfo.numberOfDependents || 0,
-        email: clientInfo.email,
-        mobile: clientInfo.mobile,
-        homePhone: clientInfo.homePhone || null,
+        gender: clientInfo.gender || lead.customerInfo.gender || 'Male',
+        dateOfBirth: clientInfo.dateOfBirth ? new Date(clientInfo.dateOfBirth) : lead.customerInfo.dateOfBirth,
+        nationality: clientInfo.nationality || lead.customerInfo.nationality,
+        maritalStatus: clientInfo.maritalStatus || lead.customerInfo.maritalStatus || 'Single',
+        numberOfDependents: clientInfo.numberOfDependents || lead.customerInfo.numberOfDependents || 0,
+        email: clientInfo.email || lead.customerInfo.email,
+        mobile: clientInfo.mobile || lead.customerInfo.mobileNumber,
+        homePhone: clientInfo.homePhone || lead.customerInfo.alternativePhone || null,
         workPhone: clientInfo.workPhone || null,
-        whatsapp: clientInfo.whatsapp || null,
+        whatsapp: clientInfo.whatsapp || lead.customerInfo.whatsappNumber || null,
       },
       
       currentAddress: currentAddress || null,
@@ -306,20 +318,20 @@ export const createCase = async (req, res) => {
       },
       
       propertyInfo: {
-        propertyType: propertyInfo.propertyType || 'Ready',
-        propertySubtype: propertyInfo.propertySubtype || 'Apartment',
+        propertyType: propertyInfo.propertyType || lead.propertyDetails.propertyType || 'Ready',
+        propertySubtype: propertyInfo.propertySubtype || lead.propertyDetails.propertySubtype || 'Apartment',
         propertyValue: propertyInfo.propertyValue,
         valuationAmount: propertyInfo.valuationAmount || null,
         ltvPercentage: propertyInfo.ltvPercentage || null,
         loanAmount: propertyInfo.loanAmount || (propertyInfo.propertyValue - (propertyInfo.downPayment || 0)),
-        downPayment: propertyInfo.downPayment || 0,
+        downPayment: propertyInfo.downPayment || lead.propertyDetails.downPaymentAmount || 0,
         downPaymentSource: propertyInfo.downPaymentSource || null,
         propertyAddress: {
-          building: propertyInfo.propertyAddress?.building || '',
+          building: propertyInfo.propertyAddress?.building || lead.propertyDetails.propertyAddress?.building || '',
           apartment: propertyInfo.propertyAddress?.apartment || null,
           floor: propertyInfo.propertyAddress?.floor || null,
-          area: propertyInfo.propertyAddress?.area || '',
-          city: propertyInfo.propertyAddress?.city || 'Dubai',
+          area: propertyInfo.propertyAddress?.area || lead.propertyDetails.propertyAddress?.area || '',
+          city: propertyInfo.propertyAddress?.city || lead.propertyDetails.propertyAddress?.city || 'Dubai',
           emirate: propertyInfo.propertyAddress?.emirate || 'Dubai',
         },
         propertyDetails: {
@@ -378,20 +390,95 @@ export const createCase = async (req, res) => {
       currentStatus: currentStatus || 'Draft',
       internalNotes: formattedInternalNotes,
       customerNotes: formattedCustomerNotes,
+      
+      // ✅ Copy Eligibility Snapshot from Lead (but NOT documents)
+      eligibilitySnapshot: {
+        checkedAt: lead.eligibility?.checkedAt || null,
+        isEligible: lead.eligibility?.isEligible || false,
+        dbrPercentage: lead.eligibility?.dbrPercentage || 0,
+        dbrStatus: lead.eligibility?.dbrStatus || 'Not Checked',
+        estimatedLTV: lead.eligibility?.estimatedLTV || 0,
+        eligibilityScore: lead.eligibility?.eligibilityScore || 0,
+        riskGrade: lead.eligibility?.riskGrade || null,
+        recommendedLoanAmount: lead.eligibility?.recommendedLoanAmount || 0,
+        eligibilityNotes: lead.eligibility?.eligibilityNotes || null
+      }
     });
 
-    // Copy documents from Lead to Case
-    const copiedDocuments = await copyLeadDocsToCase(sourceLeadId, caseData._id);
+    // ========== ❌ NO DOCUMENT COPY HERE ==========
+    // Documents will be uploaded separately after case creation
+    // via POST /api/vault/documents/cases/{caseId}
     
-    caseData.documentsCopiedFromLead = copiedDocuments.length > 0;
+    caseData.documentsCopiedFromLead = false;
+    caseData.documentsCopiedCount = 0;
+
+
+
+const bankForms = await BankForm.find({
+  bankProductId: loanInfo.selectedBankProduct,
+  isActive: true,
+  isArchived: false,
+  isLatestVersion: true
+}).sort({ order: 1 });
+
+// ========== SAVE REQUIRED DOCS INTO CASE ==========
+
+caseData.documentStatus.requiredDocuments = bankForms.map((form) => ({
+  
+  // Basic
+  documentType: form.formName,
+  formName: form.formName,
+
+  // Source
+  documentSource: form.documentSource,
+// template file
+fileUrl:
+  form.actionType === 'download_fill_upload'
+    ? form.fileUrl || null
+    : null,
+
+templateFileName:
+  form.actionType === 'download_fill_upload'
+    ? form.fileName || form.formName || null
+    : null,
+  // Upload Type
+  actionType: form.actionType,
+
+  // Required
+  isRequired: form.isMandatory,
+
+  // Upload Status
+  isUploaded: false,
+  isVerified: false,
+
+  verificationStatus: 'pending',
+
+  // References
+  bankFormId: form._id,
+
+  // Bank Form Handling
+  bankFormHandling: {
     
-    // Initialize required documents based on employment type
-    await caseData.initializeRequiredDocuments();
+    // advisor can later toggle this
+    handledByAdvisor: false,
+
+    // downloadable forms default to ops
+    assignedToOps:
+      form.actionType === 'download_fill_upload',
+
+    advisorMarkedAt: null
+  }
+}));
+    // ========== CALCULATE FINANCIAL METRICS ==========
     await caseData.calculateFinancialMetrics();
+    
+    // ========== UPDATE DOCUMENT STATUS ==========
     await caseData.updateDocumentStatus();
+    
+    // ========== SAVE CASE ==========
     await caseData.save();
 
-    // Update Lead conversion info
+    // ========== UPDATE LEAD CONVERSION INFO ==========
     await Lead.findByIdAndUpdate(sourceLeadId, {
       'conversionInfo.convertedToCase': true,
       'conversionInfo.caseId': caseData._id,
@@ -401,7 +488,7 @@ export const createCase = async (req, res) => {
       'conversionInfo.convertedByName': createdBy.adminName || createdBy.advisorName || createdBy.partnerName
     });
 
-    // Update Proposal conversion info if proposalId provided
+    // ========== UPDATE PROPOSAL IF PROVIDED ==========
     if (proposalId) {
       await Proposal.findByIdAndUpdate(proposalId, {
         convertedToCase: true,
@@ -411,31 +498,45 @@ export const createCase = async (req, res) => {
       });
     }
 
+    // ========== LOG ACTIVITY ==========
     await HistoryService.logCaseActivity(caseData, 'CASE_CREATED', await getUserInfo(req), {
-      description: `Case ${caseReference} created with ${copiedDocuments.length} documents copied from lead`,
+      description: `Case ${caseReference} created (no documents copied)`
     });
 
-    // Return created case with populated data
+    // ========== RETURN RESPONSE ==========
     const populatedCase = await Case.findById(caseData._id)
       .populate('loanInfo.selectedBankProduct')
       .populate('assignedTo.opsId')
       .lean();
 
-    // Get all documents for this case
     const caseDocuments = await Document.find({
       entityType: 'Case',
       entityId: caseData._id.toString(),
       isDeleted: false
     });
 
+    const documentSummary = {
+      totalRequired: caseData.documentStatus.requiredDocuments?.length || 0,
+      uploaded: caseData.documentStatus.documentsUploadedCount || 0,
+      verified: caseData.documentStatus.documentsVerifiedCount || 0,
+      pending: caseData.documentStatus.documentsPendingCount || 0,
+      completionPercentage: caseData.documentStatus.completionPercentage || 0,
+      readyForSubmission: caseData.documentStatus.allDocumentsVerified || false
+    };
+
     return res.status(201).json({
       success: true,
-      message: "Case created successfully",
+      message: "Case created successfully. Please upload required documents.",
       data: {
         case: populatedCase,
         documents: caseDocuments,
-        documentsCopiedFromLead: copiedDocuments.length,
-        totalDocuments: caseDocuments.length
+        totalDocuments: caseDocuments.length,
+        documentSummary,
+        eligibilityFromLead: {
+          isEligible: lead.eligibility?.isEligible,
+          dbrPercentage: lead.eligibility?.dbrPercentage,
+          checkedAt: lead.eligibility?.checkedAt
+        }
       }
     });
 

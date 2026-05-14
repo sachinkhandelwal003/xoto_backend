@@ -1,12 +1,12 @@
 import express from 'express';
-import { 
-  uploadDocument, 
-  verifyDocument, 
-  rejectDocument, 
-  deleteDocument, 
-  getCaseDocuments, 
+import {
+  uploadDocument,
+  verifyDocument,
+  rejectDocument,
+  deleteDocument,
+  getCaseDocuments,
   getLeadDocuments,
-  advisorVerifyDocument
+  advisorVerifyDocument, updateDocumentHandler
 } from '../controllers/document.controller.js';
 import { protect, protectMulti, protectVaultAdvisor } from '../../../middleware/auth.js';
 
@@ -18,7 +18,11 @@ router.post('/:leadId', protectMulti, uploadDocument);
 
 // Upload to Case (Admin, Partner, Xoto Advisor, Mortgage Ops)
 router.post('/cases/:caseId', protectMulti, uploadDocument);
-
+router.post(
+  '/:caseId/document-handler',
+  protectMulti,
+  updateDocumentHandler
+);
 // ==================== ADVISOR VERIFY ROUTES ====================
 router.put('/advisor/verify/:documentId', protectVaultAdvisor, advisorVerifyDocument);
 

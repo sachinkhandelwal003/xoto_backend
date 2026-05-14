@@ -20,7 +20,7 @@ const {
   updateBankForm,
   archiveBankForm,createBulkBankForms
 } = require("../controllers/bankMortgageProduct.controller");
-const { protect } = require("../../../middleware/auth");
+const { protect,protectMulti } = require("../../../middleware/auth");
 
 const router = express.Router();
 
@@ -52,6 +52,6 @@ router.delete("/archive-bank-form/:formId", protect, archiveBankForm);
 
 // Protected routes (all authenticated users)
 router.get("/bank-forms", getAllBankForms);
-router.get("/bank-forms/bank-product/:bankProductId", protect, getFormsByBankProduct);
+router.get("/bank-forms/bank-product/:bankProductId", protectMulti, getFormsByBankProduct);
 router.post("/bank-forms/:formId/download", protect, recordFormDownload);
 module.exports = router;

@@ -141,7 +141,7 @@ const loanSchema = new mongoose.Schema(
   {
     requestedAmount: { type: Number, required: true },
     approvedAmount: { type: Number, default: null },
-      disbursedAmount: { type: Number, default: null },  // ✅ ADD THIS
+    disbursedAmount: { type: Number, default: null },
     tenureYears: { type: Number, required: true },
     tenureMonths: { type: Number, required: true },
     interestRateType: { type: String, enum: ['Fixed', 'Variable'], required: true },
@@ -168,15 +168,31 @@ const loanSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// ==================== DOCUMENT REQUIREMENT SCHEMA (UPDATED) ====================
 const documentRequirementSchema = new mongoose.Schema(
   {
     documentType: { type: String, required: true },
+    fileUrl: { type: String, default: null },
+    templateFileName: { type: String, default: null },
+    formName: { type: String, default: null },
+    documentSource: { type: String, enum: ['Customer', 'Bank'], default: 'Customer' },
+    actionType: { type: String, enum: ['direct_upload', 'download_fill_upload'], default: 'direct_upload' },
     isRequired: { type: Boolean, default: true },
     isUploaded: { type: Boolean, default: false },
     isVerified: { type: Boolean, default: false },
     documentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Document', default: null },
+    bankFormId: { type: mongoose.Schema.Types.ObjectId, ref: 'BankForm', default: null },
     uploadedAt: { type: Date, default: null },
     verifiedAt: { type: Date, default: null },
+    verificationStatus: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
+    rejectionReason: { type: String, default: null },
+    
+    // ✅ ADDED: Bank Form Handling Toggle
+    bankFormHandling: {
+      handledByAdvisor: { type: Boolean, default: false },
+      assignedToOps: { type: Boolean, default: false },
+      advisorMarkedAt: { type: Date, default: null }
+    }
   },
   { _id: false }
 );
@@ -252,20 +268,15 @@ const caseSchema = new mongoose.Schema(
       assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null }
     },
 
-    // ✅ Auto-populated from Lead
     clientInfo: { type: clientPersonalSchema, required: true },
     currentAddress: { type: addressSchema, default: null },
     previousAddress: { type: addressSchema, default: null },
 
-    // ✅ New data (not in Lead)
     employmentDetails: { type: employmentSchema, required: true },
     incomeDetails: { type: incomeSchema, required: true },
     expenseDetails: { type: expenseSchema, default: () => ({}) },
 
-    // ✅ Auto-populated from Lead
     propertyInfo: { type: propertySchema, required: true },
-
-    // ✅ Auto-populated from Proposal
     loanInfo: { type: loanSchema, required: true },
 
     bankDecision: {
@@ -276,28 +287,27 @@ const caseSchema = new mongoose.Schema(
     },
 
     documentStatus: { type: documentStatusSchema, default: () => ({}) },
-    documentsCopiedFromLead: { type: Boolean, default: false },
+
+    eligibilitySnapshot: {
+      checkedAt: { type: Date, default: null },
+      isEligible: { type: Boolean, default: false },
+      dbrPercentage: { type: Number, default: 0 },
+      dbrStatus: { type: String, enum: ['Eligible', 'Borderline', 'Ineligible', 'Not Checked'], default: 'Not Checked' },
+      estimatedLTV: { type: Number, default: 0 },
+      eligibilityScore: { type: Number, default: 0 },
+      riskGrade: { type: String, default: null },
+      recommendedLoanAmount: { type: Number, default: 0 },
+      eligibilityNotes: { type: String, default: null }
+    },
 
     currentStatus: {
       type: String,
       enum: [
-        'Draft',
-        'Submitted to Xoto',
-        'In Ops Queue - Pending Pick-up',
-        'Assigned - Pending Review',
-        'Under Review',
-        'Returned - Pending Correction',
-        'Resubmitted-After Correction' ,
-        'Bank Application',
-        'Collecting Documentation',
-        'Pre-Approved',
-        'Valuation',
-        'FOL Processed',
-        'FOL Issued',
-        'FOL Signed',
-        'Disbursed',
-        'Rejected',
-        'Lost',
+        'Draft', 'Submitted to Xoto', 'In Ops Queue - Pending Pick-up',
+        'Assigned - Pending Review', 'Under Review', 'Returned - Pending Correction',
+        'Resubmitted-After Correction', 'Bank Application', 'Collecting Documentation',
+        'Pre-Approved', 'Valuation', 'FOL Processed', 'FOL Issued', 'FOL Signed',
+        'Disbursed', 'Rejected', 'Lost',
       ],
       default: 'Draft',
     },
@@ -306,25 +316,24 @@ const caseSchema = new mongoose.Schema(
     estimatedCompletionDate: { type: Date, default: null },
 
     bankSubmission: { type: bankSubmissionSchema, default: () => ({}) },
-
     commissionInfo: { type: commissionInfoSchema, default: null },
 
- // ✅ CORRECT - Just define the structure
-internalNotes: [
-  {
-    note: { type: String, required: true },
-    addedBy: { type: String, required: true },
-    addedAt: { type: Date, default: Date.now },
-  }
-],
+    internalNotes: [
+      {
+        note: { type: String, required: true },
+        addedBy: { type: String, required: true },
+        addedAt: { type: Date, default: Date.now },
+      }
+    ],
 
-customerNotes: [
-  {
-    note: { type: String, required: true },
-    addedBy: { type: String, required: true },
-    addedAt: { type: Date, default: Date.now },
-  }
-],
+    customerNotes: [
+      {
+        note: { type: String, required: true },
+        addedBy: { type: String, required: true },
+        addedAt: { type: Date, default: Date.now },
+      }
+    ],
+
     calculations: {
       loanAmount: { type: Number, default: 0 },
       ltv: { type: Number, default: 0 },
@@ -358,9 +367,7 @@ caseSchema.virtual('clientAge').get(function () {
   return Math.abs(ageDate.getUTCFullYear() - 1970);
 });
 
-// ==================== METHODS ====================
-
-// Calculate EMI
+// ==================== HELPER FUNCTIONS ====================
 function calculateEMI(principal, annualRate, tenureYears) {
   const monthlyRate = annualRate / 100 / 12;
   const months = tenureYears * 12;
@@ -370,126 +377,102 @@ function calculateEMI(principal, annualRate, tenureYears) {
   return Math.round(emi);
 }
 
-// Initialize required documents based on employment type
+// ==================== METHOD 1: Initialize Required Documents (Empty) ====================
 caseSchema.methods.initializeRequiredDocuments = function () {
-  const employmentType = this.employmentDetails?.employmentType;
-
-  let requiredDocs = [
-    { documentType: 'bank_application_form', isRequired: true },
-    { documentType: 'emirates_id_front', isRequired: true },
-    { documentType: 'emirates_id_back', isRequired: true },
-    { documentType: 'passport', isRequired: true },
-    { documentType: 'title_deed', isRequired: true },
-    { documentType: 'consent_form', isRequired: true },
-  ];
-
-  if (this.clientInfo?.nationality !== 'United Arab Emirates') {
-    requiredDocs.push({ documentType: 'visa', isRequired: true });
-  }
-
-  if (employmentType === 'Salaried') {
-    requiredDocs.push(
-      { documentType: 'bank_statements', isRequired: true },
-      { documentType: 'salary_certificate', isRequired: true },
-      { documentType: 'payslips', isRequired: false }
-    );
-  } else if (employmentType === 'Self-Employed') {
-    requiredDocs.push(
-      { documentType: 'bank_statements', isRequired: true },
-      { documentType: 'trade_license', isRequired: true },
-      { documentType: 'moa', isRequired: true },
-      { documentType: 'audit_reports', isRequired: true },
-      { documentType: 'vat_returns', isRequired: true }
-    );
-  }
-
-  this.documentStatus.requiredDocuments = requiredDocs.map(doc => ({
-    documentType: doc.documentType,
-    isRequired: doc.isRequired,
-    isUploaded: false,
-    isVerified: false,
-  }));
-
+  this.documentStatus.requiredDocuments = [];
   return this;
 };
 
-// Update document status
-caseSchema.methods.updateDocumentStatus = async function () {
-  const Document = mongoose.model('Document');
-  const uploadedDocs = await Document.find({
-    entityType: 'Case',
-    entityId: this._id,
-    isDeleted: false
-  });
-
-  let uploadedCount = 0;
-  let verifiedCount = 0;
-  let rejectedCount = 0;
-  let pendingCount = 0;
-  const pendingTypes = [];
-
-  for (let doc of this.documentStatus.requiredDocuments) {
-    const found = uploadedDocs.find(d => d.documentType === doc.documentType);
-
-    if (found) {
-      doc.isUploaded = true;
-      doc.documentId = found._id;
-      doc.uploadedAt = found.uploadedAt;
-      uploadedCount++;
-
-      if (found.verificationStatus === 'verified') {
-        doc.isVerified = true;
-        verifiedCount++;
-      } else if (found.verificationStatus === 'rejected') {
-        rejectedCount++;
-      } else {
-        pendingCount++;
-        pendingTypes.push(doc.documentType);
-      }
-    } else {
-      doc.isUploaded = false;
-      pendingTypes.push(doc.documentType);
-      pendingCount++;
+// ==================== METHOD 2: Populate Required Documents from Bank Forms ====================
+caseSchema.methods.populateRequiredDocuments = async function (bankForms) {
+  if (!bankForms || bankForms.length === 0) return this;
+  
+  const requiredDocs = bankForms.map(form => ({
+    documentType: form.formName,
+    fileUrl: form.fileUrl || null,
+    templateFileName: form.fileName || null,
+    formName: form.formName,
+    documentSource: form.documentSource || 'Customer',
+    actionType: form.actionType || 'direct_upload',
+    isRequired: form.isMandatory !== undefined ? form.isMandatory : true,
+    isUploaded: false,
+    isVerified: false,
+    documentId: null,
+    bankFormId: form._id,
+    uploadedAt: null,
+    verifiedAt: null,
+    verificationStatus: 'pending',
+    rejectionReason: null,
+    // ✅ Set default handling: Customer docs = Advisor, Bank forms = Ops
+    bankFormHandling: {
+      handledByAdvisor: form.documentSource === 'Customer',
+      assignedToOps: form.documentSource === 'Bank',
+      advisorMarkedAt: null
     }
-  }
+  }));
+  
+  this.documentStatus.requiredDocuments = requiredDocs;
+  return this;
+};
 
-  this.documentStatus.documentsUploadedCount = uploadedCount;
-  this.documentStatus.documentsVerifiedCount = verifiedCount;
-  this.documentStatus.documentsRejectedCount = rejectedCount;
-  this.documentStatus.documentsPendingCount = pendingCount;
+// ==================== METHOD 3: Update Document Status ====================
+caseSchema.methods.updateDocumentStatus = async function () {
+  const requiredDocs = this.documentStatus.requiredDocuments || [];
+  const mandatoryDocs = requiredDocs.filter(d => d.isRequired);
+  
+  const uploadedDocs = mandatoryDocs.filter(d => d.isUploaded);
+  const verifiedDocs = mandatoryDocs.filter(d => d.isVerified);
+  const rejectedDocs = mandatoryDocs.filter(d => d.verificationStatus === 'rejected');
+  const pendingDocs = mandatoryDocs.filter(d => !d.isUploaded || d.verificationStatus === 'pending');
+  const pendingTypes = pendingDocs.map(d => d.documentType);
+  
+  this.documentStatus.documentsUploadedCount = uploadedDocs.length;
+  this.documentStatus.documentsVerifiedCount = verifiedDocs.length;
+  this.documentStatus.documentsRejectedCount = rejectedDocs.length;
+  this.documentStatus.documentsPendingCount = pendingDocs.length;
   this.documentStatus.pendingDocumentTypes = pendingTypes;
-  this.documentStatus.allDocumentsUploaded = pendingTypes.length === 0;
-  this.documentStatus.allDocumentsVerified = pendingCount === 0 && rejectedCount === 0;
-  this.documentStatus.completionPercentage = this.documentStatus.requiredDocuments.length > 0 ?
-    (uploadedCount / this.documentStatus.requiredDocuments.length) * 100 : 0;
-
+  this.documentStatus.allDocumentsUploaded = mandatoryDocs.length > 0 && uploadedDocs.length === mandatoryDocs.length;
+  this.documentStatus.allDocumentsVerified = mandatoryDocs.length > 0 && verifiedDocs.length === mandatoryDocs.length;
+  this.documentStatus.completionPercentage = mandatoryDocs.length > 0 ? Math.round((verifiedDocs.length / mandatoryDocs.length) * 100) : 0;
+  
   return this.save();
 };
 
-// Calculate all financial metrics
+// ==================== METHOD 4: Toggle Document Handler (Advisor only) ====================
+caseSchema.methods.toggleDocumentHandler = function (bankFormId, handledByAdvisor) {
+  const requiredDoc = this.documentStatus.requiredDocuments.find(d => d.bankFormId?.toString() === bankFormId);
+  
+  if (!requiredDoc) {
+    throw new Error('Document not found');
+  }
+  
+  requiredDoc.bankFormHandling.handledByAdvisor = handledByAdvisor;
+  requiredDoc.bankFormHandling.assignedToOps = !handledByAdvisor;
+  requiredDoc.bankFormHandling.advisorMarkedAt = new Date();
+  
+  return this;
+};
+
+// ==================== METHOD 5: Calculate Financial Metrics ====================
 caseSchema.methods.calculateFinancialMetrics = function () {
   const propertyValue = this.propertyInfo?.propertyValue || 0;
   const downPayment = this.propertyInfo?.downPayment || 0;
   const loanAmount = propertyValue - downPayment;
   const ltv = propertyValue > 0 ? (loanAmount / propertyValue) * 100 : 0;
-
   const interestRate = this.loanInfo?.interestRatePercentage || 0;
   const tenureYears = this.loanInfo?.tenureYears || 25;
   const emi = calculateEMI(loanAmount, interestRate, tenureYears);
-
   const totalInterestPayable = (emi * tenureYears * 12) - loanAmount;
   const totalAmountPayable = emi * tenureYears * 12;
-
   const monthlyIncome = this.incomeDetails?.totalMonthlyIncome || 0;
   const monthlyLiabilities = this.expenseDetails?.totalMonthlyLiabilities || 0;
   const dbr = monthlyIncome > 0 ? ((emi + monthlyLiabilities) / monthlyIncome) * 100 : 0;
-
   const dldFee = propertyValue * 0.04;
   const registrationFee = loanAmount * 0.0025;
   const valuationFee = this.loanInfo?.valuationFee || 2500;
   const processingFee = this.loanInfo?.processingFee || 0;
   const totalUpfrontCost = dldFee + registrationFee + valuationFee + processingFee;
-
+  
   this.calculations = {
     loanAmount: Math.round(loanAmount),
     ltv: Math.round(ltv * 100) / 100,
@@ -500,7 +483,6 @@ caseSchema.methods.calculateFinancialMetrics = function () {
     totalInterestPayable: Math.round(totalInterestPayable),
     totalAmountPayable: Math.round(totalAmountPayable)
   };
-
   return this;
 };
 
@@ -511,8 +493,8 @@ caseSchema.pre('save', function (next) {
   }
 
   if (this.isModified('incomeDetails') || this.isModified('expenseDetails') ||
-    this.isModified('propertyInfo.propertyValue') || this.isModified('propertyInfo.downPayment') ||
-    this.isModified('loanInfo.interestRatePercentage')) {
+      this.isModified('propertyInfo.propertyValue') || this.isModified('propertyInfo.downPayment') ||
+      this.isModified('loanInfo.interestRatePercentage')) {
     this.calculateFinancialMetrics();
   }
 

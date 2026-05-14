@@ -5,6 +5,7 @@ import Case from '../models/Case.js';
 import VaultAgent from '../models/Agent.js';
 import HistoryService from '../services/history.service.js';
 import crypto from 'crypto';
+import { Role } from '../../../modules/auth/models/role/role.model.js';
 
 const getUserInfo = async (req) => {
   const roleId = req.user?.role;
@@ -108,11 +109,11 @@ function getDocumentCategory(documentType) {
 }
 
 /* =====================================
-   UPLOAD DOCUMENT - COMPLETE WITH ADVISOR SUPPORT
+   UPLOAD DOCUMENT - COMPLETE WITH ADVISOR SUPPORT & TOGGLE VALIDATION
 ===================================== */
 export const uploadDocument = async (req, res) => {
   try {
-    const { documentType, documentCategory, fileUrl, fileName, fileSizeMb, mimeType, isVerified } = req.body;
+    const { documentType, documentCategory, fileUrl, fileName, fileSizeMb, mimeType, isVerified, bankFormId, bankFormName } = req.body;
     const { leadId, caseId } = req.params;
     
     // Validation
@@ -318,29 +319,68 @@ export const uploadDocument = async (req, res) => {
         return res.status(404).json({ success: false, message: "Case not found" });
       }
       
+      // ✅ Find required document from case snapshot
+      const requiredDoc = caseData.documentStatus.requiredDocuments.find(
+        d => d.bankFormId?.toString() === bankFormId?.toString()
+      );
+
+      // ✅ TOGGLE VALIDATION: Check who is allowed to upload this document
+      if (requiredDoc?.actionType === 'download_fill_upload') {
+        
+        // Case A: Advisor trying to upload but document is assigned to Ops
+        if (isXotoAdvisor && requiredDoc?.bankFormHandling?.handledByAdvisor === false && requiredDoc?.bankFormHandling?.assignedToOps === true) {
+          return res.status(403).json({
+            success: false,
+            message: '❌ This bank form is assigned to Mortgage Ops. Only Ops can upload this document. Please toggle the switch to assign it to yourself if you want to handle it.'
+          });
+        }
+        
+        // Case B: Ops trying to upload but document is assigned to Advisor
+        if (isMortgageOps && requiredDoc?.bankFormHandling?.handledByAdvisor === true && requiredDoc?.bankFormHandling?.assignedToOps === false) {
+          return res.status(403).json({
+            success: false,
+            message: '❌ This bank form is assigned to Advisor. Only Advisor can upload this document.'
+          });
+        }
+      }
+      
       // ========== PERMISSION CHECK FOR CASE ==========
       let hasPermission = false;
       
       if (isAdmin) {
         hasPermission = true;
       }
-      // XOTO ADVISOR - can upload for cases they created
+      // XOTO ADVISOR - can upload for cases they created AND documents assigned to them
       else if (isXotoAdvisor && caseData.createdBy?.advisorId?.toString() === req.user._id.toString()) {
-        hasPermission = true;
-      }
-      // ✅ MORTGAGE OPS - can upload bank forms to cases assigned to them
-      else if (isMortgageOps) {
-        // Ops can upload bank forms to cases assigned to them
-        if (!caseData.assignedTo?.opsId || caseData.assignedTo.opsId.toString() === req.user._id.toString()) {
-          // Only allow bank forms
-          const allowedDocTypes = ['bank_application_form', 'consent_form'];
-          if (allowedDocTypes.includes(documentType)) {
+        // For download_fill_upload documents, check if assigned to advisor
+        if (requiredDoc?.actionType === 'download_fill_upload') {
+          if (requiredDoc?.bankFormHandling?.handledByAdvisor === true) {
             hasPermission = true;
           } else {
             return res.status(403).json({
               success: false,
-              message: `Mortgage Ops can only upload bank forms: ${allowedDocTypes.join(', ')}`
+              message: 'This bank form is assigned to Ops. You cannot upload it.'
             });
+          }
+        } else {
+          hasPermission = true;
+        }
+      }
+      // ✅ MORTGAGE OPS - can upload bank forms assigned to them
+      else if (isMortgageOps) {
+        if (!caseData.assignedTo?.opsId || caseData.assignedTo.opsId.toString() === req.user._id.toString()) {
+          // For download_fill_upload documents, check if assigned to ops
+          if (requiredDoc?.actionType === 'download_fill_upload') {
+            if (requiredDoc?.bankFormHandling?.assignedToOps === true) {
+              hasPermission = true;
+            } else {
+              return res.status(403).json({
+                success: false,
+                message: 'This bank form is assigned to Advisor. Only Advisor can upload it.'
+              });
+            }
+          } else {
+            hasPermission = true;
           }
         }
       }
@@ -372,6 +412,7 @@ export const uploadDocument = async (req, res) => {
       let isUpdate = false;
       
       if (existingDoc && existingDoc.verificationStatus === 'rejected') {
+        // Update existing rejected document
         existingDoc.fileUrl = fileUrl;
         existingDoc.fileName = fileName || existingDoc.fileName;
         existingDoc.fileSizeMb = fileSizeMb || existingDoc.fileSizeMb;
@@ -391,7 +432,16 @@ export const uploadDocument = async (req, res) => {
         await existingDoc.save();
         document = existingDoc;
         isUpdate = true;
-        await updateCaseDocumentStatus(caseId);
+
+        // Update required document snapshot
+        if (requiredDoc) {
+          requiredDoc.isUploaded = true;
+          requiredDoc.documentId = existingDoc._id;
+          requiredDoc.uploadedAt = new Date();
+          requiredDoc.verificationStatus = isVerified ? 'verified' : 'pending';
+        }
+        await caseData.updateDocumentStatus();
+        await caseData.save();
       } 
       else if (!existingDoc) {
         const fileHash = crypto.createHash('md5').update(fileUrl).digest('hex');
@@ -406,6 +456,9 @@ export const uploadDocument = async (req, res) => {
           fileUrl,
           fileHash,
           mimeType: mimeType || 'application/pdf',
+          // bank form tracking
+          bankFormId: bankFormId || null,
+          bankFormName: bankFormName || null,
           uploadedBy: {
             role: isAdmin ? 'admin' : (isPartner ? 'partner' : (isXotoAdvisor ? 'advisor' : 'client')),
             userId: req.user._id,
@@ -417,7 +470,16 @@ export const uploadDocument = async (req, res) => {
           verifiedAt: isVerified ? new Date() : null,
           encryption: 'AES-256',
         });
-        await updateCaseDocumentStatus(caseId);
+        
+        // Update case required document
+        if (requiredDoc) {
+          requiredDoc.isUploaded = true;
+          requiredDoc.documentId = document._id;
+          requiredDoc.uploadedAt = new Date();
+          requiredDoc.verificationStatus = 'pending';
+        }
+        await caseData.updateDocumentStatus();
+        await caseData.save();
       } 
       else {
         return res.status(400).json({ 
@@ -436,7 +498,8 @@ export const uploadDocument = async (req, res) => {
         data: {
           document,
           documentCollection: caseData.documentStatus,
-          allDocumentsVerified: caseData.documentStatus?.allDocumentsVerified || false
+          allDocumentsVerified: caseData.documentStatus?.allDocumentsVerified || false,
+          assignmentStatus: requiredDoc?.bankFormHandling
         }
       });
     }
@@ -682,5 +745,63 @@ export const advisorVerifyDocument = async (req, res) => {
     
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+// controllers/case.controller.js - Add this function
+
+export const updateDocumentHandler = async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { bankFormId, handledByAdvisor } = req.body;
+    
+    const caseData = await Case.findById(caseId);
+    if (!caseData) {
+      return res.status(404).json({ success: false, message: 'Case not found' });
+    }
+    
+    // Check if user is Advisor (only advisor can toggle)
+    const roleDoc = await Role.findById(req.user.role);
+    const isAdvisor = roleDoc?.code === '26';
+    
+    if (!isAdvisor) {
+      return res.status(403).json({ success: false, message: 'Only Advisor can update document assignment' });
+    }
+    
+    // Find the document
+    const requiredDoc = caseData.documentStatus.requiredDocuments.find(d => d.bankFormId?.toString() === bankFormId);
+    
+    if (!requiredDoc) {
+      return res.status(404).json({ success: false, message: 'Document not found' });
+    }
+    
+    // Check if document is already uploaded
+    if (requiredDoc.isUploaded) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Cannot change assignment. Document has already been uploaded.' 
+      });
+    }
+    
+    // ✅ UPDATE TOGGLE: Toggle who handles this form
+    requiredDoc.bankFormHandling.handledByAdvisor = handledByAdvisor;
+    requiredDoc.bankFormHandling.assignedToOps = !handledByAdvisor;
+    requiredDoc.bankFormHandling.advisorMarkedAt = new Date();
+    
+    await caseData.save();
+    
+    return res.json({
+      success: true,
+      message: handledByAdvisor ? '✅ Advisor will upload this form' : '✅ Mortgage Ops will handle this form',
+      data: {
+        handledByAdvisor: requiredDoc.bankFormHandling.handledByAdvisor,
+        assignedToOps: requiredDoc.bankFormHandling.assignedToOps
+      }
+    });
+    
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Failed to update document handler' });
   }
 };
