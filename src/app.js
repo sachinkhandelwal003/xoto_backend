@@ -51,6 +51,10 @@ const presentationController = require('./modules/Grid/Agent/controllers/Present
 // Middleware
 app.use(cors());
 app.use(helmet());
+
+app.use('/presentation/track', helmet({
+  contentSecurityPolicy: false,
+}));
 app.use(morgan('dev'));
 
 // app.use(express.json());
@@ -141,7 +145,16 @@ app.use('/gridadvisor', GridAdvisor);
 app.use('/rental/property', rentalProperrty)
 // app.use('/rental/lead', Rentlead)
 
+app.use('/presentation/track', (req, res, next) => {
+  res.setHeader('Content-Security-Policy', 
+    "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-src *;"
+  );
+  next();
+});
+
+
 app.use('/presentation', presentationRoutes);
+
 
 // image ehncnace,ent 
 app.use('/ai/enhance', enhancementRoutes);

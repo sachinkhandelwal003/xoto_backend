@@ -7,6 +7,8 @@ const {
   getViews,
   getMyPresentations,
   deletePresentation,
+    proxyImage,
+  downloadPdf,
 } = require('../controller/presentation.controller');
 
 // Tera existing auth middleware — apna path daalo
@@ -14,6 +16,8 @@ const { protectMulti  } = require('../../../../middleware/auth');
 
 // ── Public route — no auth (client tracking link) ──
 router.get('/track/:token', trackAndServe);
+router.get('/image-proxy', proxyImage); 
+router.get('/pdf/:token',   downloadPdf);
 
 // ── Protected routes — agent logged in hona chahiye ──
 router.post('/generate-narrative', protectMulti , generateNarrative);
