@@ -87,7 +87,7 @@ const gridLeadSchema = new mongoose.Schema({
   source: {
     channel: {
       type: String,
-      enum: ['website_form', 'whatsapp', 'phone_call', 'email', 'bulk_upload', 'agent_added', 'admin_manual'],
+      enum: ['website_form', 'whatsapp', 'phone_call', 'email', 'bulk_upload', 'agent_added', 'admin_manual', 'referral_partner'],
       required: true
     },
     listing_id: {
