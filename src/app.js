@@ -31,6 +31,7 @@ const developer = require('./modules/Grid/Developer/Routes/developer.route.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
 const referralPartnerRoutes = require("./modules/Grid/ReferralPartner/Routes/ReferralPartner.route.js");
 const rentalProperrty = require('./modules/RentalProperties/routes/Rentproperty.routes.js')
+const presentationRoutes = require('./modules/Grid/presentation/routes/presentation.routes.js');
 
 const gridLead = require('./modules/Grid/Lead/routes/gridLead.route.js')
 // const Rentlead = require('./modules/RentalProperties/routes/Rentlead.routes.js')
@@ -139,6 +140,8 @@ app.use('/gridadvisor', GridAdvisor);
 // RentalProperty
 app.use('/rental/property', rentalProperrty)
 // app.use('/rental/lead', Rentlead)
+
+app.use('/presentation', presentationRoutes);
 
 // image ehncnace,ent 
 app.use('/ai/enhance', enhancementRoutes);
