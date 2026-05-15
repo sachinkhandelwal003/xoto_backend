@@ -1,323 +1,474 @@
 const mongoose = require("mongoose");
 
-// ======================
-// SUB-SCHEMAS
-// ======================
+/**
+ * =========================================================
+ * BANK PRODUCT MODEL
+ * =========================================================
+ * PURPOSE:
+ * Stores mortgage products offered by banks.
+ *
+ * EXAMPLES:
+ * - ENBD Fixed Mortgage
+ * - ADCB Islamic Home Finance
+ * - FAB Buyout Mortgage
+ *
+ * EACH PRODUCT BELONGS TO:
+ * - one bank
+ *
+ * USED IN:
+ * - proposals
+ * - applications
+ * - product comparisons
+ * - eligibility engine
+ * - mortgage calculations
+ * =========================================================
+ */
 
-// Bank Info Schema
-const BankInfoSchema = new mongoose.Schema(
-  {
-    bankName: { type: String, required: true, index: true },
-    bankCode: { type: String, required: true, unique: true },
-    logo: { type: String, default: "" },
-    website: { type: String, default: "" },
-    customerCare: { type: String, default: "" },
-    rating: { type: Number, min: 0, max: 5, default: 0 },
-    reviewCount: { type: Number, default: 0 },
-  },
-  { _id: false }
-);
+const BankProductSchema = new mongoose.Schema(
+{
+    /**
+     * =====================================================
+     * PRODUCT IDENTIFICATION
+     * =====================================================
+     */
 
-// Offer Summary Schema
-const OfferSummarySchema = new mongoose.Schema(
-  {
-    title: { type: String, required: true },
-    shortDescription: { type: String, default: "" },
-    popularityTag: { type: String, default: "Popular" },
-    badge: { type: String, enum: ["Popular", "Best Rate", "Lowest Fees", "New", null], default: null },
-    productType: { type: String, enum: ["FIXED", "VARIABLE", "ISLAMIC"], required: true },
-    fixedYears: { type: Number, default: null },
-    initialRate: { type: Number, required: true },
-    comparisonRate: { type: Number, default: null },
-    monthlyEMI: { type: Number, required: true },
-    currency: { type: String, default: "AED" },
-    totalUpfrontCost: { type: Number, required: true },
-    maxLoanAmount: { type: Number, default: null },
-    productValidity: {
-      doesNotExpire: { type: Boolean, default: true },
-      expiryDate: { type: Date, default: null }
-    }
-  },
-  { _id: false }
-);
+    productId: {
+        type: String,
+        unique: true,
+        trim: true,
+        index: true
+    },
 
-// Loan Details Schema
-const LoanDetailsSchema = new mongoose.Schema(
-  {
-    tenureYears: { type: Number, default: 25 },
-    minTenureYears: { type: Number, default: 5 },
-    maxTenureYears: { type: Number, default: 30 },
-    followOnRate: { type: String, default: "" },
-    followOnRateType: { type: String, enum: ["Fixed", "Variable", "EIBOR +", null], default: null },
-    loanToValue: { type: Number, required: true },
-    minLoanToValue: { type: Number, default: 20 },
-    maxLoanToValue: { type: Number, default: 85 },
-    interestType: { type: String, enum: ["CONVENTIONAL", "ISLAMIC"], default: "CONVENTIONAL" },
-    salaryTransfer: { 
-      type: String, 
-      enum: ["STL", "NSTL", "Both"],
-      default: "Both" 
+    productName: {
+        type: String,
+        required: true,
+        trim: true,
+        index: true
     },
-    overpaymentAllowedPercent: { type: Number, default: 25 },
-    earlySettlementFee: { type: String, default: "1% of outstanding amount" },
-    earlySettlementFreeAfterYears: { type: Number, default: 3 },
-    latePaymentFee: { type: String, default: "2% per month" },
-    paymentHolidayAllowed: { type: Boolean, default: false },
-    paymentHolidayDays: { type: Number, default: 0 },
-  },
-  { _id: false }
-);
 
-// Cost Breakdown Schema
-const CostBreakdownSchema = new mongoose.Schema(
-  {
-    propertyPrice: { type: Number, default: null },
-    downPayment: { type: Number, required: true },
-    downPaymentPercentage: { type: Number, default: null },
-    dldFee: { type: Number, default: 0 },
-    mortgageRegistrationFee: { type: Number, default: 0 },
-    trusteeFee: { type: Number, default: 0 },
-    bankProcessingFee: { type: Number, default: 0 },
-    bankProcessingFeeType: { type: String, enum: ["Fixed", "Percentage"], default: "Fixed" },
-    valuationFee: { type: Number, default: 2500 },
-    propertyInsuranceFee: { type: Number, default: 0 },
-    lifeInsuranceFee: { type: Number, default: 0 },
-    agencyFee: { type: Number, default: 0 },
-    conveyanceFee: { type: Number, default: 0 },
-    feesAddedToLoan: { type: Number, default: 0 },
-    totalUpfrontCost: { type: Number, required: true },
-    payableByBuyer: { type: Number, default: 0 },
-    payableBySeller: { type: Number, default: 0 },
-    bankPreApprovalFee: { 
-      type: Number, 
-      default: 0,
-      description: "Bank pre-approval/application fee"
+    description: {
+        type: String,
+        default: ""
     },
-    isBankPreApprovalFeeFree: { 
-      type: Boolean, 
-      default: false 
-    },
-    minimumBankProcessingFee: { 
-      type: Number, 
-      default: 0,
-      description: "Minimum bank processing fee"
-    },
-    buyoutFee: { 
-      type: Number, 
-      default: 0 
-    },
-    isBuyoutFeeNA: { 
-      type: Boolean, 
-      default: false 
-    },
-    propertyValuationFeeInclusiveVAT: { 
-      type: Boolean, 
-      default: true 
-    }
-  },
-  { _id: false }
-);
 
-// Insurance Schema
-const InsuranceSchema = new mongoose.Schema(
-  {
-    lifeInsurance: { type: String, default: "--" },
-    lifeInsuranceRequired: { type: Boolean, default: false },
-    lifeInsuranceCost: { type: Number, default: 0 },
-    propertyInsurance: { type: String, default: "--" },
-    propertyInsuranceRequired: { type: Boolean, default: true },
-    propertyInsuranceCost: { type: Number, default: 0 },
-    mortgageProtection: { type: String, default: "--" },
-  },
-  { _id: false }
-);
+    /**
+     * =====================================================
+     * BANK REFERENCE
+     * =====================================================
+     */
 
-// Eligibility Schema
-const EligibilitySchema = new mongoose.Schema(
-  {
-    minSalary: { type: Number, default: 15000 },
-    maxSalary: { type: Number, default: null },
-    minAge: { type: Number, default: 21 },
-    maxAge: { type: Number, default: 70 },
-    minLoanAmount: { type: Number, default: 50000 },
-    maxLoanAmount: { type: Number, default: null },
-    minLTV: { type: Number, default: 20 },
-    maxLTV: { type: Number, default: 85 },
-    eligibleNationalities: [{ type: String }],
-    eligibleEmploymentTypes: [{ type: String, enum: ["Salaried", "Self-Employed", "Both"] }],
-    eligibleResidencyStatus: [{ 
-      type: String, 
-      enum: ["UAE National", "UAE Resident", "Non-Resident", "All"],
-      default: ["All"] 
+    bank: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Bank",
+        required: true,
+        index: true
+    },
+
+    /**
+     * =====================================================
+     * MORTGAGE TYPE
+     * =====================================================
+     */
+
+    mortgageType: {
+        type: String,
+        enum: [
+            "Islamic",
+            "Conventional"
+        ],
+        required: true,
+        index: true
+    },
+
+    /**
+     * =====================================================
+     * TRANSACTION TYPE
+     * =====================================================
+     */
+
+    transactionType: [{
+        type: String,
+        enum: [
+            "Primary Residential",
+            "Primary Commercial",
+            "Buyout",
+            "Equity",
+            "Buyout + Equity",
+            "Offplan"
+        ]
     }],
-    minExperienceYears: { type: Number, default: 1 },
-    minEmploymentYears: { type: Number, default: 1 },
-    visaRequired: { type: Boolean, default: true },
-  },
-  { _id: false }
-);
 
-// Features Schema
-const FeaturesSchema = new mongoose.Schema(
-  {
-    keyFeatures: [{ type: String }],
-    benefits: [{ type: String }],
-    termsAndConditions: [{ type: String }],
-    disclaimers: [{ type: String }],
-  },
-  { _id: false }
-);
+    /**
+     * =====================================================
+     * EMPLOYMENT ELIGIBILITY
+     * =====================================================
+     */
 
-// ======================
-// MAIN SCHEMA
-// ======================
-const BankMortgageOfferSchema = new mongoose.Schema(
-  {
-    bankInfo: { type: BankInfoSchema, required: true },
-    offerSummary: { type: OfferSummarySchema, required: true },
-    loanDetails: { type: LoanDetailsSchema, required: true },
-    costBreakdown: { type: CostBreakdownSchema, required: true },
-    insurance: { type: InsuranceSchema, default: () => ({}) },
-    eligibility: { type: EligibilitySchema, default: () => ({}) },
-    features: { type: FeaturesSchema, default: () => ({}) },
-    reviews: {
-      averageRating: { type: Number, default: 0 },
-      totalReviews: { type: Number, default: 0 },
-      ratings: {
-        1: { type: Number, default: 0 },
-        2: { type: Number, default: 0 },
-        3: { type: Number, default: 0 },
-        4: { type: Number, default: 0 },
-        5: { type: Number, default: 0 },
-      },
+    employmentStatus: [{
+        type: String,
+        enum: [
+            "Salaried",
+            "Self-Employed"
+        ]
+    }],
+
+    /**
+     * =====================================================
+     * RESIDENCY ELIGIBILITY
+     * =====================================================
+     */
+
+    residencyStatus: [{
+        type: String,
+        enum: [
+            "UAE National",
+            "UAE Resident",
+            "Non-Resident"
+        ]
+    }],
+
+    /**
+     * =====================================================
+     * RATE INFORMATION
+     * =====================================================
+     */
+
+    minimumFloorRate: {
+        type: Number,
+        required: true
     },
-    displayOrder: { type: Number, default: 0 },
-    isPopular: { type: Boolean, default: false },
-    isFeatured: { type: Boolean, default: false },
-    meta: {
-      isActive: { type: Boolean, default: true },
-      isDeleted: { type: Boolean, default: false },
-      createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "Admin" },
-      updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Admin" },
+
+    rateType: {
+        type: String,
+        enum: [
+            "Fixed",
+            "Variable"
+        ],
+        required: true
     },
-  },
-  { timestamps: true }
+
+    /**
+     * Examples:
+     * - 3.99%
+     * - EIBOR + 1.99%
+     */
+
+    interestRate: {
+        type: String,
+        required: true
+    },
+
+    followOnRate: {
+        type: String,
+        default: ""
+    },
+
+    /**
+     * =====================================================
+     * LOAN DETAILS
+     * =====================================================
+     */
+
+    ltv: {
+        min: {
+            type: Number,
+            default: 0
+        },
+
+        max: {
+            type: Number,
+            required: true
+        }
+    },
+
+    minLoanAmount: {
+        type: Number,
+        default: 0
+    },
+
+    maxLoanAmount: {
+        type: Number,
+        default: null
+    },
+
+    minSalary: {
+        type: Number,
+        default: 0
+    },
+
+    /**
+     * =====================================================
+     * SALARY TRANSFER
+     * =====================================================
+     */
+
+    salaryTransfer: {
+        type: String,
+        enum: [
+            "STL",
+            "NSTL",
+            "Both"
+        ],
+        default: "Both"
+    },
+
+    /**
+     * =====================================================
+     * FEES
+     * =====================================================
+     */
+
+    bankFees: {
+        type: Number,
+        default: 0
+    },
+
+    propertyValuationFee: {
+        type: Number,
+        default: 0
+    },
+
+    bankPreApprovalFee: {
+        type: Number,
+        default: 0
+    },
+
+    isBankPreApprovalFeeFree: {
+        type: Boolean,
+        default: false
+    },
+
+    minimumBankProcessingFee: {
+        type: Number,
+        default: 0
+    },
+
+    buyoutFee: {
+        type: Number,
+        default: 0
+    },
+
+    isBuyoutFeeNA: {
+        type: Boolean,
+        default: false
+    },
+
+    /**
+     * =====================================================
+     * INSURANCE
+     * =====================================================
+     */
+
+    propertyInsurance: {
+        value: {
+            type: Number,
+            default: 0
+        },
+
+        frequency: {
+            type: String,
+            enum: [
+                "pa",
+                "pm"
+            ],
+            default: "pa"
+        }
+    },
+
+    lifeInsurance: {
+        value: {
+            type: Number,
+            default: 0
+        },
+
+        frequency: {
+            type: String,
+            enum: [
+                "pa",
+                "pm"
+            ],
+            default: "pa"
+        }
+    },
+
+    /**
+     * =====================================================
+     * PRODUCT VALIDITY
+     * =====================================================
+     */
+
+    productValidity: {
+        doesNotExpire: {
+            type: Boolean,
+            default: true
+        },
+
+        expiryDate: {
+            type: Date,
+            default: null
+        }
+    },
+
+    /**
+     * =====================================================
+     * FEATURES
+     * =====================================================
+     */
+
+    keyFeatures: [{
+        type: String
+    }],
+
+    /**
+     * =====================================================
+     * DISPLAY
+     * =====================================================
+     */
+
+    displayOrder: {
+        type: Number,
+        default: 0
+    },
+
+    isFeatured: {
+        type: Boolean,
+        default: false
+    },
+
+    isPopular: {
+        type: Boolean,
+        default: false
+    },
+
+    /**
+     * =====================================================
+     * STATUS
+     * =====================================================
+     */
+
+    status: {
+        type: String,
+        enum: [
+            "Active",
+            "Inactive",
+            "Archived",
+            "Expired"
+        ],
+        default: "Active",
+        index: true
+    },
+
+    isDeleted: {
+        type: Boolean,
+        default: false
+    },
+
+    deletedAt: {
+        type: Date,
+        default: null
+    },
+
+    /**
+     * =====================================================
+     * AUDIT
+     * =====================================================
+     */
+
+    createdBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Admin",
+        default: null
+    },
+
+    updatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Admin",
+        default: null
+    }
+},
+{
+    timestamps: true
+}
 );
 
-// ======================
-// INDEXES
-// ======================
-BankMortgageOfferSchema.index({ "bankInfo.bankName": 1 });
-BankMortgageOfferSchema.index({ "bankInfo.bankCode": 1 });
-BankMortgageOfferSchema.index({ "offerSummary.initialRate": -1 });
-BankMortgageOfferSchema.index({ isPopular: 1, isFeatured: 1 });
-BankMortgageOfferSchema.index({ displayOrder: 1 });
-BankMortgageOfferSchema.index({ "eligibility.eligibleResidencyStatus": 1 });
-BankMortgageOfferSchema.index({ "loanDetails.salaryTransfer": 1 });
+/**
+ * =========================================================
+ * INDEXES
+ * =========================================================
+ */
 
-// ======================
-// VIRTUALS
-// ======================
-BankMortgageOfferSchema.virtual("displayName").get(function () {
-  return `${this.bankInfo.bankName} - ${this.offerSummary.title} (${this.offerSummary.initialRate}%)`;
+BankProductSchema.index({
+    bank: 1
 });
 
-BankMortgageOfferSchema.virtual("formattedInitialRate").get(function () {
-  return `${this.offerSummary.initialRate}%`;
+BankProductSchema.index({
+    productName: 1
 });
 
-BankMortgageOfferSchema.virtual("isProductExpired").get(function () {
-  if (this.offerSummary.productValidity.doesNotExpire) return false;
-  if (!this.offerSummary.productValidity.expiryDate) return false;
-  return new Date() > this.offerSummary.productValidity.expiryDate;
+BankProductSchema.index({
+    mortgageType: 1
 });
 
-// ======================
-// METHODS
-// ======================
-BankMortgageOfferSchema.methods.isCustomerEligible = function (customerData) {
-  const { monthlySalary, age, nationality, employmentType, residencyStatus, loanAmount } = customerData;
-  
-  if (monthlySalary && this.eligibility.minSalary && monthlySalary < this.eligibility.minSalary) {
-    return { eligible: false, reason: `Minimum salary requirement: ${this.eligibility.minSalary} AED` };
-  }
-  
-  if (age && this.eligibility.maxAge && age > this.eligibility.maxAge) {
-    return { eligible: false, reason: `Maximum age limit: ${this.eligibility.maxAge} years` };
-  }
-  
-  if (nationality && this.eligibility.eligibleNationalities?.length) {
-    if (!this.eligibility.eligibleNationalities.includes("All") &&
-        !this.eligibility.eligibleNationalities.includes(nationality) &&
-        !this.eligibility.eligibleNationalities.includes("GCC")) {
-      return { eligible: false, reason: "Nationality not eligible for this product" };
+BankProductSchema.index({
+    residencyStatus: 1
+});
+
+BankProductSchema.index({
+    employmentStatus: 1
+});
+
+BankProductSchema.index({
+    status: 1
+});
+
+/**
+ * =========================================================
+ * VIRTUALS
+ * =========================================================
+ */
+
+BankProductSchema.virtual("isExpired").get(function () {
+
+    if (this.productValidity.doesNotExpire) {
+        return false;
     }
-  }
-  
-  if (residencyStatus && this.eligibility.eligibleResidencyStatus?.length) {
-    if (!this.eligibility.eligibleResidencyStatus.includes("All") &&
-        !this.eligibility.eligibleResidencyStatus.includes(residencyStatus)) {
-      return { eligible: false, reason: "Residency status not eligible for this product" };
+
+    if (!this.productValidity.expiryDate) {
+        return false;
     }
-  }
-  
-  if (employmentType && this.eligibility.eligibleEmploymentTypes?.length) {
-    if (!this.eligibility.eligibleEmploymentTypes.includes("Both") &&
-        !this.eligibility.eligibleEmploymentTypes.includes(employmentType)) {
-      return { eligible: false, reason: "Employment type not eligible for this product" };
-    }
-  }
-  
-  return { eligible: true, reason: null };
+
+    return new Date() > this.productValidity.expiryDate;
+});
+
+/**
+ * =========================================================
+ * STATIC METHODS
+ * =========================================================
+ */
+
+/**
+ * Get active products
+ */
+
+BankProductSchema.statics.getActiveProducts = function () {
+
+    return this.find({
+        status: "Active",
+        isDeleted: false
+    })
+    .populate("bank")
+    .sort({
+        displayOrder: 1
+    });
 };
 
-BankMortgageOfferSchema.methods.calculateEMI = function (loanAmount, tenureYears = null) {
-  const principal = loanAmount;
-  const annualRate = this.offerSummary.initialRate / 100;
-  const monthlyRate = annualRate / 12;
-  const tenureMonths = (tenureYears || this.loanDetails.tenureYears) * 12;
-  
-  const emi = principal * monthlyRate * Math.pow(1 + monthlyRate, tenureMonths) / (Math.pow(1 + monthlyRate, tenureMonths) - 1);
-  
-  return Math.round(emi);
-};
+/**
+ * =========================================================
+ * EXPORT
+ * =========================================================
+ */
 
-// ======================
-// STATIC METHODS
-// ======================
-BankMortgageOfferSchema.statics.getBestRates = function (limit = 10) {
-  return this.find({ "meta.isActive": true })
-    .sort({ "offerSummary.initialRate": 1, displayOrder: 1 })
-    .limit(limit);
-};
-
-BankMortgageOfferSchema.statics.getPopularProducts = function (limit = 10) {
-  return this.find({ "meta.isActive": true, isPopular: true })
-    .sort({ displayOrder: 1 })
-    .limit(limit);
-};
-
-BankMortgageOfferSchema.statics.getProductsByResidency = function (residencyStatus, limit = 50) {
-  return this.find({ 
-    "meta.isActive": true,
-    "eligibility.eligibleResidencyStatus": { $in: [residencyStatus, "All"] }
-  }).sort({ displayOrder: 1 }).limit(limit);
-};
-
-BankMortgageOfferSchema.statics.getProductsBySalaryTransfer = function (salaryTransferRequirement, limit = 50) {
-  return this.find({ 
-    "meta.isActive": true,
-    "loanDetails.salaryTransfer": { $in: [salaryTransferRequirement, "Both"] }
-  }).sort({ displayOrder: 1 }).limit(limit);
-};
-
-BankMortgageOfferSchema.set("toJSON", { virtuals: true });
-BankMortgageOfferSchema.set("toObject", { virtuals: true });
-
-const BankMortgageProduct = mongoose.model(
-  "BankMortgageProduct",
-  BankMortgageOfferSchema,
-  "BankMortgageProducts"
+module.exports = mongoose.model(
+    "BankMortgageProducts",
+    BankProductSchema
 );
-
-module.exports = BankMortgageProduct;

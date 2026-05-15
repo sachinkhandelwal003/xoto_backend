@@ -1,57 +1,90 @@
 const express = require("express");
+
 const {
-  createBankProducts,
-  createBulkBankProducts,
-  getAllBankProducts,
-  getBankProductById,
-  getBestRates,
-  getPopularProducts,
-  getFeaturedProducts,
-  getEligibleProducts,
-  getProductsByBank,
-  updateBankProduct,
-  updateBankProductRate,
-  deleteBankProduct,
-  hardDeleteBankProduct,
-  getBankProductStats,  createBankForm,
-  getAllBankForms,
-  getFormsByBankProduct,
-  recordFormDownload,
-  updateBankForm,
-  archiveBankForm,createBulkBankForms
+    createBank,
+    getAllBanks,
+    getBankById,
+    updateBank,
+    deleteBank,    createBankProduct,
+    getAllBankProducts,
+    getBankProductById,
+    updateBankProduct,
+    deleteBankProduct
 } = require("../controllers/bankMortgageProduct.controller");
-const { protect,protectMulti } = require("../../../middleware/auth");
+
+const {
+    protect
+} = require("../../../middleware/auth");
 
 const router = express.Router();
 
-// ==================== PUBLIC ROUTES ====================
-router.get("/get-all-bank-products", getAllBankProducts);
-router.get("/get-bank-product/:id", getBankProductById);
-router.get("/best-rates", getBestRates);
-router.get("/popular", getPopularProducts);
-router.get("/featured", getFeaturedProducts);
-router.get("/eligible", getEligibleProducts);
-router.get("/by-bank/:bankCode", getProductsByBank);
-router.get("/stats", getBankProductStats);
+/**
+ * =========================================
+ * PUBLIC ROUTES
+ * =========================================
+ */
 
-// ==================== ADMIN ONLY ROUTES ====================
-router.post("/create-bank-products", protect, createBankProducts);
-router.post("/create-bulk", protect, createBulkBankProducts);
-router.put("/update-bank-product/:id", protect, updateBankProduct);
-router.patch("/update-rate/:id", protect, updateBankProductRate);
-router.delete("/delete-bank-product/:id", protect, deleteBankProduct);
-router.delete("/hard-delete/:id", protect, hardDeleteBankProduct);
+router.get("/", getAllBanks);
 
-// bank products forms
+router.get("/:id", getBankById);
 
-// Admin only routes
-router.post("/create-bank-form", createBankForm);
-router.post("/create-bulk-bank-forms", protect, createBulkBankForms);
-router.put("/update-bank-form/:formId", protect, updateBankForm);
-router.delete("/archive-bank-form/:formId", protect, archiveBankForm);
+/**
+ * =========================================
+ * ADMIN ROUTES
+ * =========================================
+ */
 
-// Protected routes (all authenticated users)
-router.get("/bank-forms", getAllBankForms);
-router.get("/bank-forms/bank-product/:bankProductId", protectMulti, getFormsByBankProduct);
-router.post("/bank-forms/:formId/download", protect, recordFormDownload);
+router.post(
+    "/create",
+    protect,
+    createBank
+);
+
+router.put(
+    "/update/:id",
+    protect,
+    updateBank
+);
+
+router.delete(
+    "/delete/:id",
+    protect,
+    deleteBank
+);
+
+
+/**
+ * =========================================
+ * PUBLIC ROUTES
+ * =========================================
+ */
+
+router.get("/bank/product", getAllBankProducts);
+
+router.get("/bank/product/:id", getBankProductById);
+
+/**
+ * =========================================
+ * ADMIN ROUTES
+ * =========================================
+ */
+
+router.post(
+    "/bank/product/create",
+    protect,
+    createBankProduct
+);
+
+router.put(
+    "/bank/product/update/:id",
+    protect,
+    updateBankProduct
+);
+
+router.delete(
+    "/bank/product/delete/:id",
+    protect,
+    deleteBankProduct
+);
+
 module.exports = router;
