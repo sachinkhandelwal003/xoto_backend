@@ -158,27 +158,31 @@
         affiliationStatus = 'pending';
       }
 
-      const newAgent = await VaultAgent.create({
-        name: { first_name, last_name },
-        phone: { country_code: country_code || '+971', number: phone_number },
-        email: email || null,
-        password: hashedPassword,
-        role: roleDoc._id,
-        agentType,
-        partnerId: partner ? partner._id : null,
-        affiliationStatus,
-        maritalStatus: maritalStatus || null,
-        numberOfDependents: numberOfDependents || 0,
-        dependents: dependents || [],
-        nationality: nationality || null,
-        dateOfBirth: dateOfBirth || null,
-        gender: gender || null,
-        isActive: false,
-        isVerified: false,
-        isPhoneVerified: false,
-        isEmailVerified: false,
-        commissionEligible: false
-      });
+     // In agentSignup function, CHANGE these fields when creating newAgent:
+
+const newAgent = await VaultAgent.create({
+  name: { first_name, last_name },
+  phone: { country_code: country_code || '+971', number: phone_number },
+  email: email || null,
+  password: hashedPassword,
+  role: roleDoc._id,
+  agentType,
+  partnerId: partner ? partner._id : null,
+  affiliationStatus,
+  maritalStatus: maritalStatus || null,
+  numberOfDependents: numberOfDependents || 0,
+  dependents: dependents || [],
+  nationality: nationality || null,
+  dateOfBirth: dateOfBirth || null,
+  gender: gender || null,
+  
+  // ✅ CHANGE THESE:
+  isActive: true,           // ← Changed from false to true (immediate access)
+  isVerified: false,        // ← Keep false (needs verification for commission)
+  isPhoneVerified: true,    // ← Changed from false to true (OTP verified)
+  isEmailVerified: true,    // ← Changed from false to true (OTP verified)
+  commissionEligible: false // ← Keep false (needs documents + verification)
+});
 
       await HistoryService.logAgentActivity(
         newAgent,
@@ -190,14 +194,13 @@
       const agentResponse = newAgent.toObject();
       delete agentResponse.password;
 
-      return res.status(201).json({
-        success: true,
-        message: agentMode === 'partner'
-          ? "Registered successfully. Awaiting partner approval."
-          : "Freelance agent registered successfully. Awaiting admin verification.",
-        data: agentResponse
-      });
-
+   return res.status(201).json({
+  success: true,
+  message: agentMode === 'partner'
+    ? "Registration successful! You can start referring leads immediately. Partner approval needed for commission eligibility."
+    : "Registration successful! You can start referring leads immediately. Complete your profile (Emirates ID + Bank details) and get verified to earn commissions.",
+  data: agentResponse
+});
     } catch (error) {
       console.error("Agent signup error:", error);
       return res.status(500).json({ success: false, message: error.message });
@@ -454,6 +457,9 @@ export const partnerOnboardAffiliatedAgent = async (req, res) => {
 /* =====================================
    4. AGENT LOGIN
 ===================================== */
+/* =====================================
+   4. AGENT LOGIN
+===================================== */
 export const agentLogin = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -484,9 +490,17 @@ export const agentLogin = async (req, res) => {
       return res.status(403).json({ success: false, message: `Account suspended. Reason: ${agent.suspensionReason}` });
     }
 
-    if (agent.agentType === 'PartnerAffiliatedAgent' && agent.affiliationStatus !== 'verified') {
-      return res.status(403).json({ success: false, message: `Affiliation status: ${agent.affiliationStatus}` });
+    // ✅ FIXED: Only block if affiliation is REJECTED, not if pending
+    if (agent.agentType === 'PartnerAffiliatedAgent' && agent.affiliationStatus === 'rejected') {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Your affiliation request was rejected by the partner. Please contact support." 
+      });
     }
+
+    // ✅ Allow 'pending' and 'verified' status to login
+    // For pending: They can use the platform but won't earn commission
+    // For verified: Full access with commission eligibility
 
     agent.lastLoginAt = new Date();
     await agent.save();
@@ -499,9 +513,15 @@ export const agentLogin = async (req, res) => {
     const agentResponse = agent.toObject();
     delete agentResponse.password;
 
+    // Add warning message for pending affiliation
+    let loginMessage = "Login successful";
+    if (agent.agentType === 'PartnerAffiliatedAgent' && agent.affiliationStatus === 'pending') {
+      loginMessage = "Login successful. Your partner affiliation is pending approval. You can refer leads but commissions will be paid to the partner company.";
+    }
+
     return res.status(200).json({
       success: true,
-      message: "Login successful",
+      message: loginMessage,
       token,
       data: agentResponse
     });
@@ -510,7 +530,6 @@ export const agentLogin = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-
 /* =====================================
    5. ADMIN VERIFY AGENT
 ===================================== */

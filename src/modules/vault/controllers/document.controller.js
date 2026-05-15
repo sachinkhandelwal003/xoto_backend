@@ -134,7 +134,7 @@ export const uploadDocument = async (req, res) => {
     const isXotoAdvisor = req.user?.employeeType === 'XotoAdvisor' || 
                           req.user?.type === 'vaultadvisor' || 
                           req.user?.role?.code === '26';
-    const isMortgageOps = req.user?.employeeType === 'MortgageOps';
+    const isMortgageOps = roleDoc?.code === '23';
     
     // Get partner type if partner
     let isCompanyPartner = false;

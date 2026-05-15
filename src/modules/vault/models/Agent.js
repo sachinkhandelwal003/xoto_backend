@@ -255,9 +255,21 @@ agentSchema.methods.isActiveAgent = function () {
 
 agentSchema.methods.canEarnCommission = function () {
   if (this.agentType === 'FreelanceAgent') {
-    return this.isVerified && this.isActiveAgent() && this.isPhoneVerified;
+    // Freelance agents need: verified, active, phone verified, AND documents verified
+    return this.isVerified && 
+           this.isActiveAgent() && 
+           this.isPhoneVerified && 
+           this.emiratesId?.verified && 
+           this.bankDetails?.verified;
   }
-  return this.isActiveAgent() && this.affiliationStatus === 'verified' && this.isPhoneVerified;
+  
+  if (this.agentType === 'PartnerAffiliatedAgent') {
+    // Partner-affiliated agents NEVER earn commission directly
+    // Commission is paid to the partner company
+    return false;
+  }
+  
+  return false;
 };
 
 agentSchema.methods.getCommissionPercentage = function (loanAmount, referralType) {
@@ -287,24 +299,27 @@ agentSchema.methods.markEmailVerified = function () {
 // ==================== NEW METHODS FOR COMMISSION INTEGRATION ====================
 
 // ✅ Method 1: Get detailed commission eligibility status
+// ✅ Method 1: Get detailed commission eligibility status
 agentSchema.methods.getCommissionEligibilityStatus = function() {
   if (this.agentType === 'FreelanceAgent') {
     if (!this.isVerified) {
       return { eligible: false, reason: 'Profile not verified by admin' };
     }
-    // ✅ REMOVED phone verification check
-    // if (!this.isActiveAgent()) {
-    //   return { eligible: false, reason: 'Account is not active' };
-    // }
-    // if (!this.emiratesId?.number || !this.emiratesId?.frontImageUrl) {
-    //   return { eligible: false, reason: 'Emirates ID not uploaded' };
-    // }
-    // if (!this.bankDetails?.iban) {
-    //   return { eligible: false, reason: 'Bank details not provided' };
-    // }
-    // if (!this.bankDetails?.verified) {
-    //   return { eligible: false, reason: 'Bank details not verified by admin' };
-    // }
+    
+    // ✅ UNCOMMENT THESE CHECKS:
+    if (!this.isActiveAgent()) {
+      return { eligible: false, reason: 'Account is not active' };
+    }
+    if (!this.emiratesId?.number || !this.emiratesId?.frontImageUrl) {
+      return { eligible: false, reason: 'Emirates ID not uploaded' };
+    }
+    if (!this.bankDetails?.iban) {
+      return { eligible: false, reason: 'Bank details not provided' };
+    }
+    if (!this.bankDetails?.verified) {
+      return { eligible: false, reason: 'Bank details not verified by admin' };
+    }
+    
     return { eligible: true, reason: null };
   }
   
