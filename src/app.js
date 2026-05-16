@@ -107,6 +107,8 @@ app.use('/freelancer/projects/get', require('../src/modules/auth/routes/freelanc
 app.use('/freelancer/category', require('../src/modules/auth/routes/freelancer/freelancercategory.routes'));
 app.use('/freelancer/subcategory', require('../src/modules/auth/routes/freelancer/freelancersubcategory.routes'));
 
+app.use('/deal-record', require('./modules/Grid/dealrecord/routes/Dealrecord.routes'));
+
 // Routes
 
 app.use('/vault/statistics', require('./modules/vault/routes/vault.statistics.routes.js'));

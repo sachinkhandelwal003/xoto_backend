@@ -9,7 +9,8 @@ const asyncHandler = require('../../../../utils/asyncHandler');
 const Agent       = require('../../Agent/models/agent.js');
 const GridAdvisor = require('../../Advisor/model/index.js');
 const { suggestAdvisor } = require('../../Advisor/controller/advisorAssignment.service.js');
-const Property    = require('../../../properties/models/property.model.js');
+const Property = require('../../../properties/models/property.model.js');
+const PropertyInventory = require('../../../properties/models/property.inventory.model.js');
 const { matchPropertiesForLead } = require('./gridLead.matchHelper');
 
 
@@ -676,7 +677,7 @@ exports.getMyAssignedLeads = asyncHandler(async (req, res) => {
 
 exports.updateMyLeadStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { status, notes = '' } = req.body;
+  const { status, notes = '', inventoryUnitId } = req.body;
   const advisorId = req.user?._id;
 
   if (!advisorId) {
@@ -733,6 +734,56 @@ exports.updateMyLeadStatus = asyncHandler(async (req, res) => {
       message: 'Status already same',
       data: { lead_id: lead._id, status: lead.status },
     });
+  }
+
+  // Inventory logic for status progression
+  const statusesRequiringUnit = ['reserved', 'spa_signed', 'completed'];
+  const requiresInventoryUpdate = statusesRequiringUnit.includes(status) || status === 'not_proceeding';
+
+  if (statusesRequiringUnit.includes(status)) {
+    const finalInventoryId = inventoryUnitId || lead.deal_record?.inventory_unit_id;
+    if (!finalInventoryId) {
+      return res.status(StatusCodes.BAD_REQUEST).json({
+        success: false,
+        message: `An inventoryUnitId is required to update lead status to ${status}`,
+      });
+    }
+
+    // Set the inventory unit id in the lead deal_record if not already set
+    if (!lead.deal_record) lead.deal_record = {};
+    if (!lead.deal_record.inventory_unit_id) {
+      lead.deal_record.inventory_unit_id = finalInventoryId;
+    }
+  }
+
+  if (requiresInventoryUpdate) {
+    const unitId = inventoryUnitId || lead.deal_record?.inventory_unit_id;
+    if (unitId) {
+      const inventoryUpdate = {};
+      if (status === 'reserved') {
+        inventoryUpdate.status = 'reserved';
+        inventoryUpdate.reservedBy = advisorId;
+        inventoryUpdate.reservedAt = new Date();
+        inventoryUpdate.leadId = lead._id;
+      } else if (status === 'spa_signed') {
+        inventoryUpdate.status = 'spa_signed';
+      } else if (status === 'not_proceeding') {
+        // Revert inventory back to available if it was reserved/booked but deal didn't proceed
+        const currentInventory = await PropertyInventory.findById(unitId);
+        if (currentInventory && ['reserved', 'booked', 'spa_signed'].includes(currentInventory.status)) {
+           inventoryUpdate.status = 'available';
+           inventoryUpdate.reservedBy = null;
+           inventoryUpdate.reservedAt = null;
+           inventoryUpdate.bookedBy = null;
+           inventoryUpdate.bookedAt = null;
+           inventoryUpdate.leadId = null;
+        }
+      }
+      
+      if (Object.keys(inventoryUpdate).length > 0) {
+        await PropertyInventory.findByIdAndUpdate(unitId, inventoryUpdate);
+      }
+    }
   }
 
   const notesTrim = typeof notes === 'string' ? notes.trim() : '';

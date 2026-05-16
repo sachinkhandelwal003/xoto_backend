@@ -298,6 +298,7 @@ advisor_suggestions: [{
   deal_record: {
     created:            { type: Boolean, default: false },
     deal_record_id:     { type: mongoose.Schema.Types.ObjectId, ref: 'DealRecord' },
+    inventory_unit_id:  { type: mongoose.Schema.Types.ObjectId, ref: 'PropertyInventory' },
     transaction_value:  { type: Number },
     commission_amount:  { type: Number },
     commission_status: {
