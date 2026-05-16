@@ -999,8 +999,26 @@ exports.getLeadById = asyncHandler(async (req, res) => {
 // AGENT — GET OWN LEADS
 // ════════════════════════════════════════════════════════════════════════════
 
+const getAgencyAgentIds = async (agencyId, includePending = true) => {
+  const Agent = require('../../Agent/models/agent');
+  const filter = { agency: agencyId };
+  if (!includePending) {
+    filter.agencyApprovalStatus = 'approved';
+    filter.adminApprovalStatus = 'approved';
+    filter.isActive = true;
+  }
+  return Agent.find(filter).distinct('_id');
+};
+
 exports.getAgentOwnLeads = asyncHandler(async (req, res) => {
-  const agentId = req.user._id;
+  let agentIds;
+  
+  if (req.user.constructor.modelName === 'Agency') {
+    agentIds = await getAgencyAgentIds(req.user._id);
+  } else {
+    agentIds = [req.user._id];
+  }
+  
   const page    = parseInt(req.query.page,  10) || 1;
   const limit   = parseInt(req.query.limit, 10) || 10;
   const skip    = (page - 1) * limit;
@@ -1008,10 +1026,13 @@ exports.getAgentOwnLeads = asyncHandler(async (req, res) => {
   const { status, classification, type, search } = req.query;
 
   const filter = {
-    lead_type:         'agent',
-    'source.channel':  'agent_added',
-    created_by_agent:  agentId,
+    created_by_agent:  { $in: agentIds },
   };
+  
+  if (req.user.constructor.modelName !== 'Agency') {
+    filter.lead_type = 'agent';
+    filter['source.channel'] = 'agent_added';
+  }
 
   if (status)         filter.status         = status;
   if (classification) filter.classification = classification;
@@ -1030,6 +1051,7 @@ exports.getAgentOwnLeads = asyncHandler(async (req, res) => {
     GridLead.find(filter)
       .populate('source.listing_id',           'propertyName area price mainLogo')
       .populate('matched_listings.listing_id',  'propertyName area price bedrooms bathrooms builtUpArea mainLogo')
+      .populate('created_by_agent',              'first_name last_name email phone_number')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -1040,7 +1062,7 @@ exports.getAgentOwnLeads = asyncHandler(async (req, res) => {
   const sanitized = leads.map(lead => {
     const { assigned_to, assigned_at, assigned_by, assignment_notes, ...safe } = lead;
     const isAssignment = (t = '') => /assigned|assign advisor|advisor/i.test(t);
-    return {
+    const mapped = {
       ...safe,
       notes: Array.isArray(safe.notes)
         ? safe.notes.filter(n => !isAssignment(n?.text || ''))
@@ -1048,9 +1070,22 @@ exports.getAgentOwnLeads = asyncHandler(async (req, res) => {
       status_history: Array.isArray(safe.status_history)
         ? safe.status_history.filter(h => !isAssignment(h?.notes || ''))
         : safe.status_history,
+      name: safe.contact_info?.name || { first_name: '', last_name: '' },
+      email: safe.contact_info?.email?.address,
+      phone_number: safe.contact_info?.mobile?.number,
+      agent: safe.created_by_agent,
+      property_type: safe.requirements?.property_type,
+      bedrooms: safe.requirements?.bedrooms,
+      budget: safe.requirements?.budget,
+      preferred_location: safe.requirements?.location,
+      source: safe.source?.channel || 'Direct',
     };
+    return mapped;
   });
 
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   res.json({
     success: true,
     data: sanitized,
@@ -1273,6 +1308,8 @@ exports.addAgentNote = asyncHandler(async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════
 // AGENT — UPDATE REQUIREMENTS
 // ════════════════════════════════════════════════════════════════════════════
+
+
 
 exports.agentUpdateRequirements = asyncHandler(async (req, res) => {
   const { id }                   = req.params;

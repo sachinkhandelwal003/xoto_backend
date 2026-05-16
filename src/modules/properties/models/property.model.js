@@ -6,15 +6,15 @@ const PropertySchema = new mongoose.Schema(
   {
 
     developer: {
-      type:    mongoose.Schema.Types.ObjectId,
-      ref:     "Developer",
-      default: null,
-    },
-    createdByAdmin: {
-      type:    mongoose.Schema.Types.ObjectId,
-      ref:     "User",
-      default: null,
-    },
+    type:    mongoose.Schema.Types.ObjectId,
+    ref:     "Developer",
+    default: null,
+  },
+  createdByAdmin: {
+    type:    mongoose.Schema.Types.ObjectId,
+    ref:     "User",
+    default: null,
+  },
 
     // ══════════════════════════════════════════════════════════════
     // PROPERTY TYPE (PRD §1.6)
@@ -445,8 +445,8 @@ const PropertySchema = new mongoose.Schema(
 // INDEXES
 // ══════════════════════════════════════════════════════════════════════════
 
-PropertySchema.index({ developer:       1 });
-PropertySchema.index({ createdByAdmin:  1 });
+PropertySchema.index({ developer: 1 });
+PropertySchema.index({ createdByAdmin: 1 });
 PropertySchema.index({ propertySubType: 1 });
 PropertySchema.index({ approvalStatus:  1 });
 PropertySchema.index({ listingStatus:   1 });

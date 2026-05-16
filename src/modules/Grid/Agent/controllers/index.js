@@ -9,26 +9,55 @@ const { createToken } = require('../../../../middleware/auth.js');
 ===================================== */
 exports.agentSignup = async (req, res) => {
   try {
-    const { fullName, email, phone, password, location, agency } = req.body;
-    if (!fullName || !phone || !password || !agency) {
-      return res.status(400).json({ success: false, message: 'Full name, phone, password, and agency are required' });
+    const {
+      first_name,
+      last_name,
+      fullName,
+      email,
+      phone,
+      phone_number,
+      country_code,
+      password,
+      operating_city,
+      specialization,
+      country,
+      agency,
+    } = req.body;
+
+    const resolvedPhone = phone_number || phone;
+    const nameParts = (fullName || '').trim().split(/\s+/).filter(Boolean);
+    const resolvedFirstName = first_name || nameParts[0];
+    const resolvedLastName = last_name || nameParts.slice(1).join(' ') || '-';
+
+    if (!resolvedFirstName || !resolvedPhone || !password || !agency || !email) {
+      return res.status(400).json({ success: false, message: 'Name, email, phone, password, and agency are required' });
     }
 
     // Check for duplicate phone
-    const existing = await Agent.findOne({ phone_number: phone });
+    const existing = await Agent.findOne({
+      $or: [
+        { phone_number: resolvedPhone },
+        { email: email.toLowerCase() },
+      ],
+    });
 
-    if (existing) return res.status(400).json({ success: false, message: 'Phone number already registered' });
+    if (existing) return res.status(400).json({ success: false, message: 'Phone number or email already registered' });
 
     // Verify agency exists and is active
     const agencyDoc = await Agency.findOne({ _id: agency, isActive: true, isSuspended: false });
     if (!agencyDoc) return res.status(400).json({ success: false, message: 'Selected agency not found or inactive' });
 const agentRole = await Role.findOne({ code: 16 });
     const newAgent = await Agent.create({
-      fullName,
-      email: email || undefined,
-      phone,
+      first_name: resolvedFirstName,
+      last_name: resolvedLastName,
+      fullName: fullName || `${resolvedFirstName} ${resolvedLastName}`.trim(),
+      email,
+      phone_number: resolvedPhone,
+      country_code: country_code || '+971',
       password,   // hashed by pre-save hook
-      location: location || undefined,
+      operating_city: operating_city || agencyDoc.operatingLocation?.city || 'Dubai',
+      specialization: specialization || 'general',
+      country: country || agencyDoc.operatingLocation?.country || 'UAE',
       agency,
         role: agentRole ? agentRole._id : null,
       agencyApprovalStatus: 'pending',
@@ -37,12 +66,12 @@ const agentRole = await Role.findOne({ code: 16 });
     });
 
     // Optionally push agent to agency's agents array
-    await Agency.findByIdAndUpdate(agency, { $push: { agents: newAgent._id } });
+    await Agency.findByIdAndUpdate(agency, { $addToSet: { agents: newAgent._id } });
 
     res.status(201).json({
       success: true,
       message: 'Registration submitted. Awaiting agency and admin approval.',
-      data: { _id: newAgent._id, phone: newAgent.phone, agency: newAgent.agency },
+      data: { _id: newAgent._id, phone: newAgent.phone_number, agency: newAgent.agency },
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -60,8 +89,8 @@ exports.agentLogin = async (req, res) => {
 
     let agent = null;
 
-    // Try 1: search by phone field directly
-    agent = await Agent.findOne({ phone });
+    // Try 1: search by stored local phone number directly
+    agent = await Agent.findOne({ phone_number: phone });
 
     // Try 2: split country_code + phone_number
     if (!agent && phone.startsWith('+')) {

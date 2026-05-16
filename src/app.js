@@ -40,7 +40,6 @@ const gridLead = require('./modules/Grid/Lead/routes/gridLead.route.js')
 // const SkyRoutes = Skyimport.default || Skyimport;
 
 const feedback = require('./modules/feedback/routes/feedback.route.js');
-const presentationController = require('./modules/Grid/Agent/controllers/PresentationController');
 
 // ==========================================
 // ⚠️ FIX: Stripe Route Yahan Upar Move Kiya Hai 
@@ -184,10 +183,6 @@ app.use('/notifications', Notification);
 app.use((req, res, next) => {
   next(createError.NotFound());
 });
-// Public presentation share (no auth)
-app.get('/presentation/share/:token', presentationController.sharePresentation);
-
-
 // Error Handler
 app.use((err, req, res, next) => {
   res.status(err.status || 500);

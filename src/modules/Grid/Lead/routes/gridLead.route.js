@@ -37,8 +37,7 @@ router.put ('/:id/suggestion-reaction', controller.updateSuggestionReaction);
 router.put ('/:id/update-requirements', controller.updateLeadRequirements);
 router.get ('/:id/smart-matches',       controller.getSmartMatches);
 
-// ── NEW: Advisor private note ─────────────────────────────────────────────
-router.post('/:id/note-advisor',        controller.addAdvisorNote);   // ← ADDED
+
 
 
 // ────────────────────────────────────────────────────────────────────────────
