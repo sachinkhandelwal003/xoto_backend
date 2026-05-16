@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 
 const gridAdvisorController = require("../controller/index.js");
-const { protect, restrictTo } = require("../../../../middleware/auth");
+const { protect, restrictTo, protectMulti } = require("../../../../middleware/auth");
 
 // ════════════════════════════════════════════════════════════════════════════
 // PUBLIC ROUTES  (no auth needed)
@@ -10,8 +10,12 @@ const { protect, restrictTo } = require("../../../../middleware/auth");
 
 router.post("/login", gridAdvisorController.loginGridAdvisor);
 
-
 router.post("/reset-password", gridAdvisorController.resetPassword);
+
+// ════════════════════════════════════════════════════════════════════════════
+// PROTECTED ROUTES  (advisor)
+// ════════════════════════════════════════════════════════════════════════════
+router.get("/me/dashboard", protectMulti, gridAdvisorController.getGridAdvisorDashboard);
 
 
 
