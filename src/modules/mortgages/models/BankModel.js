@@ -164,17 +164,11 @@ const BankSchema = new mongoose.Schema(
  * =========================================================
  */
 
-BankSchema.index({
-    bankName: 1
-});
-
-BankSchema.index({
-    bankCode: 1
-});
-
-BankSchema.index({
-    status: 1
-});
+BankSchema.index({ bankName: 1 });
+BankSchema.index({ bankCode: 1 });
+BankSchema.index({ status: 1 });
+BankSchema.index({ isDeleted: 1 });
+BankSchema.index({ displayOrder: 1 });
 
 /**
  * =========================================================
@@ -183,8 +177,32 @@ BankSchema.index({
  */
 
 BankSchema.virtual("isActive").get(function () {
-    return this.status === "Active";
+    return this.status === "Active" && !this.isDeleted;
 });
+
+BankSchema.virtual("bankDisplayName").get(function () {
+    return `${this.bankName} (${this.bankCode})`;
+});
+
+/**
+ * =========================================================
+ * INSTANCE METHODS
+ * =========================================================
+ */
+
+BankSchema.methods.softDelete = async function () {
+    this.isDeleted = true;
+    this.deletedAt = new Date();
+    this.status = "Archived";
+    return this.save();
+};
+
+BankSchema.methods.restore = async function () {
+    this.isDeleted = false;
+    this.deletedAt = null;
+    this.status = "Active";
+    return this.save();
+};
 
 /**
  * =========================================================
@@ -195,16 +213,64 @@ BankSchema.virtual("isActive").get(function () {
 /**
  * Get all active banks
  */
-
 BankSchema.statics.getActiveBanks = function () {
     return this.find({
         status: "Active",
         isDeleted: false
-    }).sort({
-        displayOrder: 1,
-        bankName: 1
-    });
+    })
+    .sort({ displayOrder: 1, bankName: 1 })
+    .select("-__v");
 };
+
+/**
+ * Get bank by code with products
+ */
+BankSchema.statics.getBankWithProducts = function (bankCode) {
+    return this.aggregate([
+        { $match: { bankCode: bankCode, isDeleted: false, status: "Active" } },
+        {
+            $lookup: {
+                from: "bankmortgageproducts",
+                localField: "_id",
+                foreignField: "bank",
+                as: "products"
+            }
+        },
+        {
+            $addFields: {
+                products: {
+                    $filter: {
+                        input: "$products",
+                        as: "product",
+                        cond: { $eq: ["$$product.isDeleted", false] }
+                    }
+                }
+            }
+        }
+    ]);
+};
+
+/**
+ * =========================================================
+ * MIDDLEWARE
+ * =========================================================
+ */
+
+// Pre-save middleware to ensure bankCode is uppercase
+BankSchema.pre('save', function(next) {
+    if (this.bankCode) {
+        this.bankCode = this.bankCode.toUpperCase();
+    }
+    next();
+});
+
+// Pre-find middleware to exclude deleted banks by default
+BankSchema.pre(/^find/, function(next) {
+    if (!this.getQuery().hasOwnProperty('isDeleted')) {
+        this.where({ isDeleted: false });
+    }
+    next();
+});
 
 /**
  * =========================================================
@@ -212,7 +278,4 @@ BankSchema.statics.getActiveBanks = function () {
  * =========================================================
  */
 
-module.exports = mongoose.model(
-    "Bank",
-    BankSchema
-);
+module.exports = mongoose.model("Bank", BankSchema);

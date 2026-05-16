@@ -1,90 +1,74 @@
 const express = require("express");
-
 const {
+    // Bank controllers
     createBank,
     getAllBanks,
     getBankById,
     updateBank,
-    deleteBank,    createBankProduct,
+    deleteBank,
+    restoreBank,
+    
+    // Bank Product controllers
+    createBankProduct,
     getAllBankProducts,
     getBankProductById,
     updateBankProduct,
-    deleteBankProduct
+    deleteBankProduct,
+    restoreBankProduct,
+    checkProductEligibility,
+    getFeaturedProducts,
+    compareProducts,
+    getProductsByBankId,
+    getBankProductsSummary
 } = require("../controllers/bankMortgageProduct.controller");
 
-const {
-    protect
-} = require("../../../middleware/auth");
+const { protect } = require("../../../middleware/auth");
 
 const router = express.Router();
 
 /**
  * =========================================
- * PUBLIC ROUTES
+ * IMPORTANT: Order matters!
+ * Specific routes MUST come before parameterized routes
  * =========================================
  */
 
-router.get("/", getAllBanks);
+// =========================================
+// 1. PRODUCT ROUTES (Specific paths first)
+// =========================================
 
+// Public product routes
+router.get("/products/featured", getFeaturedProducts);
+router.get("/products", getAllBankProducts);
+router.get("/products/:id", getBankProductById);
+router.post("/products/compare", compareProducts);
+router.post("/products/:productId/check-eligibility", checkProductEligibility);
+
+// Admin product routes
+router.post("/products", protect, createBankProduct);
+router.put("/products/:id", protect, updateBankProduct);
+router.delete("/products/:id", protect, deleteBankProduct);
+router.post("/products/:id/restore", protect, restoreBankProduct);
+
+// =========================================
+// 2. BANK PRODUCTS BY BANK ID ROUTES
+// =========================================
+router.get("/banks/:bankId/products", getProductsByBankId);
+router.get("/banks/:bankId/products/summary", getBankProductsSummary);
+router.get("/admin/:bankId/products", protect, getProductsByBankId);
+
+// =========================================
+// 3. BANK ROUTES (Parameterized routes LAST)
+// =========================================
+
+// Public bank routes
+router.get("/", getAllBanks);
 router.get("/:id", getBankById);
 
-/**
- * =========================================
- * ADMIN ROUTES
- * =========================================
- */
-
-router.post(
-    "/create",
-    protect,
-    createBank
-);
-
-router.put(
-    "/update/:id",
-    protect,
-    updateBank
-);
-
-router.delete(
-    "/delete/:id",
-    protect,
-    deleteBank
-);
-
-
-/**
- * =========================================
- * PUBLIC ROUTES
- * =========================================
- */
-
-router.get("/bank/product", getAllBankProducts);
-
-router.get("/bank/product/:id", getBankProductById);
-
-/**
- * =========================================
- * ADMIN ROUTES
- * =========================================
- */
-
-router.post(
-    "/bank/product/create",
-    protect,
-    createBankProduct
-);
-
-router.put(
-    "/bank/product/update/:id",
-    protect,
-    updateBankProduct
-);
-
-router.delete(
-    "/bank/product/delete/:id",
-    protect,
-    deleteBankProduct
-);
+// Admin bank routes
+router.post("/", protect, createBank);
+router.put("/:id", protect, updateBank);
+router.delete("/:id", protect, deleteBank);
+router.post("/:id/restore", protect, restoreBank);
 
 module.exports = router;

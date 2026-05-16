@@ -2,35 +2,14 @@ const mongoose = require("mongoose");
 
 /**
  * =========================================================
- * DOCUMENT REQUIREMENT MODEL
+ * DOCUMENT REQUIREMENT MODEL (COMPLETE)
  * =========================================================
  * PURPOSE:
- * Master checklist configuration system.
- *
- * THIS MODEL DEFINES:
- * - what customer documents are required
- * - which banks require them
- * - which bank products require them
- * - employment-based requirements
- * - residency-based requirements
- *
- * THIS MODEL DOES NOT STORE:
- * - uploaded files
- * - customer documents
- * - signed forms
- *
- * EXAMPLES:
- * - Passport
- * - Emirates ID
- * - Salary Certificate
- * - Bank Statement
- * - Trade License
- *
- * USED FOR:
- * - dynamic checklist generation
- * - application document requirements
- * - validation rules
- *
+ * Three types of documents:
+ * 
+ * 1. DIRECT_UPLOAD - Customer uploads directly (Passport, Emirates ID)
+ * 2. TEMPLATE_DOWNLOAD - Download form, fill, upload back (Bank forms)
+ * 3. SAMPLE_VIEW - Just view sample document, no upload (Info only)
  * =========================================================
  */
 
@@ -41,22 +20,12 @@ const DocumentRequirementSchema = new mongoose.Schema(
      * BASIC INFORMATION
      * =====================================================
      */
-
     documentName: {
         type: String,
         required: true,
         trim: true,
         index: true
     },
-
-    /**
-     * Unique internal key
-     *
-     * Example:
-     * passport
-     * emirates_id
-     * salary_certificate
-     */
 
     documentKey: {
         type: String,
@@ -72,12 +41,6 @@ const DocumentRequirementSchema = new mongoose.Schema(
         default: ""
     },
 
-    /**
-     * =====================================================
-     * DOCUMENT CATEGORY
-     * =====================================================
-     */
-
     category: {
         type: String,
         enum: [
@@ -89,43 +52,77 @@ const DocumentRequirementSchema = new mongoose.Schema(
             "Tax",
             "Compliance",
             "Insurance",
+            "Bank Form",
+            "Information",
             "Other"
         ],
-        default: "Other"
+        default: "Other",
+        index: true
+    },
+
+    /**
+     * =====================================================
+     * DOCUMENT TYPE (3 Types)
+     * =====================================================
+     * direct_upload: User uploads directly (Passport, EID, Bank Statement)
+     * template_download: Download template → Fill → Upload back
+     * sample_view: Just view sample document, no upload needed
+     */
+    documentType: {
+        type: String,
+        enum: ["direct_upload", "template_download", "sample_view"],
+        default: "direct_upload"
+    },
+
+    /**
+     * =====================================================
+     * TEMPLATE INFORMATION (For template_download type)
+     * User downloads this template, fills it, then uploads back
+     * =====================================================
+     */
+    template: {
+        fileUrl: { type: String, default: null },           // URL to download template
+        fileName: { type: String, default: null },          // Original file name
+        fileSize: { type: Number, default: 0 },             // File size in bytes
+        mimeType: { type: String, default: "application/pdf" },
+        version: { type: String, default: "1.0" },          // Template version
+        uploadedAt: { type: Date, default: null },
+        uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Admin" },
+        // Additional template fields
+        hasFillableFields: { type: Boolean, default: false },
+        requiresSignature: { type: Boolean, default: false },
+        requiresCompanyStamp: { type: Boolean, default: false }
+    },
+
+    /**
+     * =====================================================
+     * SAMPLE DOCUMENT (For sample_view type)
+     * User can view sample document to understand format
+     * =====================================================
+     */
+    sampleDocument: {
+        fileUrl: { type: String, default: null },           // URL to view sample
+        fileName: { type: String, default: null },
+        fileSize: { type: Number, default: 0 },
+        mimeType: { type: String, default: "application/pdf" },
+        description: { type: String, default: "" },         // Description of sample
+        previewImage: { type: String, default: null }       // Thumbnail/preview
     },
 
     /**
      * =====================================================
      * GLOBAL OR BANK SPECIFIC
      * =====================================================
-     *
-     * true:
-     * required across all banks
-     *
-     * false:
-     * only specific banks/products
      */
-
     isGlobal: {
         type: Boolean,
         default: true,
         index: true
     },
 
-    /**
-     * =====================================================
-     * BANK SPECIFIC RULES
-     * =====================================================
-     */
-
     applicableBanks: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: "Bank"
-    }],
-
-    applicableBankProducts: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "BankProduct"
     }],
 
     /**
@@ -133,68 +130,22 @@ const DocumentRequirementSchema = new mongoose.Schema(
      * EMPLOYMENT RULES
      * =====================================================
      */
-
     applicableEmploymentTypes: [{
         type: String,
-        enum: [
-            "Salaried",
-            "Self-Employed",
-            "Both"
-        ],
+        enum: ["Salaried", "Self-Employed", "Both"],
         default: "Both"
     }],
-
-    /**
-     * =====================================================
-     * RESIDENCY RULES
-     * =====================================================
-     */
 
     applicableResidencyStatuses: [{
         type: String,
-        enum: [
-            "UAE National",
-            "UAE Resident",
-            "Non-Resident",
-            "All"
-        ],
+        enum: ["UAE National", "UAE Resident", "Non-Resident", "All"],
         default: "All"
     }],
-
-    /**
-     * =====================================================
-     * MORTGAGE TYPE RULES
-     * =====================================================
-     */
 
     applicableMortgageTypes: [{
         type: String,
-        enum: [
-            "Islamic",
-            "Conventional",
-            "Both"
-        ],
+        enum: ["Islamic", "Conventional", "Both"],
         default: "Both"
-    }],
-
-    /**
-     * =====================================================
-     * TRANSACTION TYPE RULES
-     * =====================================================
-     */
-
-    applicableTransactionTypes: [{
-        type: String,
-        enum: [
-            "Primary Residential",
-            "Primary Commercial",
-            "Buyout",
-            "Equity",
-            "Buyout + Equity",
-            "Offplan",
-            "All"
-        ],
-        default: "All"
     }],
 
     /**
@@ -202,7 +153,6 @@ const DocumentRequirementSchema = new mongoose.Schema(
      * VALIDATION RULES
      * =====================================================
      */
-
     isMandatory: {
         type: Boolean,
         default: true
@@ -223,6 +173,16 @@ const DocumentRequirementSchema = new mongoose.Schema(
         default: false
     },
 
+    requiresSignature: {
+        type: Boolean,
+        default: false
+    },
+
+    requiresStamp: {
+        type: Boolean,
+        default: false
+    },
+
     allowMultipleFiles: {
         type: Boolean,
         default: false
@@ -233,25 +193,14 @@ const DocumentRequirementSchema = new mongoose.Schema(
         default: 1
     },
 
-    /**
-     * =====================================================
-     * FILE VALIDATION
-     * =====================================================
-     */
-
     allowedFileTypes: [{
         type: String,
-        enum: [
-            "pdf",
-            "jpg",
-            "jpeg",
-            "png"
-        ]
+        enum: ["pdf", "jpg", "jpeg", "png", "doc", "docx"]
     }],
 
     maxFileSizeMB: {
         type: Number,
-        default: 20
+        default: 10
     },
 
     /**
@@ -259,7 +208,6 @@ const DocumentRequirementSchema = new mongoose.Schema(
      * UI / DISPLAY
      * =====================================================
      */
-
     placeholderText: {
         type: String,
         default: ""
@@ -270,7 +218,7 @@ const DocumentRequirementSchema = new mongoose.Schema(
         default: ""
     },
 
-    sampleDocumentUrl: {
+    instructions: {
         type: String,
         default: ""
     },
@@ -285,14 +233,9 @@ const DocumentRequirementSchema = new mongoose.Schema(
      * STATUS
      * =====================================================
      */
-
     status: {
         type: String,
-        enum: [
-            "Active",
-            "Inactive",
-            "Archived"
-        ],
+        enum: ["Active", "Inactive", "Archived"],
         default: "Active",
         index: true
     },
@@ -307,12 +250,6 @@ const DocumentRequirementSchema = new mongoose.Schema(
         default: null
     },
 
-    /**
-     * =====================================================
-     * AUDIT
-     * =====================================================
-     */
-
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Admin",
@@ -326,131 +263,131 @@ const DocumentRequirementSchema = new mongoose.Schema(
     }
 },
 {
-    timestamps: true
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
 }
 );
 
-/**
- * =========================================================
- * INDEXES
- * =========================================================
- */
+// Indexes
+DocumentRequirementSchema.index({ documentKey: 1 });
+DocumentRequirementSchema.index({ isGlobal: 1 });
+DocumentRequirementSchema.index({ applicableBanks: 1 });
+DocumentRequirementSchema.index({ documentType: 1 });
+DocumentRequirementSchema.index({ category: 1, status: 1 });
+DocumentRequirementSchema.index({ status: 1, isDeleted: 1 });
 
-DocumentRequirementSchema.index({
-    documentKey: 1
+// Virtuals
+DocumentRequirementSchema.virtual("hasTemplate").get(function () {
+    return this.documentType === "template_download" && !!this.template?.fileUrl;
 });
 
-DocumentRequirementSchema.index({
-    isGlobal: 1
+DocumentRequirementSchema.virtual("hasSampleDocument").get(function () {
+    return this.documentType === "sample_view" && !!this.sampleDocument?.fileUrl;
 });
 
-DocumentRequirementSchema.index({
-    applicableBanks: 1
+DocumentRequirementSchema.virtual("isDirectUpload").get(function () {
+    return this.documentType === "direct_upload";
 });
 
-DocumentRequirementSchema.index({
-    applicableBankProducts: 1
+DocumentRequirementSchema.virtual("isTemplateDownload").get(function () {
+    return this.documentType === "template_download";
 });
 
-DocumentRequirementSchema.index({
-    applicableEmploymentTypes: 1
+DocumentRequirementSchema.virtual("isSampleView").get(function () {
+    return this.documentType === "sample_view";
 });
 
-DocumentRequirementSchema.index({
-    applicableResidencyStatuses: 1
+DocumentRequirementSchema.virtual("isActive").get(function () {
+    return this.status === "Active" && !this.isDeleted;
 });
 
-/**
- * =========================================================
- * STATIC METHODS
- * =========================================================
- */
+// Methods
+DocumentRequirementSchema.methods.softDelete = async function () {
+    this.isDeleted = true;
+    this.deletedAt = new Date();
+    this.status = "Archived";
+    return this.save();
+};
 
-/**
- * Get required documents dynamically
- */
+DocumentRequirementSchema.methods.restore = async function () {
+    this.isDeleted = false;
+    this.deletedAt = null;
+    this.status = "Active";
+    return this.save();
+};
 
-DocumentRequirementSchema.statics.getRequiredDocuments =
-async function ({
+DocumentRequirementSchema.methods.updateTemplate = async function (fileData, userId) {
+    this.template = {
+        fileUrl: fileData.url,
+        fileName: fileData.originalName,
+        fileSize: fileData.size,
+        mimeType: fileData.mimeType,
+        version: this.template?.version ? `${parseFloat(this.template.version) + 0.1}` : "1.0",
+        uploadedAt: new Date(),
+        uploadedBy: userId
+    };
+    return this.save();
+};
+
+DocumentRequirementSchema.methods.updateSampleDocument = async function (fileData) {
+    this.sampleDocument = {
+        fileUrl: fileData.url,
+        fileName: fileData.originalName,
+        fileSize: fileData.size,
+        mimeType: fileData.mimeType,
+        description: fileData.description || this.sampleDocument?.description || ""
+    };
+    return this.save();
+};
+
+// Static Methods
+DocumentRequirementSchema.statics.getRequiredDocuments = async function ({
     bankId,
-    bankProductId,
     employmentType,
     residencyStatus,
-    mortgageType,
-    transactionType
+    mortgageType
 }) {
-
-    return this.find({
+    const query = {
         status: "Active",
         isDeleted: false,
-
         $and: [
-
-            /**
-             * GLOBAL OR BANK MATCH
-             */
-
             {
                 $or: [
                     { isGlobal: true },
-                    { applicableBanks: bankId },
-                    { applicableBankProducts: bankProductId }
+                    { applicableBanks: bankId }
                 ]
             },
-
-            /**
-             * EMPLOYMENT MATCH
-             */
-
             {
                 applicableEmploymentTypes: {
                     $in: [employmentType, "Both"]
                 }
             },
-
-            /**
-             * RESIDENCY MATCH
-             */
-
             {
                 applicableResidencyStatuses: {
                     $in: [residencyStatus, "All"]
                 }
             },
-
-            /**
-             * MORTGAGE TYPE MATCH
-             */
-
             {
                 applicableMortgageTypes: {
                     $in: [mortgageType, "Both"]
                 }
-            },
-
-            /**
-             * TRANSACTION TYPE MATCH
-             */
-
-            {
-                applicableTransactionTypes: {
-                    $in: [transactionType, "All"]
-                }
             }
         ]
-    })
-    .sort({
-        displayOrder: 1
-    });
+    };
+    
+    return this.find(query).sort({ displayOrder: 1 });
 };
 
 /**
- * =========================================================
- * EXPORT
- * =========================================================
+ * Get documents by type
  */
+DocumentRequirementSchema.statics.getByType = async function (type) {
+    return this.find({
+        documentType: type,
+        status: "Active",
+        isDeleted: false
+    }).sort({ displayOrder: 1 });
+};
 
-module.exports = mongoose.model(
-    "BankDocumentRequirement",
-    DocumentRequirementSchema
-);
+module.exports = mongoose.model("BankDocumentRequirement", DocumentRequirementSchema);

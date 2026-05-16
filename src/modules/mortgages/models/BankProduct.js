@@ -36,7 +36,8 @@ const BankProductSchema = new mongoose.Schema(
         type: String,
         unique: true,
         trim: true,
-        index: true
+        index: true,
+        sparse: true
     },
 
     productName: {
@@ -135,7 +136,8 @@ const BankProductSchema = new mongoose.Schema(
 
     minimumFloorRate: {
         type: Number,
-        required: true
+        required: true,
+        min: 0
     },
 
     rateType: {
@@ -172,28 +174,34 @@ const BankProductSchema = new mongoose.Schema(
     ltv: {
         min: {
             type: Number,
-            default: 0
+            default: 0,
+            min: 0,
+            max: 100
         },
-
         max: {
             type: Number,
-            required: true
+            required: true,
+            min: 0,
+            max: 100
         }
     },
 
     minLoanAmount: {
         type: Number,
-        default: 0
+        default: 0,
+        min: 0
     },
 
     maxLoanAmount: {
         type: Number,
-        default: null
+        default: null,
+        min: 0
     },
 
     minSalary: {
         type: Number,
-        default: 0
+        default: 0,
+        min: 0
     },
 
     /**
@@ -220,17 +228,20 @@ const BankProductSchema = new mongoose.Schema(
 
     bankFees: {
         type: Number,
-        default: 0
+        default: 0,
+        min: 0
     },
 
     propertyValuationFee: {
         type: Number,
-        default: 0
+        default: 0,
+        min: 0
     },
 
     bankPreApprovalFee: {
         type: Number,
-        default: 0
+        default: 0,
+        min: 0
     },
 
     isBankPreApprovalFeeFree: {
@@ -240,12 +251,14 @@ const BankProductSchema = new mongoose.Schema(
 
     minimumBankProcessingFee: {
         type: Number,
-        default: 0
+        default: 0,
+        min: 0
     },
 
     buyoutFee: {
         type: Number,
-        default: 0
+        default: 0,
+        min: 0
     },
 
     isBuyoutFeeNA: {
@@ -262,15 +275,12 @@ const BankProductSchema = new mongoose.Schema(
     propertyInsurance: {
         value: {
             type: Number,
-            default: 0
+            default: 0,
+            min: 0
         },
-
         frequency: {
             type: String,
-            enum: [
-                "pa",
-                "pm"
-            ],
+            enum: ["pa", "pm"],
             default: "pa"
         }
     },
@@ -278,15 +288,12 @@ const BankProductSchema = new mongoose.Schema(
     lifeInsurance: {
         value: {
             type: Number,
-            default: 0
+            default: 0,
+            min: 0
         },
-
         frequency: {
             type: String,
-            enum: [
-                "pa",
-                "pm"
-            ],
+            enum: ["pa", "pm"],
             default: "pa"
         }
     },
@@ -302,7 +309,6 @@ const BankProductSchema = new mongoose.Schema(
             type: Boolean,
             default: true
         },
-
         expiryDate: {
             type: Date,
             default: null
@@ -316,7 +322,8 @@ const BankProductSchema = new mongoose.Schema(
      */
 
     keyFeatures: [{
-        type: String
+        type: String,
+        trim: true
     }],
 
     /**
@@ -387,7 +394,9 @@ const BankProductSchema = new mongoose.Schema(
     }
 },
 {
-    timestamps: true
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
 }
 );
 
@@ -397,29 +406,20 @@ const BankProductSchema = new mongoose.Schema(
  * =========================================================
  */
 
-BankProductSchema.index({
-    bank: 1
-});
-
-BankProductSchema.index({
-    productName: 1
-});
-
-BankProductSchema.index({
-    mortgageType: 1
-});
-
-BankProductSchema.index({
-    residencyStatus: 1
-});
-
-BankProductSchema.index({
-    employmentStatus: 1
-});
-
-BankProductSchema.index({
-    status: 1
-});
+BankProductSchema.index({ bank: 1 });
+BankProductSchema.index({ productName: 1 });
+BankProductSchema.index({ mortgageType: 1 });
+BankProductSchema.index({ residencyStatus: 1 });
+BankProductSchema.index({ employmentStatus: 1 });
+BankProductSchema.index({ status: 1 });
+BankProductSchema.index({ isDeleted: 1 });
+BankProductSchema.index({ isFeatured: 1 });
+BankProductSchema.index({ isPopular: 1 });
+BankProductSchema.index({ displayOrder: 1 });
+BankProductSchema.index({ "ltv.max": 1 });
+BankProductSchema.index({ minLoanAmount: 1 });
+BankProductSchema.index({ maxLoanAmount: 1 });
+BankProductSchema.index({ productId: 1 }, { sparse: true });
 
 /**
  * =========================================================
@@ -428,17 +428,67 @@ BankProductSchema.index({
  */
 
 BankProductSchema.virtual("isExpired").get(function () {
-
     if (this.productValidity.doesNotExpire) {
         return false;
     }
-
     if (!this.productValidity.expiryDate) {
         return false;
     }
-
     return new Date() > this.productValidity.expiryDate;
 });
+
+BankProductSchema.virtual("isActiveProduct").get(function () {
+    return this.status === "Active" && !this.isDeleted && !this.isExpired;
+});
+
+BankProductSchema.virtual("maxLTV").get(function () {
+    return this.ltv.max;
+});
+
+BankProductSchema.virtual("minLTV").get(function () {
+    return this.ltv.min;
+});
+
+/**
+ * =========================================================
+ * INSTANCE METHODS
+ * =========================================================
+ */
+
+BankProductSchema.methods.softDelete = async function () {
+    this.isDeleted = true;
+    this.deletedAt = new Date();
+    this.status = "Archived";
+    return this.save();
+};
+
+BankProductSchema.methods.restore = async function () {
+    this.isDeleted = false;
+    this.deletedAt = null;
+    this.status = "Active";
+    return this.save();
+};
+
+BankProductSchema.methods.checkEligibility = function (loanAmount, ltv, employmentType, residencyType) {
+    const checks = {
+        loanAmount: loanAmount >= this.minLoanAmount && (!this.maxLoanAmount || loanAmount <= this.maxLoanAmount),
+        ltv: ltv <= this.ltv.max,
+        employment: this.employmentStatus.includes(employmentType),
+        residency: this.residencyStatus.includes(residencyType),
+        notExpired: !this.isExpired,
+        isActive: this.status === "Active"
+    };
+    
+    const isEligible = Object.values(checks).every(check => check === true);
+    
+    return {
+        eligible: isEligible,
+        checks: checks,
+        failedChecks: Object.entries(checks)
+            .filter(([_, passed]) => !passed)
+            .map(([check]) => check)
+    };
+};
 
 /**
  * =========================================================
@@ -447,20 +497,107 @@ BankProductSchema.virtual("isExpired").get(function () {
  */
 
 /**
- * Get active products
+ * Get active products with optional filters
  */
+BankProductSchema.statics.getActiveProducts = function (filters = {}) {
+    const query = {
+        status: "Active",
+        isDeleted: false,
+        ...filters
+    };
+    
+    return this.find(query)
+        .populate("bank", "bankName bankCode logo")
+        .sort({ displayOrder: 1, createdAt: -1 });
+};
 
-BankProductSchema.statics.getActiveProducts = function () {
-
+/**
+ * Get products by bank
+ */
+BankProductSchema.statics.getProductsByBank = function (bankId) {
     return this.find({
+        bank: bankId,
+        isDeleted: false,
+        status: "Active"
+    })
+    .populate("bank", "bankName bankCode logo")
+    .sort({ displayOrder: 1 });
+};
+
+/**
+ * Get featured products
+ */
+BankProductSchema.statics.getFeaturedProducts = function (limit = 10) {
+    return this.find({
+        isFeatured: true,
         status: "Active",
         isDeleted: false
     })
-    .populate("bank")
-    .sort({
-        displayOrder: 1
-    });
+    .populate("bank", "bankName bankCode logo")
+    .sort({ displayOrder: 1 })
+    .limit(limit);
 };
+
+/**
+ * Get products by mortgage type
+ */
+BankProductSchema.statics.getProductsByMortgageType = function (mortgageType) {
+    return this.find({
+        mortgageType: mortgageType,
+        status: "Active",
+        isDeleted: false
+    })
+    .populate("bank", "bankName bankCode logo")
+    .sort({ displayOrder: 1 });
+};
+
+/**
+ * Search products
+ */
+BankProductSchema.statics.searchProducts = function (searchTerm) {
+    return this.find({
+        $or: [
+            { productName: { $regex: searchTerm, $options: "i" } },
+            { description: { $regex: searchTerm, $options: "i" } },
+            { keyFeatures: { $regex: searchTerm, $options: "i" } }
+        ],
+        status: "Active",
+        isDeleted: false
+    })
+    .populate("bank", "bankName bankCode logo")
+    .sort({ displayOrder: 1 });
+};
+
+/**
+ * =========================================================
+ * MIDDLEWARE
+ * =========================================================
+ */
+
+// Pre-save middleware to generate productId if not provided
+BankProductSchema.pre('save', async function(next) {
+    if (!this.productId && this.productName && this.bank) {
+        const bank = await mongoose.model("Bank").findById(this.bank);
+        if (bank) {
+            const sanitizedName = this.productName.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10);
+            this.productId = `${bank.bankCode}_${sanitizedName}_${Date.now()}`;
+        }
+    }
+    next();
+});
+
+// Pre-find middleware to exclude deleted products by default
+BankProductSchema.pre(/^find/, function(next) {
+    if (!this.getQuery().hasOwnProperty('isDeleted')) {
+        this.where({ isDeleted: false });
+    }
+    next();
+});
+
+// Post-find middleware to filter expired products
+BankProductSchema.post('find', function(docs) {
+    return docs.filter(doc => !doc.isExpired || doc.productValidity.doesNotExpire);
+});
 
 /**
  * =========================================================
@@ -468,7 +605,4 @@ BankProductSchema.statics.getActiveProducts = function () {
  * =========================================================
  */
 
-module.exports = mongoose.model(
-    "BankMortgageProducts",
-    BankProductSchema
-);
+module.exports = mongoose.model("BankMortgageProducts", BankProductSchema);
