@@ -8,7 +8,7 @@ const gridLeadSchema = new mongoose.Schema({
   // ==============================================================
   lead_type: {
     type: String,
-    enum: ['platform', 'agent','referral', 'general'],
+    enum: ['platform', 'agent','referral_partner', 'general'],
     required: true,
     index: true,
   },
