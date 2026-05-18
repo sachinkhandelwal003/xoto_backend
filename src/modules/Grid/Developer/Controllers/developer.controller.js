@@ -233,16 +233,23 @@ exports.createDeveloper = async (req, res) => {
         } = req.body;
 
         const finalCompanyName = (companyName || name || "").trim();
-        const finalEmail = normalizeEmail(email);
-        const finalPhone = phone_number || phone || "";
-        const finalDeveloperLicenseNumber = developerLicenseNumber || reraNumber || "";
-        const finalDldNumber = dldRegistrationNumber || dldNumber || "";
-        const finalPrimaryContactName = primaryContactName || "";
+        const finalEmail = normalizeEmail(email || req.body.email || req.body.officialEmailId || "");
+        const finalPhone = (phone_number || phone || req.body.mobile || req.body.mobile_number || "").trim();
+        const finalDeveloperLicenseNumber = (developerLicenseNumber || reraNumber || req.body.rera_number || req.body.developer_license_number || "").trim();
+        const finalDldNumber = (dldRegistrationNumber || dldNumber || req.body.dld_registration_number || req.body.dld_number || "").trim();
+        const finalPrimaryContactName = (primaryContactName || req.body.primary_contact_name || req.body.contactName || req.body.primaryContact || req.body.authorizedPersonName || "").trim();
 
-        if (!finalCompanyName || !finalEmail || !finalDeveloperLicenseNumber || !finalDldNumber || !finalPrimaryContactName || !finalPhone) {
+        const missingFields = [];
+        if (!finalCompanyName) missingFields.push("companyName/name");
+        if (!finalEmail) missingFields.push("email");
+        if (!finalDeveloperLicenseNumber) missingFields.push("developerLicenseNumber/reraNumber");
+        if (!finalPrimaryContactName) missingFields.push("primaryContactName/authorizedPersonName");
+        if (!finalPhone) missingFields.push("phone_number/phone");
+
+        if (missingFields.length) {
             return res.status(400).json({
                 success: false,
-                message: "companyName, developerLicenseNumber, dldRegistrationNumber, primaryContactName, email, and phone are required"
+                message: `Missing required fields: ${missingFields.join(", ")}`
             });
         }
 

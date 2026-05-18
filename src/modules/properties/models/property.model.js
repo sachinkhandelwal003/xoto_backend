@@ -182,9 +182,12 @@ const PropertySchema = new mongoose.Schema(
     // ══════════════════════════════════════════════════════════════
     buildings: [
       {
-        title: { type: String },
-        image: { type: String },
-        description: { type: String },
+        title: { type: String, default: "" },
+        image: {
+          type: mongoose.Schema.Types.Mixed,
+          default: null
+        },
+        description: { type: String, default: "" },
       }
     ],
 
@@ -193,9 +196,9 @@ const PropertySchema = new mongoose.Schema(
     // ══════════════════════════════════════════════════════════════
     floorPlans: [
       {
-        unitType: { type: String },
-        areaFrom: { type: Number },
-        areaTo: { type: Number },
+        unitType: { type: String, default: "" },
+        areaFrom: { type: Number, default: 0 },
+        areaTo: { type: Number, default: 0 },
       }
     ],
 
@@ -204,10 +207,10 @@ const PropertySchema = new mongoose.Schema(
     // ══════════════════════════════════════════════════════════════
     inventory: [
       {
-        unitType: { type: String },
-        units: { type: Number },
-        sqft: { type: Number },
-        sqm: { type: Number },
+        unitType: { type: String, default: "" },
+        units: { type: Number, default: 0 },
+        sqft: { type: Number, default: 0 },
+        sqm: { type: Number, default: 0 },
       }
     ],
     parkingAllocation: { type: String, default: "" },
