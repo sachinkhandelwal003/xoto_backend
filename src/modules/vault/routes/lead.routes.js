@@ -15,11 +15,15 @@ import {
   advisorUpdateLeadInfo,
   calculateLeadEligibility,
   getLeadEligibility,
-  getLeadEligibilityHistory,bulkUploadLeads,bulkConfirmLeads,downloadLeadTemplate 
+  getLeadEligibilityHistory,
+  bulkUploadLeads,
+  bulkConfirmLeads,
+  downloadLeadTemplate 
 } from '../controllers/lead.controller.js';
-// Add this import at top
+
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage() });
+
 import {
   protect,
   protectPartner,
@@ -36,8 +40,7 @@ const router = express.Router();
 router.post('/website', createWebsiteLead);
 
 // ══════════════════════════════════════════════════════════════════
-// AGENT — FreelanceAgent + PartnerAffiliatedAgent
-// (FreelanceAgent = Referral Partner per PRD)
+// AGENT — Referral Partner + Partner-Affiliated Agent
 // ══════════════════════════════════════════════════════════════════
 router.post('/create',  protectVaultAgent, createLead);
 router.get('/my-leads', protectVaultAgent, getMyLeads);
@@ -60,24 +63,15 @@ router.put('/admin/:id/status',          protectMulti, updateLeadStatus);
 // XOTO ADVISOR
 // ══════════════════════════════════════════════════════════════════
 router.get('/advisor/my-leads',                   protectVaultAdvisor, getAdvisorAssignedLeads);
-router.put('/advisor/lead/:leadId/status',         protectVaultAdvisor, advisorUpdateLeadStatus);
-router.put('/advisor/lead/:leadId/info',           protectVaultAdvisor, advisorUpdateLeadInfo);
+router.put('/advisor/lead/:leadId/status',        protectVaultAdvisor, advisorUpdateLeadStatus);
+router.put('/advisor/lead/:leadId/info',          protectVaultAdvisor, advisorUpdateLeadInfo);
 
 // ══════════════════════════════════════════════════════════════════
-// ELIGIBILITY — Advisor only
+// ELIGIBILITY — Simple check, no storage (only isEligible flag)
 // ══════════════════════════════════════════════════════════════════
 router.post('/:leadId/calculate-eligibility', protectVaultAdvisor, calculateLeadEligibility);
 router.get('/:leadId/eligibility',            protectVaultAdvisor, getLeadEligibility);
-router.get('/:leadId/eligibility/history',    protectVaultAdvisor, getLeadEligibilityHistory);
 
-
-
-
-
-// Add these 3 routes in ADMIN section
-// router.post('/admin/bulk-upload',   protect, upload.single('file'), bulkUploadLeads);
-// router.post('/admin/bulk-confirm',  protect, bulkConfirmLeads);
-// router.get('/admin/bulk-template',  protect, downloadLeadTemplate);
 // ══════════════════════════════════════════════════════════════════
 // SHARED — Any authenticated user
 // ══════════════════════════════════════════════════════════════════

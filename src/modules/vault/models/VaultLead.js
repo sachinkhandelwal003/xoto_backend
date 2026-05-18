@@ -2,19 +2,26 @@ import mongoose from 'mongoose';
 
 // ══════════════════════════════════════════════════════════════════
 // CUSTOMER BASIC INFO
-// PRD 4.3 — fullName + mobileNumber ONLY required at lead stage
-// Everything else filled by Advisor during enrichment (PRD 6.1)
+// Required: firstName + lastName + mobileNumber
+// Everything else optional at lead stage (PRD 6.1)
 // ══════════════════════════════════════════════════════════════════
 const customerBasicSchema = new mongoose.Schema(
   {
-    fullName:           { type: String, required: true, trim: true },
-    mobileNumber:       { type: String, required: true, trim: true },
+    // ── Required ──────────────────────────────────────────────────
+    firstName:    { type: String, required: true, trim: true },
+    lastName:     { type: String, required: true, trim: true },
+    countryCode:  { type: String, default: '+971', trim: true },
+    mobileNumber: { type: String, required: true, trim: true },
+
+    // ── Optional — filled by Advisor after contact ────────────────
     email:              { type: String, lowercase: true, trim: true, default: null },
     gender:             { type: String, enum: ['Male', 'Female', 'Other'], default: null },
     preferredName:      { type: String, default: null },
     alternativePhone:   { type: String, default: null },
     whatsappNumber:     { type: String, default: null },
     dateOfBirth:        { type: Date,   default: null },
+
+    // nationality: auto = "UAE" if UAE National, manual otherwise
     nationality:        { type: String, default: null },
     residencyStatus:    { type: String, enum: ['UAE National', 'UAE Resident', 'Non-Resident'], default: null },
     maritalStatus:      { type: String, enum: ['Single', 'Married', 'Divorced', 'Widowed'], default: null },
@@ -32,8 +39,37 @@ const customerBasicSchema = new mongoose.Schema(
 // ══════════════════════════════════════════════════════════════════
 const propertyDetailsSchema = new mongoose.Schema(
   {
-    propertyType:       { type: String, enum: ['Ready', 'Off-plan', 'Commercial'], default: null },
-    propertySubtype:    { type: String, enum: ['Apartment', 'Villa', 'Townhouse', 'Penthouse'], default: null },
+    // ── From ticket ───────────────────────────────────────────────
+    transactionType: {
+      type: String,
+      enum: [
+        'Primary - Residential',
+        'Primary - Commercial',
+        'Buyout',
+        'Equity',
+        'Buyout + Equity',
+        'Off-plan',
+      ],
+      default: null,
+    },
+    propertyFound:       { type: Boolean, default: null },
+    approxPropertyValue: {
+      type:    String,
+      enum:    ['<1M', '1-2M', '2-5M', '5-10M', '10M+'],
+      default: null,
+    },
+
+    // ── Existing ──────────────────────────────────────────────────
+    propertyType: {
+      type:    String,
+      enum:    ['Ready', 'Off-plan', 'Commercial'],
+      default: null,
+    },
+    propertySubtype: {
+      type:    String,
+      enum:    ['Apartment', 'Villa', 'Townhouse', 'Penthouse'],
+      default: null,
+    },
     propertyValue:      { type: Number, default: null },
     downPaymentAmount:  { type: Number, default: null },
     loanAmountRequired: { type: Number, default: null },
@@ -53,6 +89,14 @@ const propertyDetailsSchema = new mongoose.Schema(
 // ══════════════════════════════════════════════════════════════════
 const loanRequirementsSchema = new mongoose.Schema(
   {
+    // ── From ticket ───────────────────────────────────────────────
+    timeline: {
+      type:    String,
+      enum:    ['Immediately', '1-3 months', '3-6 months', 'More than 6 months'],
+      default: null,
+    },
+
+    // ── Existing ──────────────────────────────────────────────────
     preferredTenureYears:        { type: Number,  default: 25 },
     preferredInterestRateType:   { type: String,  enum: ['Fixed', 'Variable'], default: 'Fixed' },
     preferredBanks:              [{ type: String }],
@@ -71,8 +115,8 @@ const eligibilitySchema = new mongoose.Schema(
   {
     checked: { type: Boolean, default: false },
     latestEligibilityCheckId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'LeadEligibilityCheck',
+      type:    mongoose.Schema.Types.ObjectId,
+      ref:     'LeadEligibilityCheck',
       default: null,
     },
     isEligible:            { type: Boolean, default: false },
@@ -107,6 +151,7 @@ const duplicateCheckSchema = new mongoose.Schema(
 // ══════════════════════════════════════════════════════════════════
 const leadSchema = new mongoose.Schema(
   {
+    // ── Source ───────────────────────────────────────────────────
     sourceInfo: {
       source: {
         type: String,
@@ -131,30 +176,37 @@ const leadSchema = new mongoose.Schema(
       userAgent: { type: String, default: null },
     },
 
+    // ── Customer ─────────────────────────────────────────────────
     customerInfo: { type: customerBasicSchema, required: true },
     customerId:   { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', default: null },
 
+    // ── Property & Loan (optional at lead stage) ─────────────────
     propertyDetails:  { type: propertyDetailsSchema,  default: () => ({}) },
     loanRequirements: { type: loanRequirementsSchema, default: () => ({}) },
-    eligibility:      { type: eligibilitySchema,      default: () => ({}) },
 
+    // ── Eligibility ──────────────────────────────────────────────
+    eligibility: { type: eligibilitySchema, default: () => ({}) },
+
+    // ── Lead Status ──────────────────────────────────────────────
+    // PRD 6.1 — Advisor workflow
     currentStatus: {
       type: String,
       enum: [
-        'New',
-        'Assigned',
-        'Contacted',
-        'Qualified',
-        'Collecting Documents',
-        'Documents Complete',
-        'Application Opened',
-        'Not Proceeding',
+        'New',                   // Submitted, not assigned
+        'Assigned',              // Admin assigned → SLA starts
+        'Contacted',             // Advisor made first contact
+        'Qualified',             // Eligible — Customer record created
+        'Collecting Documents',  // Advisor collecting docs from customer
+        'Documents Complete',    // Advisor marks docs ready
+        'Application Opened',    // Case/Application created
+        'Not Proceeding',        // Closed
       ],
       default: 'New',
     },
 
     notesToXoto: { type: String, default: null },
 
+    // ── Assignment (Admin → Advisor) ─────────────────────────────
     assignedTo: {
       advisorId:   { type: mongoose.Schema.Types.ObjectId, ref: 'VaultAdvisor', default: null },
       advisorName: { type: String, default: null },
@@ -162,6 +214,7 @@ const leadSchema = new mongoose.Schema(
       assignedBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
     },
 
+    // ── SLA — 4 business hours from assignment ───────────────────
     sla: {
       deadline:           { type: Date,    default: null },
       breached:           { type: Boolean, default: false },
@@ -174,20 +227,10 @@ const leadSchema = new mongoose.Schema(
       lastReminderSentAt: { type: Date,    default: null },
     },
 
-    documentCollection: {
-      collectionStartedAt:    { type: Date,    default: null },
-      collectionCompletedAt:  { type: Date,    default: null },
-      totalDocumentsRequired: { type: Number,  default: 7 },
-      documentsUploaded:      { type: Number,  default: 0 },
-      documentsPending:       { type: Number,  default: 7 },
-      documentsVerified:      { type: Number,  default: 0 },
-      documentsRejected:      { type: Number,  default: 0 },
-      collectionPercentage:   { type: Number,  default: 0 },
-      readyForSubmission:     { type: Boolean, default: false },
-    },
+    // ── Duplicate check ──────────────────────────────────────────
+    duplicateCheck: { type: duplicateCheckSchema, default: () => ({}) },
 
-    duplicateCheck:  { type: duplicateCheckSchema, default: () => ({}) },
-
+    // ── Conversion to Case/Application ───────────────────────────
     conversionInfo: {
       convertedToApplication: { type: Boolean, default: false },
       applicationId:   { type: mongoose.Schema.Types.ObjectId, ref: 'Case',     default: null },
@@ -220,30 +263,28 @@ leadSchema.index({ isDeleted: 1 });
 // ══════════════════════════════════════════════════════════════════
 // VIRTUALS
 // ══════════════════════════════════════════════════════════════════
+
+// fullName = firstName + lastName
+leadSchema.virtual('customerInfo.fullName').get(function () {
+  const f = this.customerInfo?.firstName || '';
+  const l = this.customerInfo?.lastName  || '';
+  return `${f} ${l}`.trim();
+});
+
+// Full phone = countryCode + mobileNumber
+leadSchema.virtual('customerFullPhone').get(function () {
+  const code   = this.customerInfo?.countryCode  || '+971';
+  const number = this.customerInfo?.mobileNumber || '';
+  return `${code}${number}`;
+});
+
+// Customer age from DOB
 leadSchema.virtual('customerAge').get(function () {
   if (!this.customerInfo?.dateOfBirth) return null;
   return Math.floor(
     (Date.now() - new Date(this.customerInfo.dateOfBirth)) / (365.25 * 24 * 3600 * 1000)
   );
 });
-
-// ══════════════════════════════════════════════════════════════════
-// METHODS
-// ══════════════════════════════════════════════════════════════════
-leadSchema.methods.updateDocumentStatus = function (uploaded, verified) {
-  const total = this.documentCollection.totalDocumentsRequired || 7;
-  const up    = Math.min(uploaded, total);
-  const ver   = Math.min(verified, total);
-  this.documentCollection.documentsUploaded    = up;
-  this.documentCollection.documentsVerified    = ver;
-  this.documentCollection.documentsPending     = Math.max(0, total - up);
-  this.documentCollection.collectionPercentage = Math.min(100, Math.round((up / total) * 100));
-  this.documentCollection.readyForSubmission   = up === total;
-  if (this.documentCollection.collectionPercentage === 100 && !this.documentCollection.collectionCompletedAt) {
-    this.documentCollection.collectionCompletedAt = new Date();
-  }
-  return this.save();
-};
 
 leadSchema.set('toJSON',   { virtuals: true });
 leadSchema.set('toObject', { virtuals: true });
