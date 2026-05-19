@@ -120,7 +120,7 @@ app.use('/vault/lead/proposals', require('./modules/vault/routes/proposal.routes
 app.use('/vault/cases', require('./modules/vault/routes/case.routes.js'));
 app.use('/vault/commissions', require('./modules/vault/routes/commission.routes.js'));
 
-app.use('/vault/lead/documents', require('./modules/vault/routes/document.routes.js'));
+app.use('/vault/cases/documents', require('./modules/vault/routes/document.routes.js'));
 // Grid Referral Partner 
 app.use("/referral", referralPartnerRoutes);
 

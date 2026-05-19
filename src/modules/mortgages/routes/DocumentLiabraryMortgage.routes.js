@@ -11,38 +11,32 @@ const {
     restoreDocument,
     getRequiredDocuments,
     downloadTemplate,
-    viewSampleDocument,updateDocumentStatus
+    viewSampleDocument,
+    updateDocumentStatus
 } = require("../controllers/DocumentLiabraryMortgage.controller");
 
 const { protect } = require("../../../middleware/auth");
 
 const router = express.Router();
 
-/**
- * =========================================
- * IMPORTANT: SPECIFIC ROUTES MUST COME FIRST
- * THEN PARAMETERIZED ROUTES
- * =========================================
- */
-router.get("/", getAllDocuments);
-
 // =========================================
 // 1. SPECIFIC STATIC ROUTES (No parameters)
 // =========================================
 
-// Get required documents dynamically
+// Get all documents with filters
+router.get("/", getAllDocuments);
+
+// Get required documents dynamically (for Case creation)
 router.get("/required", getRequiredDocuments);
 
-// Get global documents
+// Get global documents only
 router.get("/global", getGlobalDocuments);
-
-// Get all documents with filters
 
 // =========================================
 // 2. ROUTES WITH STATIC PREFIXES
 // =========================================
 
-// Get documents by bank ID
+// Get documents by bank ID (with all filters)
 router.get("/bank/:bankId", getDocumentsByBankId);
 
 // Get document by key (key is a string, not ObjectId)
@@ -74,6 +68,5 @@ router.put("/:id", protect, updateDocument);
 router.delete("/:id", protect, deleteDocument);
 router.post("/:id/restore", protect, restoreDocument);
 router.put("/status/:id", protect, updateDocumentStatus);
-
 
 module.exports = router;

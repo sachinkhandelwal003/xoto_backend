@@ -53,7 +53,7 @@ router.post("/products/:id/restore", protect, restoreBankProduct);
 // =========================================
 // 2. BANK PRODUCTS BY BANK ID ROUTES
 // =========================================
-router.get("/banks/:bankId/products", getProductsByBankId);
+router.get("/:bankId/products", getProductsByBankId);
 router.get("/banks/:bankId/products/summary", getBankProductsSummary);
 router.get("/admin/:bankId/products", protect, getProductsByBankId);
 
