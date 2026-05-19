@@ -61,6 +61,8 @@ export const getProfileData = async (req, res) => {
         // VaultAgent — partner info bhi populate karo
         if (user.role.name === "VaultAgent") {
           query.populate("partnerId", "companyName status _id");
+        } else if (user.role.name === "Agent") {
+          query.populate("role").populate("agency", "agency_name agencyName companyName");
         }
 
         const data = await query;
@@ -116,11 +118,19 @@ export const updateProfileData = async (req, res) => {
     delete finalUpdate["passport.verified"];
     delete finalUpdate["bankDetails.verified"];
 
-    const updatedProfile = await Model.findOneAndUpdate(
+    let updateQuery = Model.findOneAndUpdate(
       { _id: user._id },
       { $set: finalUpdate },
       { new: true, runValidators: true }
-    ).populate("role").populate("partnerId", "companyName status _id");
+    ).populate("role");
+
+    if (user.role.name === "VaultAgent") {
+      updateQuery = updateQuery.populate("partnerId", "companyName status _id");
+    } else if (user.role.name === "Agent") {
+      updateQuery = updateQuery.populate("agency", "agency_name agencyName companyName");
+    }
+
+    const updatedProfile = await updateQuery;
 
     return res.status(200).json({
       success: true,
@@ -178,11 +188,19 @@ export const updateProfilePicture = async (req, res) => {
     }
 
     const updateData     = { [fieldToUpdate]: fileUrl };
-    const updatedProfile = await Model.findOneAndUpdate(
+    let updateQuery = Model.findOneAndUpdate(
       { _id: user._id },
       { $set: updateData },
       { new: true }
-    ).populate("role").populate("partnerId", "companyName status _id");
+    ).populate("role");
+
+    if (user.role.name === "VaultAgent") {
+      updateQuery = updateQuery.populate("partnerId", "companyName status _id");
+    } else if (user.role.name === "Agent") {
+      updateQuery = updateQuery.populate("agency", "agency_name agencyName companyName");
+    }
+
+    const updatedProfile = await updateQuery;
 
     return res.status(200).json({
       success: true,

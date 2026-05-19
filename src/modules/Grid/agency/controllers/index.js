@@ -504,6 +504,8 @@ exports.registerAgent = asyncHandler(async (req, res) => {
     agency,
     emiratesIdUrl,
     reraCardUrl,
+    reraCardNumber,
+    profile_photo,
     profilePhotoUrl,
   } = req.body;
 
@@ -582,7 +584,8 @@ exports.registerAgent = asyncHandler(async (req, res) => {
 
     emiratesIdUrl: emiratesIdUrl || "",
     reraCardUrl: reraCardUrl || "",
-    profile_photo: profilePhotoUrl || "",
+    reraCardNumber: reraCardNumber || "",
+    profile_photo: profile_photo || profilePhotoUrl || "",
 
     agencyApprovalStatus: "pending",
     adminApprovalStatus: "pending",
@@ -1381,7 +1384,7 @@ exports.activateAgency = asyncHandler(async (req, res) => {
 exports.getAllAgents = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, search, status } = req.query;
 
-  const filter = {};
+  const filter = { agencyApprovalStatus: 'approved' };
   if (status === 'approved') filter.adminApprovalStatus = 'approved';
   if (status === 'declined') filter.adminApprovalStatus = 'declined';
   if (status === 'pending') filter.adminApprovalStatus = 'pending';
@@ -1420,6 +1423,13 @@ exports.adminApproveAgent = asyncHandler(async (req, res) => {
   const agent = await Agent.findById(req.params.agentId);
   if (!agent) throw new APIError('Agent not found', StatusCodes.NOT_FOUND);
 
+  if (agent.agencyApprovalStatus !== 'approved') {
+    throw new APIError(
+      'Agency approval is required before admin can approve this agent',
+      StatusCodes.BAD_REQUEST
+    );
+  }
+
   agent.adminApprovalStatus = 'approved';
   agent.adminApprovedAt = new Date();
   await agent.save();
@@ -1437,6 +1447,13 @@ exports.adminDeclineAgent = asyncHandler(async (req, res) => {
   const agent = await Agent.findById(req.params.agentId);
   if (!agent) throw new APIError('Agent not found', StatusCodes.NOT_FOUND);
 
+  if (agent.agencyApprovalStatus !== 'approved') {
+    throw new APIError(
+      'Agency approval is required before admin can decline this agent',
+      StatusCodes.BAD_REQUEST
+    );
+  }
+
   agent.adminApprovalStatus = 'declined';
   agent.adminDeclinedAt = new Date();
   agent.adminDeclineNote = reason || 'Declined by admin';
@@ -1450,7 +1467,10 @@ exports.adminDeclineAgent = asyncHandler(async (req, res) => {
 });
 // ── Get single agent by ID (Admin only) ─────────────────────────────
 exports.getAgentByIdAdmin = asyncHandler(async (req, res) => {
-  const agent = await Agent.findById(req.params.agentId)
+  const agent = await Agent.findOne({
+    _id: req.params.agentId,
+    agencyApprovalStatus: 'approved',
+  })
     .select('-password')
     .populate('agency', 'companyName primaryContactEmail primaryContactPhone');
 

@@ -8,6 +8,12 @@ router.post("/agent-signup", agentCtrl.agentSignup);
 router.post("/login-agent", agentCtrl.agentLogin);
 // Agent dashboard (self)
 router.get('/dashboard', protectMulti, agentCtrl.getDashboard);
+router.get('/leaderboard', protectMulti, agentCtrl.getLeaderboard);
+router.get('/agreements', protectMulti, agentCtrl.getMyAgreements);
+router.post('/agreements/documents', protectMulti, agentCtrl.addMyAgreementDocument);
+router.post('/agreements/:id/documents', protectMulti, agentCtrl.addAgreementDocument);
+router.patch('/agreements/:id/documents/:documentId', protectMulti, agentCtrl.updateAgreementDocument);
+router.delete('/agreements/:id/documents/:documentId', protectMulti, agentCtrl.deleteAgreementDocument);
 
 // Backward-compatible agent lead routes.
 // Current canonical routes live under /gridlead/agent/*, but older clients call /agent/lead/*.

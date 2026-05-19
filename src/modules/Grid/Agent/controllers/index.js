@@ -4,10 +4,35 @@ const Agency = require("../../agency/models/index.js");
 const GridLead = require('../../Lead/model/gridLead.model');
 const Property = require('../../../properties/models/property.model');
 const Presentation = require('../../presentation/model/presentation.model');
+const PartnerAgreement = require('../../dealrecord/models/Partneragreement.model');
 const bcrypt = require("bcryptjs");
 const { Role } = require('../../../../modules/auth/models/role/role.model.js');
 const { createToken } = require('../../../../middleware/auth.js');
 
+const canManageAgentAgreement = (agreement, agentId) =>
+  agreement &&
+  agreement.partyType === 'agent' &&
+  String(agreement.agentId) === String(agentId);
+
+const appendAgreementDocument = (agreement, agentId, documentData = {}) => {
+  const { name, remarks, url, mimeType, size } = documentData;
+
+  agreement.agreementDocuments.push({
+    name: name || 'Agreement document',
+    remarks: remarks || '',
+    url,
+    mimeType: mimeType || '',
+    size: Number(size) || 0,
+    uploadedBy: agentId,
+    uploadedAt: new Date(),
+  });
+
+  if (!agreement.signedDocumentUrl) {
+    agreement.signedDocumentUrl = url;
+  }
+
+  return agreement.agreementDocuments[agreement.agreementDocuments.length - 1];
+};
 
 /* =====================================
    :one: AGENT SIGNUP
@@ -725,6 +750,454 @@ exports.getDashboard = async (req, res) => {
     });
   } catch (err) {
     console.error('[Agent Dashboard]', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/* =====================================
+   AGENT PERFORMANCE
+   Current agent only: compares selected period with previous same period.
+===================================== */
+exports.getLeaderboard = async (req, res) => {
+  try {
+    const agentId = req.user && req.user._id;
+    if (!agentId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const range = req.query.range || req.query.params?.range || '30d';
+    const daysWindow = range === '7d' ? 7 : range === '90d' ? 90 : 30;
+
+    const currentAgent = await Agent.findById(agentId)
+      .select('first_name last_name fullName email phone_number operating_city specialization agency')
+      .lean();
+    if (!currentAgent) return res.status(404).json({ success: false, message: 'Agent not found' });
+
+    const baseMatch = {
+      lead_type: 'agent',
+      'source.channel': 'agent_added',
+      created_by_agent: agentId,
+    };
+
+    const currentStart = new Date();
+    currentStart.setHours(0, 0, 0, 0);
+    currentStart.setDate(currentStart.getDate() - (daysWindow - 1));
+
+    const previousStart = new Date(currentStart);
+    previousStart.setDate(previousStart.getDate() - daysWindow);
+    const previousEnd = new Date(currentStart);
+
+    const aggregatePerformance = async (dateFilter) => {
+      const rows = await GridLead.aggregate([
+        { $match: { ...baseMatch, createdAt: dateFilter } },
+        {
+          $group: {
+            _id: null,
+            totalLeads: { $sum: 1 },
+            completedDeals: {
+              $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] },
+            },
+            inProgressLeads: {
+              $sum: {
+                $cond: [
+                  { $in: ['$status', ['contacted', 'in_discussion', 'site_visit_scheduled', 'offer_made', 'qualified']] },
+                  1,
+                  0,
+                ],
+              },
+            },
+            notProceeding: {
+              $sum: { $cond: [{ $eq: ['$status', 'not_proceeding'] }, 1, 0] },
+            },
+            earnings: {
+              $sum: {
+                $cond: [
+                  { $eq: ['$status', 'completed'] },
+                  { $ifNull: ['$deal_record.commission_amount', 0] },
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      ]);
+
+      const row = rows[0] || {};
+      const totalLeads = row.totalLeads || 0;
+      const completedDeals = row.completedDeals || 0;
+      const conversionRate = totalLeads > 0 ? Math.round((completedDeals / totalLeads) * 100) : 0;
+      const progressScore = Math.min(100, Math.round(
+        (conversionRate * 0.5) +
+        (Math.min(completedDeals, 10) * 3) +
+        (Math.min(row.inProgressLeads || 0, 20) * 1)
+      ));
+
+      return {
+        total_leads: totalLeads,
+        in_progress_leads: row.inProgressLeads || 0,
+        completed_deals: completedDeals,
+        not_proceeding: row.notProceeding || 0,
+        earnings: Math.round(row.earnings || 0),
+        conversion_rate: conversionRate,
+        progress_score: progressScore,
+      };
+    };
+
+    const [current, previous, dailyRows] = await Promise.all([
+      aggregatePerformance({ $gte: currentStart }),
+      aggregatePerformance({ $gte: previousStart, $lt: previousEnd }),
+      GridLead.aggregate([
+        { $match: { ...baseMatch, createdAt: { $gte: currentStart } } },
+        {
+          $group: {
+            _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+            leads: { $sum: 1 },
+            conversions: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+          },
+        },
+        { $project: { date: '$_id', leads: 1, conversions: 1, _id: 0 } },
+        { $sort: { date: 1 } },
+      ]),
+    ]);
+
+    const pctChange = (now, before) => {
+      if (!before && !now) return 0;
+      if (!before) return 100;
+      return Math.round(((now - before) / before) * 100);
+    };
+
+    const trend = {
+      leads_change: pctChange(current.total_leads, previous.total_leads),
+      conversion_change: current.conversion_rate - previous.conversion_rate,
+      deals_change: pctChange(current.completed_deals, previous.completed_deals),
+      progress_change: current.progress_score - previous.progress_score,
+      direction: current.progress_score >= previous.progress_score ? 'up' : 'down',
+    };
+
+    const trendMap = new Map(dailyRows.map(row => [row.date, row]));
+    const performanceTrend = [];
+    for (let i = daysWindow - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - i);
+      const dateKey = d.toISOString().slice(0, 10);
+      const row = trendMap.get(dateKey) || {};
+      performanceTrend.push({
+        date: dateKey,
+        label: daysWindow <= 7
+          ? d.toLocaleDateString('en-US', { weekday: 'short' })
+          : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        leads: row.leads || 0,
+        conversions: row.conversions || 0,
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        range,
+        days_window: daysWindow,
+        agent: {
+          id: currentAgent._id,
+          name: currentAgent.fullName || `${currentAgent.first_name || ''} ${currentAgent.last_name || ''}`.trim() || 'Agent',
+          email: currentAgent.email,
+          phone_number: currentAgent.phone_number,
+          city: currentAgent.operating_city || 'N/A',
+          specialization: currentAgent.specialization || 'General',
+        },
+        current,
+        previous,
+        trend,
+        performance_trend: performanceTrend,
+      },
+    });
+  } catch (err) {
+    console.error('[Agent Performance]', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/* =====================================
+   MY AGREEMENTS — Agent signed A2A agreements
+===================================== */
+exports.getMyAgreements = async (req, res) => {
+  try {
+    const agentId = req.user && req.user._id;
+    if (!agentId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const agent = await Agent.findById(agentId)
+      .select('first_name last_name fullName email agency')
+      .populate('agency', 'agency_name agencyName companyName')
+      .lean();
+
+    if (!agent) return res.status(404).json({ success: false, message: 'Agent not found' });
+
+    const filters = [{ agentId, partyType: 'agent' }];
+    if (agent.agency?._id) {
+      filters.push({ agencyId: agent.agency._id, partyType: 'agency' });
+    }
+
+    const agreements = await PartnerAgreement.find({ $or: filters })
+      .sort({ effectiveDate: -1, createdAt: -1 })
+      .lean();
+
+    const now = new Date();
+    const inThirtyDays = new Date();
+    inThirtyDays.setDate(inThirtyDays.getDate() + 30);
+
+    const formattedAgreements = agreements.map((agreement) => {
+      const isExpired = agreement.expiryDate && new Date(agreement.expiryDate) < now;
+      const isExpiringSoon = agreement.expiryDate &&
+        new Date(agreement.expiryDate) >= now &&
+        new Date(agreement.expiryDate) <= inThirtyDays;
+
+      return {
+        id: agreement._id,
+        agreement_type: agreement.partyType === 'agent' ? 'Agent Agreement (A2A)' : 'Agency Master Agreement',
+        party_type: agreement.partyType,
+        status: isExpired ? 'expired' : agreement.status,
+        effective_date: agreement.effectiveDate,
+        expiry_date: agreement.expiryDate,
+        is_expiring_soon: Boolean(isExpiringSoon),
+        commission_split_percent: agreement.commissionSplitPercent || 0,
+        referral_split_percent: agreement.referralSplitPercent || 0,
+        platform_access_terms: agreement.platformAccessTerms || '',
+        notes: agreement.notes || '',
+        signed_document_url: agreement.signedDocumentUrl || '',
+        documents: [
+          ...(agreement.agreementDocuments || []).map(doc => ({
+            id: doc._id,
+            name: doc.name || 'Agreement document',
+            remarks: doc.remarks || '',
+            url: doc.url,
+            mime_type: doc.mimeType || '',
+            size: doc.size || 0,
+            uploaded_at: doc.uploadedAt,
+          })),
+          ...(agreement.signedDocumentUrl && !(agreement.agreementDocuments || []).some(doc => doc.url === agreement.signedDocumentUrl)
+            ? [{
+              id: 'signed-document',
+              name: 'Signed agreement',
+              url: agreement.signedDocumentUrl,
+              mime_type: '',
+              size: 0,
+              uploaded_at: agreement.createdAt,
+              locked: true,
+            }]
+            : []),
+        ],
+        can_manage_documents: canManageAgentAgreement(agreement, agentId),
+        version: agreement.version || 1,
+        created_at: agreement.createdAt,
+      };
+    });
+
+    const summary = {
+      total: formattedAgreements.length,
+      active: formattedAgreements.filter(item => item.status === 'active').length,
+      expiring_soon: formattedAgreements.filter(item => item.is_expiring_soon).length,
+      expired: formattedAgreements.filter(item => item.status === 'expired').length,
+    };
+
+    return res.json({
+      success: true,
+      data: {
+        agent: {
+          id: agent._id,
+          name: agent.fullName || `${agent.first_name || ''} ${agent.last_name || ''}`.trim() || 'Agent',
+          email: agent.email,
+          agency: agent.agency ? {
+            id: agent.agency._id,
+            name: agent.agency.agency_name || agent.agency.agencyName || agent.agency.companyName || 'Agency',
+          } : null,
+        },
+        summary,
+        agreements: formattedAgreements,
+      },
+    });
+  } catch (err) {
+    console.error('[Agent Agreements]', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.addAgreementDocument = async (req, res) => {
+  try {
+    const agentId = req.user && req.user._id;
+    if (!agentId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const { id } = req.params;
+    const { name, remarks, url, mimeType, size, expiryDate } = req.body || {};
+    if (!url) return res.status(400).json({ success: false, message: 'Document URL is required' });
+
+    const agreement = await PartnerAgreement.findById(id);
+    if (!canManageAgentAgreement(agreement, agentId)) {
+      return res.status(403).json({ success: false, message: 'You can update only your own agent agreement documents' });
+    }
+
+    const document = appendAgreementDocument(agreement, agentId, { name, remarks, url, mimeType, size });
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'expiryDate')) {
+      agreement.expiryDate = expiryDate ? new Date(expiryDate) : null;
+    }
+    await agreement.save();
+
+    return res.status(201).json({
+      success: true,
+      message: 'Agreement document added',
+      data: {
+        id: document._id,
+        name: document.name,
+        remarks: document.remarks,
+        url: document.url,
+        mime_type: document.mimeType,
+        size: document.size,
+        uploaded_at: document.uploadedAt,
+      },
+    });
+  } catch (err) {
+    console.error('[Agent Agreement Document Add]', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.addMyAgreementDocument = async (req, res) => {
+  try {
+    const agentId = req.user && req.user._id;
+    if (!agentId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const { name, remarks, url, mimeType, size, expiryDate } = req.body || {};
+    if (!url) return res.status(400).json({ success: false, message: 'Document URL is required' });
+
+    const agent = await Agent.findById(agentId).select('agency');
+    if (!agent) return res.status(404).json({ success: false, message: 'Agent not found' });
+
+    let agreement = await PartnerAgreement.findOne({
+      agentId,
+      partyType: 'agent',
+      status: { $ne: 'superseded' },
+    }).sort({ effectiveDate: -1, createdAt: -1 });
+
+    if (!agreement) {
+      agreement = new PartnerAgreement({
+        partyType: 'agent',
+        agentId,
+        agencyId: agent.agency || null,
+        commissionSplitPercent: 0,
+        referralSplitPercent: 0,
+        platformAccessTerms: 'Agent uploaded signed A2A agreement document.',
+        notes: remarks || '',
+        effectiveDate: new Date(),
+        expiryDate: expiryDate ? new Date(expiryDate) : null,
+        status: 'active',
+        createdBy: agentId,
+      });
+    } else if (Object.prototype.hasOwnProperty.call(req.body || {}, 'expiryDate')) {
+      agreement.expiryDate = expiryDate ? new Date(expiryDate) : null;
+    }
+
+    const document = appendAgreementDocument(agreement, agentId, { name, remarks, url, mimeType, size });
+    await agreement.save();
+
+    return res.status(201).json({
+      success: true,
+      message: 'Agreement document added',
+      data: {
+        agreement_id: agreement._id,
+        id: document._id,
+        name: document.name,
+        remarks: document.remarks,
+        url: document.url,
+        mime_type: document.mimeType,
+        size: document.size,
+        uploaded_at: document.uploadedAt,
+      },
+    });
+  } catch (err) {
+    console.error('[Agent Agreement Document Add/Create]', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.updateAgreementDocument = async (req, res) => {
+  try {
+    const agentId = req.user && req.user._id;
+    if (!agentId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const { id, documentId } = req.params;
+    const { name, remarks, expiryDate, url, mimeType, size } = req.body || {};
+
+    const agreement = await PartnerAgreement.findById(id);
+    if (!canManageAgentAgreement(agreement, agentId)) {
+      return res.status(403).json({ success: false, message: 'You can edit only your own agent agreement documents' });
+    }
+
+    const document = agreement.agreementDocuments.id(documentId);
+    if (!document) return res.status(404).json({ success: false, message: 'Document not found' });
+
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'name')) {
+      document.name = name || 'Agreement document';
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'remarks')) {
+      document.remarks = remarks || '';
+    }
+    if (url) {
+      const previousUrl = document.url;
+      document.url = url;
+      document.mimeType = mimeType || document.mimeType || '';
+      document.size = Number(size) || document.size || 0;
+      if (agreement.signedDocumentUrl === previousUrl) {
+        agreement.signedDocumentUrl = url;
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'expiryDate')) {
+      agreement.expiryDate = expiryDate ? new Date(expiryDate) : null;
+    }
+
+    await agreement.save();
+
+    return res.json({
+      success: true,
+      message: 'Agreement document updated',
+      data: {
+        id: document._id,
+        name: document.name,
+        remarks: document.remarks,
+        url: document.url,
+        mime_type: document.mimeType,
+        size: document.size,
+        uploaded_at: document.uploadedAt,
+        expiry_date: agreement.expiryDate,
+      },
+    });
+  } catch (err) {
+    console.error('[Agent Agreement Document Update]', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.deleteAgreementDocument = async (req, res) => {
+  try {
+    const agentId = req.user && req.user._id;
+    if (!agentId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const { id, documentId } = req.params;
+    const agreement = await PartnerAgreement.findById(id);
+    if (!canManageAgentAgreement(agreement, agentId)) {
+      return res.status(403).json({ success: false, message: 'You can delete only your own agent agreement documents' });
+    }
+
+    const document = agreement.agreementDocuments.id(documentId);
+    if (!document) return res.status(404).json({ success: false, message: 'Document not found' });
+
+    const removedUrl = document.url;
+    document.deleteOne();
+
+    if (agreement.signedDocumentUrl === removedUrl) {
+      agreement.signedDocumentUrl = agreement.agreementDocuments[0]?.url || '';
+    }
+
+    await agreement.save();
+    return res.json({ success: true, message: 'Agreement document deleted' });
+  } catch (err) {
+    console.error('[Agent Agreement Document Delete]', err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };

@@ -3,6 +3,23 @@ const mongoose = require('mongoose');
 // PartnerAgreement — signed once at onboarding, governs all deals
 // per PRD §8.5: immutable after execution; versioning on term change
 
+const agreementDocumentSchema = new mongoose.Schema(
+  {
+    name: { type: String, default: '' },
+    remarks: { type: String, default: '' },
+    url: { type: String, required: true },
+    mimeType: { type: String, default: '' },
+    size: { type: Number, default: 0 },
+    uploadedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'GridAgent',
+      default: null,
+    },
+    uploadedAt: { type: Date, default: Date.now },
+  },
+  { timestamps: false }
+);
+
 const partnerAgreementSchema = new mongoose.Schema(
   {
     // ── Who signed ────────────────────────────────────────────────────────────
@@ -41,6 +58,7 @@ const partnerAgreementSchema = new mongoose.Schema(
 
     // ── Document storage ──────────────────────────────────────────────────────
     signedDocumentUrl: { type: String, default: '' },
+    agreementDocuments: { type: [agreementDocumentSchema], default: [] },
     effectiveDate:     { type: Date, required: true },
     expiryDate:        { type: Date, default: null },
 
