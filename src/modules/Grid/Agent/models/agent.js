@@ -190,6 +190,21 @@ role: {
       default: false,
     },
 
+    flagNote: {
+      type: String,
+      default: "",
+    },
+
+    flaggedAt: {
+      type: Date,
+    },
+
+    flaggedByAgency: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Agency",
+      default: null,
+    },
+
     onboarding_status: {
       type: String,
       enum: ["pending", "approved", "declined"],
@@ -206,11 +221,6 @@ role: {
     },
 
     activeLeads: {
-      type: Number,
-      default: 0,
-    },
-
-    presentationsGenerated: {
       type: Number,
       default: 0,
     },

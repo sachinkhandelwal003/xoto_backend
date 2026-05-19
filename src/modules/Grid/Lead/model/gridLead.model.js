@@ -94,7 +94,7 @@ const gridLeadSchema = new mongoose.Schema({
   source: {
     channel: {
       type: String,
-      enum: ['website_form', 'whatsapp', 'phone_call', 'email', 'bulk_upload', 'agent_added', 'admin_manual'],
+      enum: ['website_form', 'whatsapp', 'phone_call', 'email', 'bulk_upload', 'agent_added', 'admin_manual', 'referral_partner'],
       required: true
     },
     listing_id: {
@@ -305,6 +305,7 @@ advisor_suggestions: [{
   deal_record: {
     created:            { type: Boolean, default: false },
     deal_record_id:     { type: mongoose.Schema.Types.ObjectId, ref: 'DealRecord' },
+    inventory_unit_id:  { type: mongoose.Schema.Types.ObjectId, ref: 'PropertyInventory' },
     transaction_value:  { type: Number },
     commission_amount:  { type: Number },
     commission_status: {

@@ -18,7 +18,7 @@ const protect = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Not authorised. No token provided.' });
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (decoded.role?.name !== 'Agency' && decoded.role?.code !== '1')
+    if (decoded.role?.name !== 'Agency' && decoded.role?.code !== 15)
       return res.status(403).json({ success: false, message: 'Access denied. Not an agency account.' });
 
     const agency = await Agency.findById(decoded.id).select('-password');
@@ -121,12 +121,23 @@ router.get('/dashboard', ctrl.getDashboard);
 
 // ── Profile ──────────────────────────────────────────────────────────────────
 router.get('/profile',   ctrl.getProfile);
-router.put('/profile', ctrl.updateProfile);
+router.patch('/profile', ctrl.updateProfile);
+router.post('/profile/logo', ctrl.updateLogo);
+
+// ── KYC ──────────────────────────────────────────────────────────────────────
+router.get('/kyc/status', ctrl.getKycStatus);
+router.post('/kyc/submit', ctrl.submitKyc);
+router.delete('/kyc/document/:type', ctrl.removeKycDocument);
+
+// ── Agreement ──────────────────────────────────────────────────────────────────
+router.get('/agreement', ctrl.getAgreement);
+router.post('/agreement/upload', ctrl.uploadAgreement);
 
 // ── Agent Team ───────────────────────────────────────────────────────────────
 router.post('/agents',                   ctrl.createAgent);   
 router.get('/agents',                    ctrl.getAgents);
 router.get('/agents/:agentId',           ctrl.getAgentDetail);
+router.get('/agents/:agentId/activity',  ctrl.getAgentActivity);
 router.put('/agents/:agentId/approve',   ctrl.approveAgent);
 router.put('/agents/:agentId/decline',   ctrl.declineAgent);
 router.put('/agents/:agentId/flag',      ctrl.flagAgent);

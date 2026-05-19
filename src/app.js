@@ -31,6 +31,7 @@ const developer = require('./modules/Grid/Developer/Routes/developer.route.js')
 const enhancementRoutes = require('./modules/ImageEnhancer/Routes/ImageRoutes.js').default;
 const referralPartnerRoutes = require("./modules/Grid/ReferralPartner/Routes/ReferralPartner.route.js");
 const rentalProperrty = require('./modules/RentalProperties/routes/Rentproperty.routes.js')
+const presentationRoutes = require('./modules/Grid/presentation/routes/presentation.routes.js');
 
 const gridLead = require('./modules/Grid/Lead/routes/gridLead.route.js')
 // const Rentlead = require('./modules/RentalProperties/routes/Rentlead.routes.js')
@@ -39,7 +40,6 @@ const gridLead = require('./modules/Grid/Lead/routes/gridLead.route.js')
 // const SkyRoutes = Skyimport.default || Skyimport;
 
 const feedback = require('./modules/feedback/routes/feedback.route.js');
-const presentationController = require('./modules/Grid/Agent/controllers/PresentationController');
 
 // ==========================================
 // ⚠️ FIX: Stripe Route Yahan Upar Move Kiya Hai 
@@ -50,6 +50,10 @@ const presentationController = require('./modules/Grid/Agent/controllers/Present
 // Middleware
 app.use(cors());
 app.use(helmet());
+
+app.use('/presentation/track', helmet({
+  contentSecurityPolicy: false,
+}));
 app.use(morgan('dev'));
 
 // app.use(express.json());
@@ -102,6 +106,8 @@ app.use('/freelancer/projects/get', require('../src/modules/auth/routes/freelanc
 app.use('/freelancer/category', require('../src/modules/auth/routes/freelancer/freelancercategory.routes'));
 app.use('/freelancer/subcategory', require('../src/modules/auth/routes/freelancer/freelancersubcategory.routes'));
 
+app.use('/deal-record', require('./modules/Grid/dealrecord/routes/Dealrecord.routes'));
+
 // Routes
 
 app.use('/vault/statistics', require('./modules/vault/routes/vault.statistics.routes.js'));
@@ -139,6 +145,17 @@ app.use('/gridadvisor', GridAdvisor);
 // RentalProperty
 app.use('/rental/property', rentalProperrty)
 // app.use('/rental/lead', Rentlead)
+
+app.use('/presentation/track', (req, res, next) => {
+  res.setHeader('Content-Security-Policy', 
+    "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-src *;"
+  );
+  next();
+});
+
+
+app.use('/presentation', presentationRoutes);
+
 
 // image ehncnace,ent 
 app.use('/ai/enhance', enhancementRoutes);
@@ -181,10 +198,6 @@ app.use('/notifications', Notification);
 app.use((req, res, next) => {
   next(createError.NotFound());
 });
-// Public presentation share (no auth)
-app.get('/presentation/share/:token', presentationController.sharePresentation);
-
-
 // Error Handler
 app.use((err, req, res, next) => {
   res.status(err.status || 500);

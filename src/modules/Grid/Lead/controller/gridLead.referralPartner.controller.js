@@ -646,3 +646,94 @@ exports.updateCommissionStatus = asyncHandler(async (req, res) => {
   });
 });
 
+exports.getReferralLeaderboard = asyncHandler(async (req, res) => {
+  const partnerId = req.user?._id;
+  
+  const period = req.query.period || 'all';
+  const today = new Date();
+  let startDate;
+  
+  if (period === 'week') {
+    startDate = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+  } else if (period === 'month') {
+    startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+  } else {
+    startDate = new Date(0);
+  }
+
+  const aggregate = await GridLead.aggregate([
+    {
+      $match: {
+        lead_type: 'referral',
+        'source.channel': 'referral_partner',
+        createdAt: { $gte: startDate },
+      }
+    },
+    {
+      $group: {
+        _id: '$created_by_agent',
+        totalLeads: { $sum: 1 },
+        convertedLeads: { 
+          $sum: { 
+            $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] 
+          } 
+        },
+      }
+    },
+    {
+      $lookup: {
+        from: 'gridreferralpartners',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'partner'
+      }
+    },
+    {
+      $unwind: '$partner'
+    },
+    {
+      $project: {
+        _id: 1,
+        totalLeads: 1,
+        convertedLeads: 1,
+        name: { 
+          $concat: ['$partner.firstName', ' ', '$partner.lastName'] 
+        },
+        conversionRate: {
+          $cond: [
+            { $eq: ['$totalLeads', 0] },
+            0,
+            { $multiply: [{ $divide: ['$convertedLeads', '$totalLeads'] }, 100] }
+          ]
+        },
+        commissionEarned: { $literal: 0 }
+      }
+    },
+    {
+      $sort: { totalLeads: -1, convertedLeads: -1 }
+    }
+  ]);
+
+  const leaderboardData = aggregate.map((item, index) => ({
+    id: item._id.toString(),
+    rank: index + 1,
+    name: item.name,
+    totalLeads: item.totalLeads,
+    convertedLeads: item.convertedLeads,
+    conversionRate: Math.round(item.conversionRate * 100) / 100,
+    commissionEarned: item.commissionEarned,
+    change: 'up',
+    changeValue: 0
+  }));
+
+  const myRank = leaderboardData.find(item => item.id === partnerId?.toString());
+
+  return res.json({
+    success: true,
+    data: {
+      leaderboard: leaderboardData,
+      myRank
+    }
+  });
+});
+

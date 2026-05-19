@@ -1,0 +1,330 @@
+const {
+  generatePresentationNarrative,
+  buildHtmlPresentation,
+  uploadToS3,
+  savePresentation: savePresentationService,   // ← rename karo
+  trackView,
+  getPresentationViews,
+  generatePdfFromPresentation,
+} = require('./presentation.service');
+const Presentation = require('../model/presentation.model');
+const { GetObjectCommand } = require('@aws-sdk/client-s3');
+const s3 = require('../../../../config/s3Client');
+
+// ── POST /api/presentation/generate-narrative ────────────────────────────────
+// Step 1: Sirf AI narrative generate karo (preview ke liye)
+const generateNarrative = async (req, res) => {
+  try {
+    const { property, clientNotes, settings } = req.body;
+
+    if (!property || !settings) {
+      return res.status(400).json({ success: false, message: 'property and settings required' });
+    }
+
+    const narrative = await generatePresentationNarrative(property, clientNotes || {}, settings);
+
+    res.json({ success: true, data: narrative });
+  } catch (err) {
+    console.error('Narrative generation error:', err.message);
+    res.status(500).json({ success: false, message: 'Failed to generate narrative', error: err.message });
+  }
+};
+
+
+
+// ── GET /api/presentation/track/:token ──────────────────────────────────────
+// Client jab link open kare — view log karo aur HTML serve karo
+const trackAndServe = async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const presentation = await Presentation.findOne({ trackingToken: token });
+    if (!presentation) {
+      return res.status(404).send('<h1>Presentation not found</h1>');
+    }
+
+    // View track karo
+    await trackView(token, {
+      ip:        req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    // S3 se HTML fetch karo
+    const s3Response = await s3.send(new GetObjectCommand({
+      Bucket: process.env.AWS_S3_BUCKET,
+      Key:    presentation.s3Key,
+    }));
+
+    // Stream to string
+    const chunks = [];
+    for await (const chunk of s3Response.Body) chunks.push(chunk);
+    let htmlContent = Buffer.concat(chunks).toString('utf-8');
+
+    // ✅ PDF download button inject karo — </body> se pehle
+const pdfDownloadUrl = `${req.baseUrl}/pdf/${encodeURIComponent(token)}`;
+const pdfDownloadHtml = `
+<style>
+  #pdf-fab {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, #4A027C, #7C3AED);
+    color: white;
+    border: none;
+    padding: 14px 32px;
+    border-radius: 50px;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    cursor: pointer;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 8px 32px rgba(74,2,124,0.4);
+    transition: all 0.3s;
+    white-space: nowrap;
+  }
+  #pdf-fab:hover {
+    transform: translateX(-50%) translateY(-2px);
+    box-shadow: 0 12px 40px rgba(74,2,124,0.5);
+  }
+
+  /* ✅ Print mode — saare slides dikhao, ek ek page pe */
+  @media print {
+    #pdf-fab  { display: none !important; }
+    .controls { display: none !important; }
+    .hint-text { display: none !important; }
+    #play-status { display: none !important; }
+
+    body {
+      background: white !important;
+      overflow: visible !important;
+      height: auto !important;
+    }
+
+    #deck-container {
+      position: static !important;
+      width: 1280px !important;
+      height: auto !important;
+      overflow: visible !important;
+    }
+
+    .slide {
+      position: static !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      transform: none !important;
+      transition: none !important;
+      display: flex !important;
+      width: 1280px !important;
+      height: 720px !important;
+      page-break-after: always !important;
+      break-after: page !important;
+    }
+
+    .slide-inner {
+      width: 1280px !important;
+      height: 720px !important;
+    }
+  }
+</style>
+
+<button id="pdf-fab" onclick="downloadPdf()">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+    <path d="M12 16l-5-5 1.41-1.41L11 13.17V4h2v9.17l2.59-2.58L17 11l-5 5zm-6 2h12v2H6v-2z"/>
+  </svg>
+  Download PDF
+</button>
+
+<script>
+  function downloadPdf() {
+    const btn = document.getElementById('pdf-fab');
+    btn.innerHTML = 'Preparing PDF...';
+    btn.style.opacity = '0.7';
+    btn.style.pointerEvents = 'none';
+
+    window.location.href = '${pdfDownloadUrl}';
+
+    setTimeout(() => {
+      btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 16l-5-5 1.41-1.41L11 13.17V4h2v9.17l2.59-2.58L17 11l-5 5zm-6 2h12v2H6v-2z"/></svg> Download PDF';
+      btn.style.opacity = '1';
+      btn.style.pointerEvents = 'auto';
+    }, 2500);
+  }
+</script>`;
+
+    // </body> se pehle inject karo
+    htmlContent = htmlContent.replace('</body>', `${pdfDownloadHtml}\n</body>`);
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(htmlContent);
+
+  } catch (err) {
+    console.error('Track and serve error:', err.message);
+    res.status(500).send('<h1>Error loading presentation</h1>');
+  }
+};
+
+// ── GET /api/presentation/views/:presentationId ──────────────────────────────
+// Agent ko views dikhao
+const getViews = async (req, res) => {
+  try {
+    const agentId = req.user._id;
+    const data = await getPresentationViews(req.params.presentationId, agentId);
+
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Presentation not found' });
+    }
+
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ── GET /api/presentation/my ─────────────────────────────────────────────────
+// Agent ki saari presentations
+const getMyPresentations = async (req, res) => {
+  try {
+    const agentId = req.user._id;
+    const { leadId, page = 1, limit = 10 } = req.query;
+
+    const query = { agentId };
+    if (leadId) query.leadId = leadId;
+
+    const presentations = await Presentation.find(query)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(Number(limit))
+      .select('-s3Key'); // s3 key frontend ko nahi dikhana
+
+    const total = await Presentation.countDocuments(query);
+
+    res.json({
+      success: true,
+      data: presentations,
+      pagination: { total, page: Number(page), limit: Number(limit) },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ── DELETE /api/presentation/:id ─────────────────────────────────────────────
+const deletePresentation = async (req, res) => {
+  try {
+    const agentId = req.user._id;
+    const presentation = await Presentation.findOne({
+      _id: req.params.id, agentId
+    });
+
+    if (!presentation) {
+      return res.status(404).json({ success: false, message: 'Not found' });
+    }
+
+    await Presentation.deleteOne({ _id: presentation._id });
+
+    res.json({ success: true, message: 'Presentation deleted' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+// ── POST /api/presentation/save ──────────────────────────────────────────────
+const savePresentationHandler = async (req, res) => {   // ← naam badlo
+  try {
+    const {
+      leadId, propertyId,
+      property, narrative,
+      settings, clientNotes,
+      agentProfile,
+    } = req.body;
+
+    const agentId = req.user._id;
+
+    if (!property || !narrative || !settings) {
+      return res.status(400).json({ success: false, message: 'property, narrative, settings required' });
+    }
+
+    const htmlContent = await buildHtmlPresentation(property, narrative, settings, agentProfile || {});
+
+    const fileName = `${agentId}_${Date.now()}`;
+    const { key, url } = await uploadToS3(htmlContent, fileName);
+
+    const title = `${property.propertyName} — ${clientNotes?.clientName || 'Client'}`;
+
+    // ✅ renamed service function use karo
+    const presentation = await savePresentationService({
+      leadId, propertyId, agentId,
+      settings, clientNotes: clientNotes || {},
+      narrative, s3Key: key, s3Url: url, title,
+    });
+
+    // const trackingUrl = `${process.env.FRONTEND_URL}/p/${presentation.trackingToken}`;
+const trackingUrl = `${process.env.BACKEND_URL}/api/presentation/track/${presentation.trackingToken}`;
+res.json({
+  success: true,
+  data: {
+    presentationId: presentation._id,
+    trackingToken:  presentation.trackingToken,
+    trackingUrl,        // backend tracking link — share karo
+    s3Url:          url, // S3 direct link — preview ke liye
+  }
+});
+  } catch (err) {
+    console.error('Save presentation error:', err.message);
+    res.status(500).json({ success: false, message: 'Failed to save presentation', error: err.message });
+  }
+};
+
+
+
+const proxyImage = async (req, res) => {
+  try {
+    const key = decodeURIComponent(req.query.key);
+    
+    const command = new GetObjectCommand({
+      Bucket: process.env.AWS_S3_BUCKET,
+      Key: key,
+    });
+    
+    const s3Response = await s3.send(command);
+    
+    res.setHeader('Content-Type', s3Response.ContentType || 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    s3Response.Body.pipe(res);
+  } catch (err) {
+    res.status(404).send('Image not found');
+  }
+};
+
+const downloadPdf = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const pdfBuffer = await generatePdfFromPresentation(token);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="xoto-presentation.pdf"`);
+    res.send(pdfBuffer);
+
+  } catch (err) {
+    console.error('PDF error:', err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+module.exports = {
+  generateNarrative,
+  savePresentationHandler,
+  trackAndServe,
+  getViews,
+  getMyPresentations,
+  deletePresentation,
+  proxyImage,
+  downloadPdf,
+};
+

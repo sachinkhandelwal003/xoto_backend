@@ -37,8 +37,7 @@ router.put ('/:id/suggestion-reaction', controller.updateSuggestionReaction);
 router.put ('/:id/update-requirements', controller.updateLeadRequirements);
 router.get ('/:id/smart-matches',       controller.getSmartMatches);
 
-// ── NEW: Advisor private note ─────────────────────────────────────────────
-router.post('/:id/note-advisor',        controller.addAdvisorNote);   // ← ADDED
+
 
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -76,6 +75,7 @@ router.post('/agent/:id/note',                 controller.addAgentNote);
 router.post('/referral/create-lead',              referral.createReferralLead);
 router.get ('/referral/my-leads',                 referral.getReferralPartnerLeads);
 router.get ('/referral/stats',                    referral.getReferralPartnerStats);
+router.get ('/referral/leaderboard',              referral.getReferralLeaderboard);
 router.post('/referral/:id/save-matches',         referral.saveReferralMatchedListings);
 router.post('/referral/:id/submit-to-xoto',       referral.submitReferralLeadToXoto);
 router.put ('/referral/:id/update-requirements',  referral.updateReferralRequirements);

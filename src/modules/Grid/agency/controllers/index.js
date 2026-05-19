@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const Agency = require('../models/index');
 const Agent = require('../models/agent');
 const AgencyOTP = require('../models/OTP');
@@ -38,6 +39,57 @@ const agencyWelcomeEmail = ({ companyName, primaryContactEmail, tempPassword }) 
 `;
 
 // ── AUTH ────────────────────────────────────────────────────────────────────
+
+const getPagination = (query, defaults = {}) => {
+  const page = Math.max(Number(query.page) || defaults.page || 1, 1);
+  const limit = Math.min(Math.max(Number(query.limit) || defaults.limit || 20, 1), 100);
+  return { page, limit, skip: (page - 1) * limit };
+};
+
+const parseDateRange = ({ from, to, dateFrom, dateTo, startDate, endDate }) => {
+  const start = from || dateFrom || startDate;
+  const end = to || dateTo || endDate;
+  const range = {};
+  if (start) range.$gte = new Date(start);
+  if (end) {
+    const endDateValue = new Date(end);
+    endDateValue.setHours(23, 59, 59, 999);
+    range.$lte = endDateValue;
+  }
+  return Object.keys(range).length ? range : null;
+};
+
+const getMonthRange = () => {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  return { start, end };
+};
+
+const normalizeObjectId = (value, fieldName) => {
+  if (!value) return null;
+  if (!mongoose.Types.ObjectId.isValid(value)) {
+    throw new APIError(`Invalid ${fieldName}`, StatusCodes.BAD_REQUEST);
+  }
+  return new mongoose.Types.ObjectId(value);
+};
+
+const getAgencyAgentIds = async (agencyId, includePending = true) => {
+  const filter = { agency: agencyId };
+  if (!includePending) {
+    filter.agencyApprovalStatus = 'approved';
+    filter.adminApprovalStatus = 'approved';
+    filter.isActive = true;
+  }
+  return Agent.find(filter).distinct('_id');
+};
+
+const assertAgencyAgent = async (agencyId, agentId) => {
+  const objectId = normalizeObjectId(agentId, 'agent ID');
+  const agent = await Agent.findOne({ _id: objectId, agency: agencyId }).select('-password -bankDetails');
+  if (!agent) throw new APIError('Agent not found under this agency', StatusCodes.NOT_FOUND);
+  return agent;
+};
 
 /**
  * POST /agency/auth/login
@@ -188,49 +240,117 @@ exports.getDashboard = asyncHandler(async (req, res) => {
   const agency = await Agency.findById(agencyId).select('-password');
   if (!agency) throw new APIError('Agency not found', StatusCodes.NOT_FOUND);
 
-  const agentStats = await Agent.aggregate([
-    { $match: { agency: agencyId, agencyApprovalStatus: 'approved', adminApprovalStatus: 'approved' } },
-    {
-      $group: {
-        _id: null,
-        totalAgents: { $sum: 1 },
-        totalLeads: { $sum: '$totalLeads' },
-        activeLeads: { $sum: '$activeLeads' },
-        totalPresentations: { $sum: '$presentationsGenerated' },
-        totalCommission: { $sum: '$commissionEarned' },
-        totalDeals: { $sum: '$dealsClosedCount' },
+  const GridLead = require('../../Lead/model/gridLead.model');
+  const Property = require('../../../properties/models/property.model');
+  const Presentation = require('../../presentation/model/presentation.model');
+
+  const agentIds = await getAgencyAgentIds(agencyId);
+  const { start: monthStart, end: monthEnd } = getMonthRange();
+  const activeAgentsCount = agentIds.length;
+
+  const [
+    totalLeads,
+    activeLeads,
+    totalListings,
+    presentationGeneratedCount,
+    presentationGeneratedThisMonth,
+    commissionRows,
+    monthlyCommissionRows,
+    topAgentRows,
+  ] = await Promise.all([
+    GridLead.countDocuments({ created_by_agent: { $in: agentIds } }),
+    GridLead.countDocuments({ created_by_agent: { $in: agentIds }, status: { $nin: ['completed', 'not_proceeding'] } }),
+    Property.countDocuments({ created_by_agent: { $in: agentIds } }),
+    Presentation.countDocuments({ agentId: { $in: agentIds } }),
+    Presentation.countDocuments({ agentId: { $in: agentIds }, createdAt: { $gte: monthStart, $lte: monthEnd } }),
+    GridLead.aggregate([
+      { $match: { created_by_agent: { $in: agentIds } } },
+      {
+        $group: {
+          _id: '$deal_record.commission_status',
+          amount: { $sum: { $ifNull: ['$deal_record.commission_amount', 0] } },
+          count: { $sum: 1 },
+        },
       },
-    },
+    ]),
+    GridLead.aggregate([
+      {
+        $match: {
+          created_by_agent: { $in: agentIds },
+          createdAt: { $gte: monthStart, $lte: monthEnd },
+        },
+      },
+      {
+        $group: {
+          _id: '$deal_record.commission_status',
+          amount: { $sum: { $ifNull: ['$deal_record.commission_amount', 0] } },
+          count: { $sum: 1 },
+        },
+      },
+    ]),
+    GridLead.aggregate([
+      {
+        $match: {
+          created_by_agent: { $in: agentIds },
+          createdAt: { $gte: monthStart, $lte: monthEnd },
+        },
+      },
+      {
+        $group: {
+          _id: '$created_by_agent',
+          totalLeads: { $sum: 1 },
+          convertedLeads: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+          commissionEarned: { $sum: { $ifNull: ['$deal_record.commission_amount', 0] } },
+        },
+      },
+      { $sort: { convertedLeads: -1, commissionEarned: -1, totalLeads: -1 } },
+      { $limit: 1 },
+    ]),
   ]);
 
-const startOfMonth = new Date();
-startOfMonth.setDate(1);
-startOfMonth.setHours(0, 0, 0, 0);
+  const topAgent = topAgentRows[0]
+    ? await Agent.findById(topAgentRows[0]._id)
+      .select('first_name last_name fullName email phone_number createdAt')
+      .lean()
+    : null;
 
-const topAgent = await Agent.findOne({
-  agency: agencyId,
-  agencyApprovalStatus: 'approved',
-  adminApprovalStatus: 'approved',
-  updatedAt: { $gte: startOfMonth },
-}).sort({ dealsClosedCount: -1 })
-  .select('fullName dealsClosedCount commissionEarned activeLeads');
+  const recentLeads = await GridLead.find({
+    created_by_agent: { $in: agentIds }
+  })
+    .populate('created_by_agent', 'first_name last_name fullName email phone_number')
+    .sort({ createdAt: -1 })
+    .limit(5)
+    .select('contact_info status created_by_agent deal_record createdAt updatedAt')
+    .lean();
 
-  const pendingAgents = await Agent.countDocuments({
-    agency: agencyId,
-    agencyApprovalStatus: 'pending',
+  const recentListings = await Property.find({ created_by_agent: { $in: agentIds } })
+    .populate('created_by_agent', 'first_name last_name fullName email phone_number')
+    .sort({ createdAt: -1 })
+    .limit(5)
+    .select('propertyName projectName propertySubType approvalStatus listingStatus status created_by_agent createdAt updatedAt')
+    .lean();
+
+  const commissionByStatus = {
+    pending: 0,
+    confirmed: 0,
+    paid: 0,
+  };
+  commissionRows.forEach(row => {
+    commissionByStatus[row._id || 'pending'] = row.amount || 0;
   });
 
-  const stats = agentStats[0] || {
-    totalAgents: 0, totalLeads: 0, activeLeads: 0,
-    totalPresentations: 0, totalCommission: 0, totalDeals: 0,
+  const monthlyCommissionByStatus = {
+    pending: 0,
+    confirmed: 0,
+    paid: 0,
   };
-  const recentActivity = await Agent.find({
-  agency: agencyId,
-  agencyApprovalStatus: 'approved',
-})
-  .sort({ updatedAt: -1 })
-  .limit(10)
-  .select('fullName updatedAt activeLeads dealsClosedCount');
+  monthlyCommissionRows.forEach(row => {
+    monthlyCommissionByStatus[row._id || 'pending'] = row.amount || 0;
+  });
+
+  const presentationQuota = agency.presentationQuota || 0;
+  const presentationsUsed = Math.max(agency.presentationsUsed || 0, presentationGeneratedCount);
+  const presentationBalance = Math.max(0, presentationQuota - presentationsUsed);
 
   res.status(200).json({
     status: 'success',
@@ -238,58 +358,127 @@ const topAgent = await Agent.findOne({
       agency: {
         companyName: agency.companyName,
         subscriptionTier: agency.subscriptionTier,
-        presentationBalance: agency.presentationBalance,
-        presentationsUsed: agency.presentationsUsed,
-        presentationQuota: agency.presentationQuota,
+        presentationQuota,
+        presentationsUsed,
+        presentationBalance,
       },
       stats: {
-        totalActiveAgents: stats.totalAgents,
-        pendingApprovalAgents: pendingAgents,
-        totalLeads: stats.totalLeads,
-        activeLeads: stats.activeLeads,
-        totalDealsClosedAllTime: stats.totalDeals,
-        totalCommissionEarned: stats.totalCommission,
-        presentationsGenerated: stats.totalPresentations,
-        presentationBalance: agency.presentationBalance,
+        active_agents: activeAgentsCount,
+        total_leads: totalLeads,
+        active_leads: activeLeads,
+        total_listings: totalListings,
+        total_deals: commissionRows.filter(row => row._id === 'confirmed' || row._id === 'paid').reduce((sum, row) => sum + row.count, 0),
+        ai_presentations_generated: presentationGeneratedCount,
+        ai_presentations_generated_this_month: presentationGeneratedThisMonth,
+        total_commission: commissionByStatus.pending + commissionByStatus.confirmed + commissionByStatus.paid,
+        commission_pending: commissionByStatus.pending,
+        commission_confirmed: commissionByStatus.confirmed + commissionByStatus.paid,
       },
-      topAgent,
-      recentActivity,
-    },
+      commission_pipeline: {
+        all_time: {
+          in_progress: commissionByStatus.pending,
+          confirmed: commissionByStatus.confirmed + commissionByStatus.paid,
+        },
+        this_month: {
+          in_progress: monthlyCommissionByStatus.pending,
+          confirmed: monthlyCommissionByStatus.confirmed + monthlyCommissionByStatus.paid,
+        },
+      },
+      top_agent: topAgent ? {
+        ...topAgent,
+        totalLeads: topAgentRows[0].totalLeads,
+        convertedLeads: topAgentRows[0].convertedLeads,
+        commissionEarned: topAgentRows[0].commissionEarned,
+      } : null,
+      top_agent_of_month: topAgent ? {
+        ...topAgent,
+        totalLeads: topAgentRows[0].totalLeads,
+        convertedLeads: topAgentRows[0].convertedLeads,
+        commissionEarned: topAgentRows[0].commissionEarned,
+      } : null,
+      recent_activity: [
+        ...recentLeads.map(item => ({ type: 'lead', ...item })),
+        ...recentListings.map(item => ({ type: 'listing', ...item })),
+      ]
+        .sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt))
+        .slice(0, 10),
+    }
   });
 });
 
 // ── AGENT TEAM ───────────────────────────────────────────────────────────────
 exports.createAgent = asyncHandler(async (req, res) => {
-  const { fullName, email, phone, password, location } = req.body;
+  const {
+    first_name,
+    last_name,
+    fullName,
+    email,
+    phone,
+    phone_number,
+    country_code,
+    password,
+    operating_city,
+    specialization,
+    country,
+    emiratesIdUrl,
+    reraCardUrl,
+    profilePhotoUrl,
+  } = req.body;
+
+  const resolvedPhone = phone_number || phone;
+  const nameParts = (fullName || '').trim().split(/\s+/).filter(Boolean);
+  const resolvedFirstName = first_name || nameParts[0];
+  const resolvedLastName = last_name || nameParts.slice(1).join(' ') || '-';
 
   // ── Validation ──────────────────────────────────────────────────────────
-  if (!fullName || !phone || !password) {
+  if (!resolvedFirstName || !resolvedPhone || !password || !email) {
     throw new APIError(
-      'fullName, phone, and password are required',
+      'first_name or fullName, email, phone, and password are required',
       StatusCodes.BAD_REQUEST
     );
   }
 
   // ── Duplicate check (phone must be unique across the whole system) ─────
-  const existing = await Agent.findOne({ phone });
+  const existing = await Agent.findOne({
+    $or: [
+      { phone_number: resolvedPhone },
+      { email: email.toLowerCase() },
+    ],
+  });
   if (existing) {
     throw new APIError(
-      'An agent with this phone number already exists',
+      'An agent with this phone number or email already exists',
       StatusCodes.CONFLICT
     );
   }
 
+  const agentRole = await Role.findOne({ code: 16 });
+
   // ── Create agent ────────────────────────────────────────────────────────
   const agent = await Agent.create({
-    fullName,
-    email: email || undefined,          // optional in schema, omit if blank
-    phone,
+    first_name: resolvedFirstName,
+    last_name: resolvedLastName,
+    fullName: fullName || `${resolvedFirstName} ${resolvedLastName}`.trim(),
+    email,
+    phone_number: resolvedPhone,
+    country_code: country_code || '+971',
     password,                           // will be hashed by the pre‑save hook
-    location: location || undefined,
+    operating_city: operating_city || req.agency?.operatingLocation?.city || 'Dubai',
+    specialization: specialization || 'general',
+    country: country || req.agency?.operatingLocation?.country || 'UAE',
+    role: agentRole?._id || null,
+    emiratesIdUrl: emiratesIdUrl || '',
+    reraCardUrl: reraCardUrl || '',
+    profile_photo: profilePhotoUrl || '',
     agency: req.agency._id,             // linked to the agency that creates it
     agencyApprovalStatus: 'approved',   // auto‑approved by the creating agency
     adminApprovalStatus: 'pending',     // still needs admin final approval
+    onboarding_status: 'pending',
     isActive: true,
+  });
+
+  await Agency.findByIdAndUpdate(req.agency._id, {
+    $addToSet: { agents: agent._id },
   });
 
   // Remove password from response
@@ -391,13 +580,17 @@ exports.registerAgent = asyncHandler(async (req, res) => {
 
     role: agentRole._id, // ✅ THIS FIXES NULL ROLE
 
-    id_proof: emiratesIdUrl || "",
-    rera_certificate: reraCardUrl || "",
+    emiratesIdUrl: emiratesIdUrl || "",
+    reraCardUrl: reraCardUrl || "",
     profile_photo: profilePhotoUrl || "",
 
     agencyApprovalStatus: "pending",
     adminApprovalStatus: "pending",
     onboarding_status: "pending",
+  });
+
+  await Agency.findByIdAndUpdate(agency, {
+    $addToSet: { agents: agent._id },
   });
 
   agent.password = undefined;
@@ -414,32 +607,118 @@ exports.registerAgent = asyncHandler(async (req, res) => {
  */
 exports.getAgents = asyncHandler(async (req, res) => {
   const agencyId = req.agency._id;
-const { status, adminStatus, search, page = 1, limit = 20 } = req.query;
+  const { status, adminStatus, search } = req.query;
+  const { page, limit, skip } = getPagination(req.query);
 
   const filter = { agency: agencyId };
-if (status) filter.agencyApprovalStatus = status;
-if (adminStatus) filter.adminApprovalStatus = adminStatus;  if (search) filter.$or = [
-    { fullName: { $regex: search, $options: 'i' } },
-    { email: { $regex: search, $options: 'i' } },
-    { phone: { $regex: search, $options: 'i' } },
-  ];
+  if (status) filter.agencyApprovalStatus = status;
+  if (adminStatus) filter.adminApprovalStatus = adminStatus;
+  if (search) {
+    filter.$or = [
+      { fullName: { $regex: search, $options: 'i' } },
+      { first_name: { $regex: search, $options: 'i' } },
+      { last_name: { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
+      { phone_number: { $regex: search, $options: 'i' } },
+    ];
+  }
 
-  const total = await Agent.countDocuments(filter);
-  const agents = await Agent.find(filter)
+  const GridLead = require('../../Lead/model/gridLead.model');
+  const Property = require('../../../properties/models/property.model');
+
+  const [total, agents] = await Promise.all([
+    Agent.countDocuments(filter),
+    Agent.find(filter)
     .select('-password -bankDetails')
     .sort({ createdAt: -1 })
-    .skip((page - 1) * limit)
-    .limit(Number(limit));
+    .skip(skip)
+    .limit(limit)
+      .lean(),
+  ]);
+
+  const agentIds = agents.map(agent => agent._id);
+
+  const [leadStats, listingStats] = await Promise.all([
+    GridLead.aggregate([
+      { $match: { created_by_agent: { $in: agentIds } } },
+      {
+        $group: {
+          _id: '$created_by_agent',
+          totalLeads: { $sum: 1 },
+          activeLeads: {
+            $sum: {
+              $cond: [{ $in: ['$status', ['completed', 'not_proceeding']] }, 0, 1],
+            },
+          },
+          convertedLeads: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+          commissionEarned: { $sum: { $ifNull: ['$deal_record.commission_amount', 0] } },
+        },
+      },
+    ]),
+    Property.aggregate([
+      { $match: { created_by_agent: { $in: agentIds } } },
+      { 
+        $group: { 
+          _id: '$created_by_agent', 
+          listingsCreated: { $sum: 1 } 
+        } 
+      },
+    ]),
+  ]);
+
+  const leadStatsMap = new Map(leadStats.map(item => [String(item._id), item]));
+  const listingStatsMap = new Map(listingStats.map(item => [String(item._id), item]));
+
+  const data = agents.map(agent => {
+    const leadStat = leadStatsMap.get(String(agent._id)) || {};
+    const listingStat = listingStatsMap.get(String(agent._id)) || {};
+
+    return {
+      _id: agent._id,
+      name: agent.fullName || `${agent.first_name || ''} ${agent.last_name || ''}`.trim(),
+      first_name: agent.first_name,
+      last_name: agent.last_name,
+      email: agent.email,
+      phone_number: agent.phone_number,
+      country_code: agent.country_code,
+      registrationDate: agent.createdAt,
+      reraCardStatus: agent.reraCardUrl || agent.reraCardNumber ? 'submitted' : 'missing',
+      reraCardNumber: agent.reraCardNumber,
+      reraCardUrl: agent.reraCardUrl,
+      rera_number: agent.reraCardNumber,
+      rera_certificate: agent.reraCardUrl,
+      id_proof: agent.emiratesIdUrl,
+      agencyApprovalStatus: agent.agencyApprovalStatus,
+      adminApprovalStatus: agent.adminApprovalStatus,
+      onboarding_status: agent.onboarding_status,
+      isActive: agent.isActive,
+      is_active: agent.isActive,
+      status: agent.isActive,
+      isFlagged: agent.isFlagged,
+      flagNote: agent.flagNote,
+      flaggedAt: agent.flaggedAt,
+      profile_photo: agent.profile_photo,
+      operating_city: agent.operating_city,
+      country: agent.country,
+      specialization: agent.specialization,
+      experience_years: 0,
+      totalLeads: leadStat.totalLeads || 0,
+      activeLeads: leadStat.activeLeads || 0,
+      convertedLeads: leadStat.convertedLeads || 0,
+      listingsCreated: listingStat.listingsCreated || 0,
+      commissionEarned: leadStat.commissionEarned || agent.commissionEarned || 0,
+    };
+  });
 
   res.status(200).json({
     status: 'success',
     pagination: {
       total,
-      page: Number(page),
-      limit: Number(limit),
+      page,
+      limit,
       pages: Math.ceil(total / limit),
     },
-    data: agents,
+    data,
   });
 });
 
@@ -447,18 +726,123 @@ if (adminStatus) filter.adminApprovalStatus = adminStatus;  if (search) filter.$
  * GET /agency/agents/:agentId
  */
 exports.getAgentDetail = asyncHandler(async (req, res) => {
-const agent = await Agent.findOne({
-  _id: req.params.agentId,
-  agency: req.agency._id,
-}).select('-password -bankDetails -presentationsGenerated -presentations');
-if (!mongoose.Types.ObjectId.isValid(req.params.agentId)) {
-    throw new APIError('Invalid agent ID', StatusCodes.BAD_REQUEST);
-  }
-  if (!agent) {
-    throw new APIError('Agent not found', StatusCodes.NOT_FOUND);
+  const agent = await assertAgencyAgent(req.agency._id, req.params.agentId);
+  const GridLead = require('../../Lead/model/gridLead.model');
+  const Property = require('../../../properties/models/property.model');
+
+  const [leadStats, listingsCreated, recentLeads, recentListings] = await Promise.all([
+    GridLead.aggregate([
+      { $match: { created_by_agent: agent._id } },
+      {
+        $group: {
+          _id: null,
+          totalLeads: { $sum: 1 },
+          activeLeads: {
+            $sum: {
+              $cond: [{ $in: ['$status', ['completed', 'not_proceeding']] }, 0, 1],
+            },
+          },
+          convertedLeads: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+          commissionEarned: { $sum: { $ifNull: ['$deal_record.commission_amount', 0] } },
+        },
+      },
+    ]),
+    Property.countDocuments({ created_by_agent: agent._id }),
+    GridLead.find({ created_by_agent: agent._id })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .select('contact_info requirements status classification deal_record createdAt updatedAt')
+      .lean(),
+    Property.find({ created_by_agent: agent._id })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .select('propertyName projectName propertySubType propertyType unitType approvalStatus listingStatus status projectStatus createdAt updatedAt')
+      .lean(),
+  ]);
+
+  const stats = leadStats[0] || {};
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      agent,
+      stats: {
+        totalLeads: stats.totalLeads || 0,
+        activeLeads: stats.activeLeads || 0,
+        convertedLeads: stats.convertedLeads || 0,
+        listingsCreated,
+        commissionEarned: stats.commissionEarned || 0,
+      },
+      recentLeads,
+      recentListings,
+    },
+  });
+});
+
+exports.getAgentActivity = asyncHandler(async (req, res) => {
+  const agent = await assertAgencyAgent(req.agency._id, req.params.agentId);
+  const { type = 'all', status, listingStatus, page, limit, skip } = {
+    type: req.query.type || 'all',
+    status: req.query.status,
+    listingStatus: req.query.listingStatus || req.query.listing_status,
+    ...getPagination(req.query),
+  };
+  const dateRange = parseDateRange(req.query);
+
+  const GridLead = require('../../Lead/model/gridLead.model');
+  const Property = require('../../../properties/models/property.model');
+
+  const response = { agent };
+
+  if (type === 'all' || type === 'leads') {
+    const leadFilter = { created_by_agent: agent._id };
+    if (status) leadFilter.status = status;
+    if (dateRange) leadFilter.createdAt = dateRange;
+    const [total, data] = await Promise.all([
+      GridLead.countDocuments(leadFilter),
+      GridLead.find(leadFilter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select('contact_info requirements status classification deal_record source createdAt updatedAt')
+        .lean(),
+    ]);
+    response.leads = { pagination: { total, page, limit, pages: Math.ceil(total / limit) }, data };
   }
 
-  res.status(200).json({ status: 'success', data: agent });
+  if (type === 'all' || type === 'listings') {
+    const listingFilter = { created_by_agent: agent._id };
+    if (listingStatus) {
+      listingFilter.$and = [
+        listingFilter.$and || [],
+        {
+          $or: [
+            { listingStatus },
+            { approvalStatus: listingStatus },
+            { status: listingStatus },
+          ]
+        }
+      ];
+    }
+    if (dateRange) {
+      listingFilter.$and = [
+        listingFilter.$and || [],
+        { createdAt: dateRange }
+      ];
+    }
+    const [total, data] = await Promise.all([
+      Property.countDocuments(listingFilter),
+      Property.find(listingFilter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select('propertyName projectName propertySubType propertyType unitType approvalStatus listingStatus status projectStatus price city area createdAt updatedAt')
+        .lean(),
+    ]);
+    response.listings = { pagination: { total, page, limit, pages: Math.ceil(total / limit) }, data };
+  }
+
+  res.status(200).json({ status: 'success', data: response });
 });
 
 
@@ -536,11 +920,12 @@ exports.flagAgent = asyncHandler(async (req, res) => {
   agent.isFlagged = true;
   agent.flagNote = note || '';
   agent.flaggedAt = new Date();
+  agent.flaggedByAgency = req.agency._id;
   await agent.save();
 
   res.status(200).json({
     status: 'success',
-    message: 'Agent flagged for admin review',
+    message: 'Agent flagged for Xoto admin review',
     data: agent,
   });
 });
@@ -569,7 +954,7 @@ exports.updateProfile = asyncHandler(async (req, res) => {
       StatusCodes.FORBIDDEN
     );
   }
-  const allowed = ['primaryContactName', 'primaryContactEmail', 'primaryContactPhone'];
+  const allowed = ['primaryContactName', 'primaryContactEmail', 'primaryContactPhone', 'address'];
   const updates = {};
   allowed.forEach((field) => {
     if (req.body[field] !== undefined) updates[field] = req.body[field];
@@ -578,6 +963,117 @@ exports.updateProfile = asyncHandler(async (req, res) => {
   const agency = await Agency.findByIdAndUpdate(
     req.agency._id,
     { $set: updates },
+    { new: true, runValidators: true }
+  ).select('-password');
+
+  if (!agency) throw new APIError('Agency not found', StatusCodes.NOT_FOUND);
+
+  res.status(200).json({ status: 'success', data: agency });
+});
+
+/**
+ * POST /agency/profile/logo
+ */
+exports.updateLogo = asyncHandler(async (req, res) => {
+  const { logo } = req.body;
+  if (!logo) throw new APIError('Logo is required', StatusCodes.BAD_REQUEST);
+
+  const agency = await Agency.findByIdAndUpdate(
+    req.agency._id,
+    { logo },
+    { new: true, runValidators: true }
+  ).select('-password');
+
+  if (!agency) throw new APIError('Agency not found', StatusCodes.NOT_FOUND);
+
+  res.status(200).json({ status: 'success', data: agency });
+});
+
+/**
+ * GET /agency/kyc/status
+ */
+exports.getKycStatus = asyncHandler(async (req, res) => {
+  const agency = await Agency.findById(req.agency._id).select('kycStatus kycRejectionReason onboardingStatus kycDocuments');
+  if (!agency) throw new APIError('Agency not found', StatusCodes.NOT_FOUND);
+
+  res.status(200).json({
+    status: 'success',
+    success: true,
+    data: {
+      kycStatus: agency.kycStatus,
+      kycRejectionReason: agency.kycRejectionReason,
+      onboardingStatus: agency.onboardingStatus,
+      kycDocuments: agency.kycDocuments
+    }
+  });
+});
+
+/**
+ * POST /agency/kyc/submit
+ */
+exports.submitKyc = asyncHandler(async (req, res) => {
+  const { kycDocuments, kycStatus, onboardingStatus } = req.body;
+  if (!kycDocuments || kycDocuments.length === 0) throw new APIError('KYC documents are required', StatusCodes.BAD_REQUEST);
+
+  const agency = await Agency.findByIdAndUpdate(
+    req.agency._id,
+    { kycDocuments, kycStatus: kycStatus || 'pending', onboardingStatus: onboardingStatus || 'kyc_submitted' },
+    { new: true, runValidators: true }
+  ).select('-password');
+
+  if (!agency) throw new APIError('Agency not found', StatusCodes.NOT_FOUND);
+
+  res.status(200).json({ status: 'success', data: agency });
+});
+
+/**
+ * DELETE /agency/kyc/document/:type
+ */
+exports.removeKycDocument = asyncHandler(async (req, res) => {
+  const { type } = req.params;
+
+  const agency = await Agency.findById(req.agency._id);
+  if (!agency) throw new APIError('Agency not found', StatusCodes.NOT_FOUND);
+
+  agency.kycDocuments = agency.kycDocuments.filter(doc => doc.type !== type);
+  await agency.save();
+
+  res.status(200).json({ status: 'success', data: agency });
+});
+
+/**
+ * GET /agency/agreement
+ */
+exports.getAgreement = asyncHandler(async (req, res) => {
+  const agency = await Agency.findById(req.agency._id).select('agreementDocuments agreementStatus agreementSigned agreementVerified agreementUnderReview agreementFeedback');
+  if (!agency) throw new APIError('Agency not found', StatusCodes.NOT_FOUND);
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      agreementDocuments: agency.agreementDocuments,
+      agreementStatus: agency.agreementStatus,
+      agreementSigned: agency.agreementSigned,
+      agreementVerified: agency.agreementVerified,
+      agreementUnderReview: agency.agreementUnderReview,
+      agreementFeedback: agency.agreementFeedback
+    }
+  });
+});
+
+/**
+ * POST /agency/agreement/upload
+ */
+exports.uploadAgreement = asyncHandler(async (req, res) => {
+  const { agreementDocuments, agreementStatus } = req.body;
+
+  const agency = await Agency.findByIdAndUpdate(
+    req.agency._id,
+    {
+      agreementDocuments,
+      agreementStatus: agreementStatus || 'pending',
+      agreementUnderReview: true
+    },
     { new: true, runValidators: true }
   ).select('-password');
 
@@ -666,29 +1162,73 @@ exports.createAgencyByAdmin = asyncHandler(async (req, res) => {
  * Read-only view of all leads across affiliated agents
  */
 exports.getAgencyLeads = asyncHandler(async (req, res) => {
-  const { agentId, status, page = 1, limit = 20 } = req.query;
+  console.log('=== getAgencyLeads called ===');
+  const {
+    agent,
+    agentId,
+    property,
+    propertyId,
+    status,
+    property_type,
+    search,
+  } = req.query;
+  const { page, limit, skip } = getPagination(req.query);
+  const dateRange = parseDateRange(req.query);
 
-  // Get all approved agents under this agency
-  const agentIds = await Agent.find({
-    agency: req.agency._id,
-    agencyApprovalStatus: 'approved',
-  }).distinct('_id');
+  const agentIds = await getAgencyAgentIds(req.agency._id);
+  console.log('Agency ID:', req.agency._id);
+  console.log('Agent IDs:', agentIds);
 
-  const filter = { assignedAgent: { $in: agentIds } };
-  if (agentId) filter.assignedAgent = agentId;
+  const filter = { created_by_agent: { $in: agentIds } };
+  const selectedAgent = agentId || agent;
+  if (selectedAgent) {
+    const selectedAgentId = normalizeObjectId(selectedAgent, 'agent ID');
+    if (!agentIds.some(id => String(id) === String(selectedAgentId))) {
+      throw new APIError('Agent not found under this agency', StatusCodes.NOT_FOUND);
+    }
+    filter.created_by_agent = selectedAgentId;
+  }
   if (status) filter.status = status;
+  if (property_type) filter['requirements.property_type'] = property_type;
+  const selectedProperty = propertyId || property;
+  if (selectedProperty) {
+    const selectedPropertyId = normalizeObjectId(selectedProperty, 'property ID');
+    filter.$or = [
+      { 'source.listing_id': selectedPropertyId },
+      { 'matched_listings.listing_id': selectedPropertyId },
+      { 'intent_signals.properties_viewed.property_id': selectedPropertyId },
+    ];
+  }
+  if (dateRange) filter.createdAt = dateRange;
+  if (search) {
+    const searchFilter = [
+      { 'contact_info.name.first_name': { $regex: search, $options: 'i' } },
+      { 'contact_info.name.last_name': { $regex: search, $options: 'i' } },
+      { 'contact_info.email.address': { $regex: search, $options: 'i' } }
+    ];
+    filter.$and = filter.$and || [];
+    filter.$and.push({ $or: searchFilter });
+  }
+  console.log('Final filter:', filter);
 
-  const Lead = require('../../../leads/models/Lead'); // adjust path
-  const total = await Lead.countDocuments(filter);
-  const leads = await Lead.find(filter)
-    .populate('assignedAgent', 'fullName email')
+  const GridLead = require('../../Lead/model/gridLead.model');
+  const total = await GridLead.countDocuments(filter);
+  console.log('Total leads:', total);
+  const leads = await GridLead.find(filter)
+    .populate('created_by_agent', 'first_name last_name fullName email phone_number')
+    .populate('source.listing_id', 'propertyName projectName propertySubType city area')
     .sort({ createdAt: -1 })
-    .skip((page - 1) * limit)
-    .limit(Number(limit));
+    .skip(skip)
+    .limit(limit)
+    .select('-presentations')
+    .lean();
+  console.log('Leads found:', leads.length);
+  console.log('Leads:', leads);
 
   res.status(200).json({
     status: 'success',
-    pagination: { total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / limit) },
+    mode: 'read_only',
+    pagination: { total, page, limit, pages: Math.ceil(total / limit) },
     data: leads,
   });
 });
@@ -708,29 +1248,70 @@ exports.getPublicAgencies = asyncHandler(async (req, res) => {
  * Read-only view of all listings by affiliated agents
  */
 exports.getAgencyListings = asyncHandler(async (req, res) => {
-  const { agentId, listingType, status, page = 1, limit = 20 } = req.query;
+  const { agentId, agent, listingType, listing_type, status } = req.query;
+  const { page, limit, skip } = getPagination(req.query);
+  const dateRange = parseDateRange(req.query);
 
-  const agentIds = await Agent.find({
-    agency: req.agency._id,
-    agencyApprovalStatus: 'approved',
-  }).distinct('_id');
+  const agentIds = await getAgencyAgentIds(req.agency._id);
 
-  const filter = { createdBy: { $in: agentIds } };
-  if (agentId) filter.createdBy = agentId;
-  if (listingType) filter.listingType = listingType;
-  if (status) filter.status = status;
+  const Property = require('../../../properties/models/property.model');
+  
+  let filter = { created_by_agent: { $in: agentIds } };
+  const selectedAgent = agentId || agent;
+  if (selectedAgent) {
+    const selectedAgentId = normalizeObjectId(selectedAgent, 'agent ID');
+    if (!agentIds.some(id => String(id) === String(selectedAgentId))) {
+      throw new APIError('Agent not found under this agency', StatusCodes.NOT_FOUND);
+    }
+    filter = { created_by_agent: selectedAgentId };
+  }
+  if (listingType || listing_type) {
+    filter.$and = [
+      filter.$and || [],
+      { propertySubType: listingType || listing_type }
+    ];
+  }
+  if (status) {
+    const statusMap = {
+      live: ['active', 'approved'],
+      draft: ['draft'],
+      pending: ['pending'],
+      pending_approval: ['pending'],
+      rejected: ['rejected'],
+    };
+    const statuses = statusMap[status] || [status];
+    filter.$and = [
+      filter.$and || [],
+      {
+        $or: [
+          { listingStatus: { $in: statuses } },
+          { approvalStatus: { $in: statuses } },
+          { status: { $in: statuses } },
+          { projectStatus: { $in: statuses } },
+        ]
+      }
+    ];
+  }
+  if (dateRange) {
+    filter.$and = [
+      filter.$and || [],
+      { createdAt: dateRange }
+    ];
+  }
 
-  const Listing = require('../../../listings/models/Listing'); // adjust path
-  const total = await Listing.countDocuments(filter);
-  const listings = await Listing.find(filter)
-    .populate('createdBy', 'fullName email')
+  const total = await Property.countDocuments(filter);
+  const listings = await Property.find(filter)
+    .populate('created_by_agent', 'first_name last_name fullName email phone_number')
     .sort({ createdAt: -1 })
-    .skip((page - 1) * limit)
-    .limit(Number(limit));
+    .skip(skip)
+    .limit(limit)
+    .select('propertyName projectName propertySubType propertyType unitType approvalStatus listingStatus status projectStatus price city area created_by_agent createdAt updatedAt')
+    .lean();
 
   res.status(200).json({
     status: 'success',
-    pagination: { total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / limit) },
+    mode: 'read_only',
+    pagination: { total, page, limit, pages: Math.ceil(total / limit) },
     data: listings,
   });
 });
@@ -807,8 +1388,10 @@ exports.getAllAgents = asyncHandler(async (req, res) => {
   if (search) {
     filter.$or = [
       { fullName: { $regex: search, $options: 'i' } },
+      { first_name: { $regex: search, $options: 'i' } },
+      { last_name: { $regex: search, $options: 'i' } },
       { email: { $regex: search, $options: 'i' } },
-      { phone: { $regex: search, $options: 'i' } },
+      { phone_number: { $regex: search, $options: 'i' } },
     ];
   }
 
