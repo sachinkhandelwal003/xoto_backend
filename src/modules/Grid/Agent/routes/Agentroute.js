@@ -6,6 +6,8 @@ const { protectMulti } = require("../../../../middleware/auth");
 
 router.post("/agent-signup", agentCtrl.agentSignup);
 router.post("/login-agent", agentCtrl.agentLogin);
+// Agent dashboard (self)
+router.get('/dashboard', protectMulti, agentCtrl.getDashboard);
 
 // Backward-compatible agent lead routes.
 // Current canonical routes live under /gridlead/agent/*, but older clients call /agent/lead/*.

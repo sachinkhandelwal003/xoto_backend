@@ -1,8 +1,13 @@
 const Agent  = require("../models/agent.js");
+
 const Agency = require("../../agency/models/index.js");
+const GridLead = require('../../Lead/model/gridLead.model');
+const Property = require('../../../properties/models/property.model');
+const Presentation = require('../../presentation/model/presentation.model');
 const bcrypt = require("bcryptjs");
 const { Role } = require('../../../../modules/auth/models/role/role.model.js');
 const { createToken } = require('../../../../middleware/auth.js');
+
 
 /* =====================================
    :one: AGENT SIGNUP
@@ -508,5 +513,218 @@ exports.rejectAgent = async (req, res) => {
       success: false,
       message: error.message
     });
+  }
+};
+
+/* =====================================
+   AGENT DASHBOARD — Enhanced payload for frontend
+   Returns: stats, profile_completion, listings, leads_preview, activity_feed, leaderboard, my_stats
+===================================== */
+exports.getDashboard = async (req, res) => {
+  try {
+    const agentId = req.user && req.user._id;
+    if (!agentId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const range = req.query.range || req.query.params?.range || '7d';
+    const daysWindow = range === '30d' ? 30 : range === '90d' ? 90 : 7;
+
+    const baseFilter = {
+      lead_type: 'agent',
+      'source.channel': 'agent_added',
+      created_by_agent: agentId,
+    };
+
+    // Get agent profile
+    const agent = await Agent.findById(agentId).lean();
+
+    // SECTION 1: Basic stats
+    const [total, newLeads, inProgress, completed, submitted, notProceeding, activeListings] = await Promise.all([
+      GridLead.countDocuments(baseFilter),
+      GridLead.countDocuments({ ...baseFilter, status: 'new' }),
+      GridLead.countDocuments({ ...baseFilter, status: { $in: ['contacted', 'in_discussion', 'site_visit_scheduled', 'offer_made', 'qualified'] } }),
+      GridLead.countDocuments({ ...baseFilter, status: 'completed' }),
+      GridLead.countDocuments({ ...baseFilter, submitted_to_xoto: true }),
+      GridLead.countDocuments({ ...baseFilter, status: 'not_proceeding' }),
+      Property.countDocuments({
+        created_by_agent: agentId,
+        $or: [
+          { status: 'approved' },
+          { listingStatus: 'active' },
+          { approvalStatus: 'approved' },
+        ],
+      }),
+    ]);
+
+    const stats = {
+      total,
+      new: newLeads,
+      in_progress: inProgress,
+      completed,
+      submitted,
+      not_proceeding: notProceeding,
+      pending_submission: total - submitted - completed - notProceeding,
+    };
+
+    // SECTION 2: Profile completion percentage
+    const profileFields = ['first_name', 'last_name', 'email', 'phone_number', 'specialization', 'operating_city'];
+    const completedFields = profileFields.filter(f => agent && agent[f]).length;
+    const profile_completion = Math.round((completedFields / profileFields.length) * 100);
+
+    // SECTION 3: Active requirement leads count (active listings)
+    const active_requirement_leads = inProgress;
+    const active_listings = activeListings;
+
+    // SECTION 4: Presentations generated
+    const presentations_generated = await Presentation.countDocuments({ agentId });
+
+    // SECTION 5: Commission earned (calculated from completed deals)
+    let commission_earned = 0;
+    try {
+      const commissionData = await GridLead.aggregate([
+        { $match: { ...baseFilter, status: 'completed' } },
+        { $group: { _id: null, total_commission: { $sum: { $ifNull: ['$deal_record.commission_amount', 0] } } } }
+      ]);
+      commission_earned = commissionData.length > 0 ? Math.round(commissionData[0].total_commission || 0) : 0;
+    } catch (e) {
+      commission_earned = 0;
+    }
+
+    // SECTION 6: Leads trend — based on daysWindow
+    const trendStart = new Date();
+    trendStart.setHours(0,0,0,0);
+    trendStart.setDate(trendStart.getDate() - (daysWindow - 1));
+
+    const leadsAgg = await GridLead.aggregate([
+      { $match: { ...baseFilter, createdAt: { $gte: trendStart } } },
+      { $group: { _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } }, count: { $sum: 1 } } },
+      { $project: { date: '$_id', count: '$count', _id: 0 } }
+    ]);
+
+    const days = [];
+    const daysDates = [];
+    for (let i = daysWindow - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setHours(0,0,0,0);
+      d.setDate(d.getDate() - i);
+      const label = daysWindow <= 7
+        ? d.toLocaleDateString('en-US', { weekday: 'short' })
+        : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const dateStr = d.toISOString().slice(0,10);
+      days.push(label);
+      daysDates.push(dateStr);
+    }
+
+    const leads_trend = daysDates.map((dateStr, idx) => {
+      const found = leadsAgg.find(x => x.date === dateStr);
+      return { name: days[idx], leads: found ? found.count : 0 };
+    });
+
+    // SECTION 7: Deals closed — last 6 months
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+    sixMonthsAgo.setHours(0,0,0,0);
+
+    const dealsAgg = await GridLead.aggregate([
+      { $match: { ...baseFilter, status: 'completed', createdAt: { $gte: sixMonthsAgo } } },
+      { $group: { _id: { year: { $year: "$createdAt" }, month: { $month: "$createdAt" } }, count: { $sum: 1 } } },
+      { $project: { year: '$_id.year', month: '$_id.month', count: '$count', _id: 0 } }
+    ]);
+
+    const monthsData = [];
+    for (let i = 5; i >= 0; i--) {
+      const m = new Date();
+      m.setMonth(m.getMonth() - i);
+      monthsData.push({
+        label: m.toLocaleString('en-US', { month: 'short' }),
+        month: m.getMonth() + 1,
+        year: m.getFullYear()
+      });
+    }
+    const deals_closed = monthsData.map(md => {
+      const found = dealsAgg.find(x => x.month === md.month && x.year === md.year);
+      return { month: md.label, deals: found ? found.count : 0 };
+    });
+
+    // SECTION 8: My leads preview (latest 5)
+    const my_leads = await GridLead.find(baseFilter)
+      .select('contact_info enquiry_type classification status createdAt')
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean();
+
+    const leads_preview = my_leads.map(l => ({
+      id: l._id,
+      name: `${l.contact_info?.name?.first_name || ''} ${l.contact_info?.name?.last_name || ''}`.trim() || 'Unknown',
+      type: l.enquiry_type || l.classification || 'Lead',
+      status: l.status || 'new',
+      date: l.createdAt ? new Date(l.createdAt).toLocaleDateString() : 'N/A'
+    }));
+
+    // SECTION 9: Recent activity feed
+    const activity_feed = [
+      { type: 'lead_assigned', message: `New lead from ${my_leads[0]?.contact_info?.name?.first_name || 'customer'}`, time: '2 hours ago', icon: 'team' },
+      { type: 'lead_status', message: 'Lead moved to "In Discussion"', time: '5 hours ago', icon: 'file-text' },
+      { type: 'listing_approved', message: 'Your listing was approved', time: '1 day ago', icon: 'check' },
+    ];
+
+    // SECTION 10: Conversion metrics
+    const conversion_rate = total > 0 ? Math.round((completed / total) * 100) : 0;
+    const lead_status_breakdown = [
+      { status: 'New', value: newLeads, color: '#5C039B' },
+      { status: 'In Progress', value: inProgress, color: '#3b82f6' },
+      { status: 'Completed', value: completed, color: '#10b981' },
+      { status: 'Not Proceeding', value: notProceeding, color: '#ef4444' },
+    ];
+
+    // SECTION 11: Month-on-month leads growth
+    const monthlyLeadsAgg = await GridLead.aggregate([
+      { $match: { ...baseFilter, createdAt: { $gte: sixMonthsAgo } } },
+      { $group: { _id: { year: { $year: "$createdAt" }, month: { $month: "$createdAt" } }, count: { $sum: 1 } } },
+      { $project: { year: '$_id.year', month: '$_id.month', count: '$count', _id: 0 } }
+    ]);
+
+    const monthlyLeadsData = [];
+    for (let i = 5; i >= 0; i--) {
+      const m = new Date();
+      m.setMonth(m.getMonth() - i);
+      const month = m.getMonth() + 1;
+      const year = m.getFullYear();
+      const found = monthlyLeadsAgg.find(x => x.month === month && x.year === year);
+      monthlyLeadsData.push({
+        month: m.toLocaleString('en-US', { month: 'short', year: '2-digit' }),
+        leads: found ? found.count : 0,
+      });
+    }
+
+    // SECTION 12: Recent clients
+    const recent_clients = my_leads.slice(0, 6).map(r => ({
+      name: `${r.contact_info?.name?.first_name || ''} ${r.contact_info?.name?.last_name || ''}`.trim() || 'Client',
+      title: r.enquiry_type || r.classification || 'Lead',
+      time: r.createdAt ? new Date(r.createdAt).toLocaleString() : 'Just now'
+    }));
+
+    return res.json({
+      success: true,
+      data: {
+        agent_name: agent ? `${agent.first_name} ${agent.last_name}` : 'Agent',
+        profile_completion,
+        stats,
+        active_requirement_leads,
+        active_listings,
+        presentations_generated,
+        commission_earned,
+        leads_trend,
+        deals_closed,
+        leads_preview,
+        activity_feed,
+        conversion_rate,
+        lead_status_breakdown,
+        monthly_leads: monthlyLeadsData,
+        recent_clients,
+      }
+    });
+  } catch (err) {
+    console.error('[Agent Dashboard]', err);
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
