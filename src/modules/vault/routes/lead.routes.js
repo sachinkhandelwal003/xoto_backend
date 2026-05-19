@@ -15,10 +15,6 @@ import {
   advisorUpdateLeadInfo,
   calculateLeadEligibility,
   getLeadEligibility,
-  getLeadEligibilityHistory,
-  bulkUploadLeads,
-  bulkConfirmLeads,
-  downloadLeadTemplate 
 } from '../controllers/lead.controller.js';
 
 import multer from 'multer';
@@ -67,7 +63,7 @@ router.put('/advisor/lead/:leadId/status',        protectVaultAdvisor, advisorUp
 router.put('/advisor/lead/:leadId/info',          protectVaultAdvisor, advisorUpdateLeadInfo);
 
 // ══════════════════════════════════════════════════════════════════
-// ELIGIBILITY — Simple check, no storage (only isEligible flag)
+// ELIGIBILITY — Simple DBR check (same as calculator)
 // ══════════════════════════════════════════════════════════════════
 router.post('/:leadId/calculate-eligibility', protectVaultAdvisor, calculateLeadEligibility);
 router.get('/:leadId/eligibility',            protectVaultAdvisor, getLeadEligibility);

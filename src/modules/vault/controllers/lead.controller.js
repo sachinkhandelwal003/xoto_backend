@@ -32,7 +32,6 @@ const getUserInfo = async (req) => {
   };
 };
 
-// Auto-create Customer when lead Qualified
 const createOrGetCustomer = async (lead) => {
   try {
     const { firstName, lastName, email, mobileNumber, countryCode, nationality, dateOfBirth } = lead.customerInfo;
@@ -54,7 +53,7 @@ const createOrGetCustomer = async (lead) => {
         source: 'vault',
         isActive: true,
       });
-      return { _id: customer._id, message: `Customer created` };
+      return { _id: customer._id, message: 'Customer created' };
     }
     return { _id: customer._id, message: 'Existing customer linked' };
   } catch (e) {
@@ -126,7 +125,6 @@ export const createLead = async (req, res) => {
     if (!agent || !agent.isActiveAgent())
       return res.status(403).json({ success: false, message: 'Agent account not active' });
     
-    // Referral Partner must be verified
     if (agent.agentType === 'FreelanceAgent' && !agent.isVerified)
       return res.status(403).json({ success: false, message: 'Account not verified by admin' });
 
@@ -161,8 +159,8 @@ export const createLead = async (req, res) => {
 
     const lead = await Lead.create({
       sourceInfo: {
-        source: agent.agentType === 'FreelanceAgent' ? 'referral_partner' : 'partner_affiliated_agent',
-        createdByRole: agent.agentType === 'FreelanceAgent' ? 'referral_partner' : 'partner_affiliated_agent',
+        source: agent.agentType === 'FreelanceAgent' ? 'freelance_agent' : 'partner_affiliated_agent',
+        createdByRole: agent.agentType === 'FreelanceAgent' ? 'freelance_agent' : 'partner_affiliated_agent',
         createdById: agent._id,
         createdByModel: 'VaultAgent',
         createdByName: `${agent.name.first_name} ${agent.name.last_name}`,
@@ -197,7 +195,7 @@ export const createLead = async (req, res) => {
 };
 
 // ══════════════════════════════════════════════════════════════════
-// 2. CREATE WEBSITE LEAD — Public
+// 2. CREATE WEBSITE LEAD — Public (Mortgage Calculator)
 // ══════════════════════════════════════════════════════════════════
 export const createWebsiteLead = async (req, res) => {
   try {
@@ -217,7 +215,8 @@ export const createWebsiteLead = async (req, res) => {
 
     const lead = await Lead.create({
       sourceInfo: {
-        source: 'website', createdByRole: 'website',
+        source: 'website', 
+        createdByRole: 'website',
         createdByName: 'Website Visitor',
         submissionMethod: 'website_form',
         sourceIp: req.ip,
@@ -241,66 +240,162 @@ export const createWebsiteLead = async (req, res) => {
       data: { leadId: lead._id },
     });
   } catch (err) {
+    console.error('createWebsiteLead:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };
 
 // ══════════════════════════════════════════════════════════════════
-// 3. CALCULATE ELIGIBILITY — Simple DBR check, only store isEligible
+// 3. CALCULATE ELIGIBILITY — Simple DBR check (Same as Calculator)
+//    Uses same DBR logic as Mortgage Calculator (DSR = 50%)
 // ══════════════════════════════════════════════════════════════════
+// In lead.controller.js - calculateLeadEligibility function
+
 export const calculateLeadEligibility = async (req, res) => {
   try {
     const { leadId } = req.params;
-    const { monthlySalary, existingMonthlyLiabilities } = req.body;
+    const { 
+      monthlySalary, 
+      existingMonthlyLiabilities,
+      propertyValue,
+      downpayment,
+      loanAmount,
+      interestRate,
+      tenureYears 
+    } = req.body;
 
     const lead = await Lead.findById(leadId);
     if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
-    if (lead.assignedTo?.advisorId?.toString() !== req.user._id.toString())
-      return res.status(403).json({ success: false, message: 'Lead not assigned to you' });
-
+    
     // Update lead with provided data
     if (monthlySalary !== undefined) lead.customerInfo.monthlySalary = monthlySalary;
     if (existingMonthlyLiabilities !== undefined) lead.customerInfo.existingMonthlyLiabilities = existingMonthlyLiabilities;
+    if (propertyValue !== undefined) lead.propertyDetails.propertyValue = propertyValue;
+    if (downpayment !== undefined) lead.propertyDetails.downPaymentAmount = downpayment;
+    if (loanAmount !== undefined) lead.propertyDetails.loanAmountRequired = loanAmount;
+    if (tenureYears !== undefined) lead.loanRequirements.preferredTenureYears = tenureYears;
     await lead.save();
 
-    // Simple DBR calculation
+    // Get values
     const salary = lead.customerInfo.monthlySalary || 0;
     const liabilities = lead.customerInfo.existingMonthlyLiabilities || 0;
     const residencyStatus = lead.customerInfo.residencyStatus;
-    
+    const propValue = lead.propertyDetails.propertyValue || 0;
+    const loanAmt = lead.propertyDetails.loanAmountRequired || 0;
+    const tenure = lead.loanRequirements.preferredTenureYears || 25;
+    const rate = interestRate || 4.19;
+
+    // DBR Calculation
     const maxDBR = residencyStatus === 'UAE National' ? 55 : 50;
     const maxAllowedDebt = (salary * maxDBR) / 100;
-    const isEligible = (maxAllowedDebt - liabilities) > 0;
+    const currentDBR = salary > 0 ? (liabilities / salary) * 100 : 0;
+    const availableForMortgage = maxAllowedDebt - liabilities;
+    const dbrEligible = availableForMortgage > 0;
 
-    // Only store isEligible flag (PRD 4.5)
+    // EMI Calculation
+    const calculateEMI = (principal, annualRate, years) => {
+      if (principal <= 0 || annualRate <= 0 || years <= 0) return 0;
+      const r = annualRate / 100 / 12;
+      const n = years * 12;
+      return Math.round(principal * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1));
+    };
+    const calculatedEMI = calculateEMI(loanAmt, rate, tenure);
+    const emiEligible = calculatedEMI <= availableForMortgage;
+
+    // LTV Calculation
+    const ltv = propValue > 0 ? (loanAmt / propValue) * 100 : 0;
+    const ltvEligible = ltv <= 80;
+
+    // Final Eligibility
+    const isEligible = dbrEligible && emiEligible && ltvEligible;
+
+    // Calculate eligibility score (0-100)
+    let eligibilityScore = 0;
+    let riskGrade = "Good";
+    
+    if (isEligible) {
+      // Score based on DBR (lower is better)
+      if (currentDBR <= 30) eligibilityScore = 90;
+      else if (currentDBR <= 40) eligibilityScore = 75;
+      else if (currentDBR <= 50) eligibilityScore = 60;
+      else eligibilityScore = 50;
+      
+      // Adjust for LTV (lower is better)
+      if (ltv <= 60) eligibilityScore += 5;
+      else if (ltv <= 70) eligibilityScore += 3;
+      else if (ltv <= 80) eligibilityScore += 0;
+      
+      // Risk grade
+      if (eligibilityScore >= 80) riskGrade = "Excellent";
+      else if (eligibilityScore >= 60) riskGrade = "Good";
+      else if (eligibilityScore >= 40) riskGrade = "Average";
+      else riskGrade = "Risky";
+    } else {
+      eligibilityScore = Math.max(0, Math.min(40, Math.round((availableForMortgage / salary) * 100)));
+      riskGrade = "Risky";
+    }
+
+    // ✅ STORE ALL VALUES in lead eligibility
     lead.eligibility = {
       checked: true,
       isEligible: isEligible,
       checkedAt: new Date(),
       checkedBy: req.user._id,
-      notes: isEligible ? 'Customer eligible' : `DBR exceeds ${maxDBR}% limit`,
+      eligibilityScore: Math.round(eligibilityScore),
+      riskGrade: riskGrade,
+      dbrPercentage: Math.round(currentDBR),
+      dbrStatus: dbrEligible ? 'Eligible' : 'Ineligible',
+      estimatedLTV: Math.round(ltv),
+      recommendedLoanAmount: Math.round(availableForMortgage * 12 * tenure),
+      eligibilityNotes: isEligible 
+        ? `Customer eligible. DBR: ${Math.round(currentDBR)}%, LTV: ${Math.round(ltv)}%, EMI: AED ${calculatedEMI}`
+        : `Customer not eligible. ${!dbrEligible ? `DBR exceeds ${maxDBR}% limit` : ''} ${!emiEligible ? `EMI exceeds available capacity` : ''} ${!ltvEligible ? `LTV exceeds 80% limit` : ''}`,
     };
     await lead.save();
-
-    await HistoryService.logLeadActivity(lead, 'ELIGIBILITY_CHECKED', await getUserInfo(req), {
-      description: `Eligibility: ${isEligible ? 'ELIGIBLE' : 'NOT ELIGIBLE'}`,
-    });
 
     return res.status(200).json({
       success: true,
       message: isEligible ? 'Customer is ELIGIBLE. Mark lead as Qualified.' : 'Customer is NOT ELIGIBLE.',
       data: {
         isEligible,
-        dbrCalculation: {
-          monthlySalary: salary,
+        eligibilityScore: Math.round(eligibilityScore),
+        riskGrade,
+        dbrPercentage: Math.round(currentDBR),
+        dbrStatus: dbrEligible ? 'Eligible' : 'Ineligible',
+        estimatedLTV: Math.round(ltv),
+        recommendedLoanAmount: Math.round(availableForMortgage * 12 * tenure),
+        proposedEMI: calculatedEMI,
+        maxAllowedDBR: maxDBR,
+        eligibilityNotes: lead.eligibility.eligibilityNotes,
+        checks: {
+          dbr: {
+            eligible: dbrEligible,
+            monthlySalary: salary,
             existingLiabilities: liabilities,
-          maxAllowedDBR: `${maxDBR}%`,
-          maxAllowedDebt: maxAllowedDebt,
-          availableForMortgage: maxAllowedDebt - liabilities,
+            maxDSR: `${maxDBR}%`,
+            maxAllowedDebt: maxAllowedDebt,
+            availableForMortgage: availableForMortgage,
+            current: Math.round(currentDBR)
+          },
+          emi: {
+            eligible: emiEligible,
+            loanAmount: loanAmt,
+            interestRate: `${rate}%`,
+            loanTenure: `${tenure} years`,
+            calculatedEMI: calculatedEMI
+          },
+          ltv: {
+            eligible: ltvEligible,
+            propertyValue: propValue,
+            downpayment: downpayment || 0,
+            loanAmount: loanAmt,
+            ltvPercentage: `${Math.round(ltv)}%`,
+            maxLTV: '80%'
+          }
         },
         nextActions: isEligible
           ? ['Mark lead as Qualified', 'Start collecting documents']
-          : ['Review eligibility', 'Consider reducing loan amount'],
+          : ['Review eligibility issues', 'Adjust loan amount or downpayment'],
       },
     });
   } catch (err) {
@@ -332,7 +427,7 @@ export const getLeadEligibility = async (req, res) => {
 };
 
 // ══════════════════════════════════════════════════════════════════
-// 5. GET MY LEADS — Agent (Referral Partner / Affiliated Agent)
+// 5. GET MY LEADS — Agent
 // ══════════════════════════════════════════════════════════════════
 export const getMyLeads = async (req, res) => {
   try {
@@ -530,14 +625,12 @@ export const advisorUpdateLeadStatus = async (req, res) => {
     lead.currentStatus = status;
     if (notes) lead.notesToXoto = notes;
 
-    // Contacted — record SLA
     if (status === 'Contacted') {
       lead.sla.firstContactAt = new Date();
       const hrs = (lead.sla.firstContactAt - new Date(lead.assignedTo?.assignedAt || lead.createdAt)) / 3600000;
       lead.sla.responseTimeHours = Math.round(hrs * 10) / 10;
     }
 
-    // Qualified — must have eligibility checked
     if (status === 'Qualified') {
       if (!lead.eligibility?.checked)
         return res.status(400).json({ success: false, message: 'Cannot qualify: Run eligibility check first.' });
@@ -608,7 +701,7 @@ export const updateLeadStatus = async (req, res) => {
     const lead = await Lead.findOne({ _id: req.params.id, isDeleted: false });
     if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
 
-    const valid = ['New', 'Assigned', 'Contacted', 'Qualified', 'Collecting Documents', 'Lost'];
+    const valid = ['New', 'Assigned', 'Contacted', 'Qualified', 'Collecting Documents', 'Bank Application', 'Pre-Approved', 'Valuation', 'FOL Processed', 'FOL Issued', 'FOL Signed', 'Disbursed', 'Lost'];
     if (!valid.includes(status))
       return res.status(400).json({ success: false, message: 'Invalid status' });
 
@@ -638,8 +731,8 @@ export const createPartnerLead = async (req, res) => {
 
     const lead = await Lead.create({
       sourceInfo: {
-        source: 'partner',
-        createdByRole: 'partner',
+        source: 'individual_partner',
+        createdByRole: 'individual_partner',
         createdById: partner._id,
         createdByModel: 'Partner',
         createdByName: partner.displayName || partner.companyName,
