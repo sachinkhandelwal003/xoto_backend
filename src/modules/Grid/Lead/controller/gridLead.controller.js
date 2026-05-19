@@ -13,6 +13,122 @@ const Property = require('../../../properties/models/property.model.js');
 const PropertyInventory = require('../../../properties/models/property.inventory.model.js');
 const { matchPropertiesForLead } = require('./gridLead.matchHelper');
 
+const inventorySelect = 'unitNumber buildingName floorNumber unitType bedroomType bedrooms bathrooms area areaUnit price currency status paymentPlan downPayment propertyId';
+const availableInventoryStatuses = ['available', 'hold', 'reserved', 'booked', 'spa_signed'];
+
+const asId = (value) => {
+  if (!value) return null;
+  return (value._id || value).toString();
+};
+
+const getPropertyInventoryMap = async (propertyIds) => {
+  const ids = [...new Set(propertyIds.filter(Boolean).map(id => id.toString()))];
+  if (ids.length === 0) return new Map();
+
+  const units = await PropertyInventory.find({
+    propertyId: { $in: ids },
+    status: { $in: availableInventoryStatuses },
+  })
+    .select(inventorySelect)
+    .sort({ price: 1, floorNumber: 1, unitNumber: 1 })
+    .lean();
+
+  return units.reduce((map, unit) => {
+    const propertyId = unit.propertyId?.toString();
+    if (!map.has(propertyId)) map.set(propertyId, []);
+    map.get(propertyId).push(unit);
+    return map;
+  }, new Map());
+};
+
+const verifyInventoryForProperty = async (inventoryUnitId, propertyId) => {
+  if (!inventoryUnitId) return null;
+
+  const unit = await PropertyInventory.findById(inventoryUnitId).select(inventorySelect).lean();
+  if (!unit) {
+    const err = new Error('Selected inventory unit not found');
+    err.status = StatusCodes.BAD_REQUEST;
+    throw err;
+  }
+  if (propertyId && unit.propertyId?.toString() !== propertyId.toString()) {
+    const err = new Error('Selected inventory unit does not belong to selected property');
+    err.status = StatusCodes.BAD_REQUEST;
+    throw err;
+  }
+  return unit;
+};
+
+const attachInventoryToMatches = async (matches = [], lead = null) => {
+  const propertyIds = matches.map(match => asId(match._id || match.listing_id));
+  const inventoryMap = await getPropertyInventoryMap(propertyIds);
+
+  return matches.map(match => {
+    const propertyId = asId(match._id || match.listing_id);
+    const inventory = inventoryMap.get(propertyId) || [];
+    const sourceInventoryId = asId(lead?.source?.listing_id) === propertyId
+      ? asId(lead?.source?.inventory_unit_id)
+      : null;
+    const selectedInventoryId =
+      asId(match.inventory_unit_id) ||
+      sourceInventoryId ||
+      asId(lead?.matched_listings?.find(m => asId(m.listing_id) === propertyId && m.client_interested)?.inventory_unit_id);
+
+    return {
+      ...match,
+      inventory,
+      interested_inventory_unit: selectedInventoryId
+        ? inventory.find(unit => asId(unit._id) === selectedInventoryId) || null
+        : null,
+    };
+  });
+};
+
+const attachInventoryToLead = async (lead) => {
+  if (!lead) return lead;
+
+  const sourcePropertyId = asId(lead.source?.listing_id);
+  const matchedPropertyIds = (lead.matched_listings || []).map(m => asId(m.listing_id));
+  const suggestionPropertyIds = (lead.advisor_suggestions || []).map(s => asId(s.property_id));
+  const inventoryMap = await getPropertyInventoryMap([sourcePropertyId, ...matchedPropertyIds, ...suggestionPropertyIds]);
+
+  if (lead.source?.listing_id) {
+    const inventory = inventoryMap.get(sourcePropertyId) || [];
+    const selectedInventoryId = asId(lead.source.inventory_unit_id);
+    lead.source.listing_inventory = inventory;
+    lead.source.interested_inventory_unit = selectedInventoryId
+      ? inventory.find(unit => asId(unit._id) === selectedInventoryId) || null
+      : null;
+  }
+
+  lead.matched_listings = (lead.matched_listings || []).map(match => {
+    const propertyId = asId(match.listing_id);
+    const inventory = inventoryMap.get(propertyId) || [];
+    const selectedInventoryId = asId(match.inventory_unit_id);
+    return {
+      ...match,
+      listing_inventory: inventory,
+      interested_inventory_unit: selectedInventoryId
+        ? inventory.find(unit => asId(unit._id) === selectedInventoryId) || null
+        : null,
+    };
+  });
+
+  lead.advisor_suggestions = (lead.advisor_suggestions || []).map(suggestion => {
+    const propertyId = asId(suggestion.property_id);
+    const inventory = inventoryMap.get(propertyId) || [];
+    const selectedInventoryId = asId(suggestion.inventory_unit_id);
+    return {
+      ...suggestion,
+      listing_inventory: inventory,
+      interested_inventory_unit: selectedInventoryId
+        ? inventory.find(unit => asId(unit._id) === selectedInventoryId) || null
+        : null,
+    };
+  });
+
+  return lead;
+};
+
 
 // ════════════════════════════════════════════════════════════════════════════
 // WEBSITE LEADS
@@ -22,7 +138,7 @@ exports.createWebsiteLead = asyncHandler(async (req, res) => {
   const {
     first_name, last_name, phone_number,
     country_code = '+971', email,
-    enquiry_type, property_id,
+    enquiry_type, property_id, inventory_unit_id,
     preferred_contact = 'whatsapp',
     message, requirements,
   } = req.body;
@@ -36,6 +152,10 @@ exports.createWebsiteLead = asyncHandler(async (req, res) => {
 
   const cleanPhone = phone_number.toString().replace(/\D/g, '').slice(-15);
   const cleanEmail = email ? email.toLowerCase().trim() : null;
+  if (inventory_unit_id && !property_id) {
+    return res.status(400).json({ success: false, message: 'property_id is required with inventory_unit_id' });
+  }
+  const selectedInventoryUnit = await verifyInventoryForProperty(inventory_unit_id, property_id);
 
   const matchQuery = { $or: [{ 'mobile.number': cleanPhone }] };
   if (cleanEmail) matchQuery.$or.push({ email: cleanEmail });
@@ -63,11 +183,19 @@ exports.createWebsiteLead = asyncHandler(async (req, res) => {
       // Alag property → fall through → naya lead
     } else if (property_id && !existingListingId) {
       existingLead.source.listing_id = property_id;
+      existingLead.source.inventory_unit_id = inventory_unit_id || null;
       await existingLead.save();
+      const enrichedLead = await attachInventoryToLead(existingLead.toObject({ virtuals: true }));
       return res.json({
         success: true,
         message: 'Lead updated with property',
-        data: { lead_id: existingLead._id },
+        data: {
+          lead_id: existingLead._id,
+          property_id,
+          inventory_unit_id: inventory_unit_id || null,
+          interested_inventory_unit: selectedInventoryUnit,
+          lead: enrichedLead,
+        },
       });
     } else {
       return res.json({
@@ -104,6 +232,7 @@ exports.createWebsiteLead = asyncHandler(async (req, res) => {
     source: {
       channel: 'website_form',
       listing_id: property_id || null,
+      inventory_unit_id: inventory_unit_id || null,
     },
     contact_info: {
       name: { first_name: first_name.trim(), last_name: last_name.trim(), is_masked: false },
@@ -127,6 +256,7 @@ exports.createWebsiteLead = asyncHandler(async (req, res) => {
   customer.statistics.total_leads = (customer.statistics.total_leads || 0) + 1;
   customer.statistics.total_enquiries = (customer.statistics.total_enquiries || 0) + 1;
   await customer.save();
+  const enrichedLead = await attachInventoryToLead(lead.toObject({ virtuals: true }));
 
   res.status(StatusCodes.CREATED).json({
     success: true,
@@ -135,6 +265,10 @@ exports.createWebsiteLead = asyncHandler(async (req, res) => {
       lead_id: lead._id,
       status: lead.status,
       classification: lead.classification,
+      property_id: property_id || null,
+      inventory_unit_id: inventory_unit_id || null,
+      interested_inventory_unit: selectedInventoryUnit,
+      lead: enrichedLead,
     },
   });
 });
@@ -145,7 +279,7 @@ exports.createSimpleWebsiteLead = asyncHandler(async (req, res) => {
     first_name, last_name, phone_number,
     country_code = '+971', email,
     enquiry_type = 'general_enquiry',
-    property_id,
+    property_id, inventory_unit_id,
   } = req.body;
 
   if (!first_name || !last_name || !phone_number) {
@@ -153,6 +287,10 @@ exports.createSimpleWebsiteLead = asyncHandler(async (req, res) => {
   }
 
   const cleanPhone = phone_number.toString().replace(/\D/g, '').slice(-15);
+  if (inventory_unit_id && !property_id) {
+    return res.status(400).json({ success: false, message: 'property_id is required with inventory_unit_id' });
+  }
+  const selectedInventoryUnit = await verifyInventoryForProperty(inventory_unit_id, property_id);
 
   let customer = await Customer.findOne({
     'mobile.number': cleanPhone,
@@ -180,8 +318,20 @@ exports.createSimpleWebsiteLead = asyncHandler(async (req, res) => {
       // fall through
     } else if (property_id && !existingListingId) {
       existingLead.source.listing_id = property_id;
+      existingLead.source.inventory_unit_id = inventory_unit_id || null;
       await existingLead.save();
-      return res.json({ success: true, message: 'Lead updated with property' });
+      const enrichedLead = await attachInventoryToLead(existingLead.toObject({ virtuals: true }));
+      return res.json({
+        success: true,
+        message: 'Lead updated with property',
+        data: {
+          lead_id: existingLead._id,
+          property_id,
+          inventory_unit_id: inventory_unit_id || null,
+          interested_inventory_unit: selectedInventoryUnit,
+          lead: enrichedLead,
+        },
+      });
     } else {
       return res.json({ success: true, message: 'Already exists' });
     }
@@ -196,6 +346,7 @@ exports.createSimpleWebsiteLead = asyncHandler(async (req, res) => {
     source: {
       channel: 'website_form',
       listing_id: property_id || null,
+      inventory_unit_id: inventory_unit_id || null,
     },
     contact_info: {
       name: { first_name: first_name.trim(), last_name: last_name.trim(), is_masked: false },
@@ -210,11 +361,18 @@ exports.createSimpleWebsiteLead = asyncHandler(async (req, res) => {
 
   customer.statistics.total_leads += 1;
   await customer.save();
+  const enrichedLead = await attachInventoryToLead(lead.toObject({ virtuals: true }));
 
   res.status(StatusCodes.CREATED).json({
     success: true,
     message: 'Thank you! We will contact you shortly.',
-    data: { lead_id: lead._id },
+    data: {
+      lead_id: lead._id,
+      property_id: property_id || null,
+      inventory_unit_id: inventory_unit_id || null,
+      interested_inventory_unit: selectedInventoryUnit,
+      lead: enrichedLead,
+    },
   });
 });
 
@@ -258,11 +416,11 @@ exports.getLeads = asyncHandler(async (req, res) => {
     GridLead.countDocuments(filter),
   ]);
 
-  const leadsWithAdvisor = leads.map(lead => {
+  const leadsWithAdvisor = await Promise.all(leads.map(async lead => {
     const obj = lead.toObject({ virtuals: true });
     obj.assignedAdvisor = obj.assigned_to || null;
-    return obj;
-  });
+    return attachInventoryToLead(obj);
+  }));
 
   res.json({
     success: true,
@@ -292,7 +450,10 @@ exports.getWebsitePlatformLeads = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    data: leads.map(l => ({ ...l.toObject({ virtuals: true }), assignedAdvisor: l.assigned_to || null })),
+    data: await Promise.all(leads.map(l => attachInventoryToLead({
+      ...l.toObject({ virtuals: true }),
+      assignedAdvisor: l.assigned_to || null,
+    }))),
     pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
   });
 });
@@ -318,7 +479,7 @@ exports.createLead = asyncHandler(async (req, res) => {
     area_sqft_min, area_sqft_max,
     furnished = 'any',
     ready_by_date, additional_notes,
-    listing_id, enquiry_type,
+    listing_id, inventory_unit_id, enquiry_type,
   } = req.body;
 
   const hasRequirements =
@@ -346,6 +507,13 @@ exports.createLead = asyncHandler(async (req, res) => {
       });
     }
   }
+  if (inventory_unit_id && !listing_id) {
+    return res.status(StatusCodes.BAD_REQUEST).json({
+      success: false,
+      message: 'listing_id is required with inventory_unit_id',
+    });
+  }
+  const selectedInventoryUnit = await verifyInventoryForProperty(inventory_unit_id, listing_id);
 
   const cleanPhone = phone_number ? phone_number.toString().replace(/\D/g, '').slice(-15) : null;
   const cleanEmail = email ? email.toLowerCase().trim() : null;
@@ -384,6 +552,7 @@ exports.createLead = asyncHandler(async (req, res) => {
     source: {
       channel:    'agent_added',
       listing_id: listing_id || null,
+      inventory_unit_id: inventory_unit_id || null,
     },
     requirements: {
       property_type,
@@ -412,6 +581,7 @@ exports.createLead = asyncHandler(async (req, res) => {
     ...(listing_id ? {
       matched_listings: [{
         listing_id,
+        inventory_unit_id: inventory_unit_id || null,
         match_score:         100,
         presented_to_client: false,
         client_interested:   true,
@@ -431,6 +601,8 @@ exports.createLead = asyncHandler(async (req, res) => {
     });
   }
 
+  const enrichedLead = await attachInventoryToLead(lead.toObject({ virtuals: true }));
+
   return res.status(StatusCodes.CREATED).json({
     success: true,
     message: 'Agent lead created successfully',
@@ -441,6 +613,10 @@ exports.createLead = asyncHandler(async (req, res) => {
       lead_type:      lead.lead_type,
       has_client:     !!(cleanPhone || cleanEmail),
       has_property:   !!listing_id,
+      property_id:    listing_id || null,
+      inventory_unit_id: inventory_unit_id || null,
+      interested_inventory_unit: selectedInventoryUnit,
+      lead:           enrichedLead,
     },
   });
 });
@@ -491,12 +667,12 @@ exports.getAgentLeads = asyncHandler(async (req, res) => {
     GridLead.countDocuments(filter),
   ]);
 
-  const leadsWithMeta = leads.map(lead => {
+  const leadsWithMeta = await Promise.all(leads.map(async lead => {
     const obj = lead.toObject({ virtuals: true });
     obj.assignedAdvisor = obj.assigned_to     || null;
     obj.creatingAgent   = obj.created_by_agent || null;
-    return obj;
-  });
+    return attachInventoryToLead(obj);
+  }));
 
   res.json({
     success: true,
@@ -829,6 +1005,8 @@ exports.getSmartMatches = asyncHandler(async (req, res) => {
   if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
 
   const { matches, matchType, note } = await matchPropertiesForLead(lead.requirements, 10);
+  const enrichedLead = await attachInventoryToLead(lead.toObject({ virtuals: true }));
+  const matchesWithInventory = await attachInventoryToMatches(matches, enrichedLead);
 
   if (matches.length === 0 && !lead.nurturing?.is_nurturing) {
     lead.nurturing = {
@@ -844,10 +1022,10 @@ exports.getSmartMatches = asyncHandler(async (req, res) => {
     success: true,
     matchType,
     note:              note || null,
-    count:             matches.length,
+    count:             matchesWithInventory.length,
     is_nurturing:      lead.nurturing?.is_nurturing || false,
-    data:              matches,
-    advisor_suggestions: lead.advisor_suggestions || [],
+    data:              matchesWithInventory,
+    advisor_suggestions: enrichedLead.advisor_suggestions || [],
   });
 });
 
@@ -858,7 +1036,7 @@ exports.getSmartMatches = asyncHandler(async (req, res) => {
 
 exports.suggestPropertyToClient = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { property_id, note } = req.body;
+  const { property_id, inventory_unit_id, note } = req.body;
   const advisorId = req.user._id;
 
   if (!property_id) {
@@ -872,6 +1050,7 @@ exports.suggestPropertyToClient = asyncHandler(async (req, res) => {
 
   if (!lead)     return res.status(404).json({ success: false, message: 'Lead not found' });
   if (!property) return res.status(404).json({ success: false, message: 'Property not found' });
+  const selectedInventoryUnit = await verifyInventoryForProperty(inventory_unit_id, property_id);
 
   const alreadySuggested = lead.advisor_suggestions.some(
     s => s.property_id.toString() === property_id.toString()
@@ -882,6 +1061,7 @@ exports.suggestPropertyToClient = asyncHandler(async (req, res) => {
 
   lead.advisor_suggestions.push({
     property_id,
+    inventory_unit_id: inventory_unit_id || null,
     suggested_by:    advisorId,
     suggested_at:    new Date(),
     note:            note || '',
@@ -897,7 +1077,11 @@ exports.suggestPropertyToClient = asyncHandler(async (req, res) => {
   return res.json({
     success: true,
     message: 'Property suggested to client successfully',
-    data: lead.advisor_suggestions,
+    data: {
+      suggestions: lead.advisor_suggestions,
+      inventory_unit_id: inventory_unit_id || null,
+      interested_inventory_unit: selectedInventoryUnit,
+    },
   });
 });
 
@@ -983,11 +1167,12 @@ exports.updateLeadRequirements = asyncHandler(async (req, res) => {
   await lead.save();
 
   const { matches, matchType } = await matchPropertiesForLead(lead.requirements, 10);
+  const matchesWithInventory = await attachInventoryToMatches(matches, lead.toObject({ virtuals: true }));
 
   return res.json({
     success: true,
     message: 'Requirements updated successfully',
-    new_matches: { matchType, count: matches.length, data: matches },
+    new_matches: { matchType, count: matchesWithInventory.length, data: matchesWithInventory },
   });
 });
 
@@ -1042,7 +1227,8 @@ exports.getLeadById = asyncHandler(async (req, res) => {
     }
   }
 
-  return res.json({ success: true, data: lead });
+  const enrichedLead = await attachInventoryToLead(lead);
+  return res.json({ success: true, data: enrichedLead });
 });
 
 
@@ -1088,10 +1274,10 @@ exports.getAgentOwnLeads = asyncHandler(async (req, res) => {
     GridLead.countDocuments(filter),
   ]);
 
-  const sanitized = leads.map(lead => {
+  const sanitized = await Promise.all(leads.map(async lead => {
     const { assigned_to, assigned_at, assigned_by, assignment_notes, ...safe } = lead;
     const isAssignment = (t = '') => /assigned|assign advisor|advisor/i.test(t);
-    return {
+    return attachInventoryToLead({
       ...safe,
       notes: Array.isArray(safe.notes)
         ? safe.notes.filter(n => !isAssignment(n?.text || ''))
@@ -1099,8 +1285,8 @@ exports.getAgentOwnLeads = asyncHandler(async (req, res) => {
       status_history: Array.isArray(safe.status_history)
         ? safe.status_history.filter(h => !isAssignment(h?.notes || ''))
         : safe.status_history,
-    };
-  });
+    });
+  }));
 
   res.json({
     success: true,
@@ -1128,23 +1314,29 @@ exports.saveMatchedListings = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Lead not found or access denied' });
   }
 
-  listings.forEach(item => {
+  for (const item of listings) {
+    if (item.inventory_unit_id) {
+      await verifyInventoryForProperty(item.inventory_unit_id, item.listing_id);
+    }
+
     const existing = lead.matched_listings.find(
       m => m.listing_id?.toString() === item.listing_id?.toString()
     );
     if (existing) {
       existing.client_interested   = item.client_interested   ?? existing.client_interested;
       existing.presented_to_client = item.presented_to_client ?? true;
+      existing.inventory_unit_id   = item.inventory_unit_id   ?? existing.inventory_unit_id;
     } else {
       lead.matched_listings.push({
         listing_id:           item.listing_id,
+        inventory_unit_id:    item.inventory_unit_id || null,
         match_score:          item.match_score || 50,
         presented_to_client:  item.presented_to_client ?? true,
         client_interested:    item.client_interested    ?? null,
         suggested_by_advisor: false,
       });
     }
-  });
+  }
 
   const interestedCount    = listings.filter(l => l.client_interested === true).length;
   const notInterestedCount = listings.filter(l => l.client_interested === false).length;
@@ -1160,6 +1352,7 @@ exports.saveMatchedListings = asyncHandler(async (req, res) => {
   }
 
   await lead.save();
+  const enrichedLead = await attachInventoryToLead(lead.toObject({ virtuals: true }));
 
   return res.json({
     success: true,
@@ -1169,6 +1362,14 @@ exports.saveMatchedListings = asyncHandler(async (req, res) => {
       matched_count:  lead.matched_listings.length,
       interested:     lead.matched_listings.filter(m => m.client_interested === true).length,
       not_interested: lead.matched_listings.filter(m => m.client_interested === false).length,
+      interested_inventory_units: enrichedLead.matched_listings
+        .filter(m => m.client_interested === true && m.interested_inventory_unit)
+        .map(m => ({
+          listing_id: m.listing_id,
+          inventory_unit_id: m.inventory_unit_id,
+          inventory: m.interested_inventory_unit,
+        })),
+      lead: enrichedLead,
     },
   });
 });
@@ -1362,12 +1563,13 @@ exports.agentUpdateRequirements = asyncHandler(async (req, res) => {
   await lead.save();
 
   const { matches, matchType, note } = await matchPropertiesForLead(lead.requirements, 10);
+  const matchesWithInventory = await attachInventoryToMatches(matches, lead.toObject({ virtuals: true }));
 
   return res.json({
     success: true,
     message: 'Requirements updated. Fresh property matches found.',
     data: { lead_id: lead._id, requirements: lead.requirements },
-    new_matches: { matchType, note: note || null, count: matches.length, data: matches },
+    new_matches: { matchType, note: note || null, count: matchesWithInventory.length, data: matchesWithInventory },
   });
 });
 

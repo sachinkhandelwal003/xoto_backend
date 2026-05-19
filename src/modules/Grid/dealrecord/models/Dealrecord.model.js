@@ -2,6 +2,7 @@
 // PRD §8.5 §12.5 — fully aligned
 
 const mongoose = require('mongoose');
+require('./Counter.model');
 
 // ─── Evidence sub-schema ──────────────────────────────────────────────────────
 const evidenceSchema = new mongoose.Schema(
