@@ -50,6 +50,10 @@ const feedback = require('./modules/feedback/routes/feedback.route.js');
 // Middleware
 app.use(cors());
 app.use(helmet());
+
+app.use('/presentation/track', helmet({
+  contentSecurityPolicy: false,
+}));
 app.use(morgan('dev'));
 
 // app.use(express.json());
@@ -102,6 +106,8 @@ app.use('/freelancer/projects/get', require('../src/modules/auth/routes/freelanc
 app.use('/freelancer/category', require('../src/modules/auth/routes/freelancer/freelancercategory.routes'));
 app.use('/freelancer/subcategory', require('../src/modules/auth/routes/freelancer/freelancersubcategory.routes'));
 
+app.use('/deal-record', require('./modules/Grid/dealrecord/routes/Dealrecord.routes'));
+
 // Routes
 
 app.use('/vault/statistics', require('./modules/vault/routes/vault.statistics.routes.js'));
@@ -140,7 +146,16 @@ app.use('/gridadvisor', GridAdvisor);
 app.use('/rental/property', rentalProperrty)
 // app.use('/rental/lead', Rentlead)
 
+app.use('/presentation/track', (req, res, next) => {
+  res.setHeader('Content-Security-Policy', 
+    "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-src *;"
+  );
+  next();
+});
+
+
 app.use('/presentation', presentationRoutes);
+
 
 // image ehncnace,ent 
 app.use('/ai/enhance', enhancementRoutes);

@@ -135,6 +135,21 @@ const PropertyInventorySchema = new mongoose.Schema(
             default: "available"
         },
         
+        // =========================
+        // LINKED DEAL INFORMATION
+        // =========================
+        dealRecordId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "DealRecord",
+            default: null
+        },
+        
+        leadId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "GridLead",
+            default: null
+        },
+
         // Booking Details
         bookedBy: {
             type: mongoose.Schema.Types.ObjectId,
