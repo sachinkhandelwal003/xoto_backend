@@ -171,6 +171,7 @@ exports.protectPartner = protectBase(Partner, "Partner");
 exports.protectPartner = protectBase(Partner, "Partner");
 exports.protectVaultAdvisor = protectBase(VaultAdvisor, "VaultAdvisor");
 exports.protectVaultOps = protectBase(VaultOps, "VaultOps");
+exports.protectGridReferralPartner = protectBase(GridReferralPartner, "GridReferralPartner");
 // exports.protectVaultAgent = protectBase(VaultAgents, "VaultAgents");
 
 /* ============================================================

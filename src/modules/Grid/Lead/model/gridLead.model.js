@@ -8,7 +8,7 @@ const gridLeadSchema = new mongoose.Schema({
   // ==============================================================
   lead_type: {
     type: String,
-    enum: ['platform', 'agent','referral', 'general'],
+    enum: ['platform', 'agent','referral_partner', 'general'],
     required: true,
     index: true,
   },
@@ -20,6 +20,13 @@ const gridLeadSchema = new mongoose.Schema({
       'schedule_visit', 'consultation', 'general_enquiry'
     ]
   },
+
+  referred_by_partner: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'GridReferralPartner',
+  default: null,
+  index: true
+},
 
   // ==============================================================
   // SECTION 1.4 - CUSTOMER TRACK
@@ -319,6 +326,16 @@ advisor_suggestions: [{
     }],
     closed_at: { type: Date }
   },
+
+
+  referral_info: {
+  referral_partner_id: { type: mongoose.Schema.Types.ObjectId, ref: 'GridReferralPartner' },
+  referral_code:       { type: String },
+  commission_rate:     { type: Number },   // e.g., 25 (percent)
+  commission_status:   { type: String, enum: ['pending', 'confirmed', 'paid'], default: 'pending' },
+  notes:               { type: String },
+  commission_paid_at:  { type: Date },
+},
 
   // ==============================================================
   // FOLLOW-UP MANAGEMENT

@@ -134,14 +134,14 @@ exports.createReferralLead = asyncHandler(async (req, res) => {
 
   // ── Create Lead ───────────────────────────────────────────────────────────
   const lead = await GridLead.create({
-    lead_type:             'referral',                   // ← REFERRAL
+    lead_type:             'referral_partner',                   // ← REFERRAL
     enquiry_type:          resolvedEnquiryType,
     customerId:            customer?._id || partnerId,
     classification:        'warm',
     classification_reason: 'Referral partner lead created via CRM',
 
     source: {
-      channel:    'referral_partner',                    // ← REFERRAL channel
+      channel:    'agent_added',                    // ← REFERRAL channel
       listing_id: listing_id || null,
       referralPartnerId: partnerId,
     },
@@ -232,8 +232,8 @@ exports.getReferralPartnerLeads = asyncHandler(async (req, res) => {
   const { status, classification, type, search } = req.query;
 
   const filter = {
-    lead_type:         'referral',
-    'source.channel':  'referral_partner',
+    lead_type:         'referral_partner',
+    'source.channel':  'agent_added',
     created_by_agent:  partnerId,    // sirf apne leads
   };
 
@@ -297,7 +297,7 @@ exports.saveReferralMatchedListings = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'listings array is required' });
   }
 
-  const lead = await GridLead.findOne({ _id: id, created_by_agent: partnerId, lead_type: 'referral' });
+  const lead = await GridLead.findOne({ _id: id, created_by_agent: partnerId, lead_type: 'referral_partner' });
   if (!lead) {
     return res.status(404).json({ success: false, message: 'Lead not found or access denied' });
   }
@@ -362,7 +362,7 @@ exports.submitReferralLeadToXoto = asyncHandler(async (req, res) => {
     submission_note,
   } = req.body;
 
-  const lead = await GridLead.findOne({ _id: id, created_by_agent: partnerId, lead_type: 'referral' });
+  const lead = await GridLead.findOne({ _id: id, created_by_agent: partnerId, lead_type: 'referral_partner' });
   if (!lead) {
     return res.status(404).json({ success: false, message: 'Lead not found or access denied' });
   }
@@ -475,7 +475,7 @@ exports.addReferralNote = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Note text is required' });
   }
 
-  const lead = await GridLead.findOne({ _id: id, created_by_agent: partnerId, lead_type: 'referral' });
+  const lead = await GridLead.findOne({ _id: id, created_by_agent: partnerId, lead_type: 'referral_partner' });
   if (!lead) {
     return res.status(404).json({ success: false, message: 'Lead not found or access denied' });
   }
@@ -507,7 +507,7 @@ exports.updateReferralRequirements = asyncHandler(async (req, res) => {
   const { requirements, reason } = req.body;
   const partnerId                = req.user._id;
 
-  const lead = await GridLead.findOne({ _id: id, created_by_agent: partnerId, lead_type: 'referral' });
+  const lead = await GridLead.findOne({ _id: id, created_by_agent: partnerId, lead_type: 'referral_partner' });
   if (!lead) {
     return res.status(404).json({ success: false, message: 'Lead not found or access denied' });
   }
@@ -612,7 +612,7 @@ exports.updateCommissionStatus = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: `status must be: ${VALID.join(', ')}` });
   }
 
-  const lead = await GridLead.findOne({ _id: id, lead_type: 'referral' });
+  const lead = await GridLead.findOne({ _id: id, lead_type: 'referral_partner' });
   if (!lead) {
     return res.status(404).json({ success: false, message: 'Lead not found' });
   }

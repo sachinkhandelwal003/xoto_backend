@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
 const GridReferralPartner = require("../Model/ReferralPartner.model.js");
 const { Role } = require("../../../../modules/auth/models/role/role.model.js");
+const GridLead = require("../../../Grid/Lead/model/gridLead.model.js"); // adjust path
 
 const signToken = (user, roleData) => {
   return jwt.sign(
@@ -147,11 +148,11 @@ exports.getProfile = async (req, res) => {
 
 exports.updateBasicInfo = async (req, res) => {
   try {
-    const { firstName, lastName, email, dateOfBirth } = req.body;
+    const { firstName, lastName, email, dateOfBirth, profilePhotoUrl } = req.body; // ✅ add profilePhotoUrl
 
     const partner = await GridReferralPartner.findByIdAndUpdate(
       req.user._id,
-      { firstName, lastName, email, dateOfBirth },
+      { firstName, lastName, email, dateOfBirth, profilePhotoUrl }, // ✅ add here too
       { new: true, runValidators: true }
     ).select("-password");
 

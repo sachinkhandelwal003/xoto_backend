@@ -58,7 +58,8 @@ router.post("/me/change-password", protectMulti, async (req, res) => {
   }
 });
 
-
+// router.get ("/me",           protectMulti, gridAdvisorController.getMyProfile);  // ✅ NEW
+router.put("/me",          protectMulti, gridAdvisorController.updateMyProfile);    // ✅ NEW
 
 
 

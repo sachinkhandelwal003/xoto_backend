@@ -15,7 +15,7 @@ const { protectMulti } = require("../../../../middleware/auth");
 
 router.post("/register-partner", registerReferralPartner);
 router.post("/login-partner",    loginReferralPartner);
-
+router.get("/dashboard", protectMulti, getDashboard);
 // Profile routes — protected
 router.get("/profile",              protectMulti, getProfile);
 router.put("/profile/basic",      protectMulti, updateBasicInfo);
