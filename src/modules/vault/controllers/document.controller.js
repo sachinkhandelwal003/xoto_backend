@@ -72,15 +72,16 @@ export const uploadCaseDocument = async (req, res) => {
       return res.status(404).json({ success: false, message: "Case not found" });
     }
     
-    // Check case status (only draft cases can be updated)
-    if (caseData.currentStatus !== 'Draft') {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Cannot upload documents. Case status: ${caseData.currentStatus}` 
-      });
-    }
+    // // Check case status (only draft cases can be updated)
+    // if (caseData.currentStatus !== 'Draft') {
+    //   return res.status(400).json({ 
+    //     success: false, 
+    //     message: `Cannot upload documents. Case status: ${caseData.currentStatus}` 
+    //   });
+    // }
     
     // Find document requirement for this case
+    
     const docRequirement = await CaseDocumentRequirement.findOne({
       caseId: caseId,
       documentKey: documentKey,

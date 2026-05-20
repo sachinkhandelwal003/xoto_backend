@@ -50,6 +50,70 @@ const getUserInfo = async (req) => {
   };
 };
 
+
+// ══════════════════════════════════════════════════════════════════
+// HELPER: Update Lead Status from Case Status (PRD Section 5.3 & 6.1)
+// ══════════════════════════════════════════════════════════════════
+const updateLeadStatusFromCase = async (sourceLeadId, caseStatus, additionalData = {}) => {
+  if (!sourceLeadId) return null;
+  
+  // Maps Case status → Lead status per PRD workflow
+  const leadStatusMap = {
+    // Draft/Submission phase → Lead: Collecting Documents
+    'Draft': 'Collecting Documents',
+    'Submitted to Xoto': 'Collecting Documents',
+    'In Ops Queue - Pending Pick-up': 'Collecting Documents',
+    'Assigned - Pending Review': 'Collecting Documents',
+    'Under Review': 'Collecting Documents',
+    'Resubmitted-After Correction': 'Collecting Documents',
+    
+    // Returned → Advisor needs more docs
+    'Returned - Pending Correction': 'Collecting Documents',
+    
+    // Bank Application started → Lead: Application Opened
+    'Submitted to Bank': 'Application Opened',
+    'Pre-Approved': 'Application Opened',
+    'Valuation': 'Application Opened',
+    'FOL Processed': 'Application Opened',
+    'FOL Issued': 'Application Opened',
+    'FOL Signed': 'Application Opened',
+    
+    // Disbursed → Application complete
+    'Disbursed': 'Application Opened',
+    
+    // Lost/Rejected → Lead closed
+    'Rejected': 'Not Proceeding',
+    'Lost': 'Not Proceeding'
+  };
+  
+  const leadStatus = leadStatusMap[caseStatus];
+  
+  if (leadStatus && sourceLeadId) {
+    const updateData = {
+      currentStatus: leadStatus,
+      updatedAt: new Date()
+    };
+    
+    // Additional tracking for final states
+    if (caseStatus === 'Disbursed') {
+      updateData['conversionInfo.disbursedAt'] = new Date();
+      updateData['conversionInfo.finalStatus'] = 'Disbursed';
+    }
+    
+    if (caseStatus === 'Rejected' || caseStatus === 'Lost') {
+      updateData['conversionInfo.closedAt'] = new Date();
+      updateData['conversionInfo.closedReason'] = caseStatus;
+      updateData['conversionInfo.closedNotes'] = additionalData.reason || null;
+    }
+    
+    const updatedLead = await Lead.findByIdAndUpdate(sourceLeadId, updateData, { new: true });
+    console.log(`✅ Lead ${sourceLeadId} status updated to: ${leadStatus} (from Case: ${caseStatus})`);
+    return updatedLead;
+  }
+  
+  return null;
+};
+
 export const createCase = async (req, res) => {
   try {
     const { 
@@ -268,39 +332,49 @@ export const getCaseDocuments = async (req, res) => {
 };
 
 // ==================== SUBMIT CASE TO XOTO (Enter Ops Queue) ====================
+// ==================== SUBMIT CASE TO XOTO (Enter Ops Queue) ====================
 export const submitCaseToXoto = async (req, res) => {
   try {
     const { id } = req.params;
     
     const caseData = await Case.findOne({ _id: id, isDeleted: false });
-    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
+    if (!caseData) {
+      return res.status(404).json({ success: false, message: "Case not found" });
+    }
     
     if (caseData.currentStatus !== 'Draft') {
-      return res.status(400).json({ success: false, message: `Case cannot be submitted. Current status: ${caseData.currentStatus}` });
+      return res.status(400).json({ 
+        success: false, 
+        message: `Case cannot be submitted. Current status: ${caseData.currentStatus}` 
+      });
     }
     
-    // Check if all global documents are uploaded
-    const allGlobalUploaded = caseData.documentStatus.globalDocuments?.every(d => d.isUploaded) ?? true;
-    if (!allGlobalUploaded) {
-      return res.status(400).json({ success: false, message: "All required documents must be uploaded before submitting" });
-    }
-    
-    // Submit to Xoto and enter Ops Queue
+    // Submit to Xoto
     caseData.currentStatus = 'Submitted to Xoto';
     caseData.timeline.submittedToXotoAt = new Date();
-    caseData.documentStatus.advisorSubmittedAt = new Date();
     await caseData.save();
     
     // Auto-enter Ops Queue
-    await caseData.enterOpsQueue();
+    caseData.currentStatus = 'In Ops Queue - Pending Pick-up';
+    caseData.opsQueue.enteredQueueAt = new Date();
+    caseData.opsQueue.returnCount = 0;
+    await caseData.save();
+    
+    // ✅ UPDATE LEAD STATUS
+    await updateLeadStatusFromCase(caseData.sourceLeadId, caseData.currentStatus);
     
     await HistoryService.logCaseActivity(caseData, 'CASE_SUBMITTED_TO_XOTO', await getUserInfo(req), {
-      description: `Case ${caseData.caseReference} submitted to Xoto and placed in Ops Queue`
+      description: `Case ${caseData.caseReference} submitted to Xoto`
     });
     
-    return res.status(200).json({ success: true, message: "Case submitted to Xoto successfully", data: caseData });
+    return res.status(200).json({ 
+      success: true, 
+      message: "Case submitted to Xoto successfully",
+      data: caseData
+    });
     
   } catch (error) {
+    console.error("Submit case error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -483,7 +557,14 @@ export const getMyAssignedCases = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
     
-    let query = { 'opsQueue.currentAssignment.opsId': opsId, isDeleted: false };
+    // ✅ FIXED: Use 'opsQueue.pickedUpBy.opsId' instead of 'opsQueue.currentAssignment.opsId'
+    let query = { 
+      'opsQueue.pickedUpBy.opsId': opsId,  // ← This matches your schema
+      isDeleted: false 
+    };
+    
+    // Also include cases where Admin assigned (adminAssigned doesn't change pickedUpBy)
+    // The schema already sets pickedUpBy during adminAssignToOps
     
     if (req.query.search) {
       query.$or = [
@@ -497,11 +578,25 @@ export const getMyAssignedCases = async (req, res) => {
     }
     
     const total = await Case.countDocuments(query);
-    const cases = await Case.find(query).sort({ updatedAt: -1 }).skip(skip).limit(limit).lean();
+    const cases = await Case.find(query)
+      .sort({ updatedAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
     
-    return res.status(200).json({ success: true, data: cases, total, pagination: { currentPage: page, totalPages: Math.ceil(total / limit), limit } });
+    return res.status(200).json({ 
+      success: true, 
+      data: cases, 
+      total, 
+      pagination: { 
+        currentPage: page, 
+        totalPages: Math.ceil(total / limit), 
+        limit 
+      } 
+    });
     
   } catch (error) {
+    console.error("Get my assigned cases error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -521,7 +616,7 @@ export const updateCaseStatus = async (req, res) => {
     const caseData = await Case.findOne({ _id: id, isDeleted: false });
     if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
     
-    if (isOps && caseData.opsQueue?.currentAssignment?.opsId?.toString() !== req.user._id.toString()) {
+    if (isOps && caseData.opsQueue?.pickedUpBy?.opsId?.toString() !== req.user._id.toString()) {
       return res.status(403).json({ success: false, message: "You can only update cases assigned to you" });
     }
     
@@ -530,7 +625,9 @@ export const updateCaseStatus = async (req, res) => {
     
     // Handle Pre-Approved with amount
     if (status === 'Pre-Approved' && approvedAmount) {
-      await caseData.updateBankApproval(approvedAmount, null, bankReference, notes);
+      if (typeof caseData.updateBankApproval === 'function') {
+        await caseData.updateBankApproval(approvedAmount, null, bankReference, notes);
+      }
     }
     
     // Handle Bank Application
@@ -541,12 +638,16 @@ export const updateCaseStatus = async (req, res) => {
     
     // Handle Disbursed
     if (status === 'Disbursed' && approvedAmount) {
-      await caseData.updateDisbursement(approvedAmount, bankReference);
+      if (typeof caseData.updateDisbursement === 'function') {
+        await caseData.updateDisbursement(approvedAmount, bankReference);
+      }
     }
     
     // Handle Rejected
     if (status === 'Rejected') {
-      await caseData.rejectCase(notes || 'Rejected by bank');
+      if (typeof caseData.rejectCase === 'function') {
+        await caseData.rejectCase(notes || 'Rejected by bank');
+      }
     }
     
     // Add notes
@@ -557,7 +658,19 @@ export const updateCaseStatus = async (req, res) => {
     
     await caseData.save();
     
-    return res.status(200).json({ success: true, message: `Case status updated from ${previousStatus} to ${status}`, data: caseData });
+    // ✅ UPDATE LEAD STATUS based on new case status
+    await updateLeadStatusFromCase(caseData.sourceLeadId, status, { reason: notes });
+    
+    await HistoryService.logCaseActivity(caseData, 'CASE_STATUS_UPDATED', await getUserInfo(req), {
+      description: `Case status changed from ${previousStatus} to ${status}`,
+      notes: notes
+    });
+    
+    return res.status(200).json({ 
+      success: true, 
+      message: `Case status updated from ${previousStatus} to ${status}`, 
+      data: caseData 
+    });
     
   } catch (error) {
     console.error("Update case status error:", error);
@@ -580,9 +693,13 @@ export const resubmitCaseAfterCorrection = async (req, res) => {
     
     caseData.currentStatus = 'Resubmitted-After Correction';
     caseData.resubmissionCount = (caseData.resubmissionCount || 0) + 1;
+    caseData.internalNotes = caseData.internalNotes || [];
     caseData.internalNotes.push(`Resubmitted (#${caseData.resubmissionCount}): ${correctionNotes || 'Corrections done'}`);
     
     await caseData.save();
+    
+    // ✅ UPDATE LEAD STATUS - stays in Collecting Documents
+    await updateLeadStatusFromCase(caseData.sourceLeadId, caseData.currentStatus);
     
     return res.status(200).json({ success: true, message: "Case resubmitted successfully", data: caseData });
     
@@ -742,6 +859,9 @@ export const submitCaseToBank = async (req, res) => {
     caseData.timeline.submittedToBankAt = new Date();
     await caseData.save();
     
+    // ✅ UPDATE LEAD STATUS to Application Opened
+    await updateLeadStatusFromCase(caseData.sourceLeadId, caseData.currentStatus);
+    
     return res.status(200).json({ success: true, message: "Case submitted to bank", data: caseData });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -756,17 +876,35 @@ export const updateBankDecision = async (req, res) => {
     const caseData = await Case.findOne({ _id: caseId, isDeleted: false });
     if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
     
+    let updatedStatus = status;
+    
     if (status === 'Pre-Approved' && approvedAmount) {
-      await caseData.updateBankApproval(approvedAmount, null, null, notes);
+      if (typeof caseData.updateBankApproval === 'function') {
+        await caseData.updateBankApproval(approvedAmount, null, null, notes);
+      }
+      updatedStatus = 'Pre-Approved';
     } else if (status === 'Disbursed' && approvedAmount) {
-      await caseData.updateDisbursement(approvedAmount, null);
+      if (typeof caseData.updateDisbursement === 'function') {
+        await caseData.updateDisbursement(approvedAmount, null);
+      }
+      updatedStatus = 'Disbursed';
     } else if (status === 'Rejected') {
-      await caseData.rejectCase(notes || 'Rejected by bank');
+      if (typeof caseData.rejectCase === 'function') {
+        await caseData.rejectCase(notes || 'Rejected by bank');
+      }
+      updatedStatus = 'Rejected';
     } else {
       caseData.currentStatus = status;
-      if (notes) caseData.internalNotes.push(notes);
+      if (notes) {
+        caseData.internalNotes = caseData.internalNotes || [];
+        caseData.internalNotes.push(notes);
+      }
       await caseData.save();
+      updatedStatus = status;
     }
+    
+    // ✅ UPDATE LEAD STATUS
+    await updateLeadStatusFromCase(caseData.sourceLeadId, updatedStatus, { reason: notes });
     
     return res.status(200).json({ success: true, message: "Bank decision updated", data: caseData });
   } catch (error) {

@@ -108,16 +108,12 @@ const commissionEarningsSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// ✅ CORRECT: PRD Commission Structure (No referralPlusDocs)
+// PRD Section 1.2: Referral Partner gets 40% (≤5M) / 50% (>5M)
 const freelanceCommissionSchema = new mongoose.Schema(
   {
-    referralOnly: {
-      below5M: { type: Number, default: 40 },
-      above5M: { type: Number, default: 50 },
-    },
-    referralPlusDocs: {
-      below5M: { type: Number, default: 45 },
-      above5M: { type: Number, default: 55 },
-    },
+    below5M: { type: Number, default: 40 },   // For loans up to 5,000,000 AED
+    above5M: { type: Number, default: 50 },   // For loans above 5,000,000 AED
   },
   { _id: false }
 );
@@ -184,6 +180,7 @@ const agentSchema = new mongoose.Schema(
     visa: { type: visaSchema, default: () => ({}) },
     bankDetails: { type: bankDetailsSchema, default: () => ({}) },
 
+    // ✅ CORRECT: Simplified commission schema
     freelanceCommission: { type: freelanceCommissionSchema, default: () => ({}) },
 
     earnings: { type: commissionEarningsSchema, default: () => ({}) },
@@ -247,41 +244,30 @@ agentSchema.virtual('fullPhoneNumber').get(function () {
   return `${this.phone.country_code}${this.phone.number}`;
 });
 
-// ==================== EXISTING METHODS ====================
+// ==================== METHODS ====================
 
 agentSchema.methods.isActiveAgent = function () {
   return this.isActive && !this.isDeleted && !this.suspendedAt;
 };
 
+// ✅ CORRECT: Commission eligibility for FreelanceAgent
 agentSchema.methods.canEarnCommission = function () {
   if (this.agentType === 'FreelanceAgent') {
-    // Freelance agents need: verified, active, phone verified, AND documents verified
     return this.isVerified && 
            this.isActiveAgent() && 
            this.isPhoneVerified && 
            this.emiratesId?.verified && 
            this.bankDetails?.verified;
   }
-  
-  if (this.agentType === 'PartnerAffiliatedAgent') {
-    // Partner-affiliated agents NEVER earn commission directly
-    // Commission is paid to the partner company
-    return false;
-  }
-  
   return false;
 };
 
-agentSchema.methods.getCommissionPercentage = function (loanAmount, referralType) {
+// ✅ CORRECT: Get commission percentage based on loan amount (PRD Section 1.2)
+agentSchema.methods.getCommissionPercentage = function (loanAmount) {
   if (this.agentType !== 'FreelanceAgent') return null;
   
   const isAbove5M = loanAmount > 5000000;
-  const tier = isAbove5M ? 'above5M' : 'below5M';
-  
-  if (referralType === 'Referral Only') {
-    return this.freelanceCommission.referralOnly[tier];
-  }
-  return this.freelanceCommission.referralPlusDocs[tier];
+  return isAbove5M ? this.freelanceCommission.above5M : this.freelanceCommission.below5M;
 };
 
 agentSchema.methods.markPhoneVerified = function () {
@@ -296,17 +282,12 @@ agentSchema.methods.markEmailVerified = function () {
   return this.save();
 };
 
-// ==================== NEW METHODS FOR COMMISSION INTEGRATION ====================
-
-// ✅ Method 1: Get detailed commission eligibility status
-// ✅ Method 1: Get detailed commission eligibility status
+// ✅ CORRECT: Get detailed commission eligibility status
 agentSchema.methods.getCommissionEligibilityStatus = function() {
   if (this.agentType === 'FreelanceAgent') {
     if (!this.isVerified) {
       return { eligible: false, reason: 'Profile not verified by admin' };
     }
-    
-    // ✅ UNCOMMENT THESE CHECKS:
     if (!this.isActiveAgent()) {
       return { eligible: false, reason: 'Account is not active' };
     }
@@ -319,7 +300,6 @@ agentSchema.methods.getCommissionEligibilityStatus = function() {
     if (!this.bankDetails?.verified) {
       return { eligible: false, reason: 'Bank details not verified by admin' };
     }
-    
     return { eligible: true, reason: null };
   }
   
@@ -336,7 +316,7 @@ agentSchema.methods.getCommissionEligibilityStatus = function() {
   return { eligible: false, reason: 'Unknown agent type' };
 };
 
-// ✅ Method 2: Get payout bank details for commission
+// ✅ CORRECT: Get payout bank details for commission
 agentSchema.methods.getPayoutBankDetails = function() {
   if (!this.bankDetails?.iban) return null;
   
@@ -348,7 +328,7 @@ agentSchema.methods.getPayoutBankDetails = function() {
   };
 };
 
-// ✅ Method 3: Update earnings from commission
+// ✅ CORRECT: Update earnings from commission
 agentSchema.methods.updateEarningsFromCommission = async function(commissionAmount, isConfirmed = false) {
   this.earnings.totalCommissionEarned += commissionAmount;
   
@@ -356,7 +336,6 @@ agentSchema.methods.updateEarningsFromCommission = async function(commissionAmou
     this.earnings.pendingCommission += commissionAmount;
   }
   
-  // Update conversion rate
   if (this.earnings.successfulDisbursals > 0) {
     this.earnings.conversionRate = (this.earnings.successfulDisbursals / this.earnings.totalLeadsSubmitted) * 100;
   }
