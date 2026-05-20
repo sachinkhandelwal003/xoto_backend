@@ -239,34 +239,392 @@ export const getXotoAdvisorById = async (req, res) => {
 /* =====================================
    3. ADMIN GET ADVISOR WORKLOAD (For Assignment)
 ===================================== */
-export const getAdvisorWorkload = async (req, res) => {
+export const getAdvisorWorkload =
+async (req, res) => {
+
   try {
-    const roleDoc = await Role.findById(req.user.role);
-    if (!roleDoc || roleDoc.code !== '18') {
-      return res.status(403).json({ success: false, message: "Access denied. Admin only." });
+
+    /**
+     * =====================================================
+     * ADMIN CHECK
+     * =====================================================
+     */
+
+    const roleDoc =
+      await Role.findById(req.user.role);
+
+    if (
+      !roleDoc ||
+      roleDoc.code !== '18'
+    ) {
+
+      return res.status(403).json({
+        success: false,
+        message:
+          "Access denied. Admin only."
+      });
+
     }
 
-    const advisors = await XotoAdvisor.find({ isActive: true, isDeleted: false })
-      .select('name  workload performanceMetrics');
+    /**
+     * =====================================================
+     * GET ACTIVE ADVISORS
+     * =====================================================
+     */
 
-    const workloadSummary = advisors.map(adv => ({
-      id: adv._id,
-      name: adv.fullName,
-      currentLeads: adv.workload.currentLeads,
-      maxCapacity: adv.workload.maxLeadsCapacity,
-      utilization: (adv.workload.currentLeads / adv.workload.maxLeadsCapacity) * 100,
-      canTakeMore: adv.workload.currentLeads < adv.workload.maxLeadsCapacity,
-      conversionRate: adv.performanceMetrics.conversionRate,
-      slaCompliance: adv.performanceMetrics.slaComplianceRate
-    }));
+    const advisors =
+      await XotoAdvisor.find({
+        isActive: true,
+        isDeleted: false
+      })
+      .select(
+        `
+        name
+        email
+        workload
+        performanceMetrics
+        `
+      );
+
+    /**
+     * =====================================================
+     * ACTIVE LEAD STATUSES
+     * =====================================================
+     */
+
+    const activeLeadStatuses = [
+
+      'New',
+
+      'Assigned',
+
+      'Contacted',
+
+      'Qualified',
+
+      'Collecting Documents'
+
+    ];
+
+    /**
+     * =====================================================
+     * BUILD WORKLOAD SUMMARY
+     * =====================================================
+     */
+
+    const workloadSummary =
+      await Promise.all(
+
+        advisors.map(async (advisor) => {
+
+          /**
+           * =================================================
+           * GET ACTIVE LEADS
+           * =================================================
+           */
+
+          const leads =
+            await VaultLead.find({
+
+              'assignedTo.advisorId':
+                advisor._id,
+
+              isDeleted: false,
+
+              currentStatus: {
+                $in: activeLeadStatuses
+              }
+
+            });
+
+          /**
+           * =================================================
+           * ACTIVE CASES
+           * =================================================
+           */
+
+          const activeCases =
+            await Case.countDocuments({
+
+              'createdBy.advisorId':
+                advisor._id,
+
+              isDeleted: false,
+
+              currentStatus: {
+
+                $nin: [
+
+                  'Disbursed',
+
+                  'Rejected',
+
+                  'Closed'
+
+                ]
+              }
+            });
+
+          /**
+           * =================================================
+           * LEAD STATUS COUNTS
+           * =================================================
+           */
+
+          const newLeads =
+            leads.filter(
+              l => l.currentStatus === 'New'
+            ).length;
+
+          const assignedLeads =
+            leads.filter(
+              l => l.currentStatus === 'Assigned'
+            ).length;
+
+          const contactedLeads =
+            leads.filter(
+              l => l.currentStatus === 'Contacted'
+            ).length;
+
+          const qualifiedLeads =
+            leads.filter(
+              l => l.currentStatus === 'Qualified'
+            ).length;
+
+          const collectingDocuments =
+            leads.filter(
+              l =>
+                l.currentStatus ===
+                'Collecting Documents'
+            ).length;
+
+          /**
+           * =================================================
+           * SLA BREACHED
+           * =================================================
+           */
+
+          const slaBreached =
+            leads.filter(
+              l =>
+
+                l.sla?.deadline &&
+
+                new Date() >
+                new Date(l.sla.deadline)
+
+            ).length;
+
+          /**
+           * =================================================
+           * WORKLOAD
+           * =================================================
+           */
+
+          const currentLeads =
+            leads.length;
+
+          const maxCapacity =
+
+            advisor.workload
+              ?.maxLeadsCapacity || 20;
+
+          const remainingCapacity =
+            Math.max(
+              maxCapacity - currentLeads,
+              0
+            );
+
+          /**
+           * =================================================
+           * UTILIZATION
+           * =================================================
+           */
+
+          const utilization =
+
+            maxCapacity > 0
+
+              ? (
+                  (
+                    currentLeads /
+                    maxCapacity
+                  ) * 100
+                )
+
+              : 0;
+
+          /**
+           * =================================================
+           * ADVISOR NAME
+           * =================================================
+           */
+
+          const advisorName =
+
+            advisor.fullName ||
+
+            `${advisor?.name?.first_name || ''}
+             ${advisor?.name?.last_name || ''}`
+
+              .trim();
+
+          /**
+           * =================================================
+           * RESPONSE OBJECT
+           * =================================================
+           */
+
+          return {
+
+            advisorId:
+              advisor._id,
+
+            advisorName,
+
+            email:
+              advisor.email,
+
+            /**
+             * ===============================================
+             * WORKLOAD
+             * ===============================================
+             */
+
+            workload: {
+
+              currentLeads,
+
+              maxCapacity,
+
+              remainingCapacity,
+
+              utilization:
+                Number(
+                  utilization.toFixed(2)
+                ),
+
+              canTakeMore:
+                currentLeads <
+                maxCapacity
+            },
+
+            /**
+             * ===============================================
+             * LEAD BREAKDOWN
+             * ===============================================
+             */
+
+            leadSummary: {
+
+              total:
+                currentLeads,
+
+              new:
+                newLeads,
+
+              assigned:
+                assignedLeads,
+
+              contacted:
+                contactedLeads,
+
+              qualified:
+                qualifiedLeads,
+
+              collectingDocuments,
+
+              slaBreached
+            },
+
+            /**
+             * ===============================================
+             * CASES
+             * ===============================================
+             */
+
+            cases: {
+
+              active:
+                activeCases
+            },
+
+            /**
+             * ===============================================
+             * PERFORMANCE
+             * ===============================================
+             */
+
+            performance: {
+
+              conversionRate:
+
+                advisor.performanceMetrics
+                  ?.conversionRate || 0,
+
+              slaComplianceRate:
+
+                advisor.performanceMetrics
+                  ?.slaComplianceRate || 0,
+
+              totalLeadsAssigned:
+
+                advisor.performanceMetrics
+                  ?.totalLeadsAssigned || 0
+            }
+          };
+
+        })
+      );
+
+    /**
+     * =====================================================
+     * SORT
+     * LOWEST UTILIZATION FIRST
+     * =====================================================
+     */
+
+    workloadSummary.sort(
+
+      (a, b) =>
+
+        a.workload.utilization -
+
+        b.workload.utilization
+    );
+
+    /**
+     * =====================================================
+     * RESPONSE
+     * =====================================================
+     */
 
     return res.status(200).json({
+
       success: true,
-      data: workloadSummary
+
+      count:
+        workloadSummary.length,
+
+      data:
+        workloadSummary
     });
 
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+
+    console.error(
+      'getAdvisorWorkload:',
+      error
+    );
+
+    return res.status(500).json({
+
+      success: false,
+
+      message:
+        error.message
+    });
+
   }
 };
 

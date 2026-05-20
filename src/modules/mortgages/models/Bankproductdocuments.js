@@ -1,214 +1,393 @@
 const mongoose = require("mongoose");
 
-const BankFormSchema = new mongoose.Schema(
-  {
-    // Reference
-    bankProductId: { 
-      type: mongoose.Schema.Types.ObjectId, 
-      ref: "BankMortgageProduct",
-      required: true,
-      index: true 
+/**
+ * =========================================================
+ * DOCUMENT REQUIREMENT MODEL (COMPLETE)
+ * =========================================================
+ * PURPOSE:
+ * Three types of documents:
+ * 
+ * 1. DIRECT_UPLOAD - Customer uploads directly (Passport, Emirates ID)
+ * 2. TEMPLATE_DOWNLOAD - Download form, fill, upload back (Bank forms)
+ * 3. SAMPLE_VIEW - Just view sample document, no upload (Info only)
+ * =========================================================
+ */
+
+const DocumentRequirementSchema = new mongoose.Schema(
+{
+    /**
+     * =====================================================
+     * BASIC INFORMATION
+     * =====================================================
+     */
+    documentName: {
+        type: String,
+        required: true,
+        trim: true,
+        index: true
     },
-    bankName: { type: String, required: true, index: true },
-    bankCode: { type: String, required: true, index: true },
-    
-    // Document Identification
-    formName: { type: String, required: true },
-    formType: { 
-      type: String, 
-      enum: ["customer_document", "application_form", "consent_form", "disclosure_form", "noc_template", "other"],
-      required: true 
+
+    documentKey: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true,
+        index: true
     },
-    formCategory: {
-      type: String,
-      enum: ["Pre-Approval", "Final Approval", "Disbursement", "General"],
-      default: "General"
+
+    description: {
+        type: String,
+        default: ""
     },
-    
-    // NEW: Source & Action
-    documentSource: { 
-      type: String, 
-      enum: ["Customer", "Bank"],
-      default: "Customer"
+
+    category: {
+        type: String,
+        enum: [
+            "Identity",
+            "Income",
+            "Banking",
+            "Business",
+            "Property",
+            "Tax",
+            "Compliance",
+            "Insurance",
+            "Bank Form",
+            "Information",
+            "Other"
+        ],
+        default: "Other",
+        index: true
     },
-    actionType: { 
-      type: String, 
-      enum: ["direct_upload", "download_fill_upload"],
-      default: "direct_upload"
+
+    /**
+     * =====================================================
+     * DOCUMENT TYPE (3 Types)
+     * =====================================================
+     * direct_upload: User uploads directly (Passport, EID, Bank Statement)
+     * template_download: Download template → Fill → Upload back
+     * sample_view: Just view sample document, no upload needed
+     */
+    documentType: {
+        type: String,
+        enum: ["direct_upload", "template_download", "sample_view"],
+        default: "direct_upload"
     },
-    
-    // File Storage (Not required for customer docs initially)
-    fileUrl: { type: String, default: "" },
-    fileName: { type: String, default: "" },
-    fileSize: { type: Number, default: 0 },
-    mimeType: { type: String, default: "application/pdf" },
-    
-    // Version Control
-    version: { type: String, default: "1.0" },
-    previousVersionId: { type: mongoose.Schema.Types.ObjectId, ref: "BankForm" },
-    isLatestVersion: { type: Boolean, default: true },
-    
-    // Applicability
-    applicableEmploymentTypes: [{ 
-      type: String, 
-      enum: ["Salaried", "Self-Employed", "Both"],
-      default: ["Both"]
+
+    /**
+     * =====================================================
+     * TEMPLATE INFORMATION (For template_download type)
+     * User downloads this template, fills it, then uploads back
+     * =====================================================
+     */
+    template: {
+        fileUrl: { type: String, default: null },           // URL to download template
+        fileName: { type: String, default: null },          // Original file name
+        fileSize: { type: Number, default: 0 },             // File size in bytes
+        mimeType: { type: String, default: "application/pdf" },
+        version: { type: String, default: "1.0" },          // Template version
+        uploadedAt: { type: Date, default: null },
+        uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Admin" },
+        // Additional template fields
+        hasFillableFields: { type: Boolean, default: false },
+        requiresSignature: { type: Boolean, default: false },
+        requiresCompanyStamp: { type: Boolean, default: false }
+    },
+
+    /**
+     * =====================================================
+     * SAMPLE DOCUMENT (For sample_view type)
+     * User can view sample document to understand format
+     * =====================================================
+     */
+    sampleDocument: {
+        fileUrl: { type: String, default: null },           // URL to view sample
+        fileName: { type: String, default: null },
+        fileSize: { type: Number, default: 0 },
+        mimeType: { type: String, default: "application/pdf" },
+        description: { type: String, default: "" },         // Description of sample
+        previewImage: { type: String, default: null }       // Thumbnail/preview
+    },
+
+    /**
+     * =====================================================
+     * GLOBAL OR BANK SPECIFIC
+     * =====================================================
+     */
+    isGlobal: {
+        type: Boolean,
+        default: true,
+        index: true
+    },
+
+    applicableBanks: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Bank"
     }],
-    applicableResidencyStatus: [{ 
-      type: String, 
-      enum: ["UAE National", "UAE Resident", "Non-Resident", "All"],
-      default: ["All"]
+
+    /**
+     * =====================================================
+     * EMPLOYMENT RULES
+     * =====================================================
+     */
+    applicableEmploymentTypes: [{
+        type: String,
+        enum: ["Salaried", "Self-Employed", "Both"],
+        default: "Both"
     }],
-    applicableLoanTypes: [{
-      type: String,
-      enum: ["CONVENTIONAL", "ISLAMIC", "Both"],
-      default: ["Both"]
+
+    applicableResidencyStatuses: [{
+        type: String,
+        enum: ["UAE National", "UAE Resident", "Non-Resident", "All"],
+        default: "All"
     }],
-    
-    // Requirements
-    isMandatory: { type: Boolean, default: true },
-    requiresSignature: { type: Boolean, default: false },
-    requiresAttestation: { type: Boolean, default: false },
-    order: { type: Number, default: 0 },
-    
-    // Download Tracking
-    downloadCount: { type: Number, default: 0 },
-    lastDownloadedAt: { type: Date },
-    downloadHistory: [{
-      downloadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-      downloadedAt: { type: Date, default: Date.now },
-      userType: { type: String, enum: ["Partner", "Advisor", "Ops", "Admin"] },
-      applicationId: { type: mongoose.Schema.Types.ObjectId, ref: "Application" }
+
+    applicableMortgageTypes: [{
+        type: String,
+        enum: ["Islamic", "Conventional", "Both"],
+        default: "Both"
     }],
-    
-    // Status
-    isActive: { type: Boolean, default: true },
-    isArchived: { type: Boolean, default: false },
-    archivedAt: { type: Date },
-    archivedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Admin" },
-    
-    // Admin Info
-    uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Admin", required: true },
-    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Admin" },
-    
-    // Instructions
-    description: { type: String, default: "" },
-    fillInstructions: { type: String, default: "" },
-    sampleFilledUrl: { type: String, default: "" }
-  },
-  { timestamps: true }
+
+    /**
+     * =====================================================
+     * VALIDATION RULES
+     * =====================================================
+     */
+    isMandatory: {
+        type: Boolean,
+        default: true
+    },
+
+    requiresFrontBack: {
+        type: Boolean,
+        default: false
+    },
+
+    requiresTranslation: {
+        type: Boolean,
+        default: false
+    },
+
+    requiresAttestation: {
+        type: Boolean,
+        default: false
+    },
+
+    requiresSignature: {
+        type: Boolean,
+        default: false
+    },
+
+    requiresStamp: {
+        type: Boolean,
+        default: false
+    },
+
+    allowMultipleFiles: {
+        type: Boolean,
+        default: false
+    },
+
+    maxFilesAllowed: {
+        type: Number,
+        default: 1
+    },
+
+    allowedFileTypes: [{
+        type: String,
+        enum: ["pdf", "jpg", "jpeg", "png", "doc", "docx"]
+    }],
+
+    maxFileSizeMB: {
+        type: Number,
+        default: 10
+    },
+
+    /**
+     * =====================================================
+     * UI / DISPLAY
+     * =====================================================
+     */
+    placeholderText: {
+        type: String,
+        default: ""
+    },
+
+    helperText: {
+        type: String,
+        default: ""
+    },
+
+    instructions: {
+        type: String,
+        default: ""
+    },
+
+    displayOrder: {
+        type: Number,
+        default: 0
+    },
+
+    /**
+     * =====================================================
+     * STATUS
+     * =====================================================
+     */
+    status: {
+        type: String,
+        enum: ["Active", "Inactive", "Archived"],
+        default: "Active",
+        index: true
+    },
+
+    isDeleted: {
+        type: Boolean,
+        default: false
+    },
+
+    deletedAt: {
+        type: Date,
+        default: null
+    },
+
+    createdBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Admin",
+        default: null
+    },
+
+    updatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Admin",
+        default: null
+    }
+},
+{
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+}
 );
 
 // Indexes
-BankFormSchema.index({ bankProductId: 1 });
-BankFormSchema.index({ applicableEmploymentTypes: 1, applicableResidencyStatus: 1 });
+DocumentRequirementSchema.index({ documentKey: 1 });
+DocumentRequirementSchema.index({ isGlobal: 1 });
+DocumentRequirementSchema.index({ applicableBanks: 1 });
+DocumentRequirementSchema.index({ documentType: 1 });
+DocumentRequirementSchema.index({ category: 1, status: 1 });
+DocumentRequirementSchema.index({ status: 1, isDeleted: 1 });
+
+// Virtuals
+DocumentRequirementSchema.virtual("hasTemplate").get(function () {
+    return this.documentType === "template_download" && !!this.template?.fileUrl;
+});
+
+DocumentRequirementSchema.virtual("hasSampleDocument").get(function () {
+    return this.documentType === "sample_view" && !!this.sampleDocument?.fileUrl;
+});
+
+DocumentRequirementSchema.virtual("isDirectUpload").get(function () {
+    return this.documentType === "direct_upload";
+});
+
+DocumentRequirementSchema.virtual("isTemplateDownload").get(function () {
+    return this.documentType === "template_download";
+});
+
+DocumentRequirementSchema.virtual("isSampleView").get(function () {
+    return this.documentType === "sample_view";
+});
+
+DocumentRequirementSchema.virtual("isActive").get(function () {
+    return this.status === "Active" && !this.isDeleted;
+});
 
 // Methods
-BankFormSchema.methods.recordDownload = async function(userId, userType, applicationId = null) {
-  this.downloadCount += 1;
-  this.lastDownloadedAt = new Date();
-  this.downloadHistory.push({ downloadedBy: userId, downloadedAt: new Date(), userType: userType, applicationId: applicationId });
-  await this.save();
+DocumentRequirementSchema.methods.softDelete = async function () {
+    this.isDeleted = true;
+    this.deletedAt = new Date();
+    this.status = "Archived";
+    return this.save();
+};
+
+DocumentRequirementSchema.methods.restore = async function () {
+    this.isDeleted = false;
+    this.deletedAt = null;
+    this.status = "Active";
+    return this.save();
+};
+
+DocumentRequirementSchema.methods.updateTemplate = async function (fileData, userId) {
+    this.template = {
+        fileUrl: fileData.url,
+        fileName: fileData.originalName,
+        fileSize: fileData.size,
+        mimeType: fileData.mimeType,
+        version: this.template?.version ? `${parseFloat(this.template.version) + 0.1}` : "1.0",
+        uploadedAt: new Date(),
+        uploadedBy: userId
+    };
+    return this.save();
+};
+
+DocumentRequirementSchema.methods.updateSampleDocument = async function (fileData) {
+    this.sampleDocument = {
+        fileUrl: fileData.url,
+        fileName: fileData.originalName,
+        fileSize: fileData.size,
+        mimeType: fileData.mimeType,
+        description: fileData.description || this.sampleDocument?.description || ""
+    };
+    return this.save();
 };
 
 // Static Methods
-BankFormSchema.statics.getFormsForBank = function(bankProductId, employmentType, residencyStatus, loanType = null) {
-  const query = {
-    bankProductId: bankProductId,
-    isActive: true,
-    isArchived: false,
-    isLatestVersion: true,
-    applicableEmploymentTypes: { $in: [employmentType, "Both"] },
-    applicableResidencyStatus: { $in: [residencyStatus, "All"] }
-  };
-  if (loanType) query.applicableLoanTypes = { $in: [loanType, "Both"] };
-  return this.find(query).sort({ order: 1 });
-};
-// ======================
-// STATIC METHODS (Add to BankForm Schema)
-// ======================
-
-// Get all forms with filters
-BankFormSchema.statics.getAllFormsWithFilters = function(filters = {}) {
-  const query = {
-    bankProductId: filters.bankProductId,
-    isActive: filters.isActive !== undefined ? filters.isActive : true,
-    isArchived: false,
-    isLatestVersion: true
-  };
-  
-  if (filters.documentSource) query.documentSource = filters.documentSource;
-  if (filters.actionType) query.actionType = filters.actionType;
-  if (filters.formType) query.formType = filters.formType;
-  if (filters.formCategory) query.formCategory = filters.formCategory;
-  if (filters.isMandatory !== undefined) query.isMandatory = filters.isMandatory;
-  if (filters.search) query.formName = { $regex: filters.search, $options: 'i' };
-  if (filters.applicableEmploymentType) {
-    query.applicableEmploymentTypes = { $in: [filters.applicableEmploymentType, "Both"] };
-  }
-  if (filters.applicableResidencyStatus) {
-    query.applicableResidencyStatus = { $in: [filters.applicableResidencyStatus, "All"] };
-  }
-  if (filters.applicableLoanType) {
-    query.applicableLoanTypes = { $in: [filters.applicableLoanType, "Both"] };
-  }
-  
-  return this.find(query).sort({ order: 1, formName: 1 });
+DocumentRequirementSchema.statics.getRequiredDocuments = async function ({
+    bankId,
+    employmentType,
+    residencyStatus,
+    mortgageType
+}) {
+    const query = {
+        status: "Active",
+        isDeleted: false,
+        $and: [
+            {
+                $or: [
+                    { isGlobal: true },
+                    { applicableBanks: bankId }
+                ]
+            },
+            {
+                applicableEmploymentTypes: {
+                    $in: [employmentType, "Both"]
+                }
+            },
+            {
+                applicableResidencyStatuses: {
+                    $in: [residencyStatus, "All"]
+                }
+            },
+            {
+                applicableMortgageTypes: {
+                    $in: [mortgageType, "Both"]
+                }
+            }
+        ]
+    };
+    
+    return this.find(query).sort({ displayOrder: 1 });
 };
 
-// Get customer documents only
-BankFormSchema.statics.getCustomerDocuments = function(bankProductId, employmentType, residencyStatus) {
-  const query = {
-    bankProductId: bankProductId,
-    documentSource: "Customer",
-    actionType: "direct_upload",
-    isActive: true,
-    isArchived: false,
-    isLatestVersion: true
-  };
-  
-  if (employmentType) {
-    query.applicableEmploymentTypes = { $in: [employmentType, "Both"] };
-  }
-  if (residencyStatus) {
-    query.applicableResidencyStatus = { $in: [residencyStatus, "All"] };
-  }
-  
-  return this.find(query).sort({ order: 1 });
+/**
+ * Get documents by type
+ */
+DocumentRequirementSchema.statics.getByType = async function (type) {
+    return this.find({
+        documentType: type,
+        status: "Active",
+        isDeleted: false
+    }).sort({ displayOrder: 1 });
 };
 
-// Get bank forms only (downloadable)
-BankFormSchema.statics.getBankForms = function(bankProductId, employmentType, residencyStatus) {
-  const query = {
-    bankProductId: bankProductId,
-    documentSource: "Bank",
-    actionType: "download_fill_upload",
-    isActive: true,
-    isArchived: false,
-    isLatestVersion: true
-  };
-  
-  if (employmentType) {
-    query.applicableEmploymentTypes = { $in: [employmentType, "Both"] };
-  }
-  if (residencyStatus) {
-    query.applicableResidencyStatus = { $in: [residencyStatus, "All"] };
-  }
-  
-  return this.find(query).sort({ order: 1 });
-};
-
-// Get forms by multiple IDs
-BankFormSchema.statics.getFormsByIds = function(ids) {
-  return this.find({
-    _id: { $in: ids },
-    isActive: true,
-    isArchived: false,
-    isLatestVersion: true
-  }).sort({ order: 1 });
-};
-BankFormSchema.set("toJSON", { virtuals: true });
-BankFormSchema.set("toObject", { virtuals: true });
-
-const BankForm = mongoose.model("BankForm", BankFormSchema, "BankForms");
-module.exports = BankForm;
+module.exports = mongoose.model("BankDocumentRequirement", DocumentRequirementSchema);

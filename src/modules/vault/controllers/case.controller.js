@@ -4,83 +4,14 @@ import Partner from '../models/Partner.js';
 import Proposal from '../models/Proposal.js';
 import mongoose from "mongoose";
 import Document from '../models/Document.js';
-import Ops from "../models/MortgageOps.js"
+import CaseDocumentRequirement from '../models/CaseDocumentRequirement.js';
+import Ops from "../models/MortgageOps.js";
 import HistoryService from '../services/history.service.js';
+import BankDocumentRequirement  from '../../mortgages/models/Bankproductdocuments.js';
 import { Role } from '../../../modules/auth/models/role/role.model.js';
+import { initializeCaseDocuments, getCaseDocumentsByFilter } from '../utils/caseDocumentHelper.js';
 
-// ==================== HELPER FUNCTIONS ====================
 
-export const updateCaseDocumentStatus = async (caseId) => {
-  const caseData = await Case.findById(caseId);
-  if (!caseData) return;
-  await caseData.updateDocumentStatus();
-};
-
-// Copy documents from Lead to Case
-const copyLeadDocsToCase = async (leadId, caseId) => {
-  try {
-    const leadDocs = await Document.find({
-      entityType: 'Lead',
-      entityId: leadId,
-      isDeleted: false
-    });
-
-    const copiedDocs = [];
-    
-    for (const doc of leadDocs) {
-      // Check if document already exists for this case
-      const existingDoc = await Document.findOne({
-        entityType: 'Case',
-        entityId: caseId,
-        documentType: doc.documentType,
-        isDeleted: false
-      });
-
-      if (!existingDoc) {
-        const newDoc = await Document.create({
-          entityType: 'Case',
-          entityId: caseId.toString(),
-          linkedFrom: { 
-            entityType: 'Lead', 
-            entityId: leadId.toString() 
-          },
-          isFromLead: true,
-          documentType: doc.documentType,
-          documentCategory: doc.documentCategory,
-          fileName: doc.fileName,
-          fileSizeMb: doc.fileSizeMb,
-          fileUrl: doc.fileUrl,
-          fileHash: doc.fileHash,
-          mimeType: doc.mimeType,
-          uploadedBy: doc.uploadedBy,
-          uploadedAt: doc.uploadedAt,
-          uploadedFromIp: doc.uploadedFromIp,
-          verificationStatus: 'pending',
-          verifiedBy: null,
-          verifiedAt: null,
-          rejectionReason: null,
-          extractedData: doc.extractedData || null,
-          qualityCheck: doc.qualityCheck || {
-            isClear: false,
-            isComplete: false,
-            isAuthentic: false,
-            qualityScore: 0,
-            notes: null
-          },
-          encryption: doc.encryption || 'AES-256'
-        });
-        copiedDocs.push(newDoc);
-      } else {
-        copiedDocs.push(existingDoc);
-      }
-    }
-    
-    return copiedDocs;
-  } catch (error) {
-    console.error("Error copying documents:", error);
-    return [];
-  }
-};
 
 const getUserInfo = async (req) => {
   const roleId = req.user?.role;
@@ -119,73 +50,42 @@ const getUserInfo = async (req) => {
   };
 };
 
-// ==================== CREATE CASE ====================
 export const createCase = async (req, res) => {
   try {
     const { 
-      sourceLeadId,
-      proposalId,
-      caseReference,
-      clientInfo,
-      currentAddress,
-      previousAddress,
-      employmentDetails,
-      incomeDetails,
-      expenseDetails,
-      propertyInfo,
-      loanInfo,
-      currentStatus,
-      internalNotes,
-      customerNotes
+      sourceLeadId, proposalId, caseReference, clientInfo, propertyInfo, 
+      loanInfo, currentStatus, internalNotes, customerNotes 
     } = req.body;
 
     // Validation
-    if (!sourceLeadId) {
-      return res.status(400).json({ success: false, message: "sourceLeadId is required" });
-    }
+    if (!sourceLeadId) return res.status(400).json({ success: false, message: "sourceLeadId is required" });
+    if (!caseReference) return res.status(400).json({ success: false, message: "caseReference is required" });
+    if (!clientInfo?.fullName) return res.status(400).json({ success: false, message: "clientInfo with fullName is required" });
+    if (!propertyInfo?.propertyValue) return res.status(400).json({ success: false, message: "propertyInfo with propertyValue is required" });
+    if (!loanInfo?.selectedBankProduct) return res.status(400).json({ success: false, message: "loanInfo with selectedBankProduct is required" });
 
-    if (!caseReference) {
-      return res.status(400).json({ success: false, message: "caseReference is required" });
-    }
-
-    if (!clientInfo || !clientInfo.fullName) {
-      return res.status(400).json({ success: false, message: "clientInfo with fullName is required" });
-    }
-
-    if (!propertyInfo || !propertyInfo.propertyValue) {
-      return res.status(400).json({ success: false, message: "propertyInfo with propertyValue is required" });
-    }
-
-    if (!loanInfo || !loanInfo.selectedBankProduct) {
-      return res.status(400).json({ success: false, message: "loanInfo with selectedBankProduct is required" });
-    }
-
-    // Check for duplicate case
+    // Check duplicate case
     const existingCase = await Case.findOne({ sourceLeadId, isDeleted: false });
     if (existingCase) {
-      return res.status(400).json({
-        success: false,
-        message: "Case already exists for this lead",
-        existingCaseId: existingCase._id
-      });
+      return res.status(400).json({ success: false, message: "Case already exists for this lead", existingCaseId: existingCase._id });
     }
 
-    // Check if case reference is unique
+    // Check unique case reference
     const existingCaseRef = await Case.findOne({ caseReference, isDeleted: false });
     if (existingCaseRef) {
-      return res.status(400).json({
-        success: false,
-        message: "Case reference already exists"
-      });
+      return res.status(400).json({ success: false, message: "Case reference already exists" });
     }
 
-    // Fetch Lead (just to verify it exists)
+    // Fetch lead
     const lead = await Lead.findById(sourceLeadId);
-    if (!lead) {
-      return res.status(404).json({ success: false, message: "Lead not found" });
+    if (!lead) return res.status(404).json({ success: false, message: "Lead not found" });
+
+    // Check lead status
+    if (lead.currentStatus !== 'Qualified') {
+      return res.status(400).json({ success: false, message: `Lead must be Qualified to create a case. Current status: ${lead.currentStatus}` });
     }
 
-    // Get user role
+    // User role & permission
     const roleDoc = await Role.findById(req.user.role);
     const isAdmin = roleDoc?.code === '18';
     const isPartner = roleDoc?.code === '21';
@@ -195,247 +95,150 @@ export const createCase = async (req, res) => {
       return res.status(403).json({ success: false, message: "Not authorized to create case" });
     }
 
+    // Get Bank Product Details
+    const BankProduct = mongoose.model('BankMortgageProducts');
+    const product = await BankProduct.findById(loanInfo.selectedBankProduct).populate('bank');
+    
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Bank product not found" });
+    }
+
     // Set createdBy based on role
     let createdBy = {};
     if (isAdmin) {
-      createdBy = { 
-        role: 'admin', 
-        adminId: req.user._id, 
-        adminName: req.user?.email || 'Admin', 
-        createdAt: new Date() 
-      };
+      createdBy = { role: 'admin', userId: req.user._id, userName: req.user?.email || 'Admin', createdAt: new Date() };
     } else if (isAdvisor) {
-      createdBy = { 
-        role: 'advisor', 
-        advisorId: req.user._id, 
-        advisorName: req.user?.fullName || req.user?.email, 
-        createdAt: new Date() 
-      };
+      createdBy = { role: 'advisor', userId: req.user._id, userName: req.user?.fullName || req.user?.email, createdAt: new Date() };
     } else if (isPartner) {
       const partner = await Partner.findById(req.user._id);
       if (!partner || !partner.isActive()) {
         return res.status(403).json({ success: false, message: "Partner account not active" });
       }
-      createdBy = { 
-        role: 'partner', 
-        partnerId: partner._id, 
-        partnerName: partner.companyName, 
-        createdAt: new Date() 
-      };
+      createdBy = { role: 'partner', userId: partner._id, userName: partner.companyName, createdAt: new Date() };
     }
 
-    // Calculate tenure months
-    const tenureMonths = (loanInfo.tenureYears || 25) * 12;
-
-    // Get user name for notes
-    const userName = req.user?.fullName || req.user?.email || 'System';
-
-    // Format internalNotes and customerNotes properly
+    // Format notes
     const formattedInternalNotes = Array.isArray(internalNotes) 
-      ? internalNotes 
+      ? internalNotes.filter(n => typeof n === 'string')
       : (internalNotes && typeof internalNotes === 'string' && internalNotes.trim() 
-          ? [{ note: internalNotes, addedBy: userName, addedAt: new Date() }] 
-          : []);
+          ? [internalNotes.trim()] : []);
 
     const formattedCustomerNotes = Array.isArray(customerNotes) 
-      ? customerNotes 
+      ? customerNotes.filter(n => typeof n === 'string')
       : (customerNotes && typeof customerNotes === 'string' && customerNotes.trim() 
-          ? [{ note: customerNotes, addedBy: userName, addedAt: new Date() }] 
-          : []);
+          ? [customerNotes.trim()] : []);
 
-    // Create Case with data provided from frontend
+    // Create case
     const caseData = await Case.create({
       caseReference,
-      sourceLeadId: sourceLeadId,
+      sourceLeadId,
       proposalId: proposalId || null,
       createdBy,
       
       clientInfo: {
         fullName: clientInfo.fullName,
-        preferredName: clientInfo.preferredName || null,
-        gender: clientInfo.gender || 'Male',
-        dateOfBirth: clientInfo.dateOfBirth ? new Date(clientInfo.dateOfBirth) : null,
-        nationality: clientInfo.nationality,
-        maritalStatus: clientInfo.maritalStatus || 'Single',
-        numberOfDependents: clientInfo.numberOfDependents || 0,
-        email: clientInfo.email,
-        mobile: clientInfo.mobile,
-        homePhone: clientInfo.homePhone || null,
-        workPhone: clientInfo.workPhone || null,
-        whatsapp: clientInfo.whatsapp || null,
-      },
-      
-      currentAddress: currentAddress || null,
-      previousAddress: previousAddress || null,
-      
-      employmentDetails: {
-        employerName: employmentDetails.employerName,
-        industry: employmentDetails.industry || null,
-        designation: employmentDetails.designation,
-        employmentType: employmentDetails.employmentType || 'Salaried',
-        yearsWithEmployer: employmentDetails.yearsWithEmployer,
-        monthsWithEmployer: employmentDetails.monthsWithEmployer || 0,
-        probationPeriod: employmentDetails.probationPeriod || 'Completed',
-        workAddress: employmentDetails.workAddress || null,
-        workPhone: employmentDetails.workPhone || null,
-        employerEmail: employmentDetails.employerEmail || null,
-      },
-      
-      incomeDetails: {
-        basicSalary: incomeDetails.basicSalary || 0,
-        housingAllowance: incomeDetails.housingAllowance || 0,
-        transportAllowance: incomeDetails.transportAllowance || 0,
-        otherAllowances: incomeDetails.otherAllowances || 0,
-        totalMonthlySalary: incomeDetails.totalMonthlySalary || 0,
-        annualBonus: incomeDetails.annualBonus || 0,
-        otherIncome: incomeDetails.otherIncome || 0,
-        totalMonthlyIncome: incomeDetails.totalMonthlyIncome || 0,
-        salaryTransferBank: incomeDetails.salaryTransferBank || null,
-        salaryTransferType: incomeDetails.salaryTransferType || null,
-      },
-      
-      expenseDetails: {
-        monthlyRent: expenseDetails?.monthlyRent || 0,
-        monthlyOtherLoanInstallments: expenseDetails?.monthlyOtherLoanInstallments || 0,
-        monthlyCreditCardPayments: expenseDetails?.monthlyCreditCardPayments || 0,
-        monthlyLivingExpenses: expenseDetails?.monthlyLivingExpenses || 0,
-        totalMonthlyLiabilities: expenseDetails?.totalMonthlyLiabilities || 0,
-        dbrPercentage: expenseDetails?.dbrPercentage || 0,
-        dbrStatus: expenseDetails?.dbrStatus || 'Eligible',
-        existingLoans: expenseDetails?.existingLoans || [],
+        email: clientInfo.email || lead.customerInfo.email,
+        mobile: clientInfo.mobile || lead.customerInfo.mobileNumber,
+        nationality: clientInfo.nationality || lead.customerInfo.nationality,
+        residencyStatus: clientInfo.residencyStatus || lead.customerInfo.residencyStatus,
+        employmentStatus: clientInfo.employmentStatus || lead.customerInfo.employmentStatus
       },
       
       propertyInfo: {
-        propertyType: propertyInfo.propertyType || 'Ready',
-        propertySubtype: propertyInfo.propertySubtype || 'Apartment',
         propertyValue: propertyInfo.propertyValue,
-        valuationAmount: propertyInfo.valuationAmount || null,
-        ltvPercentage: propertyInfo.ltvPercentage || null,
         loanAmount: propertyInfo.loanAmount || (propertyInfo.propertyValue - (propertyInfo.downPayment || 0)),
-        downPayment: propertyInfo.downPayment || 0,
-        downPaymentSource: propertyInfo.downPaymentSource || null,
         propertyAddress: {
-          building: propertyInfo.propertyAddress?.building || '',
-          apartment: propertyInfo.propertyAddress?.apartment || null,
-          floor: propertyInfo.propertyAddress?.floor || null,
-          area: propertyInfo.propertyAddress?.area || '',
-          city: propertyInfo.propertyAddress?.city || 'Dubai',
-          emirate: propertyInfo.propertyAddress?.emirate || 'Dubai',
-        },
-        propertyDetails: {
-          bedrooms: propertyInfo.propertyDetails?.bedrooms || null,
-          bathrooms: propertyInfo.propertyDetails?.bathrooms || null,
-          areaSqft: propertyInfo.propertyDetails?.areaSqft || null,
-          areaSqm: propertyInfo.propertyDetails?.areaSqm || null,
-          yearBuilt: propertyInfo.propertyDetails?.yearBuilt || null,
-          view: propertyInfo.propertyDetails?.view || null,
-          furnishing: propertyInfo.propertyDetails?.furnishing || null,
-          parkingSpaces: propertyInfo.propertyDetails?.parkingSpaces || 0,
-        },
-        ownershipDetails: {
-          currentOwner: propertyInfo.ownershipDetails?.currentOwner || clientInfo.fullName,
-          ownerType: propertyInfo.ownershipDetails?.ownerType || 'Individual',
-          titleDeedNumber: propertyInfo.ownershipDetails?.titleDeedNumber || null,
-          titleDeedUrl: propertyInfo.ownershipDetails?.titleDeedUrl || null,
-          nocAvailable: propertyInfo.ownershipDetails?.nocAvailable || false,
-        },
-        transactionDetails: {
-          purchasePrice: propertyInfo.transactionDetails?.purchasePrice || propertyInfo.propertyValue,
-          agreementDate: propertyInfo.transactionDetails?.agreementDate ? new Date(propertyInfo.transactionDetails.agreementDate) : new Date(),
-          handoverDate: propertyInfo.transactionDetails?.handoverDate ? new Date(propertyInfo.transactionDetails.handoverDate) : null,
-          depositPaid: propertyInfo.transactionDetails?.depositPaid || 0,
-          depositPaidDate: propertyInfo.transactionDetails?.depositPaidDate ? new Date(propertyInfo.transactionDetails.depositPaidDate) : null,
-          agentCommission: propertyInfo.transactionDetails?.agentCommission || 0,
-          dldFees: propertyInfo.transactionDetails?.dldFees || 0,
-          registrationFees: propertyInfo.transactionDetails?.registrationFees || 0,
-          totalClosingCosts: propertyInfo.transactionDetails?.totalClosingCosts || 0,
-        },
+          area: propertyInfo.propertyAddress?.area || lead.propertyDetails.propertyAddress?.area || '',
+          city: propertyInfo.propertyAddress?.city || lead.propertyDetails.propertyAddress?.city || 'Dubai'
+        }
       },
       
-      loanInfo: {
-        requestedAmount: loanInfo.requestedAmount || (propertyInfo.propertyValue - (propertyInfo.downPayment || 0)),
-        approvedAmount: loanInfo.approvedAmount || null,
+      bankSelection: {
+        bankId: product.bank._id,
+        bankName: product.bank.bankName,
+        productId: product._id,
+        productName: product.productName,
+        interestRate: parseFloat(product.interestRate),
         tenureYears: loanInfo.tenureYears || 25,
-        tenureMonths: loanInfo.tenureMonths || tenureMonths,
-        interestRateType: loanInfo.interestRateType || 'Fixed',
-        interestRatePercentage: loanInfo.interestRatePercentage,
-        processingFee: loanInfo.processingFee || 0,
-        valuationFee: loanInfo.valuationFee || 2500,
-        earlySettlementFeePercentage: loanInfo.earlySettlementFeePercentage || 1,
-        earlySettlementAllowedAfterYears: loanInfo.earlySettlementAllowedAfterYears || 3,
-        lifeInsuranceRequired: loanInfo.lifeInsuranceRequired !== undefined ? loanInfo.lifeInsuranceRequired : true,
-        propertyInsuranceRequired: loanInfo.propertyInsuranceRequired !== undefined ? loanInfo.propertyInsuranceRequired : true,
-        monthlyInstallment: {
-          principalAndInterest: loanInfo.monthlyInstallment?.principalAndInterest || 0,
-          lifeInsurance: loanInfo.monthlyInstallment?.lifeInsurance || 0,
-          propertyInsurance: loanInfo.monthlyInstallment?.propertyInsurance || 0,
-          totalMonthlyPayment: loanInfo.monthlyInstallment?.totalMonthlyPayment || 0,
-        },
-        selectedBank: loanInfo.selectedBank,
-        selectedBankProduct: loanInfo.selectedBankProduct,
+        monthlyEMI: loanInfo.monthlyEMI || 0
       },
       
-      currentStatus: currentStatus || 'Draft',
+      currentStatus: 'Draft',
       internalNotes: formattedInternalNotes,
       customerNotes: formattedCustomerNotes,
+      
+      amountTracking: {
+        requestedAmount: propertyInfo.loanAmount || (propertyInfo.propertyValue - (propertyInfo.downPayment || 0)),
+        amountStatus: 'Pending'
+      },
+      
+      eligibilitySnapshot: {
+        checkedAt: lead.eligibility?.checkedAt || null,
+        isEligible: lead.eligibility?.isEligible || false,
+        dbrPercentage: lead.eligibility?.dbrPercentage || 0,
+        dbrStatus: lead.eligibility?.dbrStatus || 'Not Checked',
+        estimatedLTV: lead.eligibility?.estimatedLTV || 0,
+        eligibilityScore: lead.eligibility?.eligibilityScore || 0,
+        riskGrade: lead.eligibility?.riskGrade || null,
+        recommendedLoanAmount: lead.eligibility?.recommendedLoanAmount || 0,
+        eligibilityNotes: lead.eligibility?.eligibilityNotes || null
+      }
     });
 
-    // Copy documents from Lead to Case
-    const copiedDocuments = await copyLeadDocsToCase(sourceLeadId, caseData._id);
+    // ✅ Initialize documents using customer's employment and residency
+    const employmentStatus = lead.customerInfo.employmentStatus;
+    const residencyStatus = lead.customerInfo.residencyStatus;
     
-    caseData.documentsCopiedFromLead = copiedDocuments.length > 0;
-    
-    // Initialize required documents based on employment type
-    await caseData.initializeRequiredDocuments();
-    await caseData.calculateFinancialMetrics();
-    await caseData.updateDocumentStatus();
-    await caseData.save();
+    const documentResult = await initializeCaseDocuments({
+      caseId: caseData._id,
+      bankId: product.bank._id,
+      employmentStatus: employmentStatus,
+      residencyStatus: residencyStatus,
+      mortgageType: product.mortgageType || 'Both'
+    });
 
-    // Update Lead conversion info
+    // Update case document summary
+    await caseData.updateDocumentSummary();
+
+    // Update lead conversion info
     await Lead.findByIdAndUpdate(sourceLeadId, {
-      'conversionInfo.convertedToCase': true,
-      'conversionInfo.caseId': caseData._id,
+      'conversionInfo.convertedToApplication': true,
+      'conversionInfo.applicationId': caseData._id,
       'conversionInfo.convertedAt': new Date(),
-      'conversionInfo.convertedByRole': createdBy.role,
-      'conversionInfo.convertedById': req.user._id,
-      'conversionInfo.convertedByName': createdBy.adminName || createdBy.advisorName || createdBy.partnerName
+      'conversionInfo.convertedBy': req.user._id,
+      'conversionInfo.convertedByName': createdBy.userName,
+      currentStatus: 'Collecting Documents'
     });
 
-    // Update Proposal conversion info if proposalId provided
+    // Update proposal if provided
     if (proposalId) {
       await Proposal.findByIdAndUpdate(proposalId, {
         convertedToCase: true,
         convertedCaseId: caseData._id,
-        convertedCaseReference: caseReference,
         convertedAt: new Date()
       });
     }
 
+    // Log activity
     await HistoryService.logCaseActivity(caseData, 'CASE_CREATED', await getUserInfo(req), {
-      description: `Case ${caseReference} created with ${copiedDocuments.length} documents copied from lead`,
-    });
-
-    // Return created case with populated data
-    const populatedCase = await Case.findById(caseData._id)
-      .populate('loanInfo.selectedBankProduct')
-      .populate('assignedTo.opsId')
-      .lean();
-
-    // Get all documents for this case
-    const caseDocuments = await Document.find({
-      entityType: 'Case',
-      entityId: caseData._id.toString(),
-      isDeleted: false
+      description: `Case ${caseReference} created with ${documentResult.summary.total} document requirements`
     });
 
     return res.status(201).json({
       success: true,
       message: "Case created successfully",
       data: {
-        case: populatedCase,
-        documents: caseDocuments,
-        documentsCopiedFromLead: copiedDocuments.length,
-        totalDocuments: caseDocuments.length
+        case: caseData,
+        documentSummary: caseData.documentSummary,
+        documentRequirements: documentResult.documents,
+        documentStats: documentResult.summary,
+        filtersUsed: {
+          employmentStatus: employmentStatus,
+          residencyStatus: residencyStatus,
+          bankId: product.bank._id,
+          bankName: product.bank.bankName,
+          productName: product.productName
+        }
       }
     });
 
@@ -445,343 +248,316 @@ export const createCase = async (req, res) => {
   }
 };
 
-// ==================== GET ALL CASES ====================
-export const getAllCases = async (req, res) => {
+// Get case documents
+export const getCaseDocuments = async (req, res) => {
   try {
-    const roleDoc = await Role.findById(req.user.role);
-    const isAdmin = roleDoc?.code === '18';
-    const isPartner = roleDoc?.code === '21';
-    const isAdvisor = roleDoc?.code === '26';
-    const isOps = req.user?.employeeType === 'MortgageOps';
+    const { caseId } = req.params;
+    const { source, handledBy, actionType } = req.query;
     
-    const { status, page = 1, limit = 20, search } = req.query;
+    const result = await getCaseDocumentsByFilter(caseId, { source, handledBy, actionType });
     
-    let query = { isDeleted: false };
-    if (status) query.currentStatus = status;
-    
-    if (isPartner) {
-      query['createdBy.partnerId'] = req.user._id;
-    } else if (isAdvisor) {
-      query['createdBy.advisorId'] = req.user._id;
-    } else if (isOps) {
-      query['assignedTo.opsId'] = req.user._id;
-    }
-    
-    if (search) {
-      query.$or = [
-        { 'clientInfo.fullName': { $regex: search, $options: 'i' } },
-        { 'clientInfo.email': { $regex: search, $options: 'i' } },
-        { caseReference: { $regex: search, $options: 'i' } }
-      ];
-    }
-    
-    const cases = await Case.find(query)
-      .sort({ createdAt: -1 })
-      .skip((parseInt(page) - 1) * parseInt(limit))
-      .limit(parseInt(limit));
-    
-    const total = await Case.countDocuments(query);
-    
-    return res.status(200).json({ 
-      success: true, 
-      data: cases, 
-      total, 
-      pagination: { 
-        totalPages: Math.ceil(total / parseInt(limit)), 
-        currentPage: parseInt(page), 
-        limit: parseInt(limit) 
-      } 
+    return res.status(200).json({
+      success: result.success,
+      data: result.documents,
+      summary: result.summary
     });
+    
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==================== GET CASE BY ID ====================
-export const getCaseById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const caseData = await Case.findOne({ _id: id, isDeleted: false });
-    if (!caseData) {
-      return res.status(404).json({ success: false, message: "Case not found" });
-    }
-    
-    const documents = await Document.find({ 
-      entityType: 'Case', 
-      entityId: id, 
-      isDeleted: false 
-    });
-    
-    return res.status(200).json({ 
-      success: true, 
-      data: { case: caseData, documents } 
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ==================== UPDATE CASE ====================
-export const updateCase = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const updateData = req.body;
-    
-    const caseData = await Case.findOne({ _id: id, isDeleted: false });
-    if (!caseData) {
-      return res.status(404).json({ success: false, message: "Case not found" });
-    }
-    
-    if (caseData.currentStatus !== 'Draft') {
-      return res.status(400).json({ success: false, message: "Only draft cases can be updated" });
-    }
-    
-    const updatedCase = await Case.findByIdAndUpdate(
-      id,
-      { ...updateData, updatedAt: new Date() },
-      { new: true, runValidators: true }
-    );
-    
-    await HistoryService.logCaseActivity(updatedCase, 'CASE_UPDATED', await getUserInfo(req), {
-      description: `Case ${updatedCase.caseReference} updated`,
-    });
-    
-    return res.status(200).json({ success: true, message: "Case updated", data: updatedCase });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ==================== SUBMIT CASE TO XOTO ====================
-// ==================== SUBMIT CASE TO XOTO ====================
+// ==================== SUBMIT CASE TO XOTO (Enter Ops Queue) ====================
 export const submitCaseToXoto = async (req, res) => {
   try {
     const { id } = req.params;
     
     const caseData = await Case.findOne({ _id: id, isDeleted: false });
-    if (!caseData) {
-      return res.status(404).json({ success: false, message: "Case not found" });
-    }
+    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
     
-    // Check if case is in Draft status
     if (caseData.currentStatus !== 'Draft') {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Case cannot be submitted. Current status: ${caseData.currentStatus}` 
-      });
+      return res.status(400).json({ success: false, message: `Case cannot be submitted. Current status: ${caseData.currentStatus}` });
     }
     
+    // Check if all global documents are uploaded
+    const allGlobalUploaded = caseData.documentStatus.globalDocuments?.every(d => d.isUploaded) ?? true;
+    if (!allGlobalUploaded) {
+      return res.status(400).json({ success: false, message: "All required documents must be uploaded before submitting" });
+    }
     
-    // ✅ Change status to 'Submitted to Xoto' first
+    // Submit to Xoto and enter Ops Queue
     caseData.currentStatus = 'Submitted to Xoto';
+    caseData.timeline.submittedToXotoAt = new Date();
+    caseData.documentStatus.advisorSubmittedAt = new Date();
     await caseData.save();
     
-    // ✅ Then move to Ops Queue (or let Admin do it manually)
-    // Option 1: Auto-move to Ops Queue
-    caseData.currentStatus = 'In Ops Queue - Pending Pick-up';
-    await caseData.save();
-    
-    // OR Option 2: Keep as 'Submitted to Xoto' and let Admin move it
-    // For now, I'll use Option 1 (auto-move)
+    // Auto-enter Ops Queue
+    await caseData.enterOpsQueue();
     
     await HistoryService.logCaseActivity(caseData, 'CASE_SUBMITTED_TO_XOTO', await getUserInfo(req), {
-      description: `Case ${caseData.caseReference} submitted to Xoto and placed in Ops Queue`,
+      description: `Case ${caseData.caseReference} submitted to Xoto and placed in Ops Queue`
     });
     
-    return res.status(200).json({ 
-      success: true, 
-      message: "Case submitted to Xoto successfully and added to Ops Queue", 
-      data: caseData 
+    return res.status(200).json({ success: true, message: "Case submitted to Xoto successfully", data: caseData });
+    
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== OPS QUEUE MANAGEMENT ====================
+
+export const getOpsQueue = async (req, res) => {
+  try {
+    const roleDoc = await Role.findById(req.user.role);
+    const isAdmin = roleDoc?.code === '18';
+    const isOps = roleDoc?.code === '23';
+    
+    if (!isAdmin && !isOps) return res.status(403).json({ success: false, message: "Access denied" });
+    
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    
+    let query = { currentStatus: 'In Ops Queue - Pending Pick-up', isDeleted: false };
+    
+    if (req.query.search) {
+      query.$or = [
+        { caseReference: { $regex: req.query.search, $options: 'i' } },
+        { 'clientInfo.fullName': { $regex: req.query.search, $options: 'i' } },
+        { 'clientInfo.email': { $regex: req.query.search, $options: 'i' } },
+        { 'clientInfo.mobile': { $regex: req.query.search, $options: 'i' } }
+      ];
+    }
+    
+    if (req.query.bank && req.query.bank !== 'all') {
+      query['bankSelection.bankName'] = { $regex: req.query.bank, $options: 'i' };
+    }
+    
+    const total = await Case.countDocuments(query);
+    const cases = await Case.find(query)
+      .sort({ createdAt: 1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+    
+    const casesWithQueueTime = cases.map(c => ({
+      ...c,
+      hoursInQueue: Math.floor((Date.now() - new Date(c.createdAt)) / (1000 * 60 * 60)),
+      daysInQueue: Math.floor((Date.now() - new Date(c.createdAt)) / (1000 * 60 * 60 * 24)),
+      returnCount: c.opsQueue?.returnCount || 0,
+      lastReturnReason: c.opsQueue?.lastReturnReason || null
+    }));
+    
+    return res.status(200).json({
+      success: true,
+      data: casesWithQueueTime,
+      total,
+      pagination: { currentPage: page, totalPages: Math.ceil(total / limit), limit }
     });
     
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+export const opsPickUpCase = async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const opsId = req.user._id;
+    
+    const roleDoc = await Role.findById(req.user.role);
+    if (roleDoc?.code !== '23') return res.status(403).json({ success: false, message: "Only Mortgage Ops can pick up cases" });
+    
+    const caseData = await Case.findOne({ _id: caseId, currentStatus: 'In Ops Queue - Pending Pick-up', isDeleted: false });
+    if (!caseData) return res.status(404).json({ success: false, message: "Case not found or already picked up" });
+    
+    const ops = await Ops.findById(opsId);
+    if (!ops) return res.status(404).json({ success: false, message: "Mortgage Ops user not found" });
+    
+    const currentWorkload = ops.workload?.currentApplications || 0;
+    const maxCapacity = ops.workload?.maxCapacity || 999;
+    if (currentWorkload >= maxCapacity) {
+      return res.status(400).json({ success: false, message: `You have reached your maximum capacity (${maxCapacity} cases)` });
+    }
+    
+    let opsName = ops.fullName || ops.email || 'Ops User';
+    
+    await caseData.pickUpFromQueue(opsId, opsName);
+    
+    ops.workload.currentApplications = currentWorkload + 1;
+    ops.queueStatus.pendingReview = (ops.queueStatus.pendingReview || 0) + 1;
+    await ops.save();
+    
+    await HistoryService.logCaseActivity(caseData, 'CASE_PICKED_UP', await getUserInfo(req), {
+      description: `Case picked up by Ops ${opsName}`
+    });
+    
+    return res.status(200).json({ success: true, message: "Case picked up successfully", data: caseData });
+    
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const returnCaseToQueue = async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { reason } = req.body;
+    
+    if (!reason || reason.trim() === '') {
+      return res.status(400).json({ success: false, message: "Valid reason required to return case to queue" });
+    }
+    
+    const caseData = await Case.findOne({ _id: caseId, isDeleted: false });
+    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
+    
+    const opsId = req.user._id;
+    const ops = await Ops.findById(opsId);
+    let opsName = ops?.fullName || ops?.email || 'Ops User';
+    
+    await caseData.returnToQueue(opsId, opsName, reason);
+    
+    // Decrease workload
+    if (ops) {
+      ops.workload.currentApplications = Math.max(0, (ops.workload.currentApplications || 0) - 1);
+      ops.queueStatus.pendingReview = Math.max(0, (ops.queueStatus.pendingReview || 0) - 1);
+      await ops.save();
+    }
+    
+    await HistoryService.logCaseActivity(caseData, 'CASE_RETURNED_TO_QUEUE', await getUserInfo(req), {
+      description: `Case returned to queue. Reason: ${reason}`
+    });
+    
+    return res.status(200).json({ success: true, message: "Case returned to queue", data: caseData });
+    
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const adminAssignCaseToOps = async (req, res) => {
+  try {
+    const { caseId, opsId } = req.body;
+    
+    const roleDoc = await Role.findById(req.user.role);
+    if (roleDoc?.code !== '18') return res.status(403).json({ success: false, message: "Admin only" });
+    
+    const caseData = await Case.findOne({ _id: caseId, isDeleted: false });
+    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
+    
+    if (caseData.currentStatus !== 'In Ops Queue - Pending Pick-up') {
+      return res.status(400).json({ success: false, message: "Case must be in queue for manual assignment" });
+    }
+    
+    const ops = await Ops.findById(opsId);
+    if (!ops) return res.status(404).json({ success: false, message: "Ops not found" });
+    
+    let opsName = ops.fullName || ops.email || 'Ops User';
+    const adminName = req.user?.email || 'Admin';
+    
+    await caseData.adminAssignToOps(opsId, opsName, adminName);
+    
+    ops.workload.currentApplications = (ops.workload.currentApplications || 0) + 1;
+    await ops.save();
+    
+    await HistoryService.logCaseActivity(caseData, 'CASE_MANUALLY_ASSIGNED', await getUserInfo(req), {
+      description: `Case manually assigned to Ops ${opsName} by Admin`
+    });
+    
+    return res.status(200).json({ success: true, message: `Case assigned to ${opsName}`, data: caseData });
+    
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getMyAssignedCases = async (req, res) => {
+  try {
+    const opsId = req.user._id;
+    
+    const roleDoc = await Role.findById(req.user.role);
+    if (roleDoc?.code !== '23') return res.status(403).json({ success: false, message: "Access denied" });
+    
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    
+    let query = { 'opsQueue.currentAssignment.opsId': opsId, isDeleted: false };
+    
+    if (req.query.search) {
+      query.$or = [
+        { caseReference: { $regex: req.query.search, $options: 'i' } },
+        { 'clientInfo.fullName': { $regex: req.query.search, $options: 'i' } }
+      ];
+    }
+    
+    if (req.query.caseStatus && req.query.caseStatus !== 'all') {
+      query.currentStatus = req.query.caseStatus;
+    }
+    
+    const total = await Case.countDocuments(query);
+    const cases = await Case.find(query).sort({ updatedAt: -1 }).skip(skip).limit(limit).lean();
+    
+    return res.status(200).json({ success: true, data: cases, total, pagination: { currentPage: page, totalPages: Math.ceil(total / limit), limit } });
+    
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // ==================== UPDATE CASE STATUS ====================
 export const updateCaseStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, notes, approvedAmount, bankReference, disbursedAmount } = req.body;
+    const { status, notes, approvedAmount, bankReference } = req.body;
     
     const roleDoc = await Role.findById(req.user.role);
     const isAdmin = roleDoc?.code === '18';
     const isOps = roleDoc?.code === '23';
     
-    if (!isAdmin && !isOps) {
-      return res.status(403).json({ success: false, message: "Only Admin or Mortgage Ops can update case status" });
-    }
+    if (!isAdmin && !isOps) return res.status(403).json({ success: false, message: "Only Admin or Mortgage Ops can update case status" });
     
     const caseData = await Case.findOne({ _id: id, isDeleted: false });
-    if (!caseData) {
-      return res.status(404).json({ success: false, message: "Case not found" });
-    }
+    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
     
-    if (isOps && caseData.assignedTo?.opsId?.toString() !== req.user._id.toString()) {
+    if (isOps && caseData.opsQueue?.currentAssignment?.opsId?.toString() !== req.user._id.toString()) {
       return res.status(403).json({ success: false, message: "You can only update cases assigned to you" });
-    }
-    
-    // ✅ REMOVED ALL TRANSITION RESTRICTIONS - Ops can update to ANY status
-    // Only basic validation: status must be in enum (handled by schema)
-    
-    // Special validation for Bank Application
-    if (status === 'Bank Application' && !caseData.documentStatus?.allDocumentsVerified) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "All documents must be verified before bank submission" 
-      });
     }
     
     const previousStatus = caseData.currentStatus;
     caseData.currentStatus = status;
     
-    // ✅ Handle Pre-Approved - Save approved amount
+    // Handle Pre-Approved with amount
     if (status === 'Pre-Approved' && approvedAmount) {
-      caseData.loanInfo.approvedAmount = parseFloat(approvedAmount);
-      caseData.bankDecision = {
-        status: 'Approved',
-        approvedAmount: parseFloat(approvedAmount),
-        interestRate: caseData.loanInfo?.interestRatePercentage,
-        decisionAt: new Date()
-      };
-      
-      if (!caseData.internalNotes) caseData.internalNotes = [];
-      caseData.internalNotes.push({
-        note: `🏦 Bank Pre-Approved: AED ${parseFloat(approvedAmount).toLocaleString()} at ${caseData.loanInfo?.interestRatePercentage}%`,
-        addedBy: req.user?.email || 'System',
-        addedAt: new Date()
-      });
+      await caseData.updateBankApproval(approvedAmount, null, bankReference, notes);
     }
     
-    // ✅ Handle FOL Issued - Save FOL amount
-    if (status === 'FOL Issued' && approvedAmount) {
-      caseData.loanInfo.approvedAmount = parseFloat(approvedAmount);
-      
-      if (!caseData.internalNotes) caseData.internalNotes = [];
-      caseData.internalNotes.push({
-        note: `📄 FOL Issued: AED ${parseFloat(approvedAmount).toLocaleString()}`,
-        addedBy: req.user?.email || 'System',
-        addedAt: new Date()
-      });
+    // Handle Bank Application
+    if (status === 'Submitted to Bank' && bankReference) {
+      caseData.bankSubmission = { submittedToBankAt: new Date(), bankReferenceNumber: bankReference, bankNotes: notes };
+      caseData.timeline.submittedToBankAt = new Date();
     }
     
-    // ✅ Handle Disbursed - Save disbursed amount and create commission
-    if (status === 'Disbursed') {
-      const finalDisbursedAmount = disbursedAmount || approvedAmount || caseData.loanInfo?.approvedAmount;
-      
-      if (finalDisbursedAmount) {
-        caseData.loanInfo.disbursedAmount = parseFloat(finalDisbursedAmount);
-        caseData.loanInfo.approvedAmount = parseFloat(finalDisbursedAmount);
-        
-        caseData.bankDecision = {
-          status: 'Approved',
-          approvedAmount: parseFloat(finalDisbursedAmount),
-          interestRate: caseData.loanInfo?.interestRatePercentage,
-          decisionAt: new Date()
-        };
-        
-        if (!caseData.internalNotes) caseData.internalNotes = [];
-        caseData.internalNotes.push({
-          note: `💰 Case Disbursed: AED ${parseFloat(finalDisbursedAmount).toLocaleString()}`,
-          addedBy: req.user?.email || 'System',
-          addedAt: new Date()
-        });
-        
-        // Auto-create commission
-        try {
-          const Commission = require('../models/Commission');
-          await Commission.createFromCase(caseData, parseFloat(finalDisbursedAmount));
-        } catch (commissionErr) {
-          console.error("Commission creation error:", commissionErr);
-        }
-        
-        // Update Lead status
-        try {
-          const VaultLead = require('../models/VaultLead');
-          const lead = await VaultLead.findById(caseData.sourceLeadId);
-          if (lead) {
-            lead.currentStatus = 'Disbursed';
-            lead.loanAmountRange = finalDisbursedAmount > 5000000 ? '>5M AED' : '≤5M AED';
-            await lead.save();
-          }
-        } catch (leadErr) {
-          console.error("Lead update error:", leadErr);
-        }
-      }
+    // Handle Disbursed
+    if (status === 'Disbursed' && approvedAmount) {
+      await caseData.updateDisbursement(approvedAmount, bankReference);
     }
     
-    // Handle Bank Application - Save reference
-    if (status === 'Bank Application') {
-      caseData.bankSubmission = {
-        submittedToBankAt: new Date(),
-        bankName: caseData.loanInfo?.selectedBank,
-        bankReferenceNumber: bankReference,
-        bankNotes: notes
-      };
-    }
-    
-    // Handle Rejection
+    // Handle Rejected
     if (status === 'Rejected') {
-      caseData.bankDecision = {
-        status: 'Rejected',
-        decisionAt: new Date()
-      };
-      
-      if (!caseData.internalNotes) caseData.internalNotes = [];
-      caseData.internalNotes.push({
-        note: `❌ Case Rejected by bank. Reason: ${notes || 'Not specified'}`,
-        addedBy: req.user?.email || 'System',
-        addedAt: new Date()
-      });
+      await caseData.rejectCase(notes || 'Rejected by bank');
     }
     
-    // Handle Lost
-    if (status === 'Lost') {
-      if (!caseData.internalNotes) caseData.internalNotes = [];
-      caseData.internalNotes.push({
-        note: `📉 Case Lost. Reason: ${notes || 'Not specified'}`,
-        addedBy: req.user?.email || 'System',
-        addedAt: new Date()
-      });
-      
-      // Update Lead to Not Proceeding
-      try {
-        const VaultLead = require('../models/VaultLead');
-        const lead = await VaultLead.findById(caseData.sourceLeadId);
-        if (lead && lead.currentStatus !== 'Disbursed') {
-          lead.currentStatus = 'Not Proceeding';
-          await lead.save();
-        }
-      } catch (leadErr) {
-        console.error("Lead update error:", leadErr);
-      }
-    }
-    
-    // Handle Return for Correction
-    if (status === 'Returned - Pending Correction' && notes) {
-      caseData.lastReturnNotes = notes;
-      caseData.returnedBy = req.user._id;
-      caseData.returnedAt = new Date();
-    }
-    
-    // Add general notes if provided
-    if (notes && !['Returned - Pending Correction', 'Rejected', 'Lost'].includes(status)) {
-      if (!caseData.internalNotes) caseData.internalNotes = [];
-      caseData.internalNotes.push({ 
-        note: notes, 
-        addedBy: req.user?.email || 'System', 
-        addedAt: new Date() 
-      });
+    // Add notes
+    if (notes && !['Pre-Approved', 'Submitted to Bank', 'Disbursed', 'Rejected'].includes(status)) {
+      caseData.internalNotes = caseData.internalNotes || [];
+      caseData.internalNotes.push(`${previousStatus} → ${status}: ${notes}`);
     }
     
     await caseData.save();
     
-    return res.status(200).json({ 
-      success: true, 
-      message: `Case status updated from ${previousStatus} to ${status}`, 
-      data: caseData 
-    });
+    return res.status(200).json({ success: true, message: `Case status updated from ${previousStatus} to ${status}`, data: caseData });
     
   } catch (error) {
     console.error("Update case status error:", error);
@@ -789,112 +565,79 @@ export const updateCaseStatus = async (req, res) => {
   }
 };
 
-// ==================== ADD CASE NOTE ====================
-export const addCaseNote = async (req, res) => {
+// ==================== RESUBMIT CASE AFTER CORRECTION ====================
+export const resubmitCaseAfterCorrection = async (req, res) => {
   try {
     const { id } = req.params;
-    const { note, isInternal } = req.body;
+    const { correctionNotes } = req.body;
     
     const caseData = await Case.findOne({ _id: id, isDeleted: false });
-    if (!caseData) {
-      return res.status(404).json({ success: false, message: "Case not found" });
+    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
+    
+    if (caseData.currentStatus !== 'Returned - Pending Correction') {
+      return res.status(400).json({ success: false, message: `Invalid status: ${caseData.currentStatus}` });
     }
     
-    const userName = req.user?.fullName || req.user?.companyName || req.user?.email || 'User';
-    
-    if (isInternal) {
-      caseData.internalNotes.push({ note, addedBy: userName, addedAt: new Date() });
-    } else {
-      caseData.customerNotes.push({ note, addedBy: userName, addedAt: new Date() });
-    }
+    caseData.currentStatus = 'Resubmitted-After Correction';
+    caseData.resubmissionCount = (caseData.resubmissionCount || 0) + 1;
+    caseData.internalNotes.push(`Resubmitted (#${caseData.resubmissionCount}): ${correctionNotes || 'Corrections done'}`);
     
     await caseData.save();
     
-    await HistoryService.logCaseActivity(caseData, 'NOTE_ADDED', await getUserInfo(req), {
-      description: `Note added to case ${caseData.caseReference}`,
-      notes: note,
-    });
+    return res.status(200).json({ success: true, message: "Case resubmitted successfully", data: caseData });
     
-    return res.status(200).json({ success: true, message: "Note added", data: caseData });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==================== GET CASES BY LEAD ====================
-export const getCasesByLead = async (req, res) => {
+// ==================== BASIC CRUD ====================
+export const getAllCases = async (req, res) => {
   try {
-    const { leadId } = req.params;
-    const cases = await Case.find({ sourceLeadId: leadId, isDeleted: false });
-    return res.status(200).json({ success: true, data: cases });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ==================== GET CASES BY PROPOSAL ====================
-export const getCasesByProposal = async (req, res) => {
-  try {
-    const { proposalId } = req.params;
-    const cases = await Case.find({ proposalId: proposalId, isDeleted: false });
-    return res.status(200).json({ success: true, data: cases });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ==================== GET CASE DOCUMENT STATUS ====================
-export const getCaseDocumentStatus = async (req, res) => {
-  try {
-    const { id } = req.params;
+    const { page = 1, limit = 20, status } = req.query;
+    const query = { isDeleted: false };
+    if (status) query.currentStatus = status;
     
-    const caseData = await Case.findOne({ _id: id, isDeleted: false });
-    if (!caseData) {
-      return res.status(404).json({ success: false, message: "Case not found" });
-    }
+    const cases = await Case.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(parseInt(limit));
+    const total = await Case.countDocuments(query);
     
-    return res.status(200).json({ 
-      success: true, 
-      data: {
-        allDocumentsUploaded: caseData.documentStatus.allDocumentsUploaded,
-        allDocumentsVerified: caseData.documentStatus.allDocumentsVerified,
-        uploadedCount: caseData.documentStatus.documentsUploadedCount,
-        verifiedCount: caseData.documentStatus.documentsVerifiedCount,
-        pendingCount: caseData.documentStatus.documentsPendingCount,
-        completionPercentage: caseData.documentStatus.completionPercentage,
-        requiredDocuments: caseData.documentStatus.requiredDocuments,
-        pendingDocumentTypes: caseData.documentStatus.pendingDocumentTypes
-      }
-    });
+    return res.status(200).json({ success: true, data: cases, total, pagination: { currentPage: parseInt(page), totalPages: Math.ceil(total / limit), limit: parseInt(limit) } });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==================== DELETE CASE ====================
+export const getCaseById = async (req, res) => {
+  try {
+    const caseData = await Case.findOne({ _id: req.params.id, isDeleted: false });
+    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
+    return res.status(200).json({ success: true, data: caseData });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const updateCase = async (req, res) => {
+  try {
+    const caseData = await Case.findOne({ _id: req.params.id, isDeleted: false });
+    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
+    if (caseData.currentStatus !== 'Draft') return res.status(400).json({ success: false, message: "Only draft cases can be updated" });
+    
+    const updatedCase = await Case.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    return res.status(200).json({ success: true, data: updatedCase });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const deleteCase = async (req, res) => {
   try {
-    const { id } = req.params;
-    
-    const roleDoc = await Role.findById(req.user.role);
-    const isAdmin = roleDoc?.code === '18';
-    
-    if (!isAdmin) {
-      return res.status(403).json({ success: false, message: "Only Admin can delete cases" });
-    }
-    
-    const caseData = await Case.findOne({ _id: id, isDeleted: false });
-    if (!caseData) {
-      return res.status(404).json({ success: false, message: "Case not found" });
-    }
+    const caseData = await Case.findOne({ _id: req.params.id, isDeleted: false });
+    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
     
     caseData.isDeleted = true;
     caseData.deletedAt = new Date();
     await caseData.save();
-    
-    await HistoryService.logCaseActivity(caseData, 'CASE_DELETED', await getUserInfo(req), {
-      description: `Case ${caseData.caseReference} deleted`,
-    });
     
     return res.status(200).json({ success: true, message: "Case deleted" });
   } catch (error) {
@@ -902,1257 +645,131 @@ export const deleteCase = async (req, res) => {
   }
 };
 
-// ==================== GET CASE STATS ====================
+export const addCaseNote = async (req, res) => {
+  try {
+    const caseData = await Case.findOne({ _id: req.params.id, isDeleted: false });
+    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
+    
+    caseData.internalNotes = caseData.internalNotes || [];
+    caseData.internalNotes.push(req.body.note);
+    await caseData.save();
+    
+    return res.status(200).json({ success: true, data: caseData });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const getCaseStats = async (req, res) => {
   try {
-    const roleDoc = await Role.findById(req.user.role);
-    const isAdmin = roleDoc?.code === '18';
-    
-    if (!isAdmin) {
-      return res.status(403).json({ success: false, message: "Admin only" });
-    }
-    
-    const stats = await Case.aggregate([
-      { $match: { isDeleted: false } },
-      { $group: { _id: '$currentStatus', count: { $sum: 1 } } }
-    ]);
-    
+    const stats = await Case.aggregate([{ $match: { isDeleted: false } }, { $group: { _id: '$currentStatus', count: { $sum: 1 } } }]);
     const statsMap = {};
     stats.forEach(s => { statsMap[s._id] = s.count; });
     
-    const totalLoanAmount = await Case.aggregate([
-      { $match: { currentStatus: 'Disbursed', isDeleted: false } },
-      { $group: { _id: null, total: { $sum: '$loanInfo.approvedAmount' } } }
-    ]);
+    return res.status(200).json({ success: true, data: statsMap });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getCaseDocumentStatus = async (req, res) => {
+  try {
+    const caseData = await Case.findOne({ _id: req.params.id, isDeleted: false });
+    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
     
-    return res.status(200).json({ 
-      success: true, 
+    return res.status(200).json({ success: true, data: caseData.documentStatus });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getCasesByLead = async (req, res) => {
+  try {
+    const cases = await Case.find({ sourceLeadId: req.params.leadId, isDeleted: false });
+    return res.status(200).json({ success: true, data: cases });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getCasesByProposal = async (req, res) => {
+  try {
+    const cases = await Case.find({ proposalId: req.params.proposalId, isDeleted: false });
+    return res.status(200).json({ success: true, data: cases });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getCaseAmountDetails = async (req, res) => {
+  try {
+    const caseData = await Case.findOne({ _id: req.params.caseId, isDeleted: false });
+    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
+    
+    return res.status(200).json({
+      success: true,
       data: {
-        draft: statsMap['Draft'] || 0,
-        submitted: statsMap['Submitted to Xoto'] || 0,
-        inQueue: statsMap['In Ops Queue - Pending Pick-up'] || 0,
-        assigned: statsMap['Assigned - Pending Review'] || 0,
-        underReview: statsMap['Under Review'] || 0,
-        returned: statsMap['Returned - Pending Correction'] || 0,
-        bankApplication: statsMap['Bank Application'] || 0,
-        preApproved: statsMap['Pre-Approved'] || 0,
-        valuation: statsMap['Valuation'] || 0,
-        folIssued: statsMap['FOL Issued'] || 0,
-        folSigned: statsMap['FOL Signed'] || 0,
-        disbursed: statsMap['Disbursed'] || 0,
-        rejected: statsMap['Rejected'] || 0,
-        lost: statsMap['Lost'] || 0,
-        totalDisbursedLoanAmount: totalLoanAmount[0]?.total || 0
-      } 
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-
-
-// ==================== OPS QUEUE MANAGEMENT ====================
-
-// Get Ops Queue (All unassigned submitted applications)
-// Get Ops Queue (All unassigned submitted applications)
-export const getOpsQueue = async (req, res) => {
-  try {
-    // Check if user is Admin or Mortgage Ops
-    const roleDoc = await Role.findById(req.user.role);
-    const isAdmin = roleDoc?.code === '18';
-    const isOps = roleDoc?.code === '23';
-    
-    if (!isAdmin && !isOps) {
-      return res.status(403).json({ success: false, message: "Access denied" });
-    }
-    
-    // Pagination parameters
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-    
-    // Filter parameters
-    const { search, bank, urgent, overdue, hoursMin, hoursMax, sortBy, sortOrder } = req.query;
-    
-    // Build query - Looking for cases in Ops Queue
-    let query = {
-      currentStatus: 'In Ops Queue - Pending Pick-up',
-      isDeleted: false
-    };
-    
-    // Search by caseReference or client name, email, mobile
-    if (search) {
-      query.$or = [
-        { caseReference: { $regex: search, $options: 'i' } },
-        { 'clientInfo.fullName': { $regex: search, $options: 'i' } },
-        { 'clientInfo.email': { $regex: search, $options: 'i' } },
-        { 'clientInfo.mobile': { $regex: search, $options: 'i' } }
-      ];
-    }
-    
-    // Filter by selected bank
-    if (bank && bank !== 'all') {
-      query['loanInfo.selectedBank'] = { $regex: bank, $options: 'i' };
-    }
-    
-    // First, get all matching cases to calculate hours in queue
-    let allMatchingCases = await Case.find(query)
-      .populate('createdBy', 'advisorName partnerName adminName')
-      .populate('assignedTo', 'opsName')
-      .sort({ createdAt: 1 }) // Oldest first
-      .lean();
-    
-    // Calculate hours in queue for each case
-    const casesWithQueueTime = allMatchingCases.map(c => ({
-      ...c,
-      hoursInQueue: Math.floor((Date.now() - new Date(c.createdAt)) / (1000 * 60 * 60)),
-      // Extract additional calculated fields for frontend
-      clientFullName: c.clientInfo?.fullName,
-      clientEmail: c.clientInfo?.email,
-      clientMobile: c.clientInfo?.mobile,
-      clientNationality: c.clientInfo?.nationality,
-      selectedBank: c.loanInfo?.selectedBank,
-      requestedLoanAmount: c.loanInfo?.requestedAmount,
-      interestRate: c.loanInfo?.interestRatePercentage,
-      monthlyEMI: c.loanInfo?.monthlyInstallment?.principalAndInterest,
-      ltvPercentage: c.propertyInfo?.ltvPercentage,
-      propertyValue: c.propertyInfo?.propertyValue,
-      documentCompletion: c.documentStatus?.completionPercentage || 0,
-      documentsUploaded: c.documentStatus?.documentsUploadedCount || 0,
-      documentsTotal: c.documentStatus?.requiredDocuments?.length || 0,
-      submittedByRole: c.createdBy?.role,
-      submittedByName: c.createdBy?.advisorName || c.createdBy?.partnerName || c.createdBy?.adminName,
-      daysInQueue: Math.floor((Date.now() - new Date(c.createdAt)) / (1000 * 60 * 60 * 24))
-    }));
-    
-    // Apply hour-based filters (client-side filtering after calculation)
-    let filteredCases = casesWithQueueTime;
-    
-    if (urgent === 'true') {
-      filteredCases = filteredCases.filter(c => c.hoursInQueue > 48);
-    } else if (overdue === 'true') {
-      filteredCases = filteredCases.filter(c => c.hoursInQueue >= 24 && c.hoursInQueue < 48);
-    }
-    
-    // Custom hour range filter
-    if (hoursMin) {
-      filteredCases = filteredCases.filter(c => c.hoursInQueue >= parseInt(hoursMin));
-    }
-    if (hoursMax) {
-      filteredCases = filteredCases.filter(c => c.hoursInQueue <= parseInt(hoursMax));
-    }
-    
-    // Sorting
-    if (sortBy) {
-      filteredCases.sort((a, b) => {
-        let aVal = a[sortBy];
-        let bVal = b[sortBy];
-        
-        // Handle special fields from nested objects
-        if (sortBy === 'clientFullName') {
-          aVal = a.clientInfo?.fullName || '';
-          bVal = b.clientInfo?.fullName || '';
-        }
-        if (sortBy === 'selectedBank') {
-          aVal = a.loanInfo?.selectedBank || '';
-          bVal = b.loanInfo?.selectedBank || '';
-        }
-        if (sortBy === 'requestedLoanAmount') {
-          aVal = a.loanInfo?.requestedAmount || 0;
-          bVal = b.loanInfo?.requestedAmount || 0;
-        }
-        
-        if (sortOrder === 'desc') {
-          return aVal > bVal ? -1 : 1;
-        }
-        return aVal < bVal ? -1 : 1;
-      });
-    }
-    
-    // Get total count before pagination
-    const totalCount = filteredCases.length;
-    
-    // Apply pagination
-    const paginatedCases = filteredCases.slice(skip, skip + limit);
-    
-    // Calculate counts for different categories
-    const urgentCount = casesWithQueueTime.filter(c => c.hoursInQueue > 48).length;
-    const overdueCount = casesWithQueueTime.filter(c => c.hoursInQueue >= 24 && c.hoursInQueue < 48).length;
-    const normalCount = casesWithQueueTime.filter(c => c.hoursInQueue < 24).length;
-    
-    // Get unique banks for filter dropdown
-    const uniqueBanks = [...new Set(casesWithQueueTime.map(c => c.loanInfo?.selectedBank).filter(Boolean))];
-    
-    // Calculate average queue time
-    const avgQueueHours = casesWithQueueTime.length > 0 
-      ? Math.round(casesWithQueueTime.reduce((sum, c) => sum + c.hoursInQueue, 0) / casesWithQueueTime.length)
-      : 0;
-    
-    return res.status(200).json({
-      success: true,
-      data: paginatedCases.map(c => ({
-        _id: c._id,
-        caseReference: c.caseReference,
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
-        // Client Info
-        clientInfo: c.clientInfo,
-        // Loan Info
-        loanInfo: c.loanInfo,
-        // Property Info
-        propertyInfo: {
-          propertyValue: c.propertyInfo?.propertyValue,
-          propertyType: c.propertyInfo?.propertyType,
-          ltvPercentage: c.propertyInfo?.ltvPercentage,
-          propertyAddress: c.propertyInfo?.propertyAddress
-        },
-        // Document Status
-        documentStatus: {
-          documentsUploadedCount: c.documentStatus?.documentsUploadedCount,
-          requiredDocuments: c.documentStatus?.requiredDocuments,
-          completionPercentage: c.documentStatus?.completionPercentage,
-          pendingDocumentTypes: c.documentStatus?.pendingDocumentTypes
-        },
-        // Created By Info
-        createdBy: c.createdBy,
-        // Queue Info
-        hoursInQueue: c.hoursInQueue,
-        daysInQueue: c.daysInQueue,
-        // Status
-        currentStatus: c.currentStatus,
-        // Extracted fields for table display
-        clientFullName: c.clientFullName,
-        clientEmail: c.clientEmail,
-        clientMobile: c.clientMobile,
-        selectedBank: c.selectedBank,
-        requestedLoanAmount: c.requestedLoanAmount,
-        interestRate: c.interestRate,
-        monthlyEMI: c.monthlyEMI,
-        documentCompletion: c.documentCompletion,
-        documentsUploaded: c.documentsUploaded,
-        documentsTotal: c.documentsTotal,
-        submittedByRole: c.submittedByRole,
-        submittedByName: c.submittedByName,
-        queueStatus: c.hoursInQueue > 48 ? 'urgent' : (c.hoursInQueue >= 24 ? 'overdue' : 'normal')
-      })),
-      count: paginatedCases.length,
-      total: totalCount,
-      summary: {
-        urgentCount,
-        overdueCount,
-        normalCount,
-        totalInQueue: casesWithQueueTime.length,
-        avgQueueHours
-      },
-      pagination: {
-        currentPage: page,
-        totalPages: Math.ceil(totalCount / limit),
-        totalItems: totalCount,
-        limit: limit,
-      
-      },
-      filters: {
-        availableBanks: uniqueBanks
+        requestedAmount: caseData.amountTracking?.requestedAmount || 0,
+        approvedAmount: caseData.amountTracking?.approvedAmount || null,
+        disbursedAmount: caseData.amountTracking?.disbursedAmount || null,
+        amountStatus: caseData.amountTracking?.amountStatus || 'Pending',
+        interestRate: caseData.bankSelection?.interestRate || 0,
+        tenureYears: caseData.bankSelection?.tenureYears || 25,
+        monthlyEMI: caseData.bankSelection?.monthlyEMI || 0,
+        propertyValue: caseData.propertyInfo?.propertyValue || 0,
+        currentStatus: caseData.currentStatus
       }
     });
-    
-  } catch (error) {
-    console.error("Get Ops Queue error:", error);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// Ops Pick Up Case from Queue
-export const opsPickUpCase = async (req, res) => {
-  try {
-    const { caseId } = req.params;
-    const opsId = req.user._id;
-    
-    // Check if user is Mortgage Ops
-    const roleDoc = await Role.findById(req.user.role);
-    const isOps = roleDoc?.code === '23';
-    
-    if (!isOps) {
-      return res.status(403).json({ success: false, message: "Only Mortgage Ops can pick up cases" });
-    }
-    
-    const caseData = await Case.findOne({
-      _id: caseId,
-      currentStatus: 'In Ops Queue - Pending Pick-up',
-      isDeleted: false
-    });
-    
-    if (!caseData) {
-      return res.status(404).json({ success: false, message: "Case not found or already picked up" });
-    }
-    
-    // Get Ops from database using imported Ops model
-    const ops = await Ops.findById(opsId);
-    
-    if (!ops) {
-      return res.status(404).json({ success: false, message: "Mortgage Ops user not found" });
-    }
-    
-    // Check if ops can take more cases (if max capacity is set)
-    const currentWorkload = ops.workload?.currentApplications || 0;
-    const maxCapacity = ops.workload?.maxCapacity || 999;
-    
-    if (currentWorkload >= maxCapacity) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `You have reached your maximum capacity (${maxCapacity} cases). Please complete some cases before picking up new ones.` 
-      });
-    }
-    
-    // Get ops name - handle different possible name structures
-    let opsName = 'Ops User';
-    if (ops.fullName) {
-      opsName = ops.fullName;
-    } else if (ops.name) {
-      opsName = `${ops.name.first_name || ''} ${ops.name.last_name || ''}`.trim();
-    } else if (ops.email) {
-      opsName = ops.email;
-    }
-    
-    // Update case with ops assignment
-    caseData.assignedTo = {
-      opsId: opsId,
-      opsName: opsName,
-      assignedAt: new Date(),
-      assignedBy: null // No admin assigned, ops self-picked
-    };
-    caseData.currentStatus = 'Assigned - Pending Review';
-    await caseData.save();
-    
-    // Update Ops workload
-    ops.workload = ops.workload || {};
-    ops.workload.currentApplications = currentWorkload + 1;
-    
-    // Initialize queueStatus if not exists
-    if (!ops.queueStatus) {
-      ops.queueStatus = {};
-    }
-    ops.queueStatus.pendingReview = (ops.queueStatus.pendingReview || 0) + 1;
-    
-    await ops.save();
-    
-    // Log activity
-    await HistoryService.logCaseActivity(caseData, 'CASE_PICKED_UP', await getUserInfo(req), {
-      description: `Case picked up by Ops ${opsName}`
-    });
-    
-    return res.status(200).json({
-      success: true,
-      message: "Case picked up successfully",
-      data: {
-        case: caseData,
-        opsWorkload: {
-          currentApplications: ops.workload.currentApplications,
-          maxCapacity: ops.workload.maxCapacity,
-          remainingCapacity: ops.workload.maxCapacity - ops.workload.currentApplications
-        }
-      }
-    });
-    
-  } catch (error) {
-    console.error("Pick up case error:", error);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// Admin Manually Assign Case to Ops
-export const adminAssignCaseToOps = async (req, res) => {
-  try {
-    const { caseId, opsId } = req.body;
-    
-    // Check if user is Admin
-    const roleDoc = await Role.findById(req.user.role);
-    if (roleDoc?.code !== '18') {
-      return res.status(403).json({ success: false, message: "Admin only" });
-    }
-    
-    const caseData = await Case.findOne({
-      _id: caseId,
-      isDeleted: false
-    });
-    
-    if (!caseData) {
-      return res.status(404).json({ success: false, message: "Case not found" });
-    }
-    
-    const MortgageOps = mongoose.model('MortgageOps');
-    const ops = await MortgageOps.findById(opsId);
-    
-    if (!ops) {
-      return res.status(404).json({ success: false, message: "Ops not found" });
-    }
-    
-    // If case was previously assigned to someone else, decrement their workload
-    if (caseData.assignedTo?.opsId) {
-      const previousOps = await MortgageOps.findById(caseData.assignedTo.opsId);
-      if (previousOps) {
-        previousOps.workload.currentApplications = Math.max(0, (previousOps.workload.currentApplications || 0) - 1);
-        await previousOps.save();
-      }
-    }
-    
-    caseData.assignedTo = {
-      opsId: opsId,
-      opsName: ops.fullName || ops.name?.first_name + ' ' + ops.name?.last_name,
-      assignedAt: new Date(),
-      assignedBy: req.user._id
-    };
-    caseData.currentStatus = 'Assigned - Pending Review';
-    await caseData.save();
-    
-    // Increment new Ops workload
-    ops.workload.currentApplications = (ops.workload.currentApplications || 0) + 1;
-    await ops.save();
-    
-    await HistoryService.logCaseActivity(caseData, 'CASE_MANUALLY_ASSIGNED', await getUserInfo(req), {
-      description: `Case manually assigned to Ops ${ops.fullName} by Admin`
-    });
-    
-    return res.status(200).json({
-      success: true,
-      message: `Case assigned to ${ops.fullName}`,
-      data: caseData
-    });
-    
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// Get My Assigned Cases (for Ops)
-// Get My Assigned Cases (for Ops)
-export const getMyAssignedCases = async (req, res) => {
-  try {
-    const opsId = req.user._id;
-    
-    // Check if user is Mortgage Ops
-    const roleDoc = await Role.findById(req.user.role);
-    const isOps = roleDoc?.code === '23';
-    
-    if (!isOps) {
-      return res.status(403).json({ success: false, message: "Access denied. Only Mortgage Ops can access." });
-    }
-    
-    // Pagination parameters
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-    
-    // Filter parameters
-    const { search, caseStatus, sortBy, sortOrder } = req.query;
-    
-    // Build query
-    let query = {
-      'assignedTo.opsId': opsId,
-      isDeleted: false
-    };
-    
-    // Exclude completed cases unless specifically requested
-    const showCompleted = req.query.showCompleted === 'true';
-    if (!showCompleted) {
-      query.currentStatus = { $nin: ['Disbursed', 'Rejected', 'Lost'] };
-    }
-    
-    // Filter by specific status
-    if (caseStatus && caseStatus !== 'all') {
-      query.currentStatus = caseStatus;
-    }
-    
-    // Search functionality
-    if (search) {
-      query.$or = [
-        { caseReference: { $regex: search, $options: 'i' } },
-        { 'clientInfo.fullName': { $regex: search, $options: 'i' } },
-        { 'clientInfo.email': { $regex: search, $options: 'i' } },
-        { 'clientInfo.mobile': { $regex: search, $options: 'i' } }
-      ];
-    }
-    
-    // Build sort object
-    let sortObject = { updatedAt: -1 }; // default
-    if (sortBy) {
-      const sortOrderValue = sortOrder === 'desc' ? -1 : 1;
-      const sortFields = {
-        'caseReference': 'caseReference',
-        'createdAt': 'createdAt',
-        'updatedAt': 'updatedAt',
-        'loanAmount': 'loanInfo.requestedAmount',
-        'clientName': 'clientInfo.fullName',
-        'bank': 'loanInfo.selectedBank',
-        'status': 'currentStatus'
-      };
-      if (sortFields[sortBy]) {
-        sortObject = { [sortFields[sortBy]]: sortOrderValue };
-      }
-    }
-    
-    // Get total count
-    const total = await Case.countDocuments(query);
-    
-    // Get paginated cases
-    const cases = await Case.find(query)
-      .populate('createdBy', 'advisorName partnerName adminName')
-      .populate('sourceLeadId', 'customerInfo')
-      .sort(sortObject)
-      .skip(skip)
-      .limit(limit)
-      .lean();
-    
-    // Enhance cases with additional computed fields
-    const enhancedCases = cases.map(c => ({
-      ...c,
-      clientFullName: c.clientInfo?.fullName,
-      clientEmail: c.clientInfo?.email,
-      clientMobile: c.clientInfo?.mobile,
-      selectedBank: c.loanInfo?.selectedBank,
-      requestedLoanAmount: c.loanInfo?.requestedAmount,
-      interestRate: c.loanInfo?.interestRatePercentage,
-      monthlyEMI: c.loanInfo?.monthlyInstallment?.principalAndInterest,
-      documentCompletion: c.documentStatus?.completionPercentage || 0,
-      documentsUploaded: c.documentStatus?.documentsUploadedCount || 0,
-      documentsTotal: c.documentStatus?.requiredDocuments?.length || 0,
-      allDocumentsVerified: c.documentStatus?.allDocumentsVerified || false,
-      assignedDays: Math.floor((Date.now() - new Date(c.assignedTo?.assignedAt || c.createdAt)) / (1000 * 60 * 60 * 24)),
-      assignedHours: Math.floor((Date.now() - new Date(c.assignedTo?.assignedAt || c.createdAt)) / (1000 * 60 * 60))
-    }));
-    
-    // Calculate summary statistics
-    const allAssigned = await Case.find({ 'assignedTo.opsId': opsId, isDeleted: false }).lean();
-    
-    const summary = {
-      total: allAssigned.filter(c => !['Disbursed', 'Rejected', 'Lost'].includes(c.currentStatus)).length,
-      totalAllTime: allAssigned.length,
-      pendingReview: allAssigned.filter(c => c.currentStatus === 'Assigned - Pending Review').length,
-      underReview: allAssigned.filter(c => c.currentStatus === 'Under Review').length,
-      returned: allAssigned.filter(c => c.currentStatus === 'Returned - Pending Correction').length,
-      bankApplication: allAssigned.filter(c => c.currentStatus === 'Bank Application').length,
-      preApproved: allAssigned.filter(c => c.currentStatus === 'Pre-Approved').length,
-      valuation: allAssigned.filter(c => c.currentStatus === 'Valuation').length,
-      folIssued: allAssigned.filter(c => c.currentStatus === 'FOL Issued').length,
-      folSigned: allAssigned.filter(c => c.currentStatus === 'FOL Signed').length,
-      disbursed: allAssigned.filter(c => c.currentStatus === 'Disbursed').length,
-      rejected: allAssigned.filter(c => c.currentStatus === 'Rejected').length,
-      lost: allAssigned.filter(c => c.currentStatus === 'Lost').length
-    };
-    
-    // Get unique banks for filter
-    const uniqueBanks = [...new Set(allAssigned.map(c => c.loanInfo?.selectedBank).filter(Boolean))];
-    
-    return res.status(200).json({
-      success: true,
-      summary,
-      data: enhancedCases,
-      pagination: {
-        currentPage: page,
-        totalPages: Math.ceil(total / limit),
-        totalItems: total,
-        limit: limit,
-        hasNextPage: page < Math.ceil(total / limit),
-        hasPrevPage: page > 1
-      },
-      filters: {
-        availableBanks: uniqueBanks,
-        availableStatuses: [
-          'Assigned - Pending Review',
-          'Under Review',
-          'Returned - Pending Correction',
-          'Bank Application',
-          'Pre-Approved',
-          'Valuation',
-          'FOL Processed',
-          'FOL Issued',
-          'FOL Signed',
-          'Disbursed',
-          'Rejected',
-          'Lost'
-        ]
-      }
-    });
-    
-  } catch (error) {
-    console.error("Get my assigned cases error:", error);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// Return Case to Submitter (with correction notes)
-export const returnCaseForCorrection = async (req, res) => {
-  try {
-    const { caseId } = req.params;
-    const { correctionNotes, rejectedDocuments } = req.body;
-    
-    const caseData = await Case.findOne({
-      _id: caseId,
-      isDeleted: false
-    });
-    
-    if (!caseData) {
-      return res.status(404).json({ success: false, message: "Case not found" });
-    }
-    
-    // Check if user has permission (Ops assigned to this case or Admin)
-    const roleDoc = await Role.findById(req.user.role);
-    const isAdmin = roleDoc?.code === '18';
-    const isAssignedOps = caseData.assignedTo?.opsId?.toString() === req.user._id.toString();
-    
-    if (!isAdmin && !isAssignedOps) {
-      return res.status(403).json({ success: false, message: "Not authorized" });
-    }
-    
-    // Add correction notes
-    const correctionNote = {
-      note: `RETURNED FOR CORRECTION: ${correctionNotes}`,
-      addedBy: req.user?.fullName || req.user?.email || 'System',
-      addedAt: new Date()
-    };
-    
-    caseData.internalNotes.push(correctionNote);
-    caseData.currentStatus = 'Returned - Pending Correction';
-    
-    // If specific documents rejected, mark them
-    if (rejectedDocuments && rejectedDocuments.length > 0) {
-      caseData.documentStatus.verificationNotes = JSON.stringify(rejectedDocuments);
-    }
-    
-    await caseData.save();
-    
-    await HistoryService.logCaseActivity(caseData, 'CASE_RETURNED', await getUserInfo(req), {
-      description: `Case returned for correction: ${correctionNotes}`,
-      rejectedDocuments
-    });
-    
-    return res.status(200).json({
-      success: true,
-      message: "Case returned for correction",
-      data: caseData
-    });
-    
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// Submit Case to Bank (Ops action)
 export const submitCaseToBank = async (req, res) => {
   try {
     const { caseId } = req.params;
-    const { bankName, bankReference, notes } = req.body;
+    const { bankReference, notes } = req.body;
     
-    const caseData = await Case.findOne({
-      _id: caseId,
-      isDeleted: false
-    });
+    const caseData = await Case.findOne({ _id: caseId, isDeleted: false });
+    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
     
-    if (!caseData) {
-      return res.status(404).json({ success: false, message: "Case not found" });
+    if (caseData.currentStatus !== 'Assigned - Pending Review' && caseData.currentStatus !== 'Under Review') {
+      return res.status(400).json({ success: false, message: `Cannot submit to bank. Current status: ${caseData.currentStatus}` });
     }
     
-    // Check permission
-    const roleDoc = await Role.findById(req.user.role);
-    const isAdmin = roleDoc?.code === '18';
-    const isAssignedOps = caseData.assignedTo?.opsId?.toString() === req.user._id.toString();
-    
-    if (!isAdmin && !isAssignedOps) {
-      return res.status(403).json({ success: false, message: "Not authorized" });
-    }
-    
-    // Verify all documents are verified
-    if (!caseData.documentStatus.allDocumentsVerified) {
-      return res.status(400).json({
-        success: false,
-        message: "All documents must be verified before bank submission",
-        pendingVerification: caseData.documentStatus.pendingDocumentTypes
-      });
-    }
-    
-    caseData.currentStatus = 'Bank Application';
-    caseData.bankSubmission = {
-      submittedToBankAt: new Date(),
-      bankName: bankName || caseData.loanInfo.selectedBank,
-      bankReferenceNumber: bankReference,
-      bankNotes: notes
-    };
-    
+    caseData.currentStatus = 'Submitted to Bank';
+    caseData.bankSubmission = { submittedToBankAt: new Date(), bankReferenceNumber: bankReference, bankNotes: notes };
+    caseData.timeline.submittedToBankAt = new Date();
     await caseData.save();
     
-    await HistoryService.logCaseActivity(caseData, 'CASE_SUBMITTED_TO_BANK', await getUserInfo(req), {
-      description: `Case submitted to ${bankName || caseData.loanInfo.selectedBank}`,
-      bankReference
-    });
-    
-    return res.status(200).json({
-      success: true,
-      message: "Case submitted to bank successfully",
-      data: caseData
-    });
-    
+    return res.status(200).json({ success: true, message: "Case submitted to bank", data: caseData });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// Update Bank Decision Status
 export const updateBankDecision = async (req, res) => {
   try {
     const { caseId } = req.params;
-    const { status, approvedAmount, interestRate, notes } = req.body;
+    const { status, approvedAmount, notes } = req.body;
     
-    const validBankStatuses = ['Pre-Approved', 'Valuation', 'FOL Processed', 'FOL Issued', 'FOL Signed', 'Disbursed', 'Rejected'];
+    const caseData = await Case.findOne({ _id: caseId, isDeleted: false });
+    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
     
-    if (!validBankStatuses.includes(status)) {
-      return res.status(400).json({ success: false, message: "Invalid bank status" });
+    if (status === 'Pre-Approved' && approvedAmount) {
+      await caseData.updateBankApproval(approvedAmount, null, null, notes);
+    } else if (status === 'Disbursed' && approvedAmount) {
+      await caseData.updateDisbursement(approvedAmount, null);
+    } else if (status === 'Rejected') {
+      await caseData.rejectCase(notes || 'Rejected by bank');
+    } else {
+      caseData.currentStatus = status;
+      if (notes) caseData.internalNotes.push(notes);
+      await caseData.save();
     }
     
-    const caseData = await Case.findOne({
-      _id: caseId,
-      isDeleted: false
-    });
-    
-    if (!caseData) {
-      return res.status(404).json({ success: false, message: "Case not found" });
-    }
-    
-    // Check permission
-    const roleDoc = await Role.findById(req.user.role);
-    const isAdmin = roleDoc?.code === '18';
-    const isAssignedOps = caseData.assignedTo?.opsId?.toString() === req.user._id.toString();
-    
-    if (!isAdmin && !isAssignedOps) {
-      return res.status(403).json({ success: false, message: "Not authorized" });
-    }
-    
-    const previousStatus = caseData.currentStatus;
-    caseData.currentStatus = status;
-    
-    // Update bank decision fields
-    if (status === 'Pre-Approved' || status === 'Disbursed') {
-      caseData.bankDecision = {
-        status: status === 'Disbursed' ? 'Approved' : 'Pending',
-        approvedAmount: approvedAmount || caseData.loanInfo.requestedAmount,
-        interestRate: interestRate || caseData.loanInfo.interestRatePercentage,
-        decisionAt: new Date()
-      };
-    }
-    
-    if (status === 'Disbursed') {
-      caseData.loanInfo.approvedAmount = approvedAmount || caseData.loanInfo.requestedAmount;
-    }
-    
-    if (status === 'Rejected') {
-      caseData.bankDecision.status = 'Rejected';
-      caseData.bankDecision.decisionAt = new Date();
-    }
-    
-    if (notes) {
-      caseData.internalNotes.push({
-        note: `Bank Update (${previousStatus} → ${status}): ${notes}`,
-        addedBy: req.user?.fullName || req.user?.email || 'System',
-        addedAt: new Date()
-      });
-    }
-    
-    await caseData.save();
-    
-    await HistoryService.logCaseActivity(caseData, 'BANK_DECISION_UPDATED', await getUserInfo(req), {
-      description: `Bank decision updated: ${previousStatus} → ${status}`,
-      notes
-    });
-    
-    return res.status(200).json({
-      success: true,
-      message: "Bank decision updated successfully",
-      data: caseData
-    });
-    
+    return res.status(200).json({ success: true, message: "Bank decision updated", data: caseData });
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-
-
-
-export const resubmitCaseAfterCorrection = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { correctionNotes } = req.body;
-
-    const caseData = await Case.findOne({
-      _id: id,
-      isDeleted: false
-    });
-
-    if (!caseData) {
-      return res.status(404).json({
-        success: false,
-        message: "Case not found"
-      });
-    }
-
-    // ✅ Status check
-    if (caseData.currentStatus !== 'Returned - Pending Correction') {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid status: ${caseData.currentStatus}`
-      });
-    }
-
-    // ✅ Get role
-    const roleDoc = await Role.findById(req.user.role);
-    const userRoleCode = roleDoc?.code;
-
-    // ✅ Authorization
-    const isOwner =
-      caseData.createdBy?.advisorId?.toString() === req.user._id.toString() ||
-      caseData.createdBy?.partnerId?.toString() === req.user._id.toString();
-
-    const isAdmin = userRoleCode === 18;
-
-    if (!isOwner && !isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: "Not authorized"
-      });
-    }
-
-    // ✅ Update status
-    caseData.currentStatus = 'Resubmitted-After Correction';
-
-    // ✅ Track count
-    caseData.resubmissionCount = (caseData.resubmissionCount || 0) + 1;
-
-    // ✅ Add note
-    caseData.internalNotes = caseData.internalNotes || [];
-    caseData.internalNotes.push({
-      note: `Resubmitted (#${caseData.resubmissionCount}): ${correctionNotes || 'Corrections done'}`,
-      addedBy: req.user?.fullName || req.user?.email || 'System',
-      addedAt: new Date()
-    });
-
-    await caseData.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Case resubmitted successfully",
-      data: {
-        caseId: caseData._id,
-        status: caseData.currentStatus
-      }
-    });
-
-  } catch (error) {
-    console.error("Resubmit error:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-
-// ==================== GET CASE AMOUNT DETAILS WITH FULL COMMISSION CALCULATION ====================
-// GET /api/vault/cases/:caseId/amount-details
-export const getCaseAmountDetails = async (req, res) => {
-  try {
-    const { caseId } = req.params;
-    
-    const caseData = await Case.findOne({ _id: caseId, isDeleted: false })
-      .populate('loanInfo.selectedBankProduct')
-      .populate('sourceLeadId', 'customerInfo propertyDetails');
-
-    if (!caseData) {
-      return res.status(404).json({ success: false, message: "Case not found" });
-    }
-
-    // ==================== AMOUNT DETAILS ====================
-    const requestedAmount = caseData.loanInfo?.requestedAmount || 0;
-    const approvedAmount = caseData.loanInfo?.approvedAmount || null;
-    const disbursedAmount = caseData.loanInfo?.disbursedAmount || null;
-    
-    // Get property value
-    const propertyValue = caseData.propertyInfo?.propertyValue || 0;
-    const downPayment = caseData.propertyInfo?.downPayment || 0;
-    const ltvPercentage = caseData.propertyInfo?.ltvPercentage || 
-      (propertyValue > 0 ? ((propertyValue - downPayment) / propertyValue) * 100 : 0);
-    
-    // ==================== BANK OFFER DETAILS ====================
-    const bankOffer = {
-      bankName: caseData.loanInfo?.selectedBank || 'N/A',
-      productName: caseData.loanInfo?.selectedBankProduct?.name || 'N/A',
-      interestRate: caseData.loanInfo?.interestRatePercentage || 0,
-      interestRateType: caseData.loanInfo?.interestRateType || 'Fixed',
-      tenureYears: caseData.loanInfo?.tenureYears || 25,
-      tenureMonths: (caseData.loanInfo?.tenureYears || 25) * 12,
-      processingFee: caseData.loanInfo?.processingFee || 0,
-      valuationFee: caseData.loanInfo?.valuationFee || 2500,
-      earlySettlementFee: caseData.loanInfo?.earlySettlementFeePercentage || 1,
-      monthlyEMI: caseData.calculations?.emi || 0,
-      dbrPercentage: caseData.calculations?.dbr || 0,
-    };
-
-    // ==================== AMOUNT COMPARISON ====================
-    let amountComparison = {
-      requestedAmount,
-      approvedAmount,
-      disbursedAmount,
-      amountDifference: null,
-      amountStatus: 'pending',
-      message: ''
-    };
-
-    if (approvedAmount && requestedAmount) {
-      amountComparison.amountDifference = approvedAmount - requestedAmount;
-      if (approvedAmount < requestedAmount) {
-        amountComparison.amountStatus = 'reduced';
-        amountComparison.message = `Bank approved AED ${(requestedAmount - approvedAmount).toLocaleString()} less than requested`;
-      } else if (approvedAmount > requestedAmount) {
-        amountComparison.amountStatus = 'increased';
-        amountComparison.message = `Bank approved AED ${(approvedAmount - requestedAmount).toLocaleString()} more than requested`;
-      } else {
-        amountComparison.amountStatus = 'matched';
-        amountComparison.message = 'Bank approved the full requested amount';
-      }
-    }
-
-    if (disbursedAmount && approvedAmount) {
-      if (disbursedAmount !== approvedAmount) {
-        amountComparison.disbursedDifference = disbursedAmount - approvedAmount;
-        amountComparison.message += `. Actual disbursed: AED ${disbursedAmount.toLocaleString()}`;
-      }
-    }
-
-    // ==================== XOTO BANK MARGIN / COMMISSION RATE ====================
-    // Bank pays Xoto commission typically 0.5% to 1.5% of loan amount
-    // This can be configured per bank product
-    const getXotoCommissionRate = (bankName, loanAmount) => {
-      // Default rate is 1%
-      let rate = 0.01;
-      
-      // Bank-specific rates (can be moved to database)
-      const bankRates = {
-        'Emirates NBD': 0.01,
-        'Dubai Islamic Bank': 0.012,
-        'ADCB': 0.01,
-        'Mashreq Bank': 0.009,
-        'RAK Bank': 0.011,
-        'HSBC': 0.01,
-        'Standard Chartered': 0.01,
-        'CBD': 0.01
-      };
-      
-      if (bankRates[bankName]) {
-        rate = bankRates[bankName];
-      }
-      
-      // Tier-based adjustment (higher loan amount might get lower rate)
-      if (loanAmount > 5000000) {
-        rate = rate * 0.95; // 5% reduction for large loans
-      }
-      
-      return rate;
-    };
-    
-    const xotoCommissionRate = getXotoCommissionRate(bankOffer.bankName, disbursedAmount || approvedAmount || requestedAmount);
-    const xotoCommissionFromBank = (disbursedAmount || approvedAmount || requestedAmount) * xotoCommissionRate;
-    
-    // ==================== COMMISSION CALCULATION BASED ON PRD ====================
-    // PRD Commission Structure:
-    // | Persona | Action | ≤5M AED | >5M AED |
-    // |---------|--------|---------|---------|
-    // | Referral Partner | Referral only | 40% | 50% |
-    // | Partner | Full case mgmt | 80% | 85% |
-    // | Partner-Affiliated Agent | Any (via Partner) | Partner decides | Partner decides |
-    // | Xoto Advisor | Salary | 0% | 0% |
-    
-    let commissionCalculation = null;
-    let xotoNetProfit = 0;
-    let totalPayout = 0;
-    
-    if (disbursedAmount || approvedAmount) {
-      const loanAmountForCommission = disbursedAmount || approvedAmount || requestedAmount;
-      const loanTier = loanAmountForCommission <= 5000000 ? '≤5M AED' : '>5M AED';
-      const xotoCommissionFromBankRounded = Math.round(xotoCommissionFromBank);
-      
-      // Determine recipient based on who created the case
-      let primaryRecipient = null;
-      let secondaryRecipient = null;
-      
-      // Check if there's a referral partner associated with the lead
-      let referralPartnerId = null;
-      let referralPartnerName = null;
-      
-      if (caseData.sourceLeadId) {
-        const lead = await mongoose.model('VaultLead').findById(caseData.sourceLeadId);
-        if (lead && lead.sourceInfo?.createdByRole === 'freelance_agent') {
-          const agent = await mongoose.model('VaultAgent').findById(lead.sourceInfo.createdById);
-          if (agent && agent.agentType === 'FreelanceAgent') {
-            referralPartnerId = agent._id;
-            referralPartnerName = agent.fullName;
-          }
-        }
-      }
-      
-      // Case 1: Created by Partner
-      if (caseData.createdBy?.role === 'partner') {
-        const partnerPercentage = loanAmountForCommission <= 5000000 ? 80 : 85;
-        const partnerCommission = (xotoCommissionFromBank * partnerPercentage) / 100;
-        
-        primaryRecipient = {
-          type: 'partner',
-          id: caseData.createdBy.partnerId,
-          name: caseData.createdBy.partnerName,
-          percentage: partnerPercentage,
-          commissionAmount: Math.round(partnerCommission),
-          formula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × ${partnerPercentage}% = ${Math.round(partnerCommission).toLocaleString()} AED`
-        };
-        
-        totalPayout = partnerCommission;
-        xotoNetProfit = xotoCommissionFromBank - partnerCommission;
-        
-        // Check if there's also a referral partner (both should be paid per PRD?)
-        if (referralPartnerId) {
-          const referralPercentage = loanAmountForCommission <= 5000000 ? 40 : 50;
-          const referralCommission = (xotoCommissionFromBank * referralPercentage) / 100;
-          
-          secondaryRecipient = {
-            type: 'referral_partner',
-            id: referralPartnerId,
-            name: referralPartnerName,
-            percentage: referralPercentage,
-            commissionAmount: Math.round(referralCommission),
-            formula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × ${referralPercentage}% = ${Math.round(referralCommission).toLocaleString()} AED`
-          };
-          
-          totalPayout = partnerCommission + referralCommission;
-          xotoNetProfit = xotoCommissionFromBank - totalPayout;
-        }
-      }
-      // Case 2: Created by Referral Partner (Freelance Agent)
-      else if (caseData.createdBy?.role === 'agent' || referralPartnerId) {
-        const referralPercentage = loanAmountForCommission <= 5000000 ? 40 : 50;
-        const referralCommission = (xotoCommissionFromBank * referralPercentage) / 100;
-        
-        primaryRecipient = {
-          type: 'referral_partner',
-          id: referralPartnerId || caseData.createdBy?.userId,
-          name: referralPartnerName || caseData.createdBy?.userName || 'Referral Partner',
-          percentage: referralPercentage,
-          commissionAmount: Math.round(referralCommission),
-          formula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × ${referralPercentage}% = ${Math.round(referralCommission).toLocaleString()} AED`
-        };
-        
-        totalPayout = referralCommission;
-        xotoNetProfit = xotoCommissionFromBank - referralCommission;
-      }
-      // Case 3: Created by Xoto Advisor (Employee - No Commission)
-      else if (caseData.createdBy?.role === 'advisor') {
-        primaryRecipient = {
-          type: 'advisor',
-          id: caseData.createdBy.advisorId,
-          name: caseData.createdBy.advisorName,
-          percentage: 0,
-          commissionAmount: 0,
-          formula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × 0% = 0 AED`,
-          note: 'Xoto Advisor is salaried employee. No commission paid.'
-        };
-        
-        totalPayout = 0;
-        xotoNetProfit = xotoCommissionFromBank;
-      }
-      
-      commissionCalculation = {
-        loanAmount: loanAmountForCommission,
-        loanTier,
-        xotoCommissionRate: `${(xotoCommissionRate * 100).toFixed(2)}%`,
-        xotoCommissionFromBank: xotoCommissionFromBankRounded,
-        xotoNetProfit: Math.round(xotoNetProfit),
-        totalPayout: Math.round(totalPayout),
-        primaryRecipient,
-        secondaryRecipient,
-        calculationTimestamp: new Date().toISOString(),
-        notes: totalPayout > xotoCommissionFromBank ? '⚠️ Warning: Total payout exceeds Xoto commission! Check commission logic.' : null
-      };
-    }
-
-    // ==================== CUSTOMER PAYMENT CALCULATION ====================
-    const customerPaymentCalculation = {
-      // Monthly Payment Breakdown
-      monthlyPayment: {
-        principalAndInterest: caseData.calculations?.emi || 0,
-        lifeInsurance: caseData.loanInfo?.lifeInsuranceRequired ? 150 : 0,
-        propertyInsurance: caseData.loanInfo?.propertyInsuranceRequired ? 85 : 0,
-        totalMonthlyPayment: (caseData.calculations?.emi || 0) + 
-          (caseData.loanInfo?.lifeInsuranceRequired ? 150 : 0) + 
-          (caseData.loanInfo?.propertyInsuranceRequired ? 85 : 0)
-      },
-      
-      // Total Payment Over Loan Term
-      totalPaymentOverTerm: {
-        totalPrincipal: disbursedAmount || approvedAmount || requestedAmount || 0,
-        totalInterest: caseData.calculations?.totalInterestPayable || 0,
-        totalInsuranceOverTerm: ((caseData.loanInfo?.lifeInsuranceRequired ? 150 : 0) + 
-          (caseData.loanInfo?.propertyInsuranceRequired ? 85 : 0)) * ((caseData.loanInfo?.tenureYears || 25) * 12),
-        grandTotalPayable: (caseData.calculations?.totalAmountPayable || 0) + 
-          ((caseData.loanInfo?.lifeInsuranceRequired ? 150 : 0) + 
-          (caseData.loanInfo?.propertyInsuranceRequired ? 85 : 0)) * ((caseData.loanInfo?.tenureYears || 25) * 12)
-      },
-      
-      // Upfront Costs (Paid at start)
-      upfrontCosts: {
-        downPayment: caseData.propertyInfo?.downPayment || 0,
-        dldFee: (caseData.propertyInfo?.propertyValue || 0) * 0.04,
-        registrationFee: ((disbursedAmount || approvedAmount || requestedAmount) || 0) * 0.0025,
-        valuationFee: caseData.loanInfo?.valuationFee || 2500,
-        processingFee: caseData.loanInfo?.processingFee || 0,
-        agentCommission: caseData.propertyInfo?.transactionDetails?.agentCommission || 0,
-        totalUpfrontCost: caseData.calculations?.totalUpfrontCost || 0
-      },
-      
-      // Amortization Summary
-      amortizationSummary: {
-        loanAmount: disbursedAmount || approvedAmount || requestedAmount || 0,
-        interestRate: caseData.loanInfo?.interestRatePercentage || 0,
-        tenureYears: caseData.loanInfo?.tenureYears || 25,
-        emi: caseData.calculations?.emi || 0,
-        interestToPrincipalRatio: ((caseData.calculations?.totalInterestPayable || 0) / (disbursedAmount || 1)).toFixed(2)
-      }
-    };
-    
-    // Calculate DBR (Debt Burden Ratio) details
-    const monthlyIncome = caseData.incomeDetails?.totalMonthlyIncome || 0;
-    const existingLiabilities = caseData.expenseDetails?.totalMonthlyLiabilities || 0;
-    const proposedEMI = caseData.calculations?.emi || 0;
-    const totalMonthlyObligations = existingLiabilities + proposedEMI;
-    const dbrPercentage = monthlyIncome > 0 ? (totalMonthlyObligations / monthlyIncome) * 100 : 0;
-    
-    const dbrAnalysis = {
-      monthlyIncome,
-      existingLiabilities,
-      proposedEMI,
-      totalMonthlyObligations,
-      dbrPercentage: Math.round(dbrPercentage * 100) / 100,
-      eligibilityStatus: dbrPercentage <= 50 ? 'Eligible' : (dbrPercentage <= 55 ? 'Borderline' : 'Ineligible'),
-      maxAllowedDBR: caseData.clientInfo?.nationality === 'United Arab Emirates' ? 55 : 50,
-      recommendation: dbrPercentage <= 50 ? 'Approved' : (dbrPercentage <= 55 ? 'Conditional Approval' : 'Rejected - High DBR')
-    };
-
-    // ==================== TIMELINE OF AMOUNT CHANGES ====================
-    const amountTimeline = [];
-    
-    // Extract amount-related notes from internal notes
-    if (caseData.internalNotes && caseData.internalNotes.length > 0) {
-      const amountNotes = caseData.internalNotes.filter(note => 
-        note.note?.includes('Pre-Approved') || 
-        note.note?.includes('FOL Issued') || 
-        note.note?.includes('Disbursed') ||
-        note.note?.includes('Amount')
-      );
-      
-      for (const note of amountNotes) {
-        amountTimeline.push({
-          date: note.addedAt,
-          event: note.note,
-          addedBy: note.addedBy,
-          type: 'note'
-        });
-      }
-    }
-
-    // Add bank submission info
-    if (caseData.bankSubmission?.submittedToBankAt) {
-      amountTimeline.push({
-        date: caseData.bankSubmission.submittedToBankAt,
-        event: `Case submitted to ${caseData.bankSubmission.bankName} for processing`,
-        reference: caseData.bankSubmission.bankReferenceNumber,
-        addedBy: 'System',
-        type: 'submission'
-      });
-    }
-
-    // Add disbursement info
-    if (caseData.currentStatus === 'Disbursed' && disbursedAmount) {
-      amountTimeline.push({
-        date: caseData.updatedAt,
-        event: `💰 Loan disbursed: AED ${disbursedAmount.toLocaleString()}`,
-        addedBy: 'System',
-        isFinal: true,
-        type: 'disbursement'
-      });
-    }
-
-    // Sort timeline by date
-    amountTimeline.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-    // ==================== SUMMARY ====================
-    const summary = {
-      requestedAmount: requestedAmount.toLocaleString(),
-      approvedAmount: approvedAmount ? approvedAmount.toLocaleString() : 'Pending',
-      disbursedAmount: disbursedAmount ? disbursedAmount.toLocaleString() : 'Pending',
-      propertyValue: propertyValue.toLocaleString(),
-      downPayment: downPayment.toLocaleString(),
-      ltvPercentage: Math.round(ltvPercentage),
-      monthlyEMI: caseData.calculations?.emi?.toLocaleString() || '0',
-      dbrPercentage: caseData.calculations?.dbr || 0,
-      dbrStatus: caseData.expenseDetails?.dbrStatus || 'Eligible',
-      totalUpfrontCost: caseData.calculations?.totalUpfrontCost?.toLocaleString() || '0',
-      totalInterestPayable: caseData.calculations?.totalInterestPayable?.toLocaleString() || '0',
-      totalAmountPayable: caseData.calculations?.totalAmountPayable?.toLocaleString() || '0'
-    };
-
-    // ==================== RESPONSE ====================
-    return res.status(200).json({
-      success: true,
-      data: {
-        caseId: caseData._id,
-        caseReference: caseData.caseReference,
-        currentStatus: caseData.currentStatus,
-        createdAt: caseData.createdAt,
-        updatedAt: caseData.updatedAt,
-        
-        // Amount Comparison
-        amountComparison,
-        
-        // Bank Offer Details
-        bankOffer,
-        
-        // Commission & Money Flow (XOTO side)
-        commissionCalculation,
-        
-        // Customer Payment Calculation
-        customerPaymentCalculation,
-        
-        // DBR Analysis
-        dbrAnalysis,
-        
-        // Timeline
-        amountTimeline,
-        
-        // Summary
-        summary,
-        
-        // Raw Data
-        rawData: {
-          requestedAmount,
-          approvedAmount,
-          disbursedAmount,
-          propertyValue,
-          downPayment,
-          interestRate: caseData.loanInfo?.interestRatePercentage,
-          tenureYears: caseData.loanInfo?.tenureYears,
-          monthlyIncome,
-          existingLiabilities
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error("Get case amount details error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
