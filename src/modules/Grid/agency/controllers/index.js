@@ -407,6 +407,128 @@ exports.getDashboard = asyncHandler(async (req, res) => {
 });
 
 // ── AGENT TEAM ───────────────────────────────────────────────────────────────
+/**
+ * GET /agency/performance
+ * Ranked agency agent performance for dashboard and internal leaderboard.
+ */
+exports.getPerformance = asyncHandler(async (req, res) => {
+  const agencyId = req.agency._id;
+  const { limit = 50 } = req.query;
+  const dateRange = parseDateRange(req.query);
+
+  const GridLead = require('../../Lead/model/gridLead.model');
+  const Property = require('../../../properties/models/property.model');
+  const Presentation = require('../../presentation/model/presentation.model');
+
+  const agentIds = await getAgencyAgentIds(agencyId);
+  const leadMatch = { created_by_agent: { $in: agentIds } };
+  if (dateRange) leadMatch.createdAt = dateRange;
+
+  const [agents, leadRows, listingRows, presentationRows] = await Promise.all([
+    Agent.find({ _id: { $in: agentIds } })
+      .select('first_name last_name fullName email phone_number profile_photo agencyApprovalStatus adminApprovalStatus isActive createdAt')
+      .lean(),
+    GridLead.aggregate([
+      { $match: leadMatch },
+      {
+        $group: {
+          _id: '$created_by_agent',
+          totalLeads: { $sum: 1 },
+          activeLeads: {
+            $sum: {
+              $cond: [{ $in: ['$status', ['completed', 'not_proceeding']] }, 0, 1],
+            },
+          },
+          convertedLeads: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+          closedLeads: { $sum: { $cond: [{ $in: ['$status', ['completed', 'not_proceeding']] }, 1, 0] } },
+          commissionEarned: { $sum: { $ifNull: ['$deal_record.commission_amount', 0] } },
+          paidCommission: {
+            $sum: {
+              $cond: [
+                { $eq: ['$deal_record.commission_status', 'paid'] },
+                { $ifNull: ['$deal_record.commission_amount', 0] },
+                0,
+              ],
+            },
+          },
+          lastLeadAt: { $max: '$createdAt' },
+        },
+      },
+    ]),
+    Property.aggregate([
+      { $match: { created_by_agent: { $in: agentIds } } },
+      { $group: { _id: '$created_by_agent', listingsCreated: { $sum: 1 } } },
+    ]),
+    Presentation.aggregate([
+      { $match: { agentId: { $in: agentIds } } },
+      { $group: { _id: '$agentId', presentationsCreated: { $sum: 1 } } },
+    ]),
+  ]);
+
+  const leadStats = new Map(leadRows.map(row => [String(row._id), row]));
+  const listingStats = new Map(listingRows.map(row => [String(row._id), row]));
+  const presentationStats = new Map(presentationRows.map(row => [String(row._id), row]));
+
+  const rows = agents
+    .map(agent => {
+      const id = String(agent._id);
+      const leads = leadStats.get(id) || {};
+      const listings = listingStats.get(id) || {};
+      const presentations = presentationStats.get(id) || {};
+      const totalLeads = leads.totalLeads || 0;
+      const convertedLeads = leads.convertedLeads || 0;
+
+      return {
+        _id: agent._id,
+        name: agent.fullName || `${agent.first_name || ''} ${agent.last_name || ''}`.trim() || 'Agent',
+        first_name: agent.first_name,
+        last_name: agent.last_name,
+        email: agent.email,
+        phone_number: agent.phone_number,
+        profile_photo: agent.profile_photo,
+        agencyApprovalStatus: agent.agencyApprovalStatus || 'pending',
+        adminApprovalStatus: agent.adminApprovalStatus || 'pending',
+        isActive: agent.isActive !== false,
+        totalLeads,
+        activeLeads: leads.activeLeads || 0,
+        convertedLeads,
+        closedLeads: leads.closedLeads || 0,
+        listingsCreated: listings.listingsCreated || 0,
+        presentationsCreated: presentations.presentationsCreated || 0,
+        commissionEarned: leads.commissionEarned || 0,
+        paidCommission: leads.paidCommission || 0,
+        conversionRate: totalLeads ? Number(((convertedLeads / totalLeads) * 100).toFixed(1)) : 0,
+        lastLeadAt: leads.lastLeadAt || null,
+      };
+    })
+    .sort((a, b) => (
+      b.totalLeads - a.totalLeads ||
+      b.convertedLeads - a.convertedLeads ||
+      b.commissionEarned - a.commissionEarned ||
+      a.name.localeCompare(b.name)
+    ))
+    .map((agent, index) => ({ ...agent, rank: index + 1 }));
+
+  const max = Math.min(Math.max(Number(limit) || 50, 1), 100);
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      summary: {
+        totalAgents: rows.length,
+        activeAgents: rows.filter(row => row.isActive).length,
+        totalLeads: rows.reduce((sum, row) => sum + row.totalLeads, 0),
+        activeLeads: rows.reduce((sum, row) => sum + row.activeLeads, 0),
+        convertedLeads: rows.reduce((sum, row) => sum + row.convertedLeads, 0),
+        presentationsCreated: rows.reduce((sum, row) => sum + row.presentationsCreated, 0),
+        totalCommission: rows.reduce((sum, row) => sum + row.commissionEarned, 0),
+        totalPaidToAgency: rows.reduce((sum, row) => sum + row.paidCommission, 0),
+      },
+      leaderboard: rows.slice(0, max),
+    },
+  });
+});
+
 exports.createAgent = asyncHandler(async (req, res) => {
   const {
     first_name,

@@ -118,6 +118,7 @@ router.use(protect);
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
 router.get('/dashboard', ctrl.getDashboard);
+router.get('/performance', ctrl.getPerformance);
 
 // ── Profile ──────────────────────────────────────────────────────────────────
 router.get('/profile',   ctrl.getProfile);
