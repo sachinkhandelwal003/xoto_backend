@@ -1540,6 +1540,45 @@ exports.getAllAgents = asyncHandler(async (req, res) => {
   });
 });
 
+exports.getVerificationQueue = asyncHandler(async (req, res) => {
+  const { page = 1, limit = 10, search } = req.query;
+
+  const filter = {
+    agencyApprovalStatus: 'approved',
+    adminApprovalStatus: 'pending'
+  };
+  
+  if (search) {
+    filter.$or = [
+      { fullName: { $regex: search, $options: 'i' } },
+      { first_name: { $regex: search, $options: 'i' } },
+      { last_name: { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
+      { phone_number: { $regex: search, $options: 'i' } },
+    ];
+  }
+
+  const total = await Agent.countDocuments(filter);
+  const agents = await Agent.find(filter)
+    .select('-password')
+    .populate('agency', 'companyName')
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(Number(limit))
+    .lean();
+
+  res.status(200).json({
+    status: 'success',
+    pagination: {
+      totalItems: total,
+      currentPage: Number(page),
+      totalPages: Math.ceil(total / limit),
+      limit: Number(limit),
+    },
+    data: agents,
+  });
+});
+
 // ── Admin Approve Agent ──────────────────────────────────────────────
 exports.adminApproveAgent = asyncHandler(async (req, res) => {
   const agent = await Agent.findById(req.params.agentId);

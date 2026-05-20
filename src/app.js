@@ -40,6 +40,7 @@ const gridLead = require('./modules/Grid/Lead/routes/gridLead.route.js')
 
 const feedback = require('./modules/feedback/routes/feedback.route.js');
 // const presentationController = require('./modules/Grid/Agent/controllers/presentationController');
+const presentationRoutes = require('./modules/Grid/presentation/routes/presentation.routes.js');
 
 // ==========================================
 // ⚠️ FIX: Stripe Route Yahan Upar Move Kiya Hai 
@@ -136,6 +137,7 @@ app.use('/vendor/b2b', require('../src/modules/auth/routes/vendor/vendorb2b.rout
 app.use('/business', require('../src/modules/auth/routes/freelancer/freelancerbusiness.routes'));
 
 app.use('/gridadvisor', GridAdvisor);
+app.use('/referral', referralPartnerRoutes);
 // RentalProperty
 app.use('/rental/property', rentalProperrty)
 // app.use('/rental/lead', Rentlead)
@@ -170,7 +172,8 @@ app.use('/gridlead', (req, res, next) => {
 }, gridLead);
 app.use('/commissions', require('./modules/Grid/Commission/Commission.routes.js'));
 
-app.use('/feedback', feedback);  
+app.use('/feedback', feedback);
+app.use('/presentation', presentationRoutes);  
 
 // History
 app.use('/customer-history', customerHistoryRoutes);
