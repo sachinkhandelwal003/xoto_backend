@@ -630,3 +630,87 @@ exports.getGridAdvisorDashboard = asyncHandler(async (req, res) => {
     }
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// GET ADVISOR LEADERBOARD — Admin only
+// ════════════════════════════════════════════════════════════════════════════
+exports.getAdvisorLeaderboard = asyncHandler(async (req, res) => {
+  const { limit = 50 } = req.query;
+  const GridLead = require('../../Lead/model/gridLead.model');
+
+  const [advisors, leadRows] = await Promise.all([
+    GridAdvisor.find({})
+      .select('firstName lastName email phone employeeId department status profilePhotoUrl leaderboard workload createdAt')
+      .lean(),
+    GridLead.aggregate([
+      {
+        $group: {
+          _id: '$assigned_to',
+          totalLeads: { $sum: 1 },
+          activeLeads: {
+            $sum: {
+              $cond: [{ $in: ['$status', ['completed', 'not_proceeding']] }, 0, 1],
+            },
+          },
+          convertedLeads: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+          closedLeads: { $sum: { $cond: [{ $in: ['$status', ['completed', 'not_proceeding']] }, 1, 0] } },
+          lastLeadAt: { $max: '$createdAt' },
+        },
+      },
+    ]),
+  ]);
+
+  const leadStats = new Map(leadRows.map(row => [String(row._id), row]));
+
+  const rows = advisors
+    .map(advisor => {
+      const id = String(advisor._id);
+      const leads = leadStats.get(id) || {};
+      const totalLeads = leads.totalLeads || 0;
+      const convertedLeads = leads.convertedLeads || 0;
+
+      return {
+        _id: advisor._id,
+        name: `${advisor.firstName || ''} ${advisor.lastName || ''}`.trim() || 'Advisor',
+        firstName: advisor.firstName,
+        lastName: advisor.lastName,
+        email: advisor.email,
+        phone: advisor.phone,
+        employeeId: advisor.employeeId,
+        department: advisor.department,
+        profilePhotoUrl: advisor.profilePhotoUrl,
+        status: advisor.status,
+        totalLeads,
+        activeLeads: leads.activeLeads || 0,
+        convertedLeads,
+        closedLeads: leads.closedLeads || 0,
+        conversionRate: totalLeads ? Number(((convertedLeads / totalLeads) * 100).toFixed(1)) : 0,
+        dealsClosedCount: advisor.leaderboard?.dealsClosedCount || 0,
+        compositeScore: advisor.leaderboard?.compositeScore || 0,
+        lastLeadAt: leads.lastLeadAt || null,
+      };
+    })
+    .sort((a, b) => (
+      b.totalLeads - a.totalLeads ||
+      b.convertedLeads - a.convertedLeads ||
+      b.compositeScore - a.compositeScore ||
+      a.name.localeCompare(b.name)
+    ))
+    .map((advisor, index) => ({ ...advisor, rank: index + 1 }));
+
+  const max = Math.min(Math.max(Number(limit) || 50, 1), 100);
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      summary: {
+        totalAdvisors: rows.length,
+        activeAdvisors: rows.filter(row => row.status === 'active').length,
+        totalLeads: rows.reduce((sum, row) => sum + row.totalLeads, 0),
+        activeLeads: rows.reduce((sum, row) => sum + row.activeLeads, 0),
+        convertedLeads: rows.reduce((sum, row) => sum + row.convertedLeads, 0),
+      },
+      leaderboard: rows.slice(0, max),
+    },
+  });
+});

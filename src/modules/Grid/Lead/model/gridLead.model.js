@@ -95,6 +95,11 @@ const gridLeadSchema = new mongoose.Schema({
       ref: 'Properties',
       default: null,
     },
+    referralPartnerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'GridReferralPartner',
+      default: null,
+    },
     referrer_url:  { type: String, trim: true },
     utm_source:    { type: String, trim: true },
     utm_medium:    { type: String, trim: true },

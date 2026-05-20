@@ -143,6 +143,7 @@ exports.createReferralLead = asyncHandler(async (req, res) => {
     source: {
       channel:    'referral_partner',                    // ← REFERRAL channel
       listing_id: listing_id || null,
+      referralPartnerId: partnerId,
     },
 
     referral_info: buildReferralInfo(req.user, { referral_code, referral_notes, commission_rate }),
@@ -661,7 +662,10 @@ exports.getReferralLeaderboard = asyncHandler(async (req, res) => {
     startDate = new Date(0);
   }
 
-  const aggregate = await GridLead.aggregate([
+  const GridReferralPartner = require('../../ReferralPartner/Model/ReferralPartner.model.js');
+  const partners = await GridReferralPartner.find().select("firstName lastName phone email createdAt");
+  
+  const leadStats = await GridLead.aggregate([
     {
       $match: {
         lead_type: 'referral',
@@ -671,7 +675,7 @@ exports.getReferralLeaderboard = asyncHandler(async (req, res) => {
     },
     {
       $group: {
-        _id: '$created_by_agent',
+        _id: '$source.referralPartnerId',
         totalLeads: { $sum: 1 },
         convertedLeads: { 
           $sum: { 
@@ -679,57 +683,38 @@ exports.getReferralLeaderboard = asyncHandler(async (req, res) => {
           } 
         },
       }
-    },
-    {
-      $lookup: {
-        from: 'gridreferralpartners',
-        localField: '_id',
-        foreignField: '_id',
-        as: 'partner'
-      }
-    },
-    {
-      $unwind: '$partner'
-    },
-    {
-      $project: {
-        _id: 1,
-        totalLeads: 1,
-        convertedLeads: 1,
-        name: { 
-          $concat: ['$partner.firstName', ' ', '$partner.lastName'] 
-        },
-        conversionRate: {
-          $cond: [
-            { $eq: ['$totalLeads', 0] },
-            0,
-            { $multiply: [{ $divide: ['$convertedLeads', '$totalLeads'] }, 100] }
-          ]
-        },
-        commissionEarned: { $literal: 0 }
-      }
-    },
-    {
-      $sort: { totalLeads: -1, convertedLeads: -1 }
     }
   ]);
 
-  const leaderboardData = aggregate.map((item, index) => ({
-    id: item._id.toString(),
-    rank: index + 1,
-    name: item.name,
-    totalLeads: item.totalLeads,
-    convertedLeads: item.convertedLeads,
-    conversionRate: Math.round(item.conversionRate * 100) / 100,
-    commissionEarned: item.commissionEarned,
-    change: 'up',
-    changeValue: 0
+  const statsMap = new Map(leadStats.map(stat => [String(stat._id), stat]));
+  
+  const leaderboardData = partners.map((partner) => {
+    const id = String(partner._id);
+    const stats = statsMap.get(id) || { totalLeads: 0, convertedLeads: 0 };
+    const conversionRate = stats.totalLeads ? Math.round((stats.convertedLeads / stats.totalLeads) * 100) : 0;
+    const commissionEarned = stats.convertedLeads * 500;
+    
+    return {
+      id: partner._id,
+      name: `${partner.firstName} ${partner.lastName}`,
+      rank: 1,
+      totalLeads: stats.totalLeads,
+      convertedLeads: stats.convertedLeads,
+      conversionRate: conversionRate,
+      commissionEarned: commissionEarned,
+      change: 'up',
+      changeValue: 0
+    };
+  }).sort((a, b) => b.commissionEarned - a.commissionEarned).map((partner, index) => ({
+    ...partner,
+    rank: index + 1
   }));
 
-  const myRank = leaderboardData.find(item => item.id === partnerId?.toString());
+  const myRank = leaderboardData.find(item => String(item.id) === String(partnerId));
 
   return res.json({
     success: true,
+    status: "success",
     data: {
       leaderboard: leaderboardData,
       myRank

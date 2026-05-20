@@ -239,3 +239,92 @@ exports.updateBankDetails = async (req, res) => {
     return res.status(500).json({ status: "error", message: err.message });
   }
 };
+
+exports.getReferralLeaderboard = async (req, res) => {
+  try {
+    const { period = "all" } = req.query;
+    
+    console.log('Fetching referral partners...');
+    const partners = await GridReferralPartner.find().select("firstName lastName phone email createdAt");
+    console.log('Found partners:', partners.length);
+    
+    const GridLead = require("../../Lead/model/gridLead.model.js");
+    
+    const startDate = new Date();
+    if (period === "week") {
+      startDate.setDate(startDate.getDate() - 7);
+    } else if (period === "month") {
+      startDate.setMonth(startDate.getMonth() - 1);
+    } else {
+      startDate.setFullYear(2020, 0, 1);
+    }
+    
+    console.log('Fetching lead stats...');
+    const leadStats = await GridLead.aggregate([
+      {
+        $match: {
+          "source.channel": "referral_partner",
+          createdAt: { $gte: startDate }
+        }
+      },
+      {
+        $group: {
+          _id: "$source.referralPartnerId",
+          totalLeads: { $sum: 1 },
+          convertedLeads: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] } }
+        }
+      }
+    ]);
+    console.log('Lead stats:', leadStats.length);
+    
+    const statsMap = new Map(leadStats.map(stat => [String(stat._id), stat]));
+    
+    const leaderboard = partners.map((partner) => {
+      const id = String(partner._id);
+      const stats = statsMap.get(id) || { totalLeads: 0, convertedLeads: 0 };
+      const conversionRate = stats.totalLeads ? Math.round((stats.convertedLeads / stats.totalLeads * 100)) : 0;
+      const commissionEarned = stats.convertedLeads * 500;
+      
+      return {
+        id: partner._id,
+        name: `${partner.firstName} ${partner.lastName}`,
+        rank: 1,
+        totalLeads: stats.totalLeads,
+        conversionRate: conversionRate,
+        commissionEarned: commissionEarned,
+        change: "up",
+        changeValue: 0
+      };
+    }).sort((a, b) => b.commissionEarned - a.commissionEarned).map((partner, index) => ({
+      ...partner,
+      rank: index + 1
+    }));
+    
+    console.log('Leaderboard:', leaderboard.length);
+    
+    let myRank = null;
+    if (req.user?._id) {
+      const userId = String(req.user._id);
+      const myEntry = leaderboard.find(p => String(p.id) === userId);
+      if (myEntry) {
+        myRank = {
+          rank: myEntry.rank,
+          totalLeads: myEntry.totalLeads,
+          conversionRate: myEntry.conversionRate,
+          commissionEarned: myEntry.commissionEarned
+        };
+      }
+    }
+    
+    res.status(200).json({
+      status: "success",
+      data: {
+        leaderboard,
+        myRank
+      }
+    });
+  } catch (err) {
+    console.error('Leaderboard error:', err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+};
