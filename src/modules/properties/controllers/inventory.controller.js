@@ -330,22 +330,30 @@ exports.autoGenerateInventory = async (req, res) => {
       });
     }
 
-    // Update property statistics by aggregating from inventory
+    // Update property statistics by aggregating from inventory.
+    // Property schema only has totalInventory / soldUnits / reservedUnits / bookedUnits —
+    // other statuses are tracked on the Inventory docs themselves.
+    const totalInventory = await Inventory.countDocuments({ propertyId });
     const stats = await Inventory.aggregate([
       { $match: { propertyId: new mongoose.Types.ObjectId(propertyId) } },
-      {
-        $group: {
-          _id: "$status",
-          count: { $sum: 1 }
-        }
-      }
+      { $group: { _id: "$status", count: { $sum: 1 } } }
     ]);
 
-    // Build stats object
-    const statsObj = { totalInventory: generatedUnits.length };
+    const statusToField = {
+      sold: "soldUnits",
+      reserved: "reservedUnits",
+      booked: "bookedUnits"
+    };
+
+    const statsObj = {
+      totalInventory,
+      soldUnits: 0,
+      reservedUnits: 0,
+      bookedUnits: 0
+    };
     stats.forEach(s => {
-      const statusKey = `${s._id.toLowerCase()}Units`;
-      statsObj[statusKey] = s.count;
+      const field = statusToField[s._id];
+      if (field) statsObj[field] = s.count;
     });
 
     await Property.findByIdAndUpdate(propertyId, statsObj);

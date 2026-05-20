@@ -1,7 +1,8 @@
 
 'use strict';
 
-const DealRecord      = require('../models/dealRecord.model');
+const DealRecord      = require('../models/Dealrecord.model');
+const PartnerAgreement = require('../models/Partneragreement.model');
 const GridLead        = require('../../Lead/model/gridLead.model');
 const GridAdvisor     = require('../../../Grid/Advisor/model/index');
 const Agent           = require('../../Agent/models/agent');
@@ -29,6 +30,37 @@ const calcCommission = (transactionValue, grossPercent, partnerPercent, referral
     partnerPercent,
     referralShare:   Math.round(referralShare),
     referralPercent,
+  };
+};
+
+const validatePercent = (value, fieldName) => {
+  const percent = Number(value);
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+    throw new APIError(`${fieldName} must be a number between 0 and 100`, StatusCodes.BAD_REQUEST);
+  }
+  return percent;
+};
+
+const getAgreementTerms = async (partnerAgreementId, { agencyId, agentId, referralPartnerId }) => {
+  if (!partnerAgreementId) return null;
+
+  const agreement = await PartnerAgreement.findById(partnerAgreementId);
+  if (!agreement) throw new APIError('Partner Agreement not found', StatusCodes.NOT_FOUND);
+  if (agreement.status !== 'active') {
+    throw new APIError(`Partner Agreement is ${agreement.status}; only active agreements can be linked`, StatusCodes.BAD_REQUEST);
+  }
+
+  const linkedToAgency = agencyId && agreement.agencyId?.toString() === agencyId.toString();
+  const linkedToAgent = agentId && agreement.agentId?.toString() === agentId.toString();
+  const linkedToReferral = referralPartnerId && agreement.referralPartnerId?.toString() === referralPartnerId.toString();
+
+  if (!linkedToAgency && !linkedToAgent && !linkedToReferral) {
+    throw new APIError('Partner Agreement does not belong to the linked agency, agent, or referral partner', StatusCodes.BAD_REQUEST);
+  }
+
+  return {
+    partnerPercent: validatePercent(agreement.commissionSplitPercent, 'commissionSplitPercent'),
+    referralPercent: validatePercent(agreement.referralSplitPercent || 0, 'referralSplitPercent'),
   };
 };
 
@@ -161,14 +193,27 @@ exports.createDealRecord = asyncHandler(async (req, res) => {
     }
   }
 
-  // ── Validate Partner Agreement commission percent ─────────────────────────
-  // If partnerAgreementId is provided, warn on mismatch (non-blocking in MVP)
-  // Future: pull commissionSplitPercent directly from the agreement
+  const agreementTerms = await getAgreementTerms(partnerAgreementId, {
+    agencyId,
+    agentId,
+    referralPartnerId,
+  });
+  const finalGrossPercent = validatePercent(grossPercent, 'grossPercent');
+  const finalPartnerPercent = agreementTerms
+    ? agreementTerms.partnerPercent
+    : validatePercent(partnerPercent, 'partnerPercent');
+  const finalReferralPercent = agreementTerms
+    ? agreementTerms.referralPercent
+    : validatePercent(referralPercent, 'referralPercent');
+
+  if (finalPartnerPercent + finalReferralPercent > 100) {
+    throw new APIError('partnerPercent and referralPercent cannot exceed 100 combined', StatusCodes.BAD_REQUEST);
+  }
 
   // ── Determine referral commission status ──────────────────────────────────
   const referralCommissionStatus = referralPartnerId ? 'pending' : 'not_applicable';
 
-  const commission = calcCommission(transactionValue, grossPercent, partnerPercent, referralPercent);
+  const commission = calcCommission(transactionValue, finalGrossPercent, finalPartnerPercent, finalReferralPercent);
 
   const deal = new DealRecord({
     leadId,
@@ -278,13 +323,37 @@ exports.updateDealRecord = asyncHandler(async (req, res) => {
     updates.transactionValue !== undefined ||
     updates.grossPercent     !== undefined ||
     updates.partnerPercent   !== undefined ||
-    updates.referralPercent  !== undefined
+    updates.referralPercent  !== undefined ||
+    updates.partnerAgreementId !== undefined
   ) {
+    const agreementTerms = await getAgreementTerms(
+      updates.partnerAgreementId ?? deal.partnerAgreementId,
+      {
+        agencyId: updates.agencyId ?? deal.agencyId,
+        agentId: updates.agentId ?? deal.agentId,
+        referralPartnerId: updates.referralPartnerId ?? deal.referralPartnerId,
+      }
+    );
+    const finalGrossPercent = validatePercent(
+      req.body.grossPercent ?? deal.commission.grossPercent,
+      'grossPercent'
+    );
+    const finalPartnerPercent = agreementTerms
+      ? agreementTerms.partnerPercent
+      : validatePercent(req.body.partnerPercent ?? deal.commission.partnerPercent, 'partnerPercent');
+    const finalReferralPercent = agreementTerms
+      ? agreementTerms.referralPercent
+      : validatePercent(req.body.referralPercent ?? deal.commission.referralPercent, 'referralPercent');
+
+    if (finalPartnerPercent + finalReferralPercent > 100) {
+      throw new APIError('partnerPercent and referralPercent cannot exceed 100 combined', StatusCodes.BAD_REQUEST);
+    }
+
     deal.commission = calcCommission(
       deal.transactionValue,
-      req.body.grossPercent    ?? deal.commission.grossPercent,
-      req.body.partnerPercent  ?? deal.commission.partnerPercent,
-      req.body.referralPercent ?? deal.commission.referralPercent
+      finalGrossPercent,
+      finalPartnerPercent,
+      finalReferralPercent
     );
   }
 

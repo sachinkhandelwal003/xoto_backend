@@ -3,7 +3,7 @@
 
 const express = require('express');
 const router  = express.Router();
-const ctrl    = require('../controllers/dealRecord.controller');
+const ctrl    = require('../controllers/Dealrecord.controller');
 const { protectMulti, authorize } = require('../../../../middleware/auth');
 
 // ── Shorthand middleware aliases ──────────────────────────────────────────────
