@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
 const GridReferralPartner = require("../Model/ReferralPartner.model.js");
 const { Role } = require("../../../../modules/auth/models/role/role.model.js");
+const GridLead = require("../../Lead/model/gridLead.model.js");
 
 const signToken = (user, roleData) => {
   return jwt.sign(
@@ -147,11 +148,11 @@ exports.getProfile = async (req, res) => {
 
 exports.updateBasicInfo = async (req, res) => {
   try {
-    const { firstName, lastName, email, dateOfBirth } = req.body;
+    const { firstName, lastName, email, dateOfBirth, profilePhotoUrl } = req.body; // ✅ add profilePhotoUrl
 
     const partner = await GridReferralPartner.findByIdAndUpdate(
       req.user._id,
-      { firstName, lastName, email, dateOfBirth },
+      { firstName, lastName, email, dateOfBirth, profilePhotoUrl }, // ✅ add here too
       { new: true, runValidators: true }
     ).select("-password");
 
@@ -237,5 +238,253 @@ exports.updateBankDetails = async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+exports.getAllReferralPartners = async (req, res) => {
+  try {
+    const { status, search, page = 1, limit = 20, sortBy = "createdAt", sortOrder = "desc" } = req.query;
+    
+    const filter = {};
+    
+    if (status) {
+      const allowed = ["active", "inactive", "deactivated", "suspended"];
+      if (!allowed.includes(status)) {
+        return res.status(400).json({
+          status: "fail",
+          message: `status must be one of: ${allowed.join(", ")}`,
+        });
+      }
+      filter.status = status;
+    }
+    
+    if (search) {
+      const regex = new RegExp(search.trim(), "i");
+      filter.$or = [
+        { firstName: regex },
+        { lastName: regex },
+        { email: regex },
+        { phone: regex }
+      ];
+    }
+    
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
+    const skip = (pageNum - 1) * limitNum;
+    
+    const sortAllowed = ["createdAt", "firstName", "lastName", "status"];
+    const sortField = sortAllowed.includes(sortBy) ? sortBy : "createdAt";
+    const sortDir = sortOrder === "asc" ? 1 : -1;
+    
+    const [partners, total] = await Promise.all([
+      GridReferralPartner.find(filter)
+        .select("-password")
+        .sort({ [sortField]: sortDir })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      GridReferralPartner.countDocuments(filter)
+    ]);
+    
+    res.status(200).json({
+      status: "success",
+      results: partners.length,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum),
+        hasNext: pageNum < Math.ceil(total / limitNum),
+        hasPrev: pageNum > 1
+      },
+      data: { partners }
+    });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+exports.getReferralPartnerById = async (req, res) => {
+  try {
+    const partner = await GridReferralPartner.findById(req.params.id)
+      .select("-password");
+    
+    if (!partner) {
+      return res.status(404).json({ status: "fail", message: "Partner not found" });
+    }
+    
+    const totalLeads = await GridLead.countDocuments({
+      "source.referralPartnerId": partner._id,
+      "source.channel": "referral_partner"
+    });
+    
+    const convertedLeads = await GridLead.countDocuments({
+      "source.referralPartnerId": partner._id,
+      "source.channel": "referral_partner",
+      status: "Disbursed"
+    });
+    
+    const commissionEarned = convertedLeads * 500;
+    
+    res.status(200).json({
+      status: "success",
+      data: {
+        partner: {
+          ...partner.toObject(),
+          totalLeads,
+          convertedLeads,
+          commissionEarned
+        }
+      }
+    });
+  } catch (err) {
+    if (err.name === "CastError") {
+      return res.status(400).json({ status: "fail", message: "Invalid partner ID format" });
+    }
+    res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+exports.suspendReferralPartner = async (req, res) => {
+  try {
+    const { action, reason } = req.body;
+    
+    if (!action || !["suspend", "unsuspend"].includes(action)) {
+      return res.status(400).json({
+        status: "fail",
+        message: 'action must be "suspend" or "unsuspend"'
+      });
+    }
+    
+    const partner = await GridReferralPartner.findById(req.params.id);
+    
+    if (!partner) {
+      return res.status(404).json({ status: "fail", message: "Partner not found" });
+    }
+    
+    if (partner.status === "deactivated") {
+      return res.status(400).json({
+        status: "fail",
+        message: "Cannot suspend a deactivated partner. Reactivate first."
+      });
+    }
+    
+    if (action === "suspend") {
+      partner.status = "suspended";
+      partner.deactivationReason = reason;
+      partner.deactivatedAt = new Date();
+    } else if (action === "unsuspend") {
+      partner.status = "active";
+      partner.deactivationReason = undefined;
+      partner.deactivatedAt = undefined;
+    }
+    
+    await partner.save();
+    
+    res.status(200).json({
+      status: "success",
+      message: `Partner ${action}ed successfully`,
+      data: {
+        partner: {
+          status: partner.status,
+          deactivationReason: partner.deactivationReason,
+          deactivatedAt: partner.deactivatedAt
+        }
+      }
+    });
+  } catch (err) {
+    if (err.name === "CastError") {
+      return res.status(400).json({ status: "fail", message: "Invalid partner ID format" });
+    }
+    res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+exports.getReferralLeaderboard = async (req, res) => {
+  try {
+    const { period = "all" } = req.query;
+    
+    console.log('Fetching referral partners...');
+    const partners = await GridReferralPartner.find().select("firstName lastName phone email createdAt");
+    console.log('Found partners:', partners.length);
+    
+    const GridLead = require("../../Lead/model/gridLead.model.js");
+    
+    const startDate = new Date();
+    if (period === "week") {
+      startDate.setDate(startDate.getDate() - 7);
+    } else if (period === "month") {
+      startDate.setMonth(startDate.getMonth() - 1);
+    } else {
+      startDate.setFullYear(2020, 0, 1);
+    }
+    
+    console.log('Fetching lead stats...');
+    const leadStats = await GridLead.aggregate([
+      {
+        $match: {
+          "source.channel": "referral_partner",
+          createdAt: { $gte: startDate }
+        }
+      },
+      {
+        $group: {
+          _id: "$source.referralPartnerId",
+          totalLeads: { $sum: 1 },
+          convertedLeads: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] } }
+        }
+      }
+    ]);
+    console.log('Lead stats:', leadStats.length);
+    
+    const statsMap = new Map(leadStats.map(stat => [String(stat._id), stat]));
+    
+    const leaderboard = partners.map((partner) => {
+      const id = String(partner._id);
+      const stats = statsMap.get(id) || { totalLeads: 0, convertedLeads: 0 };
+      const conversionRate = stats.totalLeads ? Math.round((stats.convertedLeads / stats.totalLeads * 100)) : 0;
+      const commissionEarned = stats.convertedLeads * 500;
+      
+      return {
+        id: partner._id,
+        name: `${partner.firstName} ${partner.lastName}`,
+        rank: 1,
+        totalLeads: stats.totalLeads,
+        conversionRate: conversionRate,
+        commissionEarned: commissionEarned,
+        change: "up",
+        changeValue: 0
+      };
+    }).sort((a, b) => b.commissionEarned - a.commissionEarned).map((partner, index) => ({
+      ...partner,
+      rank: index + 1
+    }));
+    
+    console.log('Leaderboard:', leaderboard.length);
+    
+    let myRank = null;
+    if (req.user?._id) {
+      const userId = String(req.user._id);
+      const myEntry = leaderboard.find(p => String(p.id) === userId);
+      if (myEntry) {
+        myRank = {
+          rank: myEntry.rank,
+          totalLeads: myEntry.totalLeads,
+          conversionRate: myEntry.conversionRate,
+          commissionEarned: myEntry.commissionEarned
+        };
+      }
+    }
+    
+    res.status(200).json({
+      status: "success",
+      data: {
+        leaderboard,
+        myRank
+      }
+    });
+  } catch (err) {
+    console.error('Leaderboard error:', err);
+    res.status(500).json({ status: "error", message: err.message });
   }
 };

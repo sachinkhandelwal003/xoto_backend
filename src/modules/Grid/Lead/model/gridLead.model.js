@@ -8,7 +8,7 @@ const gridLeadSchema = new mongoose.Schema({
   // ==============================================================
   lead_type: {
     type: String,
-    enum: ['platform', 'agent', 'general'],
+    enum: ['platform', 'agent','referral_partner', 'general'],
     required: true,
     index: true,
   },
@@ -20,6 +20,13 @@ const gridLeadSchema = new mongoose.Schema({
       'schedule_visit', 'consultation', 'general_enquiry'
     ]
   },
+
+  referred_by_partner: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'GridReferralPartner',
+  default: null,
+  index: true
+},
 
   // ==============================================================
   // SECTION 1.4 - CUSTOMER TRACK
@@ -87,7 +94,7 @@ const gridLeadSchema = new mongoose.Schema({
   source: {
     channel: {
       type: String,
-      enum: ['website_form', 'whatsapp', 'phone_call', 'email', 'bulk_upload', 'agent_added', 'admin_manual'],
+      enum: ['website_form', 'whatsapp', 'phone_call', 'email', 'bulk_upload', 'agent_added', 'admin_manual', 'referral_partner'],
       required: true
     },
     listing_id: {
@@ -95,11 +102,36 @@ const gridLeadSchema = new mongoose.Schema({
       ref: 'Properties',
       default: null,
     },
+    referralPartnerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'GridReferralPartner',
+      default: null,
+    },
     referrer_url:  { type: String, trim: true },
     utm_source:    { type: String, trim: true },
     utm_medium:    { type: String, trim: true },
     utm_campaign:  { type: String, trim: true }
   },
+  nurturing: {
+  is_nurturing:        { type: Boolean, default: false },
+  nurturing_reason:    { type: String, default: '' },   // 'no_match' | 'budget_mismatch' | 'area_unavailable'
+  nurturing_started_at: { type: Date, default: null },
+  notify_when_available: { type: Boolean, default: true }, // jab match aaye tab alert karo
+  last_nudge_sent_at:  { type: Date, default: null },
+},
+
+// Advisor's alternative suggestions for this lead
+advisor_suggestions: [{
+  property_id:   { type: mongoose.Schema.Types.ObjectId, ref: 'Properties' },
+  suggested_by:  { type: mongoose.Schema.Types.ObjectId, ref: 'GridAdvisor' },
+  suggested_at:  { type: Date, default: Date.now },
+  note:          { type: String },           // "Ye thoda over budget hai but area perfect hai"
+  client_reaction: {
+    type: String,
+    enum: ['interested', 'not_interested', 'maybe', 'pending'],
+    default: 'pending'
+  }
+}],
 
   // ==============================================================
   // CUSTOMER REQUIREMENTS
@@ -278,6 +310,7 @@ const gridLeadSchema = new mongoose.Schema({
   deal_record: {
     created:            { type: Boolean, default: false },
     deal_record_id:     { type: mongoose.Schema.Types.ObjectId, ref: 'DealRecord' },
+    inventory_unit_id:  { type: mongoose.Schema.Types.ObjectId, ref: 'PropertyInventory' },
     transaction_value:  { type: Number },
     commission_amount:  { type: Number },
     commission_status: {
@@ -293,6 +326,16 @@ const gridLeadSchema = new mongoose.Schema({
     }],
     closed_at: { type: Date }
   },
+
+
+  referral_info: {
+  referral_partner_id: { type: mongoose.Schema.Types.ObjectId, ref: 'GridReferralPartner' },
+  referral_code:       { type: String },
+  commission_rate:     { type: Number },   // e.g., 25 (percent)
+  commission_status:   { type: String, enum: ['pending', 'confirmed', 'paid'], default: 'pending' },
+  notes:               { type: String },
+  commission_paid_at:  { type: Date },
+},
 
   // ==============================================================
   // FOLLOW-UP MANAGEMENT

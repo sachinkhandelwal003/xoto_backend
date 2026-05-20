@@ -1,4 +1,3 @@
-// models/XotoAdvisor.js
 const mongoose = require('mongoose');
 
 const nameSchema = new mongoose.Schema(

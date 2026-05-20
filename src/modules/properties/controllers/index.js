@@ -1,7 +1,6 @@
 import mongoose from "mongoose";
 import Property from "../models/PropertyModel.js";
 import Developer from "../models/DeveloperModel.js";
-import Inventory from "../models/Inventory.js";
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { createToken } from '../../../middleware/auth.js';
 import bcrypt from "bcryptjs";
@@ -803,7 +802,7 @@ export const createInventory = async (req, res) => {
 
 export const getInventoryByProperty = async (req, res) => {
   try {
-    const { projectId } = req.params;
+    const projectId = req.query.propertyId || req.params.projectId;
     
     // Get pagination parameters from query
     const page = parseInt(req.query.page) || 1;
