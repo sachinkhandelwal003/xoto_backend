@@ -86,13 +86,17 @@ exports.createToken = (user, type) => {
 
   // ⭐ ADDED: Agar user Agent, Agency ya Freelancer hai, toh uska detail bhi token mein daal do
   if (["agent", "agency", "freelancer", "vendorb2c", "vendorb2b", "developer", "gridadvisor"  ].includes(detectedType)) {
-    payload.first_name = user.first_name;
-    payload.last_name = user.last_name;
-    payload.phone_number = user.phone_number;
-    payload.country_code = user.country_code;
-    payload.profile_photo = user.profile_photo;
+    if (user.first_name) payload.first_name = user.first_name;
+    if (user.last_name) payload.last_name = user.last_name;
+    if (user.phone_number) payload.phone_number = user.phone_number;
+    if (user.country_code) payload.country_code = user.country_code;
+    if (user.profile_photo) payload.profile_photo = user.profile_photo;
     // Agar company logo ho (Developer/Agency ke liye)
-    payload.logo = user.logo; 
+    if (user.logo) payload.logo = user.logo; 
+    // For Agency, add companyName
+    if (detectedType === "agency" && user.companyName) {
+      payload.companyName = user.companyName;
+    }
   }
 
   // ⭐ Only freelancers get status added to the token
@@ -167,6 +171,7 @@ exports.protectPartner = protectBase(Partner, "Partner");
 exports.protectPartner = protectBase(Partner, "Partner");
 exports.protectVaultAdvisor = protectBase(VaultAdvisor, "VaultAdvisor");
 exports.protectVaultOps = protectBase(VaultOps, "VaultOps");
+exports.protectGridReferralPartner = protectBase(GridReferralPartner, "GridReferralPartner");
 // exports.protectVaultAgent = protectBase(VaultAgents, "VaultAgents");
 
 /* ============================================================

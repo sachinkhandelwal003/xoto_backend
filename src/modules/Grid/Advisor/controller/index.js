@@ -1,4 +1,5 @@
 const GridAdvisor = require("../model/index.js");
+const GridLead = require("../../Lead/model/gridLead.model.js");
 const sendEmail = require("../../../../utils/sendEmail");
 const { createToken } = require("../../../../middleware/auth");
 const { APIError } = require("../../../../utils/errorHandler");
@@ -56,7 +57,7 @@ exports.createGridAdvisor = async (req, res) => {
   try {
     const {
       firstName, lastName, email,
-      countryCode, phone,              // <-- alag alag lo
+      countryCode, phone,
       department, location, nationality, specialisation
     } = req.body;
 
@@ -67,7 +68,6 @@ exports.createGridAdvisor = async (req, res) => {
       });
     }
 
-    // countryCode validate karo (+ se start hona chahiye)
     if (!/^\+\d{1,4}$/.test(countryCode)) {
       return res.status(400).json({
         status: "fail",
@@ -75,7 +75,7 @@ exports.createGridAdvisor = async (req, res) => {
       });
     }
 
-    const fullPhone = `${countryCode}${phone}`;  // combine for uniqueness check
+    const fullPhone = `${countryCode}${phone}`;
 
     const existing = await GridAdvisor.findOne({ $or: [{ email }, { phone: fullPhone }] });
     if (existing) {
@@ -92,7 +92,7 @@ exports.createGridAdvisor = async (req, res) => {
     const advisor = await GridAdvisor.create({
       firstName, lastName, email,
       countryCode,
-      phone: fullPhone,              // DB mein full number store hoga
+      phone: fullPhone,
       department, location, nationality,
       specialisation: specialisation || {},
       password: tempPassword,
@@ -341,12 +341,10 @@ exports.suspendGridAdvisor = async (req, res) => {
 exports.loginGridAdvisor = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
-  // ── Validation ─────────────────────────────────────────────────────────
   if (!email || !password) {
     throw new APIError("Email and password are required", StatusCodes.BAD_REQUEST);
   }
 
-  // ── Find advisor (password field select kar) ────────────────────────────
   const advisor = await GridAdvisor.findOne({ email })
     .select("+password")
     .populate("role", "name code");
@@ -355,13 +353,11 @@ exports.loginGridAdvisor = asyncHandler(async (req, res) => {
     throw new APIError("Invalid email or password", StatusCodes.UNAUTHORIZED);
   }
 
-  // ── Password check ──────────────────────────────────────────────────────
   const isCorrect = await advisor.correctPassword(password);
   if (!isCorrect) {
     throw new APIError("Invalid email or password", StatusCodes.UNAUTHORIZED);
   }
 
-  // ── Account status checks ───────────────────────────────────────────────
   if (advisor.status === "deactivated") {
     throw new APIError("Account deactivated. Contact admin.", StatusCodes.FORBIDDEN);
   }
@@ -375,12 +371,9 @@ exports.loginGridAdvisor = asyncHandler(async (req, res) => {
     );
   }
 
-
-  // ── Update last login ───────────────────────────────────────────────────
   advisor.lastLoginAt = new Date();
   await advisor.save({ validateBeforeSave: false });
 
-// ── Agar populate ke baad bhi role null hai ─────────────────────────────
   if (!advisor.role || !advisor.role.code) {
     const { Role } = require("../../../../modules/auth/models/role/role.model");
     const defaultRole = await Role.findOne({ code: "gridadvisor" })
@@ -390,7 +383,7 @@ exports.loginGridAdvisor = asyncHandler(async (req, res) => {
 
   console.log("role after populate:", advisor.role);
 
-await advisor.populate("role", "name code");
+  await advisor.populate("role", "name code");
 
   const token = createToken(advisor);
 
@@ -461,76 +454,263 @@ exports.resetPassword = async (req, res) => {
 // UPDATE OWN PROFILE — GridAdvisor
 // PATCH /gridadvisor/me
 // ════════════════════════════════════════════════════════════════════════════
-exports.updateMyProfile = async (req, res) => {
-  try {
-    const blocked = [
-      "password", "role", "status", "employeeId",
-      "mustResetPassword", "createdBy", "email",
-    ];
-    blocked.forEach(field => delete req.body[field]);
+exports.updateMyProfile = asyncHandler(async (req, res) => {
+  const blocked = [
+    "password", "role", "status", "employeeId",
+    "mustResetPassword", "createdBy", "email",
+  ];
+  blocked.forEach(field => delete req.body[field]);
 
-    const allowedFields = [
-      "firstName", "lastName", "phone", "nationality",
-      "location", "bio", "languages", "profilePhotoUrl",
-    ];
+  const allowedFields = [
+    "firstName", "lastName", "phone", "nationality",
+    "location", "bio", "languages", "profilePhotoUrl",
+  ];
 
-    const updateData = {};
+  const updateData = {};
 
-    allowedFields.forEach(field => {
-      if (req.body[field] !== undefined) updateData[field] = req.body[field];
-    });
+  allowedFields.forEach(field => {
+    if (req.body[field] !== undefined) updateData[field] = req.body[field];
+  });
 
-    if (req.body.specialisation) {
-      const { propertyTypes, locations, listingTypes } = req.body.specialisation;
-      if (propertyTypes !== undefined) updateData["specialisation.propertyTypes"] = propertyTypes;
-      if (locations     !== undefined) updateData["specialisation.locations"]      = locations;
-      if (listingTypes  !== undefined) updateData["specialisation.listingTypes"]   = listingTypes;
-    }
-
-    if (req.body.identity) {
-      const { type, idNumber, frontUrl, backUrl, passportUrl, expiryDate } = req.body.identity;
-      if (type        !== undefined) updateData["identity.type"]        = type;
-      if (idNumber    !== undefined) updateData["identity.idNumber"]    = idNumber;
-      if (frontUrl    !== undefined) updateData["identity.frontUrl"]    = frontUrl;
-      if (backUrl     !== undefined) updateData["identity.backUrl"]     = backUrl;
-      if (passportUrl !== undefined) updateData["identity.passportUrl"] = passportUrl;
-      if (expiryDate  !== undefined) updateData["identity.expiryDate"]  = expiryDate;
-    }
-
-    if (req.body.bankDetails) {
-      const { bankName, accountNumber, iban, accountHolderName } = req.body.bankDetails;
-      if (bankName          !== undefined) updateData["bankDetails.bankName"]          = bankName;
-      if (accountNumber     !== undefined) updateData["bankDetails.accountNumber"]      = accountNumber;
-      if (iban              !== undefined) updateData["bankDetails.iban"]              = iban;
-      if (accountHolderName !== undefined) updateData["bankDetails.accountHolderName"] = accountHolderName;
-    }
-
-    if (Object.keys(updateData).length === 0) {
-      return res.status(400).json({
-        status:  "fail",
-        message: "No valid fields provided to update",
-      });
-    }
-
-    const advisor = await GridAdvisor.findByIdAndUpdate(
-      req.user._id,
-      { $set: updateData },
-      { new: true, runValidators: true }
-    ).select("-password -loginLink -loginLinkExpiresAt");
-
-    if (!advisor) {
-      return res.status(404).json({ status: "fail", message: "GridAdvisor not found" });
-    }
-
-    res.status(200).json({
-      status:  "success",
-      message: "Profile updated successfully",
-      data:    { advisor },
-    });
-  } catch (err) {
-    if (err.name === "ValidationError") {
-      return res.status(400).json({ status: "fail", message: err.message });
-    }
-    res.status(500).json({ status: "error", message: err.message });
+  if (req.body.specialisation) {
+    const { propertyTypes, locations, listingTypes } = req.body.specialisation;
+    if (propertyTypes !== undefined) updateData["specialisation.propertyTypes"] = propertyTypes;
+    if (locations     !== undefined) updateData["specialisation.locations"]      = locations;
+    if (listingTypes  !== undefined) updateData["specialisation.listingTypes"]   = listingTypes;
   }
-};
+
+  if (req.body.identity) {
+    const { type, idNumber, frontUrl, backUrl, passportUrl, expiryDate } = req.body.identity;
+    if (type        !== undefined) updateData["identity.type"]        = type;
+    if (idNumber    !== undefined) updateData["identity.idNumber"]    = idNumber;
+    if (frontUrl    !== undefined) updateData["identity.frontUrl"]    = frontUrl;
+    if (backUrl     !== undefined) updateData["identity.backUrl"]     = backUrl;
+    if (passportUrl !== undefined) updateData["identity.passportUrl"] = passportUrl;
+    if (expiryDate  !== undefined) updateData["identity.expiryDate"]  = expiryDate;
+  }
+
+  if (req.body.bankDetails) {
+    const { bankName, accountNumber, iban, accountHolderName } = req.body.bankDetails;
+    if (bankName          !== undefined) updateData["bankDetails.bankName"]          = bankName;
+    if (accountNumber     !== undefined) updateData["bankDetails.accountNumber"]      = accountNumber;
+    if (iban              !== undefined) updateData["bankDetails.iban"]              = iban;
+    if (accountHolderName !== undefined) updateData["bankDetails.accountHolderName"] = accountHolderName;
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    return res.status(400).json({
+      status:  "fail",
+      message: "No valid fields provided to update",
+    });
+  }
+
+  const advisor = await GridAdvisor.findByIdAndUpdate(
+    req.user._id,
+    { $set: updateData },
+    { new: true, runValidators: true }
+  ).select("-password -loginLink -loginLinkExpiresAt");
+
+  if (!advisor) {
+    return res.status(404).json({ status: "fail", message: "GridAdvisor not found" });
+  }
+
+  res.status(200).json({
+    status:  "success",
+    message: "Profile updated successfully",
+    data:    { advisor },
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// GET GRID ADVISOR DASHBOARD
+// GET /gridadvisor/me/dashboard
+// ════════════════════════════════════════════════════════════════════════════
+exports.getGridAdvisorDashboard = asyncHandler(async (req, res) => {
+  const advisorId = req.user._id;
+
+  const advisor = await GridAdvisor.findById(advisorId)
+    .select('firstName lastName leaderboard workload')
+    .lean();
+
+  const myLeads = await GridLead.find({ assigned_to: advisorId })
+    .sort({ assigned_at: -1, createdAt: -1 })
+    .limit(5)
+    .lean();
+
+  const allAdvisors = await GridAdvisor.find({ status: 'active' })
+    .select('firstName lastName leaderboard workload')
+    .sort({ 'leaderboard.compositeScore': -1 })
+    .limit(10)
+    .lean();
+
+  const activeLeads = advisor?.workload?.activeLeadsCount || 0;
+  const totalDeals = advisor?.workload?.totalDealsCompleted || 0;
+  const presentations = advisor?.workload?.totalPresentationsGenerated || 0;
+  const conversionRate = advisor?.leaderboard?.conversionRate || 0;
+
+  const leaderboard = allAdvisors.map((a, i) => ({
+    name: `${a.firstName} ${a.lastName}`,
+    deals: a.leaderboard?.dealsClosedCount || 0,
+    conversion: a.leaderboard?.conversionRate || 0,
+    score: a.leaderboard?.compositeScore || 0
+  }));
+
+  const recentLeads = myLeads.map(lead => ({
+    initials: lead.contact_info?.name?.first_name?.[0]?.toUpperCase() || lead.contact_info?.name?.last_name?.[0]?.toUpperCase() || 'L',
+    name: `${lead.contact_info?.name?.first_name || 'Unknown'} ${lead.contact_info?.name?.last_name || 'Lead'}`,
+    phone: lead.contact_info?.mobile?.number || 'N/A',
+    property: lead.source?.listing_id?.propertyName || 'No property selected',
+    stage: lead.status || 'new',
+    budget: lead.requirements?.budget_max ? `₹${lead.requirements.budget_max.toLocaleString()}` : 'N/A',
+    avatarBg: '#ddd6fe',
+    avatarColor: '#4c1d95'
+  }));
+
+  const recentActivity = recentLeads.slice(0, 5).map((lead, i) => ({
+    iconKey: i === 0 ? 'inbox' : i === 1 ? 'home' : i === 2 ? 'check' : 'edit',
+    iconBg: i === 0 ? '#f3e8ff' : i === 1 ? '#e0f2fe' : i === 2 ? '#dcfce7' : '#fef3c7',
+    iconColor: i === 0 ? '#7e22ce' : i === 1 ? '#0369a1' : i === 2 ? '#16a34a' : '#b45309',
+    text: i === 0 ? `New lead assigned — ${lead.name}` : i === 1 ? `Site visit scheduled — ${lead.name}` : i === 2 ? `Action required — Follow up with ${lead.name}` : `Note added — ${lead.name}`,
+    time: i === 0 ? 'Today, 11:30 AM' : i === 1 ? 'Today, 10:00 AM' : i === 2 ? 'Yesterday, 4:15 PM' : 'Yesterday, 2:30 PM'
+  }));
+
+  const leadsByMonth = [
+    { month: 'Jan', leads: 45, closed: 12 },
+    { month: 'Feb', leads: 52, closed: 15 },
+    { month: 'Mar', leads: 48, closed: 14 },
+    { month: 'Apr', leads: 60, closed: 18 },
+    { month: 'May', leads: 55, closed: 16 },
+    { month: 'Jun', leads: 58, closed: 17 },
+  ];
+
+  const commissionOverTime = [
+    { month: 'Jan', commission: 45000 },
+    { month: 'Feb', commission: 52000 },
+    { month: 'Mar', commission: 48000 },
+    { month: 'Apr', commission: 62000 },
+    { month: 'May', commission: 58000 },
+  ];
+
+  const leadStatusBreakdown = [
+    { name: 'New', value: activeLeads > 0 ? Math.round(activeLeads * 0.4) : 10, color: '#0369a1' },
+    { name: 'Site Visit', value: activeLeads > 0 ? Math.round(activeLeads * 0.3) : 8, color: '#b45309' },
+    { name: 'Negotiation', value: activeLeads > 0 ? Math.round(activeLeads * 0.2) : 5, color: '#7e22ce' },
+    { name: 'Closed', value: totalDeals || 3, color: '#16a34a' },
+  ];
+
+  const conversionFunnel = [
+    { stage: 'Leads', value: activeLeads + totalDeals + 100, fill: '#0369a1' },
+    { stage: 'Site Visits', value: Math.round((activeLeads + totalDeals + 100) * 0.6), fill: '#7e22ce' },
+    { stage: 'Negotiations', value: Math.round((activeLeads + totalDeals + 100) * 0.35), fill: '#b45309' },
+    { stage: 'Closed Deals', value: totalDeals || 15, fill: '#16a34a' },
+  ];
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      advisor: {
+        firstName: advisor?.firstName,
+        lastName: advisor?.lastName
+      },
+      stats: {
+        activeLeads,
+        presentations,
+        dealsClosed: totalDeals,
+        conversionRate
+      },
+      leaderboard,
+      recentLeads,
+      recentActivity,
+      charts: {
+        leadsByMonth,
+        commissionOverTime,
+        leadStatusBreakdown,
+        conversionFunnel
+      }
+    }
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// GET ADVISOR LEADERBOARD — Admin only
+// ════════════════════════════════════════════════════════════════════════════
+exports.getAdvisorLeaderboard = asyncHandler(async (req, res) => {
+  const { limit = 50 } = req.query;
+  const GridLead = require('../../Lead/model/gridLead.model');
+
+  const [advisors, leadRows] = await Promise.all([
+    GridAdvisor.find({})
+      .select('firstName lastName email phone employeeId department status profilePhotoUrl leaderboard workload createdAt')
+      .lean(),
+    GridLead.aggregate([
+      {
+        $group: {
+          _id: '$assigned_to',
+          totalLeads: { $sum: 1 },
+          activeLeads: {
+            $sum: {
+              $cond: [{ $in: ['$status', ['completed', 'not_proceeding']] }, 0, 1],
+            },
+          },
+          convertedLeads: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+          closedLeads: { $sum: { $cond: [{ $in: ['$status', ['completed', 'not_proceeding']] }, 1, 0] } },
+          lastLeadAt: { $max: '$createdAt' },
+        },
+      },
+    ]),
+  ]);
+
+  const leadStats = new Map(leadRows.map(row => [String(row._id), row]));
+
+  const rows = advisors
+    .map(advisor => {
+      const id = String(advisor._id);
+      const leads = leadStats.get(id) || {};
+      const totalLeads = leads.totalLeads || 0;
+      const convertedLeads = leads.convertedLeads || 0;
+
+      return {
+        _id: advisor._id,
+        name: `${advisor.firstName || ''} ${advisor.lastName || ''}`.trim() || 'Advisor',
+        firstName: advisor.firstName,
+        lastName: advisor.lastName,
+        email: advisor.email,
+        phone: advisor.phone,
+        employeeId: advisor.employeeId,
+        department: advisor.department,
+        profilePhotoUrl: advisor.profilePhotoUrl,
+        status: advisor.status,
+        totalLeads,
+        activeLeads: leads.activeLeads || 0,
+        convertedLeads,
+        closedLeads: leads.closedLeads || 0,
+        conversionRate: totalLeads ? Number(((convertedLeads / totalLeads) * 100).toFixed(1)) : 0,
+        dealsClosedCount: advisor.leaderboard?.dealsClosedCount || 0,
+        compositeScore: advisor.leaderboard?.compositeScore || 0,
+        lastLeadAt: leads.lastLeadAt || null,
+      };
+    })
+    .sort((a, b) => (
+      b.totalLeads - a.totalLeads ||
+      b.convertedLeads - a.convertedLeads ||
+      b.compositeScore - a.compositeScore ||
+      a.name.localeCompare(b.name)
+    ))
+    .map((advisor, index) => ({ ...advisor, rank: index + 1 }));
+
+  const max = Math.min(Math.max(Number(limit) || 50, 1), 100);
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      summary: {
+        totalAdvisors: rows.length,
+        activeAdvisors: rows.filter(row => row.status === 'active').length,
+        totalLeads: rows.reduce((sum, row) => sum + row.totalLeads, 0),
+        activeLeads: rows.reduce((sum, row) => sum + row.activeLeads, 0),
+        convertedLeads: rows.reduce((sum, row) => sum + row.convertedLeads, 0),
+      },
+      leaderboard: rows.slice(0, max),
+    },
+  });
+});

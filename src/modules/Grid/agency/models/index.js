@@ -68,6 +68,47 @@ const agencySchema = new mongoose.Schema(
       default: '',
     },
 
+    kycDocuments: [
+      {
+        type: { type: String, required: true },
+        name: { type: String, required: true },
+        url: { type: String, required: true },
+        uploadedAt: { type: Date, default: Date.now }
+      }
+    ],
+
+    kycStatus: {
+      type: String,
+      enum: ['not_submitted', 'pending', 'approved', 'rejected'],
+      default: 'not_submitted'
+    },
+
+    kycRejectionReason: { type: String, default: '' },
+    onboardingStatus: { type: String, default: '' },
+
+    agreementDocuments: [
+      {
+        type: { type: String, required: true },
+        name: { type: String, required: true },
+        url: { type: String, required: true },
+        uploadedAt: { type: Date, default: Date.now }
+      }
+    ],
+
+    agreementStatus: {
+      type: String,
+      enum: ['not_submitted', 'pending', 'approved', 'rejected', 'changes_requested'],
+      default: 'not_submitted'
+    },
+
+    agreementSigned: { type: Boolean, default: false },
+    agreementVerified: { type: Boolean, default: false },
+    agreementUnderReview: { type: Boolean, default: false },
+    agreementFeedback: {
+      message: { type: String, default: '' },
+      remarks: { type: String, default: '' }
+    },
+
     // ── Role ───────────────────────────────────────────────────────
     role: {
       type: mongoose.Schema.Types.ObjectId,
@@ -118,7 +159,7 @@ const agencySchema = new mongoose.Schema(
       default: true,
     },
 
-    // ── Subscription / Presentation Tier ──────────────────────────
+    // ── Subscription Tier ─────────────────────────────────────────
     subscriptionTier: {
       type: String,
       enum: ['basic', 'standard', 'premium'],
@@ -171,7 +212,7 @@ const agencySchema = new mongoose.Schema(
     agents: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Agent',
+        ref: 'GridAgent',
       },
     ],
 
@@ -211,9 +252,8 @@ agencySchema.methods.comparePassword = async function (candidate) {
   return bcrypt.compare(candidate, this.password);
 };
 
-// ── Virtual: Presentation Balance ─────────────────────────────────
 agencySchema.virtual('presentationBalance').get(function () {
-  return Math.max(0, this.presentationQuota - this.presentationsUsed);
+  return Math.max(0, (this.presentationQuota || 0) - (this.presentationsUsed || 0));
 });
 
 agencySchema.set('toJSON', { virtuals: true });

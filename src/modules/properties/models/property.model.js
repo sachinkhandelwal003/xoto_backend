@@ -6,15 +6,15 @@ const PropertySchema = new mongoose.Schema(
   {
 
     developer: {
-      type:    mongoose.Schema.Types.ObjectId,
-      ref:     "Developer",
-      default: null,
-    },
-    createdByAdmin: {
-      type:    mongoose.Schema.Types.ObjectId,
-      ref:     "User",
-      default: null,
-    },
+    type:    mongoose.Schema.Types.ObjectId,
+    ref:     "Developer",
+    default: null,
+  },
+  createdByAdmin: {
+    type:    mongoose.Schema.Types.ObjectId,
+    ref:     "User",
+    default: null,
+  },
 
     // ══════════════════════════════════════════════════════════════
     // PROPERTY TYPE (PRD §1.6)
@@ -30,10 +30,11 @@ const PropertySchema = new mongoose.Schema(
       enum:    ["rent", "sell"],
       default: "sell",
     },
-isFeatured: { type: Boolean, default: false },
-isHot:      { type: Boolean, default: false },
+    isFeatured: { type: Boolean, default: false },
+    isHot:      { type: Boolean, default: false },
+
     // ══════════════════════════════════════════════════════════════
-    // PROJECT INFO
+    // PROJECT INFO (PRD §9.3 Step 1)
     // ══════════════════════════════════════════════════════════════
     projectOption: {
       type:    String,
@@ -47,13 +48,20 @@ isHot:      { type: Boolean, default: false },
     },
     propertyName: {
       type:     String,
-      required: true,
       trim:     true,
     },
+    projectName: { type: String, default: "" }, // alias for propertyName
     developerName: {
       type:    String,
       default: "",
     },
+    locality: { type: String, default: "" },
+    propertyType: {
+      type: String,
+      enum: ["Residential", "Commercial", "Mixed-Use"],
+      default: "Residential",
+    },
+    overview: { type: String, default: "" },
 
     // ══════════════════════════════════════════════════════════════
     // UNIT DETAILS
@@ -63,13 +71,15 @@ isHot:      { type: Boolean, default: false },
 
     unitType: {
       type: String,
-      enum: [
-        "apartment", "villa", "townhouse", "duplex", "penthouse",
-        "plot", "office", "retail", "warehouse",
-      ],
+      enum: ["apartment", "villa", "townhouse", "duplex", "penthouse", "plot", "office", "retail", "warehouse"],
       required: function () {
         return this.propertySubType !== "off_plan";
       },
+    },
+    unitTypes: {
+      type: [String],
+      enum: ["apartment", "villa", "townhouse", "duplex", "penthouse", "plot", "office", "retail", "warehouse"],
+      default: []
     },
     bedroomType: {
       type:    String,
@@ -93,21 +103,29 @@ isHot:      { type: Boolean, default: false },
     price:     { type: Number, default: 0 },
     price_min: { type: Number, default: 0 },
     price_max: { type: Number, default: 0 },
+    priceRange: {
+      from: { type: Number, default: 0 },
+      to: { type: Number, default: 0 },
+    },
     currency:  { type: String, default: "AED" },
 
     // ══════════════════════════════════════════════════════════════
     // LOCATION
     // ══════════════════════════════════════════════════════════════
-   area: {
-  type:     String,
-  required: true,
-  trim:     true,
-},
+    area: {
+      type:     String,
+      trim:     true,
+    },
     city:    { type: String, default: "Dubai" },
     country: { type: String, default: "UAE" },
     coordinates: {
       lat: { type: Number, default: null },
       lng: { type: Number, default: null },
+    },
+    location: {
+      address: { type: String, default: "" },
+      latitude: { type: Number, default: null },
+      longitude: { type: Number, default: null },
     },
     proximity: {
       airport: { type: String, default: "" },
@@ -126,13 +144,22 @@ isHot:      { type: Boolean, default: false },
       lobby:        [{ type: String }],
       other:        [{ type: String }],
     },
+    media: {
+      mainLogo: { type: String, default: "" },
+      architectureImages: [{ type: String }],
+      interiorImages: [{ type: String }],
+      lobbyImages: [{ type: String }],
+      otherImages: [{ type: String }],
+      youtubeVideos: [{ type: String }],
+    },
     videoUrl: { type: String, default: "" },
     brochure: { type: String, default: "" },
+    youtubeVideos: [{ type: String }],
 
     // ══════════════════════════════════════════════════════════════
     // DESCRIPTION
     // ══════════════════════════════════════════════════════════════
-    description: { type: String, required: true, trim: true },
+    description: { type: String, default: "" },
 
     // ══════════════════════════════════════════════════════════════
     // AMENITIES & FACILITIES (PRD §9.3 Step 2)
@@ -151,6 +178,44 @@ isHot:      { type: Boolean, default: false },
     },
 
     // ══════════════════════════════════════════════════════════════
+    // BUILDINGS (PRD §9.3 Step 2)
+    // ══════════════════════════════════════════════════════════════
+    buildings: [
+      {
+        title: { type: String, default: "" },
+        image: {
+          type: mongoose.Schema.Types.Mixed,
+          default: null
+        },
+        description: { type: String, default: "" },
+      }
+    ],
+
+    // ══════════════════════════════════════════════════════════════
+    // FLOOR PLANS (PRD §9.3 Step 2)
+    // ══════════════════════════════════════════════════════════════
+    floorPlans: [
+      {
+        unitType: { type: String, default: "" },
+        areaFrom: { type: Number, default: 0 },
+        areaTo: { type: Number, default: 0 },
+      }
+    ],
+
+    // ══════════════════════════════════════════════════════════════
+    // INVENTORY (PRD §9.3 Step 3)
+    // ══════════════════════════════════════════════════════════════
+    inventory: [
+      {
+        unitType: { type: String, default: "" },
+        units: { type: Number, default: 0 },
+        sqft: { type: Number, default: 0 },
+        sqm: { type: Number, default: 0 },
+      }
+    ],
+    parkingAllocation: { type: String, default: "" },
+
+    // ══════════════════════════════════════════════════════════════
     // FEATURES
     // ══════════════════════════════════════════════════════════════
     hasView:       { type: Boolean, default: false },
@@ -164,6 +229,11 @@ isHot:      { type: Boolean, default: false },
       type:    String,
       enum:    ["furnished", "semi_furnished", "unfurnished"],
       default: "unfurnished",
+    },
+    furnishingStatus: {
+      type: String,
+      enum: ["Unfurnished", "Semi-Furnished", "Fully Furnished"],
+      default: "Unfurnished"
     },
     ownershipType: {
       type:    String,
@@ -215,9 +285,17 @@ isHot:      { type: Boolean, default: false },
       enum:    ["presale", "under_construction", "ready", "sold_out"],
       default: "presale",
     },
+    developmentStatus: {
+      type: String,
+      enum: ["Planned", "Under Construction", "Completed"],
+      default: "Planned"
+    },
     floors:            { type: Number, default: 0 },
+    numberOfFloors:    { type: Number, default: 0 },
     serviceChargeInfo: { type: String, default: "" },
+    serviceCharge:     { type: String, default: "" },
     readinessProgress: { type: String, default: "0%" },
+    constructionProgress: { type: Number, default: 0 },
 
     paymentPlan: [{
       title: { type: String },
@@ -242,16 +320,41 @@ isHot:      { type: Boolean, default: false },
     shareCommissionPercentage: { type: Number, default: 0 },
 
     // ══════════════════════════════════════════════════════════════
+    // SALE STATUS
+    // ══════════════════════════════════════════════════════════════
+    saleStatus: {
+      type: String,
+      enum: ["Available", "Reserved", "Sold"],
+      default: "Available"
+    },
+
+    // ══════════════════════════════════════════════════════════════
+    // DEVELOPER DETAILS
+    // ══════════════════════════════════════════════════════════════
+    developerDetails: {
+      companyName: { type: String },
+      contactName: { type: String },
+      email: { type: String },
+      phone: { type: String },
+      logo: { type: String },
+    },
+
+    // ══════════════════════════════════════════════════════════════
     // STATUS & APPROVAL (PRD §12.1)
     // ══════════════════════════════════════════════════════════════
     approvalStatus: {
       type:    String,
-      enum:    ["pending", "approved", "rejected"],
+      enum:    ["pending", "approved", "rejected", "changes_requested", "draft"],
       default: "pending",
+    },
+    status: {
+      type: String,
+      enum: ["pending", "approved", "rejected", "draft"],
+      default: "draft"
     },
     listingStatus: {
       type:    String,
-      enum:    ["pending", "active", "rejected", "inactive"],
+      enum:    ["pending", "active", "rejected", "inactive", "changes_requested"],
       default: "pending",
     },
     rejectionReason: { type: String, default: "" },
@@ -267,16 +370,66 @@ isHot:      { type: Boolean, default: false },
     isFeatured:              { type: Boolean, default: false },
     showContactOnlyVerified: { type: Boolean, default: true },
 
-    approvalStatus: {
-  type:    String,
-  enum:    ["pending", "approved", "rejected", "changes_requested"],  // add this
-  default: "pending",
-},
-listingStatus: {
-  type:    String,
-  enum:    ["pending", "active", "rejected", "inactive", "changes_requested"],  // add
-  default: "pending",
-},
+    // ══════════════════════════════════════════════════════════════
+    // INVENTORY CATEGORY (MAIN DRIVER FOR INVENTORY LOGIC)
+    // ══════════════════════════════════════════════════════════════
+    inventoryCategory: {
+      type: String,
+      enum: [
+        "residential_tower",
+        "villa_community",
+        "townhouse_cluster",
+        "commercial_office",
+        "commercial_retail",
+        "warehouse",
+        "land_plot",
+        "hotel_apartment"
+      ],
+      default: "residential_tower"
+    },
+    
+    // ══════════════════════════════════════════════════════════════
+    // FLOOR & BUILDING CONFIGURATIONS (FOR AUTO-INVENTORY)
+    // ══════════════════════════════════════════════════════════════
+    buildingNames: { type: [String], default: [] },
+    floorConfigurations: [
+      {
+        buildingName: { type: String, default: "" },
+        floorNumber: { type: Number, required: true },
+        units: [
+          {
+            unitType: {
+              type: String,
+              enum: ["apartment", "villa", "townhouse", "duplex", "penthouse", "plot", "office", "retail", "warehouse"],
+              required: true
+            },
+            bedroomType: {
+              type: String,
+              enum: ["studio", "1bed", "2bed", "3bed", "4bed", "5bed", "6bed", "7bed", "8plus"],
+              required: true
+            },
+            bedrooms: { type: Number, default: 0 },
+            bathrooms: { type: Number, default: 0 },
+            area: { type: Number, required: true },
+            areaUnit: { type: String, enum: ["sqft", "sqm"], default: "sqft" },
+            price: { type: Number, required: true },
+            count: { type: Number, default: 1 },
+            hasView: { type: Boolean, default: false },
+            viewType: {
+              type: [String],
+              enum: ["sea", "city", "garden", "landmark", "pool", "park"],
+              default: []
+            },
+            parkingSpaces: { type: Number, default: 0 },
+            furnishing: {
+              type: String,
+              enum: ["furnished", "semi_furnished", "unfurnished"],
+              default: "unfurnished"
+            }
+          }
+        ]
+      }
+    ],
 
     // ══════════════════════════════════════════════════════════════
     // STATISTICS (PRD §9.4, §9.6)
@@ -295,8 +448,8 @@ listingStatus: {
 // INDEXES
 // ══════════════════════════════════════════════════════════════════════════
 
-PropertySchema.index({ developer:       1 });
-PropertySchema.index({ createdByAdmin:  1 });
+PropertySchema.index({ developer: 1 });
+PropertySchema.index({ createdByAdmin: 1 });
 PropertySchema.index({ propertySubType: 1 });
 PropertySchema.index({ approvalStatus:  1 });
 PropertySchema.index({ listingStatus:   1 });

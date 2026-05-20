@@ -21,6 +21,7 @@ const userSchema = new mongoose.Schema({
   dateOfBirth: { 
     type: Date 
   },
+  profilePhotoUrl: { type: String, default: "" },
   password: { 
     type: String, 
     required: true, 
