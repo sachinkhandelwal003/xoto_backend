@@ -1551,7 +1551,7 @@ exports.createGeneralLead = asyncHandler(async (req, res) => {
   if (!first_name || !last_name || !phone_number) {
     return res.status(400).json({
       success: false,
-      message: 'First name, last name aur phone number required hain',
+      message: 'First name, last name and phone number are required',
     });
   }
 
@@ -1587,7 +1587,7 @@ exports.createGeneralLead = asyncHandler(async (req, res) => {
     const existing = existingLeads[0];
     return res.status(409).json({
       success: false,
-      message: 'Is customer ka lead already exist karta hai',
+      message: "This customer's lead already exists.",
       data: { lead_id: existing._id, status: existing.status, created_at: existing.createdAt },
     });
   }
@@ -1596,7 +1596,7 @@ exports.createGeneralLead = asyncHandler(async (req, res) => {
   if (property_id) {
     const property = await Property.findOne({ _id: property_id, approvalStatus: 'approved' });
     if (!property) {
-      return res.status(400).json({ success: false, message: 'Property nahi mili ya approved nahi hai' });
+      return res.status(400).json({ success: false, message: 'Property are not found or not approved' });
     }
   }
 
@@ -1636,7 +1636,7 @@ exports.createGeneralLead = asyncHandler(async (req, res) => {
 
   return res.status(201).json({
     success: true,
-    message: 'General lead successfully create ho gaya',
+    message: 'General lead successfully created',
     data: {
       lead_id:        lead._id,
       status:         lead.status,
@@ -1659,15 +1659,15 @@ exports.bulkCreateGeneralLeads = asyncHandler(async (req, res) => {
   if (!Array.isArray(leadsArray) || leadsArray.length === 0) {
     return res.status(400).json({
       success: false,
-      message: 'leads array required hai aur empty nahi hona chahiye',
+      message: "leads array is required and must not be empty.",
     });
   }
 
   if (leadsArray.length > 500) {
     return res.status(400).json({
       success: false,
-      message: 'Ek baar mein max 500 leads upload ho sakte hain',
-    });
+        message: 'A maximum of 500 leads can be uploaded at a time.',
+      });
   }
 
   const results = { created: [], duplicates: [], errors: [] };
