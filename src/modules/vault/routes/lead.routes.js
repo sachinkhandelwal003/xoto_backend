@@ -11,10 +11,10 @@ import {
   assignLeadToXotoAdvisor,
   updateLeadStatus,
   getAdvisorAssignedLeads,
-  advisorUpdateLeadStatus,
-  advisorUpdateLeadInfo,
+  AdvisororPartnerUpdateLeadStatus,
+  AdvisororPartnerUpdateLeadInfo,
   calculateLeadEligibility,
-  getLeadEligibility,
+  getLeadEligibility,partnerUpdateLeadInfo,partnerUpdateLeadStatus
 } from '../controllers/lead.controller.js';
 
 import multer from 'multer';
@@ -59,14 +59,15 @@ router.put('/admin/:id/status',          protectMulti, updateLeadStatus);
 // XOTO ADVISOR
 // ══════════════════════════════════════════════════════════════════
 router.get('/advisor/my-leads',                   protectVaultAdvisor, getAdvisorAssignedLeads);
-router.put('/advisor/lead/:leadId/status',        protectVaultAdvisor, advisorUpdateLeadStatus);
-router.put('/advisor/lead/:leadId/info',          protectVaultAdvisor, advisorUpdateLeadInfo);
+router.put('/advisorOrpartner/lead/:leadId/status',        protectMulti, AdvisororPartnerUpdateLeadStatus);
+router.put('/advisorOrpartner/lead/:leadId/info',          protectMulti, AdvisororPartnerUpdateLeadInfo);
+
 
 // ══════════════════════════════════════════════════════════════════
 // ELIGIBILITY — Simple DBR check (same as calculator)
 // ══════════════════════════════════════════════════════════════════
-router.post('/:leadId/calculate-eligibility', protectVaultAdvisor, calculateLeadEligibility);
-router.get('/:leadId/eligibility',            protectVaultAdvisor, getLeadEligibility);
+router.post('/:leadId/calculate-eligibility', protectMulti, calculateLeadEligibility);
+router.get('/:leadId/eligibility',            protectMulti, getLeadEligibility);
 
 // ══════════════════════════════════════════════════════════════════
 // SHARED — Any authenticated user

@@ -21,7 +21,7 @@ router.post('/:caseId', protectMulti, uploadCaseDocument);
 router.get('/:caseId', protectMulti, getCaseDocuments);
 
 // Toggle document handler (Advisor can take bank forms)
-router.post('/:caseId/toggle-handler', protectVaultAdvisor, toggleDocumentHandler);
+router.post('/:caseId/toggle-handler', protectMulti, toggleDocumentHandler);
 
 // ==================== VERIFICATION ROUTES ====================
 

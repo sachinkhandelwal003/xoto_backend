@@ -469,20 +469,48 @@ export const getPartnerLeads = async (req, res) => {
   try {
     const partner = await Partner.findById(req.user._id);
     if (!partner) return res.status(404).json({ success: false, message: 'Partner not found' });
+    if (!partner.isActive()) return res.status(403).json({ success: false, message: 'Partner account not active' });
+
+    const { status, page = 1, limit = 10 } = req.query;
     
-    let leads = [];
+    // Build base query
+    let query = { isDeleted: false };
+    
     if (partner.partnerCategory === 'company') {
-      const agents = await VaultAgent.find({ partnerId: partner._id, agentType: 'PartnerAffiliatedAgent', isDeleted: false });
-      if (agents.length)
-        leads = await Lead.find({ 'sourceInfo.createdById': { $in: agents.map(a => a._id) }, isDeleted: false }).sort({ createdAt: -1 });
+      const agents = await VaultAgent.find({ 
+        partnerId: partner._id, 
+        agentType: 'PartnerAffiliatedAgent', 
+        isDeleted: false 
+      });
+      const agentIds = agents.map(a => a._id);
+      query['sourceInfo.createdById'] = { $in: [...agentIds, partner._id] };
     } else {
-      leads = await Lead.find({
-        'sourceInfo.createdById': partner._id,
-        'sourceInfo.createdByModel': 'Partner',
-        isDeleted: false,
-      }).sort({ createdAt: -1 });
+      query['sourceInfo.createdById'] = partner._id;
+      query['sourceInfo.createdByModel'] = 'Partner';
     }
-    return res.status(200).json({ success: true, data: leads, total: leads.length });
+
+    // Apply status filter
+    if (status) query.currentStatus = status;
+
+    // Execute query with pagination
+    const [leads, total] = await Promise.all([
+      Lead.find(query)
+        .sort({ createdAt: -1 })
+        .skip((parseInt(page) - 1) * parseInt(limit))
+        .limit(parseInt(limit)),
+      Lead.countDocuments(query),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: leads,
+      total,
+      pagination: {
+        totalPages: Math.ceil(total / parseInt(limit)),
+        currentPage: parseInt(page),
+        limit: parseInt(limit)
+      }
+    });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -491,30 +519,135 @@ export const getPartnerLeads = async (req, res) => {
 // ══════════════════════════════════════════════════════════════════
 // 8. ADMIN — GET ALL LEADS
 // ══════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+// ADMIN — GET ALL LEADS (Only Website, Freelance Agent, and Admin Sources)
+// GET /admin/all?status=xxx&assigned=true&page=1&limit=10
+// ══════════════════════════════════════════════════════════════════
 export const adminGetAllLeads = async (req, res) => {
   try {
     const roleDoc = await Role.findById(req.user.role);
-    if (!roleDoc || roleDoc.code !== '18')
+    if (!roleDoc || roleDoc.code !== '18') {
       return res.status(403).json({ success: false, message: 'Admin only' });
+    }
 
-    const { status, source, assigned, page = 1, limit = 20 } = req.query;
-    const query = { isDeleted: false };
+    const { 
+      status, 
+      assigned, 
+      page = 1, 
+      limit = 10,
+      search,
+      dateFrom,
+      dateTo,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+    
+    // Only include leads from sources that need Xoto advisor management
+    const query = { 
+      isDeleted: false,
+      'sourceInfo.source': { 
+        $in: ['website', 'freelance_agent', 'admin'] 
+      }
+    };
 
-    if (status) query.currentStatus = status;
-    if (source) query['sourceInfo.source'] = source;
-    if (assigned === 'true') query['assignedTo.advisorId'] = { $ne: null };
-    if (assigned === 'false') query['assignedTo.advisorId'] = null;
+    // Status filter
+    if (status) {
+      if (status.includes(',')) {
+        query.currentStatus = { $in: status.split(',') };
+      } else {
+        query.currentStatus = status;
+      }
+    }
 
+    // Assignment filter
+    if (assigned === 'true') {
+      query['assignedTo.advisorId'] = { $ne: null };
+    } else if (assigned === 'false') {
+      query['assignedTo.advisorId'] = null;
+    }
+
+    // Search filter (customer name, email, mobile)
+    if (search) {
+      query.$or = [
+        { 'customerInfo.firstName': { $regex: search, $options: 'i' } },
+        { 'customerInfo.lastName': { $regex: search, $options: 'i' } },
+        { 'customerInfo.email': { $regex: search, $options: 'i' } },
+        { 'customerInfo.mobileNumber': { $regex: search, $options: 'i' } },
+        { 'sourceInfo.createdByName': { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Date range filter
+    if (dateFrom || dateTo) {
+      query.createdAt = {};
+      if (dateFrom) query.createdAt.$gte = new Date(dateFrom);
+      if (dateTo) query.createdAt.$lte = new Date(dateTo);
+    }
+
+    // Sorting
+    const sortOptions = {};
+    sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const limitNum = parseInt(limit);
+
+    // Execute queries
     const [leads, total] = await Promise.all([
-      Lead.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(parseInt(limit)),
+      Lead.find(query)
+        .sort(sortOptions)
+        .skip(skip)
+        .limit(limitNum)
+        .populate('assignedTo.advisorId', 'firstName lastName email')
+        .populate('sourceInfo.createdById', 'name firstName lastName email'),
       Lead.countDocuments(query),
     ]);
 
+    // Get summary statistics (only for admin-managed leads)
+    const summary = {
+      totalLeads: total,
+      byStatus: {
+        new: await Lead.countDocuments({ ...query, currentStatus: 'New' }),
+        assigned: await Lead.countDocuments({ ...query, currentStatus: 'Assigned' }),
+        contacted: await Lead.countDocuments({ ...query, currentStatus: 'Contacted' }),
+        qualified: await Lead.countDocuments({ ...query, currentStatus: 'Qualified' }),
+        collectingDocs: await Lead.countDocuments({ ...query, currentStatus: 'Collecting Documents' }),
+        documentsComplete: await Lead.countDocuments({ ...query, currentStatus: 'Documents Complete' }),
+        applicationOpened: await Lead.countDocuments({ ...query, currentStatus: 'Application Opened' }),
+        notProceeding: await Lead.countDocuments({ ...query, currentStatus: 'Not Proceeding' })
+      },
+      bySource: {
+        website: await Lead.countDocuments({ ...query, 'sourceInfo.source': 'website' }),
+        freelance_agent: await Lead.countDocuments({ ...query, 'sourceInfo.source': 'freelance_agent' }),
+        admin: await Lead.countDocuments({ ...query, 'sourceInfo.source': 'admin' })
+      },
+      assignment: {
+        assigned: await Lead.countDocuments({ ...query, 'assignedTo.advisorId': { $ne: null } }),
+        unassigned: await Lead.countDocuments({ ...query, 'assignedTo.advisorId': null })
+      }
+    };
+
     return res.status(200).json({
-      success: true, data: leads, total,
-      pagination: { totalPages: Math.ceil(total / limit), currentPage: parseInt(page), limit },
+      success: true, 
+      data: leads, 
+      total,
+      summary,
+      filters: {
+        status: status || null,
+        assigned: assigned || null,
+        search: search || null,
+        dateFrom: dateFrom || null,
+        dateTo: dateTo || null
+      },
+      pagination: { 
+        totalPages: Math.ceil(total / limitNum), 
+        currentPage: parseInt(page), 
+        limit: limitNum,
+        hasNextPage: skip + limitNum < total,
+        hasPrevPage: parseInt(page) > 1
+      },
     });
   } catch (err) {
+    console.error('adminGetAllLeads error:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -522,16 +655,56 @@ export const adminGetAllLeads = async (req, res) => {
 // ══════════════════════════════════════════════════════════════════
 // 9. ADMIN — GET UNASSIGNED LEADS
 // ══════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+// ADMIN — GET UNASSIGNED LEADS (Excludes Partner & Partner-Affiliated)
+// GET /admin/unassigned
+// ══════════════════════════════════════════════════════════════════
 export const getUnassignedLeads = async (req, res) => {
   try {
     const roleDoc = await Role.findById(req.user.role);
-    if (roleDoc?.code !== '18') return res.status(403).json({ success: false, message: 'Admin only' });
+    if (roleDoc?.code !== '18') {
+      return res.status(403).json({ success: false, message: 'Admin only' });
+    }
     
-    const query = { isDeleted: false, currentStatus: 'New', 'assignedTo.advisorId': null };
-    const leads = await Lead.find(query).sort({ createdAt: 1 });
+    // Query for unassigned leads that need advisor assignment
+    // Exclude partner-related leads (individual_partner and partner_affiliated_agent)
+    const query = { 
+      isDeleted: false, 
+      currentStatus: 'New', 
+      'assignedTo.advisorId': null,
+      'sourceInfo.source': { 
+        $in: ['website', 'freelance_agent', 'admin'] 
+      }
+    };
     
-    return res.status(200).json({ success: true, data: leads, total: leads.length });
+    // Also exclude leads from partner-affiliated agents
+    // Partner-affiliated agents have source = 'partner_affiliated_agent'
+    // Individual partners have source = 'individual_partner'
+    
+    const leads = await Lead.find(query)
+      .sort({ createdAt: 1 })
+      .populate('sourceInfo.createdById', 'name firstName lastName email companyName');
+    
+    // Get counts for summary
+    const totalUnassigned = await Lead.countDocuments(query);
+    
+    // Also get count of leads that are excluded (for admin info)
+    const partnerLeadsCount = await Lead.countDocuments({
+      isDeleted: false,
+      currentStatus: 'New',
+      'assignedTo.advisorId': null,
+      'sourceInfo.source': { $in: ['individual_partner', 'partner_affiliated_agent'] }
+    });
+    
+    return res.status(200).json({ 
+      success: true, 
+      data: leads, 
+      total: totalUnassigned,
+      excludedPartnerLeads: partnerLeadsCount,
+      message: `${totalUnassigned} leads need assignment. ${partnerLeadsCount} partner leads are managed separately.`
+    });
   } catch (err) {
+    console.error('getUnassignedLeads error:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -609,12 +782,12 @@ export const getAdvisorAssignedLeads = async (req, res) => {
 // ══════════════════════════════════════════════════════════════════
 // 12. ADVISOR — UPDATE LEAD STATUS
 // ══════════════════════════════════════════════════════════════════
-export const advisorUpdateLeadStatus = async (req, res) => {
+export const AdvisororPartnerUpdateLeadStatus = async (req, res) => {
   try {
     const { leadId } = req.params;
     const { status, notes } = req.body;
 
-    const lead = await Lead.findOne({ _id: leadId, 'assignedTo.advisorId': req.user._id, isDeleted: false });
+    const lead = await Lead.findOne({ _id: leadId, isDeleted: false });
     if (!lead) return res.status(404).json({ success: false, message: 'Lead not found or not assigned to you' });
 
     const allowed = ['Assigned', 'Contacted', 'Qualified', 'Collecting Documents', 'Lost'];
@@ -661,37 +834,415 @@ export const advisorUpdateLeadStatus = async (req, res) => {
 // ══════════════════════════════════════════════════════════════════
 // 13. ADVISOR — UPDATE LEAD INFO
 // ══════════════════════════════════════════════════════════════════
-export const advisorUpdateLeadInfo = async (req, res) => {
+// ══════════════════════════════════════════════════════════════════
+// ADVISOR OR PARTNER — UPDATE LEAD INFO
+// ══════════════════════════════════════════════════════════════════
+export const AdvisororPartnerUpdateLeadInfo = async (req, res) => {
   try {
     const { leadId } = req.params;
-    const { customerInfo, propertyDetails, loanRequirements } = req.body;
+    let { customerInfo, propertyDetails, loanRequirements } = req.body;
 
-    const lead = await Lead.findOne({ _id: leadId, 'assignedTo.advisorId': req.user._id, isDeleted: false });
-    if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
+    const lead = await Lead.findOne({ _id: leadId, isDeleted: false });
+    if (!lead) {
+      return res.status(404).json({ success: false, message: 'Lead not found' });
+    }
 
+    // Helper to sanitize empty strings to null
+    const sanitize = (obj) => {
+      if (!obj) return obj;
+      Object.keys(obj).forEach(key => {
+        if (obj[key] === '') obj[key] = null;
+        if (typeof obj[key] === 'object' && obj[key] !== null) sanitize(obj[key]);
+      });
+      return obj;
+    };
+
+    customerInfo = sanitize(customerInfo);
+    propertyDetails = sanitize(propertyDetails);
+    loanRequirements = sanitize(loanRequirements);
+
+    // Handle customerInfo - Convert fullName to firstName & lastName if needed
     if (customerInfo) {
+      // If fullName is provided but firstName/lastName are not, split it
+      if (customerInfo.fullName && !customerInfo.firstName && !customerInfo.lastName) {
+        const nameParts = customerInfo.fullName.trim().split(' ');
+        customerInfo.firstName = nameParts[0] || '';
+        customerInfo.lastName = nameParts.slice(1).join(' ') || '';
+        delete customerInfo.fullName; // Remove fullName as it's not in schema
+      }
+
+      // Update each field
       Object.keys(customerInfo).forEach(key => {
-        if (customerInfo[key] !== undefined) lead.customerInfo[key] = customerInfo[key];
+        if (customerInfo[key] !== undefined && key !== 'fullName') {
+          lead.customerInfo[key] = customerInfo[key];
+        }
       });
     }
+
+    // Update property details
     if (propertyDetails) {
       Object.keys(propertyDetails).forEach(key => {
-        if (propertyDetails[key] !== undefined) lead.propertyDetails[key] = propertyDetails[key];
+        if (propertyDetails[key] !== undefined) {
+          if (key === 'propertyAddress' && typeof propertyDetails[key] === 'object') {
+            if (!lead.propertyDetails.propertyAddress) {
+              lead.propertyDetails.propertyAddress = {};
+            }
+            Object.keys(propertyDetails[key]).forEach(addrKey => {
+              lead.propertyDetails.propertyAddress[addrKey] = propertyDetails[key][addrKey];
+            });
+          } else {
+            lead.propertyDetails[key] = propertyDetails[key];
+          }
+        }
       });
     }
+
+    // Update loan requirements
     if (loanRequirements) {
       Object.keys(loanRequirements).forEach(key => {
-        if (loanRequirements[key] !== undefined) lead.loanRequirements[key] = loanRequirements[key];
+        if (loanRequirements[key] !== undefined) {
+          lead.loanRequirements[key] = loanRequirements[key];
+        }
       });
     }
 
     await lead.save();
-    return res.status(200).json({ success: true, message: 'Lead info updated', data: lead });
+    
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Lead info updated', 
+      data: lead 
+    });
   } catch (err) {
+    if (err.name === 'ValidationError') {
+      const messages = Object.values(err.errors).map(e => e.message);
+      return res.status(400).json({ success: false, message: messages.join(', ') });
+    }
     return res.status(500).json({ success: false, message: err.message });
   }
 };
 
+// ══════════════════════════════════════════════════════════════════
+// PARTNER — UPDATE LEAD STATUS (No SLA, No Advisor restrictions)
+// PUT /partner/lead/:leadId/status
+// ══════════════════════════════════════════════════════════════════
+export const partnerUpdateLeadStatus = async (req, res) => {
+  try {
+    const { leadId } = req.params;
+    const { status, notes, rejectionReason } = req.body;
+
+    // Get partner info
+    const partner = await Partner.findById(req.user._id);
+    if (!partner) return res.status(404).json({ success: false, message: 'Partner not found' });
+    if (!partner.isActive()) return res.status(403).json({ success: false, message: 'Partner account not active' });
+
+    // Find lead based on partner category
+    let lead;
+    if (partner.partnerCategory === 'company') {
+      const agents = await VaultAgent.find({ 
+        partnerId: partner._id, 
+        agentType: 'PartnerAffiliatedAgent', 
+        isDeleted: false 
+      });
+      const agentIds = agents.map(a => a._id);
+      lead = await Lead.findOne({
+        _id: leadId,
+        $or: [
+          { 'sourceInfo.createdById': partner._id },
+          { 'sourceInfo.createdById': { $in: agentIds } }
+        ],
+        isDeleted: false,
+      });
+    } else {
+      lead = await Lead.findOne({
+        _id: leadId,
+        'sourceInfo.createdById': partner._id,
+        isDeleted: false,
+      });
+    }
+
+    if (!lead) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Lead not found or not authorized' 
+      });
+    }
+
+    // Partner-specific allowed statuses (Simplified - No SLA)
+    const allowedStatuses = [
+      'New',                   // Initial status
+      'Contacted',             // Partner contacted customer
+      'Qualified',             // Customer eligible
+      'Collecting Documents',  // Gathering documents
+      'Documents Complete',    // All documents received
+      'Application Opened',    // Application submitted to bank
+      'Pre-Approved',          // Bank pre-approval
+      'Valuation',             // Property valuation
+      'FOL Issued',            // Formal offer letter issued
+      'FOL Signed',            // Customer signed
+      'Disbursed',             // Loan disbursed
+      'Not Proceeding'         // Lead lost
+    ];
+
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Invalid status. Allowed: ${allowedStatuses.join(', ')}` 
+      });
+    }
+
+    const prevStatus = lead.currentStatus;
+
+    // Validation for Qualified status
+    if (status === 'Qualified') {
+      // Optional: Check eligibility if data available
+      if (lead.customerInfo?.monthlySalary && lead.propertyDetails?.loanAmountRequired) {
+        // Basic eligibility check can be added here
+        // But partners can qualify without strict eligibility check
+      }
+      
+      // Create customer record when qualified
+      if (!lead.customerId) {
+        const customer = await createOrGetCustomer(lead);
+        if (customer) lead.customerId = customer._id;
+      }
+    }
+
+    // Validation for Not Proceeding status
+    if (status === 'Not Proceeding' && !rejectionReason && !notes) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please provide a reason when marking lead as Not Proceeding' 
+      });
+    }
+
+    // Update lead status
+    lead.currentStatus = status;
+    if (notes) lead.notesToXoto = notes;
+    if (status === 'Not Proceeding' && rejectionReason) {
+      lead.rejectionReason = rejectionReason;
+    }
+
+    // Track qualification date
+    if (status === 'Qualified' && !lead.qualifiedAt) {
+      lead.qualifiedAt = new Date();
+    }
+
+    // Track disbursement
+    if (status === 'Disbursed' && prevStatus !== 'Disbursed') {
+      lead.disbursedAt = new Date();
+      
+      // Calculate commission for partner
+      const loanAmount = lead.propertyDetails?.loanAmountRequired || 0;
+      const commissionPercent = partner.getCommissionPercentage(loanAmount);
+      const commissionAmount = (loanAmount * commissionPercent) / 100;
+      
+      // Update partner metrics
+      await partner.updateMetricsFromCommission(commissionAmount, true);
+      
+      // Update agent commission if lead came from affiliated agent
+      if (lead.sourceInfo?.createdById && lead.sourceInfo.createdByModel === 'VaultAgent') {
+        const agent = await VaultAgent.findById(lead.sourceInfo.createdById);
+        if (agent && agent.agentType === 'PartnerAffiliatedAgent') {
+          // Affiliated agents get commission from partner, not directly from Xoto
+          // So partner handles their commission separately
+          await agent.updateOne({ 
+            $inc: { 
+              'earnings.successfulDisbursals': 1,
+              'earnings.totalCommissionEarned': commissionAmount * 0.3 // Example: 30% to agent
+            } 
+          });
+        }
+      }
+    }
+
+    await lead.save();
+
+    // Log activity
+    await HistoryService.logLeadActivity(lead, 'LEAD_STATUS_CHANGED', await getUserInfo(req), {
+      description: `${prevStatus} → ${status} (Partner: ${partner.displayName})${rejectionReason ? ` - Reason: ${rejectionReason}` : ''}`,
+    });
+
+    // Partner-specific next actions
+    const partnerNextActions = {
+      'New': ['📞 Contact customer', '📋 Verify customer details', '💰 Run basic eligibility'],
+      'Contacted': ['📊 Check eligibility', '📄 Request initial documents', '✅ Mark Qualified if eligible'],
+      'Qualified': ['📄 Collect required documents', '🏦 Prepare bank application', '📅 Schedule document signing'],
+      'Collecting Documents': ['✅ Verify document completeness', '📋 Organize application package', '🏦 Submit to bank'],
+      'Documents Complete': ['🏦 Submit application to bank', '📊 Track bank processing', '📞 Keep customer updated'],
+      'Application Opened': ['⏰ Follow up with bank weekly', '📞 Update customer on progress', '📋 Prepare for approval'],
+      'Pre-Approved': ['📄 Arrange property valuation', '💰 Confirm final terms', '📋 Prepare for FOL'],
+      'Valuation': ['📊 Review valuation report', '💰 Confirm loan amount', '📋 Prepare formal offer'],
+      'FOL Issued': ['📅 Schedule signing with customer', '✅ Review terms with customer', '📋 Prepare for disbursement'],
+      'FOL Signed': ['💰 Coordinate disbursement', '📞 Confirm transfer with customer', '✅ Update records'],
+      'Disbursed': ['🎉 Lead converted!', '📊 Update commission records', '📋 Close file'],
+      'Not Proceeding': ['📝 Document reason', '🔄 Consider future follow-up', '📊 Update metrics']
+    };
+
+    return res.status(200).json({
+      success: true,
+      message: `Lead status updated from ${prevStatus} to ${status}`,
+      data: {
+        leadId: lead._id,
+        previousStatus: prevStatus,
+        currentStatus: status,
+        customerId: lead.customerId,
+        qualifiedAt: lead.qualifiedAt,
+        disbursedAt: lead.disbursedAt
+      },
+      nextActions: partnerNextActions[status] || ['📋 Update lead notes', '📞 Maintain communication with customer'],
+    });
+  } catch (err) {
+    console.error('partnerUpdateLeadStatus error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════
+// PARTNER — UPDATE LEAD INFO (Full access to their leads)
+// PUT /partner/lead/:leadId/info
+// ══════════════════════════════════════════════════════════════════
+export const partnerUpdateLeadInfo = async (req, res) => {
+  try {
+    const { leadId } = req.params;
+    const { customerInfo, propertyDetails, loanRequirements, notes } = req.body;
+
+    // Get partner info
+    const partner = await Partner.findById(req.user._id);
+    if (!partner) return res.status(404).json({ success: false, message: 'Partner not found' });
+    if (!partner.isActive()) return res.status(403).json({ success: false, message: 'Partner account not active' });
+
+    // Find lead based on partner category
+    let lead;
+    if (partner.partnerCategory === 'company') {
+      const agents = await VaultAgent.find({ 
+        partnerId: partner._id, 
+        agentType: 'PartnerAffiliatedAgent', 
+        isDeleted: false 
+      });
+      const agentIds = agents.map(a => a._id);
+      lead = await Lead.findOne({
+        _id: leadId,
+        $or: [
+          { 'sourceInfo.createdById': partner._id },
+          { 'sourceInfo.createdById': { $in: agentIds } }
+        ],
+        isDeleted: false,
+      });
+    } else {
+      lead = await Lead.findOne({
+        _id: leadId,
+        'sourceInfo.createdById': partner._id,
+        isDeleted: false,
+      });
+    }
+
+    if (!lead) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Lead not found or not authorized' 
+      });
+    }
+
+    // Track updated fields for logging
+    const updatedFields = [];
+
+    // Update customer info
+    if (customerInfo) {
+      const allowedFields = [
+        'firstName', 'lastName', 'email', 'mobileNumber', 'countryCode',
+        'nationality', 'residencyStatus', 'employmentStatus', 'monthlySalary',
+        'existingMonthlyLiabilities', 'dateOfBirth', 'gender', 'maritalStatus',
+        'numberOfDependents', 'occupation', 'employer', 'alternativePhone',
+        'whatsappNumber', 'preferredName'
+      ];
+      
+      Object.keys(customerInfo).forEach(key => {
+        if (allowedFields.includes(key) && customerInfo[key] !== undefined) {
+          if (lead.customerInfo[key] !== customerInfo[key]) {
+            lead.customerInfo[key] = customerInfo[key];
+            updatedFields.push(`customerInfo.${key}`);
+          }
+        }
+      });
+    }
+
+    // Update property details
+    if (propertyDetails) {
+      const allowedFields = [
+        'transactionType', 'propertyFound', 'propertyType', 'propertySubtype',
+        'propertyValue', 'downPaymentAmount', 'loanAmountRequired', 'propertyAddress',
+        'isOffPlan', 'completionDate', 'approxPropertyValue', 'area'
+      ];
+      
+      Object.keys(propertyDetails).forEach(key => {
+        if (allowedFields.includes(key) && propertyDetails[key] !== undefined) {
+          if (lead.propertyDetails[key] !== propertyDetails[key]) {
+            lead.propertyDetails[key] = propertyDetails[key];
+            updatedFields.push(`propertyDetails.${key}`);
+          }
+        }
+      });
+    }
+
+    // Update loan requirements
+    if (loanRequirements) {
+      const allowedFields = [
+        'timeline', 'preferredTenureYears', 'preferredInterestRateType',
+        'preferredBanks', 'feeFinancingPreference', 'lifeInsurancePreference',
+        'propertyInsurancePreference', 'specialRequirements'
+      ];
+      
+      Object.keys(loanRequirements).forEach(key => {
+        if (allowedFields.includes(key) && loanRequirements[key] !== undefined) {
+          if (lead.loanRequirements[key] !== loanRequirements[key]) {
+            lead.loanRequirements[key] = loanRequirements[key];
+            updatedFields.push(`loanRequirements.${key}`);
+          }
+        }
+      });
+    }
+
+    // Update notes
+    if (notes) {
+      lead.notesToXoto = notes;
+      updatedFields.push('notesToXoto');
+    }
+
+    // If no changes
+    if (updatedFields.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No valid fields to update or no changes detected'
+      });
+    }
+
+    await lead.save();
+
+    // Log activity
+    await HistoryService.logLeadActivity(lead, 'LEAD_INFO_UPDATED', await getUserInfo(req), {
+      description: `Updated fields: ${updatedFields.join(', ')} (Partner: ${partner.displayName})`,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Lead info updated successfully (${updatedFields.length} field(s) changed)`,
+      data: {
+        leadId: lead._id,
+        updatedFields,
+        lead: {
+          customerInfo: lead.customerInfo,
+          propertyDetails: lead.propertyDetails,
+          loanRequirements: lead.loanRequirements,
+          notesToXoto: lead.notesToXoto
+        }
+      }
+    });
+  } catch (err) {
+    console.error('partnerUpdateLeadInfo error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
 // ══════════════════════════════════════════════════════════════════
 // 14. ADMIN — UPDATE LEAD STATUS
 // ══════════════════════════════════════════════════════════════════

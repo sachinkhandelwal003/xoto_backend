@@ -149,6 +149,8 @@ const agentSchema = new mongoose.Schema(
       relationship: { type: String, default: null },
       phone: { type: String, default: null },
     },
+    // Add to agentSchema
+lastLoginAt: { type: Date, default: null },
     languagePreference: { type: String, enum: ['English', 'Arabic', 'Both'], default: 'English' },
     communicationPreference: { type: String, enum: ['WhatsApp', 'SMS', 'Email', 'Phone'], default: 'WhatsApp' },
 

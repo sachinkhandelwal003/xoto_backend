@@ -28,6 +28,7 @@ const documentSchema = new mongoose.Schema(
     verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
     verifiedAt: { type: Date, default: null },
     rejectionReason: { type: String, default: null },
+    
     isDeleted: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },
   },

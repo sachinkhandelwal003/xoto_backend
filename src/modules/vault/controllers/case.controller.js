@@ -167,18 +167,56 @@ export const createCase = async (req, res) => {
       return res.status(404).json({ success: false, message: "Bank product not found" });
     }
 
-    // Set createdBy based on role
+    // ==================== FIX: Set createdBy based on role with proper userName ====================
     let createdBy = {};
+    const now = new Date();
+
     if (isAdmin) {
-      createdBy = { role: 'admin', userId: req.user._id, userName: req.user?.email || 'Admin', createdAt: new Date() };
-    } else if (isAdvisor) {
-      createdBy = { role: 'advisor', userId: req.user._id, userName: req.user?.fullName || req.user?.email, createdAt: new Date() };
-    } else if (isPartner) {
+      createdBy = { 
+        role: 'admin', 
+        userId: req.user._id, 
+        userName: req.user?.name?.first_name 
+          ? `${req.user.name.first_name} ${req.user.name.last_name || ''}`.trim() 
+          : req.user?.email || 'Admin',
+        createdAt: now 
+      };
+    } 
+    else if (isAdvisor) {
+      createdBy = { 
+        role: 'advisor', 
+        userId: req.user._id, 
+        userName: req.user?.fullName || req.user?.name?.first_name 
+          ? `${req.user.name.first_name} ${req.user.name.last_name || ''}`.trim()
+          : req.user?.email || 'Advisor',
+        createdAt: now 
+      };
+    } 
+    else if (isPartner) {
       const partner = await Partner.findById(req.user._id);
-      if (!partner || !partner.isActive()) {
+      if (!partner) {
+        return res.status(404).json({ success: false, message: "Partner not found" });
+      }
+      if (!partner.isActive()) {
         return res.status(403).json({ success: false, message: "Partner account not active" });
       }
-      createdBy = { role: 'partner', userId: partner._id, userName: partner.companyName, createdAt: new Date() };
+      
+      // ✅ FIX: Get proper userName for both company and individual partners
+      let userName = '';
+      if (partner.partnerCategory === 'company') {
+        userName = partner.companyName || partner.dbaName || partner.email || 'Partner';
+      } else {
+        // Individual partner
+        userName = partner.individualDetails 
+          ? `${partner.individualDetails.firstName} ${partner.individualDetails.lastName}`.trim()
+          : partner.email || 'Individual Partner';
+      }
+      
+      createdBy = { 
+        role: 'partner', 
+        userId: partner._id, 
+        userName: userName,
+        createdAt: now 
+      };
     }
 
     // Format notes
@@ -249,7 +287,7 @@ export const createCase = async (req, res) => {
       }
     });
 
-    // ✅ Initialize documents using customer's employment and residency
+    // Initialize documents using customer's employment and residency
     const employmentStatus = lead.customerInfo.employmentStatus;
     const residencyStatus = lead.customerInfo.residencyStatus;
     
@@ -269,13 +307,14 @@ export const createCase = async (req, res) => {
       'conversionInfo.convertedToApplication': true,
       'conversionInfo.applicationId': caseData._id,
       'conversionInfo.convertedAt': new Date(),
-      'conversionInfo.convertedBy': req.user._id,
+      'conversionInfo.convertedById': req.user._id,
       'conversionInfo.convertedByName': createdBy.userName,
       currentStatus: 'Collecting Documents'
     });
 
     // Update proposal if provided
     if (proposalId) {
+      const Proposal = mongoose.model('Proposal');
       await Proposal.findByIdAndUpdate(proposalId, {
         convertedToCase: true,
         convertedCaseId: caseData._id,
@@ -308,6 +347,13 @@ export const createCase = async (req, res) => {
 
   } catch (error) {
     console.error("Create case error:", error);
+    
+    // Handle validation errors specifically
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(e => e.message);
+      return res.status(400).json({ success: false, message: messages.join(', ') });
+    }
+    
     return res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -342,10 +388,33 @@ export const submitCaseToXoto = async (req, res) => {
       return res.status(404).json({ success: false, message: "Case not found" });
     }
     
+    // ✅ Check if user owns this case
+    const roleDoc = await Role.findById(req.user.role);
+    const roleCode = roleDoc?.code;
+    const isAdvisor = roleCode === '26';
+    const isPartner = roleCode === '21';
+    
+    if (isAdvisor && caseData.createdBy?.role !== 'advisor') {
+      return res.status(403).json({ success: false, message: "You can only submit cases you created" });
+    }
+    
+    if (isPartner && caseData.createdBy?.role !== 'partner') {
+      return res.status(403).json({ success: false, message: "You can only submit cases you created" });
+    }
+    
     if (caseData.currentStatus !== 'Draft') {
       return res.status(400).json({ 
         success: false, 
         message: `Case cannot be submitted. Current status: ${caseData.currentStatus}` 
+      });
+    }
+    
+    // ✅ Check if all required documents are uploaded
+    const isReady = await caseData.isReadyForSubmission();
+    if (!isReady) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'All required documents must be uploaded before submitting to Xoto' 
       });
     }
     
@@ -360,16 +429,16 @@ export const submitCaseToXoto = async (req, res) => {
     caseData.opsQueue.returnCount = 0;
     await caseData.save();
     
-    // ✅ UPDATE LEAD STATUS
+    // Update lead status
     await updateLeadStatusFromCase(caseData.sourceLeadId, caseData.currentStatus);
     
     await HistoryService.logCaseActivity(caseData, 'CASE_SUBMITTED_TO_XOTO', await getUserInfo(req), {
-      description: `Case ${caseData.caseReference} submitted to Xoto`
+      description: `Case ${caseData.caseReference} submitted to Xoto by ${isPartner ? 'Partner' : 'Advisor'}`
     });
     
     return res.status(200).json({ 
       success: true, 
-      message: "Case submitted to Xoto successfully",
+      message: "Case submitted to Xoto successfully and added to Ops queue",
       data: caseData
     });
     
@@ -708,18 +777,136 @@ export const resubmitCaseAfterCorrection = async (req, res) => {
   }
 };
 
-// ==================== BASIC CRUD ====================
+// ==================== GET ALL CASES (Role-based filtering) ====================
 export const getAllCases = async (req, res) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
-    const query = { isDeleted: false };
-    if (status) query.currentStatus = status;
     
-    const cases = await Case.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(parseInt(limit));
-    const total = await Case.countDocuments(query);
+    // Get user role information
+    const roleDoc = await Role.findById(req.user.role);
+    const roleCode = roleDoc?.code;
+    const userType = req.user.type; // 'partner', 'vaultadvisor', etc.
     
-    return res.status(200).json({ success: true, data: cases, total, pagination: { currentPage: parseInt(page), totalPages: Math.ceil(total / limit), limit: parseInt(limit) } });
+    // Base query - only non-deleted cases
+    let query = { isDeleted: false };
+    
+    // ==================== ROLE-BASED FILTERING ====================
+    
+    // CASE 1: ADMIN (role code 18) - See ALL cases
+    if (roleCode === '18' || userType === 'admin') {
+      // Admin sees everything - no additional filters
+      // query remains as is
+    }
+    
+    // CASE 2: ADVISOR (role code 26 or type 'vaultadvisor')
+    else if (roleCode === '26' || userType === 'vaultadvisor') {
+      // Advisor sees ONLY cases they created
+      query['createdBy.role'] = 'advisor';
+      query['createdBy.userId'] = req.user._id;
+    }
+    
+    // CASE 3: PARTNER (role code 21 or type 'partner')
+    else if (roleCode === '21' || userType === 'partner') {
+      // Partner sees ONLY cases they created
+      query['createdBy.role'] = 'partner';
+      query['createdBy.userId'] = req.user._id;
+    }
+    
+    // CASE 4: AGENT (freelance or partner-affiliated)
+    else if (req.user.agentType) {
+      // Agents should NOT see cases directly
+      // Cases are managed by partners/advisors
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Agents cannot access cases directly. Cases are managed by partners/advisors.' 
+      });
+    }
+    
+    // CASE 5: Unauthorized
+    else {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized to access cases' 
+      });
+    }
+    
+    // Apply status filter if provided
+    if (status) {
+      query.currentStatus = status;
+    }
+    
+    // Execute query with pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const limitNum = parseInt(limit);
+    
+    const [cases, total] = await Promise.all([
+      Case.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .populate('sourceLeadId', 'customerInfo.fullName customerInfo.mobileNumber currentStatus')
+        .lean(),
+      Case.countDocuments(query),
+    ]);
+    
+    // Get summary counts based on role
+    let summary = {};
+    
+    if (roleCode === '18' || userType === 'admin') {
+      // Admin summary - all cases
+      summary = {
+        total: total,
+        draft: await Case.countDocuments({ ...query, currentStatus: 'Draft' }),
+        submittedToXoto: await Case.countDocuments({ ...query, currentStatus: 'Submitted to Xoto' }),
+        inOpsQueue: await Case.countDocuments({ ...query, currentStatus: 'In Ops Queue - Pending Pick-up' }),
+        assignedToOps: await Case.countDocuments({ ...query, currentStatus: 'Assigned - Pending Review' }),
+        underReview: await Case.countDocuments({ ...query, currentStatus: 'Under Review' }),
+        returned: await Case.countDocuments({ ...query, currentStatus: 'Returned - Pending Correction' }),
+        submittedToBank: await Case.countDocuments({ ...query, currentStatus: 'Submitted to Bank' }),
+        preApproved: await Case.countDocuments({ ...query, currentStatus: 'Pre-Approved' }),
+        valuation: await Case.countDocuments({ ...query, currentStatus: 'Valuation' }),
+        folProcessed: await Case.countDocuments({ ...query, currentStatus: 'FOL Processed' }),
+        folIssued: await Case.countDocuments({ ...query, currentStatus: 'FOL Issued' }),
+        folSigned: await Case.countDocuments({ ...query, currentStatus: 'FOL Signed' }),
+        disbursed: await Case.countDocuments({ ...query, currentStatus: 'Disbursed' }),
+        lost: await Case.countDocuments({ ...query, currentStatus: 'Lost' }),
+        rejected: await Case.countDocuments({ ...query, currentStatus: 'Rejected' }),
+      };
+    } else {
+      // Advisor/Partner summary - only their cases
+      summary = {
+        total: total,
+        draft: await Case.countDocuments({ ...query, currentStatus: 'Draft' }),
+        submittedToXoto: await Case.countDocuments({ ...query, currentStatus: 'Submitted to Xoto' }),
+        inOpsQueue: await Case.countDocuments({ ...query, currentStatus: 'In Ops Queue - Pending Pick-up' }),
+        assignedToOps: await Case.countDocuments({ ...query, currentStatus: 'Assigned - Pending Review' }),
+        submittedToBank: await Case.countDocuments({ ...query, currentStatus: 'Submitted to Bank' }),
+        preApproved: await Case.countDocuments({ ...query, currentStatus: 'Pre-Approved' }),
+        valuation: await Case.countDocuments({ ...query, currentStatus: 'Valuation' }),
+        folProcessed: await Case.countDocuments({ ...query, currentStatus: 'FOL Processed' }),
+        folIssued: await Case.countDocuments({ ...query, currentStatus: 'FOL Issued' }),
+        folSigned: await Case.countDocuments({ ...query, currentStatus: 'FOL Signed' }),
+        disbursed: await Case.countDocuments({ ...query, currentStatus: 'Disbursed' }),
+      };
+    }
+    
+    return res.status(200).json({
+      success: true,
+      data: cases,
+      total,
+      summary,
+      userRole: roleCode === '18' ? 'admin' : (roleCode === '26' ? 'advisor' : (roleCode === '21' ? 'partner' : 'unknown')),
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / limitNum),
+        limit: limitNum,
+        hasNextPage: skip + limitNum < total,
+        hasPrevPage: parseInt(page) > 1
+      }
+    });
+    
   } catch (error) {
+    console.error('getAllCases error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

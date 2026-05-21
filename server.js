@@ -163,7 +163,9 @@ app.use(cors({
     'http://kotiboxglobaltech.site',
     'http://www.kotiboxglobaltech.site',
     'https://kotiboxglobaltech.site',     // For future HTTPS
-    'https://www.kotiboxglobaltech.site'  // For future HTTPS
+    'https://www.kotiboxglobaltech.site',  // For future HTTPS
+        'https://xotovault.kotiboxglobaltech.site' , // For future HTTPS
+
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
