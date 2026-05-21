@@ -87,6 +87,12 @@ router.get('/admin/agents',
   ctrl.getAllAgents
 );
 
+router.get('/admin/agents/verification-queue',
+  protectMulti,
+  authorize({ roles: ['admin', 'superadmin'] }),
+  ctrl.getVerificationQueue
+);
+
 // ✅ THIS IS MISSING — add it
 router.get('/admin/agents/:agentId',
   protectMulti,

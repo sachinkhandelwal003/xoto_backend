@@ -1,36 +1,38 @@
+// routes/document.routes.js
 import express from 'express';
-import { 
-  uploadDocument, 
-  verifyDocument, 
-  rejectDocument, 
-  deleteDocument, 
-  getCaseDocuments, 
-  getLeadDocuments,
-  advisorVerifyDocument
+import {
+  uploadCaseDocument,
+  getCaseDocuments,
+  toggleDocumentHandler,
+  verifyDocument,
+  rejectDocument,
+  deleteDocument
 } from '../controllers/document.controller.js';
 import { protect, protectMulti, protectVaultAdvisor } from '../../../middleware/auth.js';
 
 const router = express.Router();
 
-// ==================== UPLOAD ROUTES ====================
-// Upload to Lead (Admin, Partner, Freelance Agent, Xoto Advisor)
-router.post('/:leadId', protectMulti, uploadDocument);
+// ==================== CASE DOCUMENT ROUTES ====================
 
-// Upload to Case (Admin, Partner, Xoto Advisor, Mortgage Ops)
-router.post('/cases/:caseId', protectMulti, uploadDocument);
+// Upload document to case
+router.post('/:caseId', protectMulti, uploadCaseDocument);
 
-// ==================== ADVISOR VERIFY ROUTES ====================
-router.put('/advisor/verify/:documentId', protectVaultAdvisor, advisorVerifyDocument);
+// Get case documents (from CaseDocumentRequirement)
+router.get('/:caseId', protectMulti, getCaseDocuments);
 
-// ==================== GET DOCUMENTS ====================
-router.get('/:leadId', protectMulti, getLeadDocuments);
-router.get('/cases/:caseId', protectMulti, getCaseDocuments);
+// Toggle document handler (Advisor can take bank forms)
+router.post('/:caseId/toggle-handler', protectVaultAdvisor, toggleDocumentHandler);
 
-// ==================== DELETE DOCUMENT ====================
-router.delete('/:id', protectMulti, deleteDocument);
+// ==================== VERIFICATION ROUTES ====================
 
-// ==================== ADMIN ONLY VERIFY ROUTES ====================
+// Admin/Ops verify document
 router.post('/:id/verify', protectMulti, verifyDocument);
+
+// Admin/Ops reject document
 router.post('/:id/reject', protectMulti, rejectDocument);
+
+// ==================== DELETE ====================
+
+router.delete('/:id', protectMulti, deleteDocument);
 
 module.exports = router; 

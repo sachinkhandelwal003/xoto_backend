@@ -1,7 +1,7 @@
 const jwt = require("jsonwebtoken");
 const GridReferralPartner = require("../Model/ReferralPartner.model.js");
 const { Role } = require("../../../../modules/auth/models/role/role.model.js");
-const GridLead = require("../../../Grid/Lead/model/gridLead.model.js"); // adjust path
+const GridLead = require("../../Lead/model/gridLead.model.js");
 
 const signToken = (user, roleData) => {
   return jwt.sign(
@@ -238,6 +238,165 @@ exports.updateBankDetails = async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+exports.getAllReferralPartners = async (req, res) => {
+  try {
+    const { status, search, page = 1, limit = 20, sortBy = "createdAt", sortOrder = "desc" } = req.query;
+    
+    const filter = {};
+    
+    if (status) {
+      const allowed = ["active", "inactive", "deactivated", "suspended"];
+      if (!allowed.includes(status)) {
+        return res.status(400).json({
+          status: "fail",
+          message: `status must be one of: ${allowed.join(", ")}`,
+        });
+      }
+      filter.status = status;
+    }
+    
+    if (search) {
+      const regex = new RegExp(search.trim(), "i");
+      filter.$or = [
+        { firstName: regex },
+        { lastName: regex },
+        { email: regex },
+        { phone: regex }
+      ];
+    }
+    
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
+    const skip = (pageNum - 1) * limitNum;
+    
+    const sortAllowed = ["createdAt", "firstName", "lastName", "status"];
+    const sortField = sortAllowed.includes(sortBy) ? sortBy : "createdAt";
+    const sortDir = sortOrder === "asc" ? 1 : -1;
+    
+    const [partners, total] = await Promise.all([
+      GridReferralPartner.find(filter)
+        .select("-password")
+        .sort({ [sortField]: sortDir })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      GridReferralPartner.countDocuments(filter)
+    ]);
+    
+    res.status(200).json({
+      status: "success",
+      results: partners.length,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum),
+        hasNext: pageNum < Math.ceil(total / limitNum),
+        hasPrev: pageNum > 1
+      },
+      data: { partners }
+    });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+exports.getReferralPartnerById = async (req, res) => {
+  try {
+    const partner = await GridReferralPartner.findById(req.params.id)
+      .select("-password");
+    
+    if (!partner) {
+      return res.status(404).json({ status: "fail", message: "Partner not found" });
+    }
+    
+    const totalLeads = await GridLead.countDocuments({
+      "source.referralPartnerId": partner._id,
+      "source.channel": "referral_partner"
+    });
+    
+    const convertedLeads = await GridLead.countDocuments({
+      "source.referralPartnerId": partner._id,
+      "source.channel": "referral_partner",
+      status: "Disbursed"
+    });
+    
+    const commissionEarned = convertedLeads * 500;
+    
+    res.status(200).json({
+      status: "success",
+      data: {
+        partner: {
+          ...partner.toObject(),
+          totalLeads,
+          convertedLeads,
+          commissionEarned
+        }
+      }
+    });
+  } catch (err) {
+    if (err.name === "CastError") {
+      return res.status(400).json({ status: "fail", message: "Invalid partner ID format" });
+    }
+    res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+exports.suspendReferralPartner = async (req, res) => {
+  try {
+    const { action, reason } = req.body;
+    
+    if (!action || !["suspend", "unsuspend"].includes(action)) {
+      return res.status(400).json({
+        status: "fail",
+        message: 'action must be "suspend" or "unsuspend"'
+      });
+    }
+    
+    const partner = await GridReferralPartner.findById(req.params.id);
+    
+    if (!partner) {
+      return res.status(404).json({ status: "fail", message: "Partner not found" });
+    }
+    
+    if (partner.status === "deactivated") {
+      return res.status(400).json({
+        status: "fail",
+        message: "Cannot suspend a deactivated partner. Reactivate first."
+      });
+    }
+    
+    if (action === "suspend") {
+      partner.status = "suspended";
+      partner.deactivationReason = reason;
+      partner.deactivatedAt = new Date();
+    } else if (action === "unsuspend") {
+      partner.status = "active";
+      partner.deactivationReason = undefined;
+      partner.deactivatedAt = undefined;
+    }
+    
+    await partner.save();
+    
+    res.status(200).json({
+      status: "success",
+      message: `Partner ${action}ed successfully`,
+      data: {
+        partner: {
+          status: partner.status,
+          deactivationReason: partner.deactivationReason,
+          deactivatedAt: partner.deactivatedAt
+        }
+      }
+    });
+  } catch (err) {
+    if (err.name === "CastError") {
+      return res.status(400).json({ status: "fail", message: "Invalid partner ID format" });
+    }
+    res.status(500).json({ status: "error", message: err.message });
   }
 };
 

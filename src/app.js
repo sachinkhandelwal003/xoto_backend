@@ -12,6 +12,8 @@ const {downloadImageAsPDF} =require("./modules/s3/downloadUpload.js")
 const blogRoutes = require('../src/modules/blogs/routes/index.js').default;
 const mortgageRoutes = require('./modules/mortgages/routes/index.js');
 const bankMortgageProductRoutes = require('./modules/mortgages/routes/bankMortgageProduct.routes.js');
+const DocumentLiabraryMortgageRoutes = require('./modules/mortgages/routes/DocumentLiabraryMortgage.routes.js');
+
 const agencyRoutes = require('./modules/Grid/agency/routes/index.js');
 // const agencyRoutes = require('./modules/agency/routes/index.js');
 const stripeRoutes = require('./modules/auth/routes/ai/Striperoutes.js');
@@ -40,6 +42,7 @@ const gridLead = require('./modules/Grid/Lead/routes/gridLead.route.js')
 
 const feedback = require('./modules/feedback/routes/feedback.route.js');
 // const presentationController = require('./modules/Grid/Agent/controllers/presentationController');
+const presentationRoutes = require('./modules/Grid/presentation/routes/presentation.routes.js');
 
 // ==========================================
 // ⚠️ FIX: Stripe Route Yahan Upar Move Kiya Hai 
@@ -90,7 +93,9 @@ app.use('/consult', require('./modules/auth/routes/consult/consult.routes'));
 app.use('/enquiry', require('./modules/auth/routes/consult/enquiry.routes'));
 app.use('/agency', agencyRoutes);
 app.use('/mortgages', mortgageRoutes);
-app.use('/bank/products', bankMortgageProductRoutes);
+app.use('/bank', bankMortgageProductRoutes);
+app.use('/bank/documents', DocumentLiabraryMortgageRoutes);
+
 
 app.use('/agent', agentRoutes);
 app.use('/landing/lead', (req, res, next) => {
@@ -116,7 +121,7 @@ app.use('/vault/lead/proposals', require('./modules/vault/routes/proposal.routes
 app.use('/vault/cases', require('./modules/vault/routes/case.routes.js'));
 app.use('/vault/commissions', require('./modules/vault/routes/commission.routes.js'));
 
-app.use('/vault/lead/documents', require('./modules/vault/routes/document.routes.js'));
+app.use('/vault/cases/documents', require('./modules/vault/routes/document.routes.js'));
 // Grid Referral Partner 
 app.use("/referral", referralPartnerRoutes);
 
@@ -136,6 +141,7 @@ app.use('/vendor/b2b', require('../src/modules/auth/routes/vendor/vendorb2b.rout
 app.use('/business', require('../src/modules/auth/routes/freelancer/freelancerbusiness.routes'));
 
 app.use('/gridadvisor', GridAdvisor);
+app.use('/referral', referralPartnerRoutes);
 // RentalProperty
 app.use('/rental/property', rentalProperrty)
 // app.use('/rental/lead', Rentlead)
@@ -170,7 +176,8 @@ app.use('/gridlead', (req, res, next) => {
 }, gridLead);
 app.use('/commissions', require('./modules/Grid/Commission/Commission.routes.js'));
 
-app.use('/feedback', feedback);  
+app.use('/feedback', feedback);
+app.use('/presentation', presentationRoutes);  
 
 // History
 app.use('/customer-history', customerHistoryRoutes);
