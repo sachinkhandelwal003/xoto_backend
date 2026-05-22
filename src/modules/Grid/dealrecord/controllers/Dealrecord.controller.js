@@ -1,6 +1,5 @@
-
 'use strict';
-
+const mongoose        = require('mongoose');
 const DealRecord      = require('../models/Dealrecord.model');
 const PartnerAgreement = require('../models/Partneragreement.model');
 const GridLead        = require('../../Lead/model/gridLead.model');
@@ -16,6 +15,7 @@ const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 
 // ─── Commission calculator ────────────────────────────────────────────────────
 const calcCommission = (transactionValue, grossPercent, partnerPercent, referralPercent) => {
+  transactionValue = validateTransactionValue(transactionValue);
   const gross         = (transactionValue * grossPercent)   / 100;
   const partnerShare  = (gross * partnerPercent)  / 100;
   const referralShare = (gross * referralPercent) / 100;
@@ -33,6 +33,14 @@ const calcCommission = (transactionValue, grossPercent, partnerPercent, referral
   };
 };
 
+const validateTransactionValue = (value) => {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new APIError('transactionValue must be a positive number', StatusCodes.BAD_REQUEST);
+  }
+  return amount;
+};
+
 const validatePercent = (value, fieldName) => {
   const percent = Number(value);
   if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
@@ -41,10 +49,10 @@ const validatePercent = (value, fieldName) => {
   return percent;
 };
 
-const getAgreementTerms = async (partnerAgreementId, { agencyId, agentId, referralPartnerId }) => {
+const getAgreementTerms = async (partnerAgreementId, { agencyId, agentId, referralPartnerId }, session = null) => {
   if (!partnerAgreementId) return null;
 
-  const agreement = await PartnerAgreement.findById(partnerAgreementId);
+  const agreement = await PartnerAgreement.findById(partnerAgreementId).session(session);
   if (!agreement) throw new APIError('Partner Agreement not found', StatusCodes.NOT_FOUND);
   if (agreement.status !== 'active') {
     throw new APIError(`Partner Agreement is ${agreement.status}; only active agreements can be linked`, StatusCodes.BAD_REQUEST);
@@ -63,6 +71,116 @@ const getAgreementTerms = async (partnerAgreementId, { agencyId, agentId, referr
     referralPercent: validatePercent(agreement.referralSplitPercent || 0, 'referralSplitPercent'),
   };
 };
+
+const refExists = async (Model, id, label, session = null) => {
+  if (!id) return null;
+  const doc = await Model.findById(id).session(session);
+  if (!doc) throw new APIError(`${label} not found`, StatusCodes.NOT_FOUND);
+  return doc;
+};
+
+const validateDealRefs = async ({
+  leadId, propertyId, customerId, advisorId, agentId,
+  agencyId, inventoryUnitId,
+}, session = null) => {
+  const [lead, property, customer] = await Promise.all([
+    refExists(GridLead, leadId, 'Lead', session),
+    refExists(Property, propertyId, 'Property', session),
+    refExists(Customer, customerId, 'Customer', session),
+  ]);
+
+  await Promise.all([
+    refExists(GridAdvisor, advisorId, 'Advisor', session),
+    refExists(Agent, agentId, 'Agent', session),
+    refExists(Agency, agencyId, 'Agency', session),
+  ]);
+
+  const inventory = await refExists(Inventory, inventoryUnitId, 'Inventory unit', session);
+  if (inventory && !['available', 'reserved', 'booked', 'spa_signed'].includes(inventory.status)) {
+    throw new APIError(
+      `Inventory unit cannot be linked - current status: ${inventory.status}`,
+      StatusCodes.BAD_REQUEST
+    );
+  }
+
+  return { lead, property, customer, inventory };
+};
+
+const syncLeadDealRecord = (deal, commission, session = null) => GridLead.findByIdAndUpdate(
+  deal.leadId,
+  {
+    status: 'completed',
+    'deal_record.created':            true,
+    'deal_record.deal_record_id':     deal._id,
+    'deal_record.inventory_unit_id':  deal.inventoryUnitId || null,
+    'deal_record.transaction_value':  deal.transactionValue,
+    'deal_record.commission_amount':  commission.grossAmount,
+    'deal_record.commission_status':  deal.commissionStatus,
+    'deal_record.closed_at':          new Date(),
+    ...(deal.referralPartnerId ? {
+      'referral_info.referral_partner_id': deal.referralPartnerId,
+      'referral_info.commission_rate':     commission.referralPercent,
+      'referral_info.commission_status':   deal.referralCommissionStatus === 'not_applicable'
+        ? 'pending'
+        : deal.referralCommissionStatus,
+    } : {}),
+  },
+  { session }
+);
+
+const linkInventoryToDeal = (deal, actorId, session = null) => {
+  if (!deal.inventoryUnitId) return Promise.resolve();
+  return Inventory.findByIdAndUpdate(
+    deal.inventoryUnitId,
+    {
+      status:       deal.dealType === 'sale' ? 'spa_signed' : 'booked',
+      soldAt:       new Date(),
+      soldBy:       deal.advisorId || deal.agentId || actorId,
+      dealRecordId: deal._id,
+      leadId:       deal.leadId,
+      salePrice:    deal.transactionValue,
+    },
+    { session }
+  );
+};
+
+const releaseInventoryFromDeal = async (inventoryUnitId, dealId, session = null) => {
+  if (!inventoryUnitId) return;
+  const unit = await Inventory.findById(inventoryUnitId).session(session);
+  if (!unit || unit.status === 'sold') return;
+  if (unit.dealRecordId && unit.dealRecordId.toString() !== dealId.toString()) return;
+
+  await Inventory.findByIdAndUpdate(
+    inventoryUnitId,
+    {
+      status:       'available',
+      reservedBy:   null,
+      reservedAt:   null,
+      bookedBy:     null,
+      bookedAt:     null,
+      soldBy:       null,
+      soldAt:       null,
+      salePrice:    0,
+      dealRecordId: null,
+      leadId:       null,
+    },
+    { session }
+  );
+};
+
+const clearLeadDealRecord = (leadId, session = null) => GridLead.findByIdAndUpdate(
+  leadId,
+  {
+    status:                          'in_discussion',
+    'deal_record.created':           false,
+    'deal_record.deal_record_id':    null,
+    'deal_record.inventory_unit_id': null,
+    'deal_record.transaction_value': null,
+    'deal_record.commission_amount': null,
+    'deal_record.commission_status': 'pending',
+  },
+  { session }
+);
 
 // ─── Role helpers ─────────────────────────────────────────────────────────────
 const isAdmin = (role) => {
@@ -150,126 +268,105 @@ exports.createDealRecord = asyncHandler(async (req, res) => {
     );
   }
 
-  // ── Duplicate guard ────────────────────────────────────────────────────────
-  const existing = await DealRecord.findOne({ leadId, isVoided: false });
-  if (existing) {
-    throw new APIError(
-      `A deal record already exists for this lead (${existing.dealReference})`,
-      StatusCodes.CONFLICT
-    );
-  }
+const session = await mongoose.startSession();
+  let deal;
+  try {
+    await session.withTransaction(async () => {
+      const existing = await DealRecord.findOne({ leadId, isVoided: false }).session(session);
+      if (existing) {
+        throw new APIError(
+          `A deal record already exists for this lead (${existing.dealReference})`,
+          StatusCodes.CONFLICT
+        );
+      }
+const lead = await GridLead.findById(leadId);
 
-  // ── Verify core entities ───────────────────────────────────────────────────
-  const [lead, property, customer] = await Promise.all([
-    GridLead.findById(leadId),
-    Property.findById(propertyId),
-    Customer.findById(customerId),
-  ]);
-  if (!lead)     throw new APIError('Lead not found',     StatusCodes.NOT_FOUND);
-  if (!property) throw new APIError('Property not found', StatusCodes.NOT_FOUND);
-  if (!customer) throw new APIError('Customer not found', StatusCodes.NOT_FOUND);
+if (!lead) {
+  throw new APIError('Lead not found', StatusCodes.NOT_FOUND);
+}
 
-  // ── Verify optional refs ───────────────────────────────────────────────────
-  if (advisorId) {
-    const advisor = await GridAdvisor.findById(advisorId);
-    if (!advisor) throw new APIError('Advisor not found', StatusCodes.NOT_FOUND);
-  }
-  if (agentId) {
-    const agent = await Agent.findById(agentId);
-    if (!agent) throw new APIError('Agent not found', StatusCodes.NOT_FOUND);
-  }
-  if (agencyId) {
-    const agency = await Agency.findById(agencyId);
-    if (!agency) throw new APIError('Agency not found', StatusCodes.NOT_FOUND);
-  }
-  if (inventoryUnitId) {
-    const unit = await Inventory.findById(inventoryUnitId);
-    if (!unit) throw new APIError('Inventory unit not found', StatusCodes.NOT_FOUND);
-    if (!['available', 'reserved', 'booked', 'spa_signed'].includes(unit.status)) {
-      throw new APIError(
-        `Inventory unit cannot be linked — current status: ${unit.status}`,
-        StatusCodes.BAD_REQUEST
-      );
+const CLOSABLE_STATUSES = ['reserved', 'spa_signed'];
+if (!CLOSABLE_STATUSES.includes(lead.status)) {
+  throw new APIError(
+    `Deal records can only be created for leads in reserved or spa_signed status. Current: ${lead.status}`,
+    StatusCodes.BAD_REQUEST
+  );
+}
+
+if (lead?.deal_record?.created === true) {
+  throw new APIError(
+    'Deal record already exists for this lead',
+    StatusCodes.CONFLICT
+  );
+}
+      await validateDealRefs({
+        leadId, propertyId, customerId, advisorId, agentId, agencyId, inventoryUnitId,
+      }, session);
+
+      const agreementTerms = await getAgreementTerms(partnerAgreementId, {
+        agencyId,
+        agentId,
+        referralPartnerId,
+      }, session);
+      const finalGrossPercent = validatePercent(grossPercent, 'grossPercent');
+      const finalPartnerPercent = agreementTerms
+        ? agreementTerms.partnerPercent
+        : validatePercent(partnerPercent, 'partnerPercent');
+      const finalReferralPercent = agreementTerms
+        ? agreementTerms.referralPercent
+        : validatePercent(referralPercent, 'referralPercent');
+
+      if (finalPartnerPercent + finalReferralPercent > 100) {
+        throw new APIError('partnerPercent and referralPercent cannot exceed 100 combined', StatusCodes.BAD_REQUEST);
+      }
+
+      const finalTransactionValue = validateTransactionValue(transactionValue);
+      const commission = calcCommission(finalTransactionValue, finalGrossPercent, finalPartnerPercent, finalReferralPercent);
+      const referralCommissionStatus = referralPartnerId && commission.referralShare > 0 ? 'pending' : 'not_applicable';
+
+      deal = new DealRecord({
+        leadId,
+        propertyId,
+        inventoryUnitId: inventoryUnitId || null,
+        customerId,
+        advisorId:          advisorId          || null,
+        agentId:            agentId            || null,
+        agencyId:           agencyId           || null,
+        referralPartnerId:  referralPartnerId  || null,
+        partnerAgreementId: partnerAgreementId || null,
+        dealType,
+        transactionValue: finalTransactionValue,
+        commission,
+        commissionStatus: 'pending',
+        referralCommissionStatus,
+        notes: notes || '',
+        createdBy: adminId,
+      });
+
+      pushStatusLog(deal, null, 'pending', adminId, 'Deal record created');
+      await deal.save({ session });
+      await syncLeadDealRecord(deal, commission, session);
+      await linkInventoryToDeal(deal, adminId, session);
+
+      if (advisorId) {
+        await GridAdvisor.findByIdAndUpdate(advisorId, {
+          $inc: {
+            'workload.totalDealsCompleted': 1,
+            'workload.activeLeadsCount':   -1,
+          },
+        }, { session });
+      }
+    });
+  } catch (err) {
+    if (err?.code === 11000) {
+      throw new APIError('A deal record already exists for this lead', StatusCodes.CONFLICT);
     }
+    throw err;
+  } finally {
+    session.endSession();
   }
 
-  const agreementTerms = await getAgreementTerms(partnerAgreementId, {
-    agencyId,
-    agentId,
-    referralPartnerId,
-  });
-  const finalGrossPercent = validatePercent(grossPercent, 'grossPercent');
-  const finalPartnerPercent = agreementTerms
-    ? agreementTerms.partnerPercent
-    : validatePercent(partnerPercent, 'partnerPercent');
-  const finalReferralPercent = agreementTerms
-    ? agreementTerms.referralPercent
-    : validatePercent(referralPercent, 'referralPercent');
-
-  if (finalPartnerPercent + finalReferralPercent > 100) {
-    throw new APIError('partnerPercent and referralPercent cannot exceed 100 combined', StatusCodes.BAD_REQUEST);
-  }
-
-  // ── Determine referral commission status ──────────────────────────────────
-  const referralCommissionStatus = referralPartnerId ? 'pending' : 'not_applicable';
-
-  const commission = calcCommission(transactionValue, finalGrossPercent, finalPartnerPercent, finalReferralPercent);
-
-  const deal = new DealRecord({
-    leadId,
-    propertyId,
-    inventoryUnitId: inventoryUnitId || null,
-    customerId,
-    advisorId:          advisorId          || null,
-    agentId:            agentId            || null,
-    agencyId:           agencyId           || null,
-    referralPartnerId:  referralPartnerId  || null,
-    partnerAgreementId: partnerAgreementId || null,
-    dealType,
-    transactionValue,
-    commission,
-    commissionStatus: 'pending',
-    referralCommissionStatus,
-    notes: notes || '',
-    createdBy: adminId,
-  });
-
-  pushStatusLog(deal, null, 'pending', adminId, 'Deal record created');
-  await deal.save();
-
-  // ── Update Lead ────────────────────────────────────────────────────────────
-  await GridLead.findByIdAndUpdate(leadId, {
-    status: 'completed',
-    'deal_record.created':            true,
-    'deal_record.deal_record_id':     deal._id,
-    'deal_record.inventory_unit_id':  inventoryUnitId || null,
-    'deal_record.transaction_value':  transactionValue,
-    'deal_record.commission_amount':  commission.grossAmount,
-    'deal_record.closed_at':          new Date(),
-  });
-
-  // ── Update Inventory unit ──────────────────────────────────────────────────
-  if (inventoryUnitId) {
-    await Inventory.findByIdAndUpdate(inventoryUnitId, {
-      status:       dealType === 'sale' ? 'spa_signed' : 'booked',
-      soldAt:       new Date(),
-      soldBy:       advisorId || agentId || adminId,
-      dealRecordId: deal._id,
-      leadId:       leadId,
-    });
-  }
-
-  // ── Update Advisor workload ───────────────────────────────────────────────
-  if (advisorId) {
-    await GridAdvisor.findByIdAndUpdate(advisorId, {
-      $inc: {
-        'workload.totalDealsCompleted': 1,
-        'workload.activeLeadsCount':   -1,
-      },
-    });
-  }
-
-  res.status(StatusCodes.CREATED).json({
+  return res.status(StatusCodes.CREATED).json({
     success: true,
     message: 'Deal record created successfully',
     data:    deal,
@@ -316,7 +413,23 @@ exports.updateDealRecord = asyncHandler(async (req, res) => {
     throw new APIError('No valid fields to update', StatusCodes.BAD_REQUEST);
   }
 
+  const previousAdvisorId = deal.advisorId;
+  const previousInventoryUnitId = deal.inventoryUnitId;
+
+  await validateDealRefs({
+    leadId: deal.leadId,
+    propertyId: deal.propertyId,
+    customerId: deal.customerId,
+    advisorId: updates.advisorId ?? deal.advisorId,
+    agentId: updates.agentId ?? deal.agentId,
+    agencyId: updates.agencyId ?? deal.agencyId,
+    inventoryUnitId: updates.inventoryUnitId ?? deal.inventoryUnitId,
+  });
+
   Object.assign(deal, updates);
+  if (updates.transactionValue !== undefined) {
+    deal.transactionValue = validateTransactionValue(updates.transactionValue);
+  }
 
   // Recalculate commission if financials changed
   if (
@@ -324,7 +437,10 @@ exports.updateDealRecord = asyncHandler(async (req, res) => {
     updates.grossPercent     !== undefined ||
     updates.partnerPercent   !== undefined ||
     updates.referralPercent  !== undefined ||
-    updates.partnerAgreementId !== undefined
+    updates.partnerAgreementId !== undefined ||
+    updates.agencyId !== undefined ||
+    updates.agentId !== undefined ||
+    updates.referralPartnerId !== undefined
   ) {
     const agreementTerms = await getAgreementTerms(
       updates.partnerAgreementId ?? deal.partnerAgreementId,
@@ -357,6 +473,9 @@ exports.updateDealRecord = asyncHandler(async (req, res) => {
     );
   }
 
+  deal.referralCommissionStatus =
+    deal.referralPartnerId && deal.commission.referralShare > 0 ? 'pending' : 'not_applicable';
+
   deal.editHistory.push({
     editedBy:  adminId,
     editedAt:  new Date(),
@@ -364,7 +483,40 @@ exports.updateDealRecord = asyncHandler(async (req, res) => {
     reason:    req.body.editReason || '',
   });
 
-  await deal.save();
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      await deal.save({ session });
+      await syncLeadDealRecord(deal, deal.commission, session);
+
+      const invChanged =
+        (previousInventoryUnitId || '').toString() !==
+        (deal.inventoryUnitId   || '').toString();
+
+      if (invChanged) {
+        await releaseInventoryFromDeal(previousInventoryUnitId, deal._id, session);
+        await linkInventoryToDeal(deal, adminId, session);
+      } else if (deal.inventoryUnitId) {
+        await linkInventoryToDeal(deal, adminId, session);
+      }
+
+      if ((previousAdvisorId || '').toString() !==
+          (deal.advisorId    || '').toString()) {
+        if (previousAdvisorId) {
+          await GridAdvisor.findByIdAndUpdate(previousAdvisorId,
+            { $inc: { 'workload.totalDealsCompleted': -1, 'workload.activeLeadsCount': 1 } },
+            { session });
+        }
+        if (deal.advisorId) {
+          await GridAdvisor.findByIdAndUpdate(deal.advisorId,
+            { $inc: { 'workload.totalDealsCompleted': 1, 'workload.activeLeadsCount': -1 } },
+            { session });
+        }
+      }
+    });
+  } finally {
+    session.endSession();
+  }
 
   res.json({ success: true, message: 'Deal record updated', data: deal });
 });
@@ -404,6 +556,14 @@ exports.uploadEvidence = asyncHandler(async (req, res) => {
   deal.evidenceUploaded = true;
 
   await deal.save();
+  await GridLead.findByIdAndUpdate(deal.leadId, {
+    'deal_record.evidence_uploaded': true,
+    'deal_record.evidence_documents': deal.evidenceDocuments.map(d => ({
+      doc_type:    d.docType,
+      url:         d.url,
+      uploaded_at: d.uploadedAt,
+    })),
+  });
 
   res.json({
     success: true,
@@ -445,12 +605,18 @@ exports.confirmDeal = asyncHandler(async (req, res) => {
   deal.isLocked             = true;
 
   // Referral commission becomes confirmed alongside main commission
-  if (deal.referralCommissionStatus === 'pending') {
-    deal.referralCommissionStatus = 'confirmed';
-  }
+if (!deal.referralPartnerId) {
+  deal.referralCommissionStatus = 'not_applicable';
+}
 
   pushStatusLog(deal, previousStatus, 'confirmed', adminId, req.body.note || '');
   await deal.save();
+  await GridLead.findByIdAndUpdate(deal.leadId, {
+    'deal_record.commission_status': 'confirmed',
+    ...(deal.referralPartnerId && deal.referralCommissionStatus !== 'not_applicable' ? {
+      'referral_info.commission_status': deal.referralCommissionStatus,
+    } : {}),
+  });
 
   // Mark inventory as sold
   if (deal.inventoryUnitId) {
@@ -490,19 +656,10 @@ exports.markAsPaid = asyncHandler(async (req, res) => {
 
   pushStatusLog(deal, previousStatus, 'paid', adminId, req.body.note || '');
   await deal.save();
+  await GridLead.findByIdAndUpdate(deal.leadId, {
+    'deal_record.commission_status': 'paid',
+  });
 
-  // ── Sync referral partner commission status in GridLead ───────────────────
-  if (deal.referralPartnerId && deal.commission.referralShare > 0) {
-    try {
-      await GridLead.findByIdAndUpdate(deal.leadId, {
-        'referral_info.commission_status':  'paid',
-        'referral_info.commission_paid_at': new Date(),
-      });
-    } catch (err) {
-      // Non-blocking: log and continue — deal is already paid
-      console.warn('[DealRecord] Failed to sync referral commission on lead:', err.message);
-    }
-  }
 
   res.json({
     success: true,
@@ -635,30 +792,10 @@ exports.voidDeal = asyncHandler(async (req, res) => {
   deal.voidedAt   = new Date();
 
   // Release inventory if linked and not sold
-  if (deal.inventoryUnitId) {
-    const unit = await Inventory.findById(deal.inventoryUnitId);
-    if (unit && unit.status !== 'sold') {
-      await Inventory.findByIdAndUpdate(deal.inventoryUnitId, {
-        status:       'available',
-        reservedBy:   null,
-        reservedAt:   null,
-        bookedBy:     null,
-        bookedAt:     null,
-        soldBy:       null,
-        soldAt:       null,
-        dealRecordId: null,
-        leadId:       null,
-      });
-    }
-  }
+await releaseInventoryFromDeal(deal.inventoryUnitId, deal._id);
 
   // Revert lead status
-  await GridLead.findByIdAndUpdate(deal.leadId, {
-    status:                          'in_discussion',
-    'deal_record.created':           false,
-    'deal_record.deal_record_id':    null,
-    'deal_record.inventory_unit_id': null,
-  });
+  await clearLeadDealRecord(deal.leadId);
 
   pushStatusLog(deal, deal.commissionStatus, 'voided', req.user._id, reason);
   await deal.save();
@@ -744,7 +881,8 @@ exports.getAllDealRecords = asyncHandler(async (req, res) => {
     DealRecord.countDocuments(filter),
   ]);
 
-  // Commission summary across the filtered set
+ // Summary runs on the full filtered set (not just the current page)
+// so totals reflect all matching deals, not only the paginated slice.
   const summary = await DealRecord.aggregate([
     { $match: filter },
     {

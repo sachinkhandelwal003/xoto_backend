@@ -251,7 +251,13 @@ exports.getLeads = asyncHandler(async (req, res) => {
     GridLead.find(filter)
       .populate('source.listing_id')
       .populate('matched_listings.listing_id')
-      .populate('assigned_to', 'firstName lastName email')
+      .populate('customerId', 'name firstName lastName email mobile phone')
+      .populate('assigned_to', 'firstName lastName email phone')
+      .populate({
+        path: 'created_by_agent',
+        select: 'first_name last_name email phone_number agency',
+        populate: { path: 'agency', select: 'companyName agency_name name primaryContactEmail' },
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit),
@@ -462,7 +468,9 @@ exports.getAgentLeads = asyncHandler(async (req, res) => {
     'source.channel': 'agent_added',
   };
 
-  if (status)         filter.status         = status;
+  if (status) {
+  filter.status = new RegExp(`^${status}$`, 'i');
+}
   if (classification) filter.classification = classification;
   if (type)           filter.enquiry_type   = type;
 
@@ -709,11 +717,12 @@ exports.updateMyLeadStatus = asyncHandler(async (req, res) => {
     });
   }
 
-  const FLOW = [
-    'new', 'contacted', 'in_discussion',
-    'site_visit_scheduled', 'offer_made', 'reserved',
-    'spa_signed', 'completed',
-  ];
+
+const FLOW = [
+  'new', 'contacted', 'qualified', 'in_discussion',
+  'site_visit_scheduled', 'offer_made', 'reserved',
+  'spa_signed', 'completed',
+];
 
   const current = lead.status;
 
@@ -1002,8 +1011,13 @@ exports.getLeadById = asyncHandler(async (req, res) => {
   const lead = await GridLead.findById(id)
     .populate('source.listing_id')
     .populate('matched_listings.listing_id')
+    .populate('customerId', 'name firstName lastName email mobile phone')
     .populate('assigned_to',      'firstName lastName email phone')
-    .populate('created_by_agent', 'first_name last_name email phone_number role')
+    .populate({
+      path: 'created_by_agent',
+      select: 'first_name last_name email phone_number role agency',
+      populate: { path: 'agency', select: 'companyName agency_name name primaryContactEmail' },
+    })
     .populate('advisor_suggestions.property_id')
     .lean({ virtuals: true });
 
@@ -1605,7 +1619,7 @@ exports.createGeneralLead = asyncHandler(async (req, res) => {
     enquiry_type,
     customerId:            customer._id,
     classification,
-    classification_reason: `General lead — admin ne manually add kiya via ${source_channel}`,
+    classification_reason: `General lead — Created by admin via ${source_channel}`,
     source: {
       channel:    source_channel,
       listing_id: property_id || null,

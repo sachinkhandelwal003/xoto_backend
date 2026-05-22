@@ -208,6 +208,10 @@ dealRecordSchema.pre('save', async function (next) {
 
 // ─── Indexes ──────────────────────────────────────────────────────────────────
 dealRecordSchema.index({ leadId:           1 });
+dealRecordSchema.index(
+  { leadId: 1 },
+  { unique: true, partialFilterExpression: { isVoided: false } }
+);
 dealRecordSchema.index({ propertyId:       1 });
 dealRecordSchema.index({ customerId:       1 });
 dealRecordSchema.index({ advisorId:        1 });
