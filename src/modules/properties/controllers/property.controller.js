@@ -40,7 +40,8 @@ const isCatalogue = (role) => {
     return Number(role?.code) === 16 ||
            Number(role?.code) === 18;
   }
-  return role === "GridAdvisor" || role === "agent";
+  const normalized = String(role).toLowerCase();
+  return ["gridadvisor", "grid_advisor", "grid advisor", "agent"].includes(normalized);
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
