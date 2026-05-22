@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const documentSchema = new mongoose.Schema(
   {
     entityType: { type: String, enum: ['Case'], required: true },  // Only Case now
-    entityId: { type: String, required: true },  // Case ID
+entityId: { type: mongoose.Schema.Types.ObjectId, required: true },
     documentKey: { type: String, required: true },  // passport, emirates_id, etc.
     documentName: { type: String, required: true },
     documentCategory: { type: String, required: true },
@@ -28,7 +28,8 @@ const documentSchema = new mongoose.Schema(
     verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
     verifiedAt: { type: Date, default: null },
     rejectionReason: { type: String, default: null },
-    
+    deletedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+
     isDeleted: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },
   },
@@ -69,4 +70,4 @@ documentSchema.methods.softDelete = function (deletedByUserId) {
 };
 
 const Document = mongoose.models.Document || mongoose.model('Document', documentSchema);
-module.exports = Document;
+export default Document;

@@ -1,13 +1,11 @@
-// commission.controller.js - WITHOUT hardcoded bank rates
+// commission.controller.js - COMPLETE VERSION (No Bank Product Dependency)
 
 import Commission from '../models/Commission.js';
 import Case from '../models/Case.js';
-import Lead from '../models/VaultLead.js';
+import VaultLead from '../models/VaultLead.js';
 import Partner from '../models/Partner.js';
 import VaultAgent from '../models/Agent.js';
-import BankMortgageProduct from '../../mortgages/models/BankProduct.js';
 import HistoryService from '../services/history.service.js';
-import mongoose from 'mongoose';
 
 const getUserInfo = async (req) => {
   const roleId = req.user?.role;
@@ -30,105 +28,33 @@ const getUserInfo = async (req) => {
   };
 };
 
-// ==================== HELPER: Get Bank Commission Rate ====================
-const getBankCommissionRate = async (caseData) => {
-  // Priority 1: From case data (if already set)
-  if (caseData.loanInfo?.bankCommissionRate) {
-    return {
-      rate: caseData.loanInfo.bankCommissionRate,
-      source: 'case_data',
-      ratePercentage: `${(caseData.loanInfo.bankCommissionRate * 100).toFixed(2)}%`
-    };
-  }
-  
-  // Priority 2: From bank product (database)
-  if (caseData.loanInfo?.selectedBankProduct) {
-    try {
-      const bankProduct = await BankMortgageProduct.findById(caseData.loanInfo.selectedBankProduct);
-      if (bankProduct && bankProduct.commissionRate) {
-        return {
-          rate: bankProduct.commissionRate,
-          source: 'bank_product',
-          ratePercentage: `${(bankProduct.commissionRate * 100).toFixed(2)}%`,
-          productName: bankProduct.productName,
-          bankName: bankProduct.bankName
-        };
-      }
-    } catch (err) {
-      console.error("Error fetching bank product:", err);
-    }
-  }
-  
-  // ❌ REMOVED hardcoded bank rates
-  // Now Admin must provide rate manually or from bank product
-  
-  // Priority 3: Return null - Admin must provide rate
+// ==================== HELPER: Calculate Xoto Commission (Fixed 1%) ====================
+const calculateXotoCommission = (loanAmount) => {
+  const xotoCommission = loanAmount * 0.01; // Fixed 1%
   return {
-    rate: null,
-    source: 'required_from_admin',
-    ratePercentage: 'Not set - Please provide bank commission rate',
-    requiresManualInput: true
+    xotoCommissionFromBank: Math.round(xotoCommission),
+    bankCommissionRate: 0.01,
+    bankCommissionPercentage: '1.00%',
+    calculation: `${loanAmount.toLocaleString()} × 1% = ${Math.round(xotoCommission).toLocaleString()} AED`
   };
 };
 
-// ==================== HELPER: Calculate Commission Core ====================
-const calculateCommissionCore = (loanAmount, bankCommissionRate = null) => {
-  if (!bankCommissionRate || bankCommissionRate <= 0) {
-    return {
-      loanAmount,
-      loanTier: loanAmount <= 5000000 ? '≤5M AED' : '>5M AED',
-      xotoCommissionFromBank: null,
-      bankCommissionRate: null,
-      bankCommissionPercentage: 'Requires manual input',
-      error: 'Bank commission rate not provided'
-    };
-  }
-  
-  const xotoCommissionFromBank = loanAmount * bankCommissionRate;
-  const loanTier = loanAmount <= 5000000 ? '≤5M AED' : '>5M AED';
-  
-  return {
-    loanAmount,
-    loanTier,
-    xotoCommissionFromBank: Math.round(xotoCommissionFromBank),
-    bankCommissionRate: bankCommissionRate,
-    bankCommissionPercentage: `${(bankCommissionRate * 100).toFixed(2)}%`
-  };
-};
-
-// ==================== HELPER: Determine Recipient Based ONLY on Lead Source (NO eligibility checks) ====================
+// ==================== HELPER: Determine Recipient Based on Lead Source ====================
 const determineRecipient = async (caseData, xotoCommissionFromBank) => {
-  const loanAmount = caseData.loanInfo?.disbursedAmount || 
-                     caseData.loanInfo?.approvedAmount || 
-                     caseData.loanInfo?.requestedAmount || 0;
-  
-  let result = {
-    recipientType: null,
-    recipientId: null,
-    recipientName: null,
-    recipientPercentage: 0,
-    commissionAmount: 0,
-    calculationFormula: '',
-    xotoNetProfit: 0,
-    profitMargin: '0%',
-    note: null,
-    sourceType: 'lead'
-  };
-  
-  // ==================== ONLY CHECK LEAD SOURCE ====================
-  // NO eligibility checks - just check who created the lead
+  const loanAmount = caseData.disbursementInfo?.disbursedAmount || 
+                     caseData.amountTracking?.disbursedAmount ||
+                     caseData.propertyInfo?.loanAmount || 0;
   
   if (!caseData.sourceLeadId) {
     return {
-      recipientType: 'none',
+      recipientType: 'xoto_internal',
       recipientId: null,
-      recipientName: 'No Lead Source',
+      recipientName: 'Xoto (Internal)',
       recipientPercentage: 0,
       commissionAmount: 0,
       calculationFormula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × 0% = 0 AED`,
       xotoNetProfit: Math.round(xotoCommissionFromBank),
       profitMargin: '100%',
-      sourceType: 'none',
       note: 'No lead associated with this case. Commission retained by Xoto.'
     };
   }
@@ -136,7 +62,7 @@ const determineRecipient = async (caseData, xotoCommissionFromBank) => {
   const lead = await VaultLead.findById(caseData.sourceLeadId);
   if (!lead || !lead.sourceInfo) {
     return {
-      recipientType: 'none',
+      recipientType: 'xoto_internal',
       recipientId: null,
       recipientName: 'Lead Not Found',
       recipientPercentage: 0,
@@ -144,7 +70,6 @@ const determineRecipient = async (caseData, xotoCommissionFromBank) => {
       calculationFormula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × 0% = 0 AED`,
       xotoNetProfit: Math.round(xotoCommissionFromBank),
       profitMargin: '100%',
-      sourceType: 'none',
       note: 'Lead not found. Commission retained by Xoto.'
     };
   }
@@ -152,8 +77,7 @@ const determineRecipient = async (caseData, xotoCommissionFromBank) => {
   const leadSourceRole = lead.sourceInfo.createdByRole;
   const leadSourceId = lead.sourceInfo.createdById;
   
-  // ==================== CASE 1: Lead from FREELANCE AGENT ====================
-  // ✅ NO eligibility check - just give commission
+  // CASE 1: Lead from FREELANCE AGENT (40% / 50%)
   if (leadSourceRole === 'freelance_agent') {
     const agent = await VaultAgent.findById(leadSourceId);
     if (agent && agent.agentType === 'FreelanceAgent') {
@@ -161,7 +85,7 @@ const determineRecipient = async (caseData, xotoCommissionFromBank) => {
       const commissionAmount = (xotoCommissionFromBank * referralPercentage) / 100;
       const xotoNetProfit = xotoCommissionFromBank - commissionAmount;
       
-      result = {
+      return {
         recipientType: 'freelance_agent',
         recipientId: agent._id,
         recipientName: agent.fullName,
@@ -170,14 +94,12 @@ const determineRecipient = async (caseData, xotoCommissionFromBank) => {
         calculationFormula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × ${referralPercentage}% = ${Math.round(commissionAmount).toLocaleString()} AED`,
         xotoNetProfit: Math.round(xotoNetProfit),
         profitMargin: ((xotoNetProfit / xotoCommissionFromBank) * 100).toFixed(2) + '%',
-        sourceType: 'lead',
         note: `Lead referred by Freelance Agent: ${agent.fullName}`
       };
-      return result;
     }
   }
   
-  // ==================== CASE 2: Lead from PARTNER-AFFILIATED AGENT ====================
+  // CASE 2: Lead from PARTNER-AFFILIATED AGENT (80% / 85% to Partner)
   if (leadSourceRole === 'partner_affiliated_agent') {
     const agent = await VaultAgent.findById(leadSourceId);
     if (agent && agent.partnerId) {
@@ -187,7 +109,7 @@ const determineRecipient = async (caseData, xotoCommissionFromBank) => {
         const commissionAmount = (xotoCommissionFromBank * partnerPercentage) / 100;
         const xotoNetProfit = xotoCommissionFromBank - commissionAmount;
         
-        result = {
+        return {
           recipientType: 'partner',
           recipientId: partner._id,
           recipientName: partner.displayName || partner.companyName,
@@ -196,20 +118,15 @@ const determineRecipient = async (caseData, xotoCommissionFromBank) => {
           calculationFormula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × ${partnerPercentage}% = ${Math.round(commissionAmount).toLocaleString()} AED`,
           xotoNetProfit: Math.round(xotoNetProfit),
           profitMargin: ((xotoNetProfit / xotoCommissionFromBank) * 100).toFixed(2) + '%',
-          sourceType: 'lead',
-          sourceAgent: {
-            id: agent._id,
-            name: agent.fullName,
-            type: 'PartnerAffiliatedAgent'
-          },
+          sourceAgentId: agent._id,
+          sourceAgentName: agent.fullName,
           note: `Lead from Partner-Affiliated Agent (${agent.fullName}) → Commission to Partner: ${partner.displayName}`
         };
-        return result;
       }
     }
   }
   
-  // ==================== CASE 3: Lead from INDIVIDUAL PARTNER ====================
+  // CASE 3: Lead from INDIVIDUAL PARTNER (80% / 85%)
   if (leadSourceRole === 'individual_partner') {
     const partner = await Partner.findById(leadSourceId);
     if (partner) {
@@ -217,7 +134,7 @@ const determineRecipient = async (caseData, xotoCommissionFromBank) => {
       const commissionAmount = (xotoCommissionFromBank * partnerPercentage) / 100;
       const xotoNetProfit = xotoCommissionFromBank - commissionAmount;
       
-      result = {
+      return {
         recipientType: 'partner',
         recipientId: partner._id,
         recipientName: partner.displayName,
@@ -226,229 +143,174 @@ const determineRecipient = async (caseData, xotoCommissionFromBank) => {
         calculationFormula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × ${partnerPercentage}% = ${Math.round(commissionAmount).toLocaleString()} AED`,
         xotoNetProfit: Math.round(xotoNetProfit),
         profitMargin: ((xotoNetProfit / xotoCommissionFromBank) * 100).toFixed(2) + '%',
-        sourceType: 'lead',
         note: `Lead from Individual Partner: ${partner.displayName}`
       };
-      return result;
     }
   }
   
-  // ==================== CASE 4: Lead from WEBSITE ====================
-  if (leadSourceRole === 'website') {
-    return {
-      recipientType: 'none',
-      recipientId: null,
-      recipientName: 'Website Visitor',
-      recipientPercentage: 0,
-      commissionAmount: 0,
-      calculationFormula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × 0% = 0 AED`,
-      xotoNetProfit: Math.round(xotoCommissionFromBank),
-      profitMargin: '100%',
-      sourceType: 'lead',
-      note: 'Lead from website. No commission paid. Commission retained by Xoto.'
-    };
-  }
-  
-  // ==================== CASE 5: Lead from ADMIN ====================
-  if (leadSourceRole === 'admin') {
-    return {
-      recipientType: 'none',
-      recipientId: null,
-      recipientName: 'Admin Created',
-      recipientPercentage: 0,
-      commissionAmount: 0,
-      calculationFormula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × 0% = 0 AED`,
-      xotoNetProfit: Math.round(xotoCommissionFromBank),
-      profitMargin: '100%',
-      sourceType: 'lead',
-      note: 'Lead created by Admin (internal). No commission paid.'
-    };
-  }
-  
-  // ==================== Default ====================
+  // CASE 4: Lead from WEBSITE (✅ Create commission record with 0% for internal tracking)
+ // CASE 4: Lead from WEBSITE (No commission - Just track Xoto earnings)
+if (leadSourceRole === 'website') {
   return {
-    recipientType: 'none',
+    recipientType: 'internal',      // ✅ Changed to 'internal'
     recipientId: null,
-    recipientName: 'Unknown Source',
+    recipientName: 'Xoto (Website Lead)',
     recipientPercentage: 0,
     commissionAmount: 0,
     calculationFormula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × 0% = 0 AED`,
     xotoNetProfit: Math.round(xotoCommissionFromBank),
     profitMargin: '100%',
-    sourceType: 'lead',
-    note: `Unknown lead source: ${leadSourceRole}. Commission retained by Xoto.`
+    note: `Lead from website. Xoto earns ${Math.round(xotoCommissionFromBank).toLocaleString()} AED. No commission paid.`,
+    isInternal: true,               // ✅ Add this flag
+    shouldCreateCommission: true    // ✅ Add this flag
+  };
+}
+  
+  // CASE 5: Lead from ADMIN (✅ Create commission record with 0% for internal tracking)
+if (leadSourceRole === 'admin') {
+  return {
+    recipientType: 'internal',      // ✅ Changed to 'internal' (not 'none')
+    recipientId: null,
+    recipientName: 'Xoto (Admin Lead)',
+    recipientPercentage: 0,
+    commissionAmount: 0,
+    calculationFormula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × 0% = 0 AED`,
+    xotoNetProfit: Math.round(xotoCommissionFromBank),
+    profitMargin: '100%',
+    note: `Lead created by Admin (internal). Xoto earns ${Math.round(xotoCommissionFromBank).toLocaleString()} AED. No commission paid.`,
+    isInternal: true,               // ✅ Add this flag
+    shouldCreateCommission: true    // ✅ Add this flag
+  };
+}
+
+  
+  // Default
+  return {
+    recipientType: 'xoto_internal',
+    recipientId: null,
+    recipientName: 'Xoto (Unknown Source)',
+    recipientPercentage: 0,
+    commissionAmount: 0,
+    calculationFormula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × 0% = 0 AED`,
+    xotoNetProfit: Math.round(xotoCommissionFromBank),
+    profitMargin: '100%',
+    note: `Unknown lead source: ${leadSourceRole}. Commission retained by Xoto.`,
+    shouldCreateCommission: true
   };
 };
 
-// ==================== PREVIEW COMMISSION (Before Creating) ====================
-// ==================== PREVIEW COMMISSION (Before Creating) ====================
+// ==================== HELPER: Validate Bank Details for Payment ====================
+const validateRecipientBankDetails = async (recipientType, recipientId) => {
+  if (recipientType === 'freelance_agent') {
+    const agent = await VaultAgent.findById(recipientId);
+    if (!agent) {
+      return { valid: false, reason: 'Agent not found' };
+    }
+    
+    if (!agent.bankDetails || !agent.bankDetails.iban) {
+      return { valid: false, reason: 'Bank details not provided. Please update your profile with bank details.' };
+    }
+    
+    if (!agent.bankDetails.beneficiaryName) {
+      return { valid: false, reason: 'Beneficiary name missing in bank details.' };
+    }
+    
+    if (!agent.bankDetails.bankName) {
+      return { valid: false, reason: 'Bank name missing in bank details.' };
+    }
+    
+    if (!agent.bankDetails.verified) {
+      return { valid: false, reason: 'Bank details not verified by admin. Please contact support.' };
+    }
+    
+    const eligibility = agent.getCommissionEligibilityStatus();
+    if (!eligibility.eligible) {
+      return { valid: false, reason: eligibility.reason };
+    }
+    
+    return { 
+      valid: true, 
+      bankDetails: {
+        beneficiaryName: agent.bankDetails.beneficiaryName,
+        bankName: agent.bankDetails.bankName,
+        iban: agent.bankDetails.iban,
+        swiftCode: agent.bankDetails.swiftCode
+      },
+      recipientName: agent.fullName
+    };
+    
+  } else if (recipientType === 'partner') {
+    const partner = await Partner.findById(recipientId);
+    if (!partner) {
+      return { valid: false, reason: 'Partner not found' };
+    }
+    
+    if (partner.status !== 'active') {
+      return { valid: false, reason: `Partner account is ${partner.status}. Only active partners can receive commission.` };
+    }
+    
+    if (!partner.bankDetails || !partner.bankDetails.iban) {
+      return { valid: false, reason: 'Bank details not provided. Please update partner profile with bank details.' };
+    }
+    
+    if (!partner.bankDetails.beneficiaryName) {
+      return { valid: false, reason: 'Beneficiary name missing in bank details.' };
+    }
+    
+    if (!partner.bankDetails.bankName) {
+      return { valid: false, reason: 'Bank name missing in bank details.' };
+    }
+    
+    if (!partner.bankDetails.verified) {
+      return { valid: false, reason: 'Bank details not verified by admin. Please contact support.' };
+    }
+    
+    if (!partner.agreementDetails || !partner.agreementDetails.signedDate) {
+      return { valid: false, reason: 'Partnership agreement not signed. Please complete agreement.' };
+    }
+    
+    if (partner.agreementDetails.endDate && new Date() > partner.agreementDetails.endDate) {
+      return { valid: false, reason: 'Partnership agreement has expired. Please renew.' };
+    }
+    
+    return { 
+      valid: true, 
+      bankDetails: {
+        beneficiaryName: partner.bankDetails.beneficiaryName,
+        bankName: partner.bankDetails.bankName,
+        iban: partner.bankDetails.iban,
+        swiftCode: partner.bankDetails.swiftCode
+      },
+      recipientName: partner.displayName || partner.companyName
+    };
+  }
+  
+  return { valid: false, reason: 'Unknown recipient type' };
+};
+
+// ==================== 1. PREVIEW COMMISSION ====================
 export const previewCommission = async (req, res) => {
   try {
     const { caseId } = req.params;
-    const { customBankRate, customBankCommission } = req.body;
     
     const caseData = await Case.findOne({ _id: caseId, isDeleted: false });
     if (!caseData) {
       return res.status(404).json({ success: false, message: "Case not found" });
     }
     
-    const loanAmount = caseData.loanInfo?.disbursedAmount || 
-                       caseData.loanInfo?.approvedAmount || 
-                       caseData.loanInfo?.requestedAmount || 0;
+    const loanAmount = caseData.disbursementInfo?.disbursedAmount || 
+                       caseData.amountTracking?.disbursedAmount ||
+                       caseData.propertyInfo?.loanAmount || 0;
     
     if (loanAmount <= 0) {
       return res.status(400).json({ success: false, message: "No valid loan amount found" });
     }
     
-    // ==================== GET BANK COMMISSION RATE ====================
-    let bankCommissionRate, xotoCommissionFromBank, bankCommissionSource;
+    // Calculate Xoto commission (1% fixed)
+    const xotoCommissionInfo = calculateXotoCommission(loanAmount);
     
-    if (customBankCommission && customBankCommission > 0) {
-      xotoCommissionFromBank = customBankCommission;
-      bankCommissionRate = xotoCommissionFromBank / loanAmount;
-      bankCommissionSource = { source: 'admin_manual', rate: bankCommissionRate, ratePercentage: `${(bankCommissionRate * 100).toFixed(2)}%` };
-    } else if (customBankRate && customBankRate > 0) {
-      bankCommissionRate = customBankRate / 100;
-      xotoCommissionFromBank = loanAmount * bankCommissionRate;
-      bankCommissionSource = { source: 'admin_custom_rate', rate: bankCommissionRate, ratePercentage: `${customBankRate}%` };
-    } else {
-      const bankRateInfo = await getBankCommissionRate(caseData);
-      
-      if (bankRateInfo.rate) {
-        bankCommissionRate = bankRateInfo.rate;
-        xotoCommissionFromBank = loanAmount * bankCommissionRate;
-        bankCommissionSource = bankRateInfo;
-      } else {
-        return res.status(400).json({
-          success: false,
-          message: "Bank commission rate not configured. Please provide customBankRate or customBankCommission.",
-          data: {
-            loanAmount,
-            requiresManualInput: true,
-            availableSources: [
-              "customBankRate: Provide rate percentage (e.g., 1.0 for 1%)",
-              "customBankCommission: Provide exact commission amount in AED"
-            ]
-          }
-        });
-      }
-    }
-    
-    // ==================== DETERMINE RECIPIENT BASED ONLY ON LEAD SOURCE ====================
-    // Do NOT check case.createdBy - ONLY look at lead source
-    let recipientInfo = {
-      recipientType: 'none',
-      recipientId: null,
-      recipientName: 'No Lead Source',
-      recipientPercentage: 0,
-      commissionAmount: 0,
-      calculationFormula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × 0% = 0 AED`,
-      xotoNetProfit: Math.round(xotoCommissionFromBank),
-      profitMargin: '100%',
-      note: null
-    };
-    
-    // Check if case has a lead
-    if (caseData.sourceLeadId) {
-      const lead = await Lead.findById(caseData.sourceLeadId);
-      if (lead && lead.sourceInfo) {
-        const leadSourceRole = lead.sourceInfo.createdByRole;
-        const leadSourceId = lead.sourceInfo.createdById;
-        
-        // CASE 1: Lead from FREELANCE AGENT (Referral Partner)
-        if (leadSourceRole === 'freelance_agent') {
-          const agent = await VaultAgent.findById(leadSourceId);
-          if (agent && agent.agentType === 'FreelanceAgent') {
-            const eligibility = agent.getCommissionEligibilityStatus();
-            if (eligibility.eligible) {
-              const referralPercentage = loanAmount <= 5000000 ? 40 : 50;
-              const commissionAmount = (xotoCommissionFromBank * referralPercentage) / 100;
-              const xotoNetProfit = xotoCommissionFromBank - commissionAmount;
-              
-              recipientInfo = {
-                recipientType: 'freelance_agent',
-                recipientId: agent._id,
-                recipientName: agent.fullName,
-                recipientPercentage: referralPercentage,
-                commissionAmount: Math.round(commissionAmount),
-                calculationFormula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × ${referralPercentage}% = ${Math.round(commissionAmount).toLocaleString()} AED`,
-                xotoNetProfit: Math.round(xotoNetProfit),
-                profitMargin: ((xotoNetProfit / xotoCommissionFromBank) * 100).toFixed(2) + '%',
-                note: `Lead referred by Freelance Agent: ${agent.fullName}`
-              };
-            } else {
-              recipientInfo.note = `Lead from Freelance Agent but agent not eligible: ${eligibility.reason}. Commission retained by Xoto.`;
-            }
-          }
-        }
-        
-        // CASE 2: Lead from PARTNER-AFFILIATED AGENT
-        else if (leadSourceRole === 'partner_affiliated_agent') {
-          const agent = await VaultAgent.findById(leadSourceId);
-          if (agent && agent.partnerId) {
-            const partner = await Partner.findById(agent.partnerId);
-            if (partner && partner.isActive()) {
-              const partnerPercentage = loanAmount <= 5000000 ? 80 : 85;
-              const commissionAmount = (xotoCommissionFromBank * partnerPercentage) / 100;
-              const xotoNetProfit = xotoCommissionFromBank - commissionAmount;
-              
-              recipientInfo = {
-                recipientType: 'partner',
-                recipientId: partner._id,
-                recipientName: partner.displayName || partner.companyName,
-                recipientPercentage: partnerPercentage,
-                commissionAmount: Math.round(commissionAmount),
-                calculationFormula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × ${partnerPercentage}% = ${Math.round(commissionAmount).toLocaleString()} AED`,
-                xotoNetProfit: Math.round(xotoNetProfit),
-                profitMargin: ((xotoNetProfit / xotoCommissionFromBank) * 100).toFixed(2) + '%',
-                note: `Lead from Partner-Affiliated Agent (${agent.fullName}) → Commission to Partner: ${partner.displayName}`
-              };
-            }
-          }
-        }
-        
-        // CASE 3: Lead from INDIVIDUAL PARTNER
-        else if (leadSourceRole === 'individual_partner') {
-          const partner = await Partner.findById(leadSourceId);
-          if (partner && partner.isActive()) {
-            const partnerPercentage = loanAmount <= 5000000 ? 80 : 85;
-            const commissionAmount = (xotoCommissionFromBank * partnerPercentage) / 100;
-            const xotoNetProfit = xotoCommissionFromBank - commissionAmount;
-            
-            recipientInfo = {
-              recipientType: 'partner',
-              recipientId: partner._id,
-              recipientName: partner.displayName,
-              recipientPercentage: partnerPercentage,
-              commissionAmount: Math.round(commissionAmount),
-              calculationFormula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × ${partnerPercentage}% = ${Math.round(commissionAmount).toLocaleString()} AED`,
-              xotoNetProfit: Math.round(xotoNetProfit),
-              profitMargin: ((xotoNetProfit / xotoCommissionFromBank) * 100).toFixed(2) + '%',
-              note: `Lead from Individual Partner: ${partner.displayName}`
-            };
-          }
-        }
-        
-        // CASE 4: Lead from WEBSITE
-        else if (leadSourceRole === 'website') {
-          recipientInfo.note = 'Lead from website. No commission paid. Commission retained by Xoto.';
-        }
-        
-        // CASE 5: Lead from ADMIN
-        else if (leadSourceRole === 'admin') {
-          recipientInfo.note = 'Lead created by Admin (internal). No commission paid.';
-        }
-        
-        // CASE 6: Unknown lead source
-        else {
-          recipientInfo.note = `Unknown lead source: ${leadSourceRole}. Commission retained by Xoto.`;
-        }
-      } else {
-        recipientInfo.note = 'Lead found but no source info. Commission retained by Xoto.';
-      }
-    } else {
-      recipientInfo.note = 'No lead associated with this case. Commission retained by Xoto.';
-    }
+    // Determine recipient
+    const recipientInfo = await determineRecipient(caseData, xotoCommissionInfo.xotoCommissionFromBank);
     
     return res.status(200).json({
       success: true,
@@ -457,17 +319,10 @@ export const previewCommission = async (req, res) => {
         caseReference: caseData.caseReference,
         currentStatus: caseData.currentStatus,
         loanAmount,
-        leadInfo: caseData.sourceLeadId ? {
-          leadId: caseData.sourceLeadId,
-          hasLead: true
-        } : {
-          hasLead: false
-        },
-        bankCommission: {
-          rate: bankCommissionRate,
-          ratePercentage: `${(bankCommissionRate * 100).toFixed(2)}%`,
-          source: bankCommissionSource.source,
-          calculatedAmount: Math.round(xotoCommissionFromBank)
+        xotoCommission: {
+          rate: '1%',
+          calculatedAmount: xotoCommissionInfo.xotoCommissionFromBank,
+          formula: xotoCommissionInfo.calculation
         },
         recipient: {
           type: recipientInfo.recipientType,
@@ -477,7 +332,7 @@ export const previewCommission = async (req, res) => {
           formula: recipientInfo.calculationFormula
         },
         xoto: {
-          grossCommission: Math.round(xotoCommissionFromBank),
+          grossCommission: xotoCommissionInfo.xotoCommissionFromBank,
           netProfit: recipientInfo.xotoNetProfit,
           profitMargin: recipientInfo.profitMargin
         },
@@ -485,18 +340,17 @@ export const previewCommission = async (req, res) => {
         timestamp: new Date().toISOString()
       }
     });
-
   } catch (error) {
     console.error("Preview commission error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==================== CREATE COMMISSION FROM DISBURSED CASE ====================
+// ==================== 2. CREATE COMMISSION FROM DISBURSED CASE ====================
 export const createCommissionFromCase = async (req, res) => {
   try {
     const { caseId } = req.params;
-    const { actualBankCommission, customBankRate, notes } = req.body;
+    const { notes } = req.body;
     
     const caseData = await Case.findOne({ _id: caseId, isDeleted: false });
     if (!caseData) {
@@ -518,57 +372,69 @@ export const createCommissionFromCase = async (req, res) => {
       });
     }
     
-    const loanAmount = caseData.loanInfo?.disbursedAmount || 
-                       caseData.loanInfo?.approvedAmount || 
-                       caseData.loanInfo?.requestedAmount || 0;
+    const loanAmount = caseData.disbursementInfo?.disbursedAmount || 
+                       caseData.amountTracking?.disbursedAmount ||
+                       caseData.propertyInfo?.loanAmount || 0;
     
     if (loanAmount <= 0) {
       return res.status(400).json({ success: false, message: "No valid loan amount found" });
     }
     
-    // Get bank commission information - MUST be provided by Admin
-    let bankCommissionRate, xotoCommissionFromBank, bankCommissionSource;
-    
-    if (actualBankCommission && actualBankCommission > 0) {
-      xotoCommissionFromBank = actualBankCommission;
-      bankCommissionRate = xotoCommissionFromBank / loanAmount;
-      bankCommissionSource = { source: 'admin_manual', rate: bankCommissionRate };
-    } else if (customBankRate && customBankRate > 0) {
-      bankCommissionRate = customBankRate / 100;
-      xotoCommissionFromBank = loanAmount * bankCommissionRate;
-      bankCommissionSource = { source: 'admin_custom_rate', rate: bankCommissionRate };
-    } else {
-      // Try to get from bank product
-      const bankRateInfo = await getBankCommissionRate(caseData);
-      
-      if (bankRateInfo.rate) {
-        bankCommissionRate = bankRateInfo.rate;
-        xotoCommissionFromBank = loanAmount * bankCommissionRate;
-        bankCommissionSource = bankRateInfo;
-      } else {
-        return res.status(400).json({
-          success: false,
-          message: "Bank commission rate not configured. Please provide actualBankCommission or customBankRate.",
-          requiredFields: {
-            actualBankCommission: "Enter exact commission amount received from bank (in AED)",
-            customBankRate: "Enter commission rate percentage (e.g., 1.0 for 1%)"
-          }
-        });
-      }
-    }
-    
-    // Update case with bank commission rate
-    caseData.loanInfo.bankCommissionRate = bankCommissionRate;
-    caseData.loanInfo.bankCommissionAmount = Math.round(xotoCommissionFromBank);
-    await caseData.save();
+    // Calculate Xoto commission (1% fixed)
+    const xotoCommissionInfo = calculateXotoCommission(loanAmount);
     
     // Determine recipient
-    const recipientInfo = await determineRecipient(caseData, xotoCommissionFromBank);
+    const recipientInfo = await determineRecipient(caseData, xotoCommissionInfo.xotoCommissionFromBank);
     
-    // Create commission record
+    // ✅ For internal leads (Admin/Website) - Just update case with Xoto earnings, no commission record
+    if (recipientInfo.recipientType === 'internal' || recipientInfo.recipientType === 'xoto_internal') {
+      // Update case with Xoto earnings info
+      caseData.xotoEarnings = {
+        loanAmount: loanAmount,
+        xotoCommission: xotoCommissionInfo.xotoCommissionFromBank,
+        commissionRate: '1%',
+        source: recipientInfo.recipientType === 'internal' ? 'Xoto Internal' : recipientInfo.recipientName,
+        note: recipientInfo.note,
+        recordedAt: new Date()
+      };
+      await caseData.save();
+      
+      return res.status(200).json({
+        success: true,
+        message: `✅ Xoto earned ${xotoCommissionInfo.xotoCommissionFromBank.toLocaleString()} AED (1% of ${loanAmount.toLocaleString()} AED) from this case. No commission paid out.`,
+        data: {
+          caseId: caseData._id,
+          caseReference: caseData.caseReference,
+          loanAmount: loanAmount,
+          xotoEarnings: {
+            amount: xotoCommissionInfo.xotoCommissionFromBank,
+            rate: '1%',
+            calculation: xotoCommissionInfo.calculation
+          },
+          recipient: {
+            type: 'Xoto (Internal)',
+            name: recipientInfo.recipientName,
+            percentage: 0,
+            commissionAmount: 0
+          },
+          note: recipientInfo.note
+        }
+      });
+    }
+    
+    // For external recipients (Freelance Agent or Partner) - Create commission record
+    if (!recipientInfo.recipientId || recipientInfo.commissionAmount === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid recipient found for commission.",
+        note: recipientInfo.note
+      });
+    }
+    
+    // Create commission record for external recipients
     const commissionId = `COM-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
     
-    const commission = await Commission.create({
+    const commissionData = {
       commissionId,
       caseId: caseData._id,
       caseReference: caseData.caseReference,
@@ -582,34 +448,69 @@ export const createCommissionFromCase = async (req, res) => {
       recipientName: recipientInfo.recipientName,
       loanAmount,
       loanTier: loanAmount <= 5000000 ? '≤5M AED' : '>5M AED',
-      bankCommissionToXoto: Math.round(xotoCommissionFromBank),
-      bankCommissionRate: bankCommissionRate,
+      bankCommissionToXoto: xotoCommissionInfo.xotoCommissionFromBank,
+      bankCommissionRate: 0.01,
       recipientPercentage: recipientInfo.recipientPercentage,
       commissionAmount: recipientInfo.commissionAmount,
       calculationFormula: recipientInfo.calculationFormula,
+      percentageSource: recipientInfo.recipientType === 'freelance_agent' 
+        ? 'freelance_commission.referralOnly' 
+        : 'partner.commissionConfiguration',
       disbursedAt: new Date(),
       status: 'Pending',
       createdBy: { role: 'admin', adminId: req.user._id },
-      notes: notes || `Commission created manually by Admin. Bank rate: ${(bankCommissionRate * 100).toFixed(2)}%`
-    });
+      notes: notes || `Commission created from disbursed case. Xoto commission: 1% of ${loanAmount.toLocaleString()} AED = ${xotoCommissionInfo.xotoCommissionFromBank.toLocaleString()} AED`
+    };
     
-    // Update case commission info
+    // Add source agent info if applicable
+    if (recipientInfo.sourceAgentId) {
+      commissionData.sourceAgentId = recipientInfo.sourceAgentId;
+      commissionData.sourceAgentName = recipientInfo.sourceAgentName;
+    }
+    
+    // Get payout bank details
+    if (recipientInfo.recipientType === 'freelance_agent') {
+      const agent = await VaultAgent.findById(recipientInfo.recipientId);
+      if (agent && agent.bankDetails) {
+        commissionData.payoutBankDetails = {
+          beneficiaryName: agent.bankDetails.beneficiaryName || agent.fullName,
+          bankName: agent.bankDetails.bankName,
+          iban: agent.bankDetails.iban,
+          swiftCode: agent.bankDetails.swiftCode
+        };
+      }
+    } else if (recipientInfo.recipientType === 'partner') {
+      const partner = await Partner.findById(recipientInfo.recipientId);
+      if (partner && partner.bankDetails) {
+        commissionData.payoutBankDetails = {
+          beneficiaryName: partner.bankDetails.beneficiaryName || partner.displayName,
+          bankName: partner.bankDetails.bankName,
+          iban: partner.bankDetails.iban,
+          swiftCode: partner.bankDetails.swiftCode
+        };
+      }
+    }
+    
+    const commission = await Commission.create(commissionData);
+    
+    // Update case with commission info
     caseData.commissionInfo = {
+      commissionId: commission.commissionId,
       loanAmount,
-      loanTier: loanAmount <= 5000000 ? '≤5M AED' : '>5M AED',
-      partnerPercentage: recipientInfo.recipientPercentage,
-      xotoCommissionFromBank: Math.round(xotoCommissionFromBank),
-      partnerCommissionAmount: recipientInfo.commissionAmount,
+      loanTier: commission.loanTier,
+      recipientPercentage: recipientInfo.recipientPercentage,
+      xotoCommissionFromBank: xotoCommissionInfo.xotoCommissionFromBank,
+      recipientCommissionAmount: recipientInfo.commissionAmount,
       calculation: recipientInfo.calculationFormula,
-      status: 'Pending Disbursement',
-      bankCommissionRate: bankCommissionRate,
+      status: 'Pending',
+      bankCommissionRate: 0.01,
       createdAt: new Date()
     };
     await caseData.save();
     
-    await HistoryService.logCommissionActivity(commission, 'COMMISSION_CREATED_MANUALLY', await getUserInfo(req), {
-      description: `Commission ${commissionId} manually created for case ${caseData.caseReference}`,
-      metadata: { loanAmount, bankCommission: xotoCommissionFromBank, bankRate: bankCommissionRate, recipientPercentage: recipientInfo.recipientPercentage }
+    await HistoryService.logCommissionActivity(commission, 'COMMISSION_CREATED', await getUserInfo(req), {
+      description: `Commission ${commissionId} created for ${commission.recipientName}`,
+      metadata: { loanAmount, xotoCommission: xotoCommissionInfo.xotoCommissionFromBank, percentage: recipientInfo.recipientPercentage }
     });
     
     return res.status(201).json({
@@ -618,10 +519,12 @@ export const createCommissionFromCase = async (req, res) => {
       data: {
         commission,
         summary: {
+          commissionId: commission.commissionId,
           loanAmount: commission.loanAmount,
-          bankCommission: commission.bankCommissionToXoto,
-          bankCommissionRate: `${(bankCommissionRate * 100).toFixed(2)}%`,
+          xotoCommission: commission.bankCommissionToXoto,
+          xotoCommissionRate: '1%',
           recipientType: recipientInfo.recipientType,
+          recipientName: recipientInfo.recipientName,
           recipientPercentage: commission.recipientPercentage,
           commissionAmount: commission.commissionAmount,
           status: commission.status
@@ -635,87 +538,29 @@ export const createCommissionFromCase = async (req, res) => {
   }
 };
 
-// ==================== CREATE COMMISSION (Auto - Original) ====================
+// ==================== 3. CREATE COMMISSION (Auto) ====================
 export const createCommission = async (req, res) => {
   try {
     const { caseId } = req.body;
-    const caseData = await Case.findOne({ _id: caseId, isDeleted: false });
-    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
-    if (caseData.currentStatus !== 'Disbursed') return res.status(400).json({ success: false, message: "Case not disbursed" });
-    if (caseData.commissionInfo) return res.status(400).json({ success: false, message: "Commission already created" });
-    
-    const loanAmount = caseData.loanInfo?.approvedAmount || caseData.loanInfo?.requestedAmount;
-    
-    // Try to get bank commission rate from bank product
-    const bankRateInfo = await getBankCommissionRate(caseData);
-    
-    let bankCommissionToXoto;
-    let bankCommissionRate;
-    let requiresManualInput = false;
-    
-    if (bankRateInfo.rate) {
-      bankCommissionRate = bankRateInfo.rate;
-      bankCommissionToXoto = loanAmount * bankCommissionRate;
-    } else {
-      // Auto commission requires rate from bank product
-      return res.status(400).json({
-        success: false,
-        message: "Auto commission requires bank commission rate configured in bank product. Please use manual commission creation.",
-        suggestion: "Use POST /admin/create-from-case/:caseId with customBankRate or actualBankCommission"
-      });
-    }
-    
-    const recipientInfo = await determineRecipient(caseData, bankCommissionToXoto);
-    
-    const commissionId = `COM-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
-    
-    const commission = await Commission.create({
-      commissionId, caseId: caseData._id, caseReference: caseData.caseReference,
-      leadId: caseData.sourceLeadId, proposalId: caseData.proposalId,
-      customerName: caseData.clientInfo?.fullName,
-      recipientRole: recipientInfo.recipientType,
-      recipientId: recipientInfo.recipientId,
-      recipientModel: recipientInfo.recipientType === 'partner' ? 'Partner' : 'VaultAgent',
-      recipientName: recipientInfo.recipientName,
-      loanAmount, loanTier: Commission.getLoanTier(loanAmount),
-      bankCommissionToXoto: Math.round(bankCommissionToXoto),
-      bankCommissionRate: bankCommissionRate,
-      recipientPercentage: recipientInfo.recipientPercentage,
-      commissionAmount: recipientInfo.commissionAmount,
-      calculationFormula: recipientInfo.calculationFormula,
-      disbursedAt: new Date(), status: 'Pending',
-      createdBy: { role: 'system' }
-    });
-    
-    caseData.commissionInfo = {
-      loanAmount, loanTier: commission.loanTier,
-      partnerPercentage: recipientInfo.recipientPercentage,
-      xotoCommissionFromBank: Math.round(bankCommissionToXoto),
-      partnerCommissionAmount: recipientInfo.commissionAmount,
-      calculation: recipientInfo.calculationFormula,
-      status: 'Pending Disbursement'
-    };
-    await caseData.save();
-    
-    await HistoryService.logCommissionActivity(commission, 'COMMISSION_CREATED', await getUserInfo(req), {
-      description: `Commission ${commissionId} created for ${commission.recipientName}`
-    });
-    
-    return res.status(201).json({ success: true, message: "Commission created", data: commission });
-    
+    req.params = { caseId };
+    return createCommissionFromCase(req, res);
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==================== CONFIRM COMMISSION ====================
+// ==================== 4. CONFIRM COMMISSION ====================
 export const confirmCommission = async (req, res) => {
   try {
     const { id } = req.params;
     const { actualBankCommission, notes } = req.body;
     
-    const commission = await Commission.findOne({ _id: id });
+    const commission = await Commission.findOne({ _id: id, isDeleted: false });
     if (!commission) return res.status(404).json({ success: false, message: "Commission not found" });
+    
+    if (commission.status !== 'Pending') {
+      return res.status(400).json({ success: false, message: `Commission already ${commission.status}` });
+    }
     
     let amountAdjusted = false;
     let finalBankCommission = commission.bankCommissionToXoto;
@@ -740,7 +585,7 @@ export const confirmCommission = async (req, res) => {
     if (caseData && caseData.commissionInfo) {
       caseData.commissionInfo.status = 'Confirmed';
       caseData.commissionInfo.xotoCommissionFromBank = finalBankCommission;
-      caseData.commissionInfo.partnerCommissionAmount = commission.commissionAmount;
+      caseData.commissionInfo.recipientCommissionAmount = commission.commissionAmount;
       await caseData.save();
     }
     
@@ -757,7 +602,7 @@ export const confirmCommission = async (req, res) => {
         amountAdjusted,
         estimatedAmount: commission.bankCommissionToXoto,
         actualAmount: finalBankCommission,
-        partnerCommission: commission.commissionAmount
+        recipientCommission: commission.commissionAmount
       }
     });
     
@@ -766,14 +611,22 @@ export const confirmCommission = async (req, res) => {
   }
 };
 
-// ==================== MARK COMMISSION AS PAID ====================
+// ==================== 5. MARK COMMISSION AS PAID ====================
 export const markCommissionAsPaid = async (req, res) => {
   try {
     const { id } = req.params;
     const { paymentReference, paymentMethod } = req.body;
     
-    const commission = await Commission.findOne({ _id: id });
+    const commission = await Commission.findOne({ _id: id, isDeleted: false });
     if (!commission) return res.status(404).json({ success: false, message: "Commission not found" });
+    
+    if (commission.status === 'Paid') {
+      return res.status(400).json({ success: false, message: "Commission already paid" });
+    }
+    
+    if (commission.status !== 'Confirmed') {
+      return res.status(400).json({ success: false, message: "Commission must be confirmed before marking as paid" });
+    }
     
     commission.status = 'Paid';
     commission.paymentReference = paymentReference;
@@ -785,8 +638,8 @@ export const markCommissionAsPaid = async (req, res) => {
     await commission.updateRecipientEarnings();
     
     await HistoryService.logCommissionActivity(commission, 'COMMISSION_PAID', await getUserInfo(req), {
-      description: `Commission ${commission.commissionId} paid`,
-      metadata: { paymentReference }
+      description: `Commission ${commission.commissionId} paid to ${commission.recipientName}`,
+      metadata: { paymentReference, amount: commission.commissionAmount }
     });
     
     return res.status(200).json({
@@ -800,76 +653,220 @@ export const markCommissionAsPaid = async (req, res) => {
   }
 };
 
-// ==================== GET MY COMMISSIONS ====================
+// ==================== 6. PROCESS PAYMENT WITH BANK DETAILS VALIDATION ====================
+export const processCommissionPayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { paymentReference, paymentMethod, notes } = req.body;
+    
+    const commission = await Commission.findOne({ _id: id, isDeleted: false });
+    if (!commission) return res.status(404).json({ success: false, message: "Commission not found" });
+    
+    if (commission.status === 'Paid') {
+      return res.status(400).json({ success: false, message: "Commission already paid" });
+    }
+    
+    if (commission.status !== 'Confirmed') {
+      return res.status(400).json({ success: false, message: "Commission must be confirmed before processing payment" });
+    }
+    
+    // ✅ Validate bank details before payment
+    const bankValidation = await validateRecipientBankDetails(commission.recipientRole, commission.recipientId);
+    
+    if (!bankValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot process payment: " + bankValidation.reason,
+        requiredAction: "Please update recipient profile with valid bank details and get them verified."
+      });
+    }
+    
+    // Update commission with fresh bank details
+    commission.payoutBankDetails = bankValidation.bankDetails;
+    commission.status = 'Paid';
+    commission.paymentReference = paymentReference;
+    commission.paymentMethod = paymentMethod || 'Bank Transfer';
+    commission.paymentSentAt = new Date();
+    commission.paymentCompletedAt = new Date();
+    if (notes) commission.notes = notes;
+    await commission.save();
+    
+    await commission.updateRecipientEarnings();
+    
+    await HistoryService.logCommissionActivity(commission, 'COMMISSION_PAID', await getUserInfo(req), {
+      description: `Commission ${commission.commissionId} paid to ${commission.recipientName}`,
+      metadata: { 
+        paymentReference, 
+        amount: commission.commissionAmount,
+        bankAccount: bankValidation.bankDetails.iban?.slice(-4)
+      }
+    });
+    
+    return res.status(200).json({
+      success: true,
+      message: "Commission payment processed successfully",
+      data: {
+        commissionId: commission.commissionId,
+        amount: commission.commissionAmount,
+        recipient: commission.recipientName,
+        paymentReference,
+        paymentDate: commission.paymentCompletedAt,
+        bankDetails: {
+          beneficiaryName: bankValidation.bankDetails.beneficiaryName,
+          bankName: bankValidation.bankDetails.bankName,
+          iban: bankValidation.bankDetails.iban?.slice(-4)
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error("Process commission payment error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+// ==================== 7. GET MY COMMISSIONS ====================
 export const getMyCommissions = async (req, res) => {
   try {
-    const userId = req.user._id;
-    const roleId = req.user.role;
-    const Role = (await import('../../../modules/auth/models/role/role.model.js')).Role;
-    const roleDoc = await Role.findById(roleId);
+
+    console.log('REQ.USER:', req.user);
+
+    // ✅ Check agent type directly from DB-loaded user
+    if (req.user.agentType !== 'FreelanceAgent') {
+
+      return res.status(403).json({
+        success: false,
+        message:
+          'Partner-Affiliated Agents do not receive direct commissions. Commission is paid to your partner company.'
+      });
+    }
+
+    const commissions = await Commission.find({
+      recipientRole: 'freelance_agent',
+      recipientId: req.user._id,
+      isDeleted: false
+    })
+      .populate('caseId', 'caseReference currentStatus')
+      .sort({ createdAt: -1 });
+
+    const summary = {
+      totalEarned: commissions
+        .filter(c => c.status === 'Paid')
+        .reduce((s, c) => s + c.commissionAmount, 0),
+
+      pending: commissions
+        .filter(c => ['Pending', 'Confirmed'].includes(c.status))
+        .reduce((s, c) => s + c.commissionAmount, 0),
+
+      totalCount: commissions.length,
+
+      paidCount: commissions.filter(c => c.status === 'Paid').length,
+
+      pendingCount: commissions.filter(c =>
+        ['Pending', 'Confirmed'].includes(c.status)
+      ).length,
+
+      confirmedCount: commissions.filter(
+        c => c.status === 'Confirmed'
+      ).length
+    };
+
+    return res.status(200).json({
+      success: true,
+      summary,
+      data: commissions
+    });
+
+  } catch (error) {
+
+    console.error('Get my commissions error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+// ==================== 8. GET PARTNER COMMISSIONS ====================
+export const getPartnerCommissions = async (req, res) => {
+  try {
+    const partnerId = req.user._id;
     
-    let query = { isDeleted: false };
-    if (roleDoc.code === '21') query = { recipientRole: 'partner', recipientId: userId };
-    else if (req.user.agentType === 'FreelanceAgent') query = { recipientRole: 'freelance_agent', recipientId: userId };
-    else return res.status(403).json({ success: false, message: "Access denied" });
+    // Verify user is actually a partner
+    const partner = await Partner.findById(partnerId);
+    if (!partner) {
+      return res.status(403).json({ success: false, message: "Access denied. Partner account not found." });
+    }
     
-    const commissions = await Commission.find(query).sort({ createdAt: -1 });
+    const commissions = await Commission.find({ 
+      recipientId: partnerId, 
+      recipientRole: 'partner', 
+      isDeleted: false 
+    }).populate('caseId', 'caseReference currentStatus').sort({ createdAt: -1 });
+    
     const summary = {
       totalEarned: commissions.filter(c => c.status === 'Paid').reduce((s, c) => s + c.commissionAmount, 0),
       pending: commissions.filter(c => ['Pending', 'Confirmed'].includes(c.status)).reduce((s, c) => s + c.commissionAmount, 0),
       totalCount: commissions.length,
       paidCount: commissions.filter(c => c.status === 'Paid').length,
-      pendingCount: commissions.filter(c => ['Pending', 'Confirmed'].includes(c.status)).length
+      byAgent: {}
     };
+    
+    commissions.forEach(c => {
+      if (c.sourceAgentName) {
+        if (!summary.byAgent[c.sourceAgentName]) {
+          summary.byAgent[c.sourceAgentName] = { count: 0, amount: 0 };
+        }
+        summary.byAgent[c.sourceAgentName].count++;
+        summary.byAgent[c.sourceAgentName].amount += c.commissionAmount;
+      }
+    });
     
     return res.status(200).json({ success: true, summary, data: commissions });
     
   } catch (error) {
+    console.error('Get partner commissions error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==================== GET PARTNER COMMISSIONS ====================
-export const getPartnerCommissions = async (req, res) => {
-  try {
-    const partnerId = req.user._id;
-    const commissions = await Commission.find({ recipientId: partnerId, recipientRole: 'partner', isDeleted: false }).sort({ createdAt: -1 });
-    
-    const summary = {
-      totalEarned: commissions.filter(c => c.status === 'Paid').reduce((s, c) => s + c.commissionAmount, 0),
-      pending: commissions.filter(c => ['Pending', 'Confirmed'].includes(c.status)).reduce((s, c) => s + c.commissionAmount, 0),
-      totalCount: commissions.length
-    };
-    
-    return res.status(200).json({ success: true, summary, data: commissions });
-    
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ==================== GET ALL COMMISSIONS (Admin) ====================
+// ==================== 9. GET ALL COMMISSIONS (Admin) ====================
 export const adminGetAllCommissions = async (req, res) => {
   try {
-    const { status, role, page = 1, limit = 20 } = req.query;
+    const { status, role, page = 1, limit = 20, search } = req.query;
     let query = { isDeleted: false };
     if (status) query.status = status;
     if (role) query.recipientRole = role;
+    if (search) {
+      query.$or = [
+        { recipientName: { $regex: search, $options: 'i' } },
+        { caseReference: { $regex: search, $options: 'i' } },
+        { commissionId: { $regex: search, $options: 'i' } }
+      ];
+    }
     
     const commissions = await Commission.find(query)
-      .populate('caseId', 'caseReference currentStatus')
+      .populate('caseId', 'caseReference currentStatus clientInfo')
+      .populate('recipientId', 'name companyName fullName')
       .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
+      .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
     
     const total = await Commission.countDocuments(query);
     
     const summary = {
-      totalCommission: commissions.reduce((s, c) => s + c.commissionAmount, 0),
+      totalCommissionAmount: commissions.reduce((s, c) => s + c.commissionAmount, 0),
       totalBankCommission: commissions.reduce((s, c) => s + c.bankCommissionToXoto, 0),
-      pendingAmount: commissions.filter(c => c.status === 'Pending').reduce((s, c) => s + c.commissionAmount, 0),
-      confirmedAmount: commissions.filter(c => c.status === 'Confirmed').reduce((s, c) => s + c.commissionAmount, 0),
-      paidAmount: commissions.filter(c => c.status === 'Paid').reduce((s, c) => s + c.commissionAmount, 0)
+      xotoNetProfit: commissions.reduce((s, c) => s + (c.bankCommissionToXoto - c.commissionAmount), 0),
+      byStatus: {
+        pending: commissions.filter(c => c.status === 'Pending').reduce((s, c) => s + c.commissionAmount, 0),
+        confirmed: commissions.filter(c => c.status === 'Confirmed').reduce((s, c) => s + c.commissionAmount, 0),
+        paid: commissions.filter(c => c.status === 'Paid').reduce((s, c) => s + c.commissionAmount, 0),
+        failed: commissions.filter(c => c.status === 'Failed').reduce((s, c) => s + c.commissionAmount, 0)
+      },
+      byRole: {
+        freelance_agent: commissions.filter(c => c.recipientRole === 'freelance_agent').reduce((s, c) => s + c.commissionAmount, 0),
+        partner: commissions.filter(c => c.recipientRole === 'partner').reduce((s, c) => s + c.commissionAmount, 0)
+      }
     };
     
     return res.status(200).json({
@@ -877,7 +874,13 @@ export const adminGetAllCommissions = async (req, res) => {
       summary,
       data: commissions,
       total,
-      pagination: { totalPages: Math.ceil(total / limit), currentPage: parseInt(page), limit: parseInt(limit) }
+      pagination: {
+        totalPages: Math.ceil(total / parseInt(limit)),
+        currentPage: parseInt(page),
+        limit: parseInt(limit),
+        hasNextPage: (parseInt(page) * parseInt(limit)) < total,
+        hasPrevPage: parseInt(page) > 1
+      }
     });
     
   } catch (error) {
@@ -885,12 +888,14 @@ export const adminGetAllCommissions = async (req, res) => {
   }
 };
 
-// ==================== GET COMMISSION BY ID ====================
+// ==================== 10. GET COMMISSION BY ID ====================
 export const getCommissionById = async (req, res) => {
   try {
     const { id } = req.params;
     const commission = await Commission.findOne({ _id: id, isDeleted: false })
-      .populate('caseId', 'caseReference currentStatus clientInfo');
+      .populate('caseId', 'caseReference currentStatus clientInfo propertyInfo')
+      .populate('leadId', 'customerInfo sourceInfo')
+      .populate('recipientId', 'name companyName fullName email');
     
     if (!commission) {
       return res.status(404).json({ success: false, message: "Commission not found" });
@@ -902,4 +907,3 @@ export const getCommissionById = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-

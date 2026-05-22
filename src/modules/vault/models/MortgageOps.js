@@ -145,6 +145,6 @@ mortgageOpsSchema.statics.getOpsWithCapacity = function () {
 };
 
 
-
+// ✅ FIX: Check if model already exists before creating
 const MortgageOps = mongoose.models.MortgageOps || mongoose.model('MortgageOps', mortgageOpsSchema);
 module.exports = MortgageOps;

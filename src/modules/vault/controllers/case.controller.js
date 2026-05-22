@@ -10,6 +10,8 @@ import HistoryService from '../services/history.service.js';
 import BankDocumentRequirement  from '../../mortgages/models/Bankproductdocuments.js';
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { initializeCaseDocuments, getCaseDocumentsByFilter } from '../utils/caseDocumentHelper.js';
+import Commission from '../models/Commission.js';
+import VaultAgent from '../models/Agent.js';
 
 
 
@@ -58,33 +60,31 @@ const updateLeadStatusFromCase = async (sourceLeadId, caseStatus, additionalData
   if (!sourceLeadId) return null;
   
   // Maps Case status → Lead status per PRD workflow
-  const leadStatusMap = {
-    // Draft/Submission phase → Lead: Collecting Documents
+ const leadStatusMap = {
+    // ==================== Lead: Collecting Documents ====================
     'Draft': 'Collecting Documents',
     'Submitted to Xoto': 'Collecting Documents',
     'In Ops Queue - Pending Pick-up': 'Collecting Documents',
     'Assigned - Pending Review': 'Collecting Documents',
     'Under Review': 'Collecting Documents',
     'Resubmitted-After Correction': 'Collecting Documents',
-    
-    // Returned → Advisor needs more docs
     'Returned - Pending Correction': 'Collecting Documents',
     
-    // Bank Application started → Lead: Application Opened
-    'Submitted to Bank': 'Application Opened',
-    'Pre-Approved': 'Application Opened',
-    'Valuation': 'Application Opened',
-    'FOL Processed': 'Application Opened',
-    'FOL Issued': 'Application Opened',
-    'FOL Signed': 'Application Opened',
+    // ==================== Lead: Bank Application ====================
+    'Submitted to Bank': 'Bank Application',      // PRD Section 4.3
+    'Pre-Approved': 'Pre-Approved',               // PRD Section 4.3
+    'Valuation': 'Valuation',                     // PRD Section 4.3
+    'FOL Processed': 'FOL Processed',             // PRD Section 4.3
+    'FOL Issued': 'FOL Issued',                   // PRD Section 4.3
+    'FOL Signed': 'FOL Signed',                   // PRD Section 4.3
     
-    // Disbursed → Application complete
-    'Disbursed': 'Application Opened',
+    // ==================== Lead: Disbursed ====================
+    'Disbursed': 'Disbursed',                     // PRD Section 4.3
     
-    // Lost/Rejected → Lead closed
-    'Rejected': 'Not Proceeding',
-    'Lost': 'Not Proceeding'
-  };
+    // ==================== Lead: Lost ====================
+    'Rejected': 'Lost',                           // PRD Section 4.3
+    'Lost': 'Lost'                                // PRD Section 4.3
+};
   
   const leadStatus = leadStatusMap[caseStatus];
   
@@ -670,79 +670,326 @@ export const getMyAssignedCases = async (req, res) => {
   }
 };
 
-// ==================== UPDATE CASE STATUS ====================
+// ==================== UPDATE CASE STATUS (WITH AUTO-COMMISSION) ====================
+// ==================== UPDATE CASE STATUS (WITH AUTO-COMMISSION) ====================
 export const updateCaseStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, notes, approvedAmount, bankReference } = req.body;
-    
+    const { status, notes, approvedAmount, bankReference, disbursedTo } = req.body;
+
+    if (!status)
+      return res.status(400).json({ success: false, message: 'status is required' });
+
     const roleDoc = await Role.findById(req.user.role);
     const isAdmin = roleDoc?.code === '18';
-    const isOps = roleDoc?.code === '23';
-    
-    if (!isAdmin && !isOps) return res.status(403).json({ success: false, message: "Only Admin or Mortgage Ops can update case status" });
-    
+    const isOps   = roleDoc?.code === '23';
+    if (!isAdmin && !isOps)
+      return res.status(403).json({ success: false, message: 'Only Admin or Ops can update case status' });
+
     const caseData = await Case.findOne({ _id: id, isDeleted: false });
-    if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
-    
-    if (isOps && caseData.opsQueue?.pickedUpBy?.opsId?.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ success: false, message: "You can only update cases assigned to you" });
-    }
-    
+    if (!caseData)
+      return res.status(404).json({ success: false, message: 'Case not found' });
+
+    if (isOps && caseData.opsQueue?.pickedUpBy?.opsId?.toString() !== req.user._id.toString())
+      return res.status(403).json({ success: false, message: 'You can only update cases assigned to you' });
+
     const previousStatus = caseData.currentStatus;
-    caseData.currentStatus = status;
-    
-    // Handle Pre-Approved with amount
-    if (status === 'Pre-Approved' && approvedAmount) {
-      if (typeof caseData.updateBankApproval === 'function') {
-        await caseData.updateBankApproval(approvedAmount, null, bankReference, notes);
+    let commissionCreated = false;
+    let commissionData = null;
+
+    // ── Under Review ──────────────────────────────────────────────
+    if (status === 'Under Review') {
+      await caseData.startReview();
+    }
+
+    // ── Return to Advisor ─────────────────────────────────────────
+    else if (status === 'Returned - Pending Correction') {
+      if (!notes?.trim())
+        return res.status(400).json({ success: false, message: 'Reason required' });
+      await caseData.returnToAdvisor(notes);
+    }
+
+    // ── Submit to Bank ────────────────────────────────────────────
+    else if (status === 'Submitted to Bank') {
+      if (!caseData.documentSummary.allVerified)
+        return res.status(400).json({ success: false, message: 'All documents must be verified before submitting to bank' });
+      await caseData.submitToBank(bankReference, notes);
+    }
+
+    // ── Pre-Approved — uses updateBankStatus ✅ ───────────────────
+    else if (status === 'Pre-Approved') {
+      await caseData.updateBankStatus('Pre-Approved', {
+        approvedAmount: approvedAmount ? parseFloat(approvedAmount) : null,
+        notes,
+      });
+    }
+
+    // ── Other bank stages ─────────────────────────────────────────
+    else if (['Bank Application', 'Valuation', 'FOL Processed', 'FOL Issued', 'FOL Signed'].includes(status)) {
+      await caseData.updateBankStatus(status, { notes });
+    }
+
+    // ── Disbursed — AUTO-CREATE COMMISSION ✅ ─────────────────────
+    else if (status === 'Disbursed') {
+      if (!approvedAmount)
+        return res.status(400).json({ success: false, message: 'Disbursed amount is required' });
+      
+      // Mark case as disbursed
+      await caseData.markDisbursed(parseFloat(approvedAmount), bankReference, disbursedTo);
+      
+      // ✅ AUTO-CREATE COMMISSION AFTER DISBURSEMENT (using already imported models)
+      const loanAmount = parseFloat(approvedAmount);
+      const xotoCommissionFromBank = Math.round(loanAmount * 0.01); // 1% fixed
+      
+      // Get lead to determine recipient
+      const lead = await Lead.findById(caseData.sourceLeadId);
+      
+      if (lead && lead.sourceInfo) {
+        const leadSourceRole = lead.sourceInfo.createdByRole;
+        const leadSourceId = lead.sourceInfo.createdById;
+        
+        let recipientInfo = null;
+        
+        // CASE 1: Freelance Agent (40% / 50%)
+        if (leadSourceRole === 'freelance_agent') {
+          const agent = await VaultAgent.findById(leadSourceId);
+          if (agent && agent.agentType === 'FreelanceAgent') {
+            const percentage = loanAmount <= 5000000 ? 40 : 50;
+            const commissionAmount = Math.round((xotoCommissionFromBank * percentage) / 100);
+            
+            recipientInfo = {
+              recipientType: 'freelance_agent',
+              recipientId: agent._id,
+              recipientModel: 'VaultAgent',
+              recipientName: agent.fullName,
+              recipientPercentage: percentage,
+              commissionAmount: commissionAmount,
+              calculationFormula: `${xotoCommissionFromBank.toLocaleString()} × ${percentage}% = ${commissionAmount.toLocaleString()} AED`,
+              percentageSource: 'freelance_commission.referralOnly'
+            };
+            
+            if (agent.bankDetails && agent.bankDetails.iban) {
+              recipientInfo.payoutBankDetails = {
+                beneficiaryName: agent.bankDetails.beneficiaryName || agent.fullName,
+                bankName: agent.bankDetails.bankName,
+                iban: agent.bankDetails.iban,
+                swiftCode: agent.bankDetails.swiftCode
+              };
+            }
+          }
+        }
+        
+        // CASE 2: Partner-Affiliated Agent (Commission to Partner: 80% / 85%)
+        else if (leadSourceRole === 'partner_affiliated_agent') {
+          const agent = await VaultAgent.findById(leadSourceId);
+          if (agent && agent.partnerId) {
+            const partner = await Partner.findById(agent.partnerId);
+            if (partner) {
+              const percentage = loanAmount <= 5000000 ? 80 : 85;
+              const commissionAmount = Math.round((xotoCommissionFromBank * percentage) / 100);
+              
+              recipientInfo = {
+                recipientType: 'partner',
+                recipientId: partner._id,
+                recipientModel: 'Partner',
+                recipientName: partner.displayName || partner.companyName,
+                recipientPercentage: percentage,
+                commissionAmount: commissionAmount,
+                calculationFormula: `${xotoCommissionFromBank.toLocaleString()} × ${percentage}% = ${commissionAmount.toLocaleString()} AED`,
+                percentageSource: 'partner.commissionConfiguration',
+                sourceAgentId: agent._id,
+                sourceAgentName: agent.fullName
+              };
+              
+              if (partner.bankDetails && partner.bankDetails.iban) {
+                recipientInfo.payoutBankDetails = {
+                  beneficiaryName: partner.bankDetails.beneficiaryName || partner.displayName,
+                  bankName: partner.bankDetails.bankName,
+                  iban: partner.bankDetails.iban,
+                  swiftCode: partner.bankDetails.swiftCode
+                };
+              }
+            }
+          }
+        }
+        
+        // CASE 3: Individual Partner (80% / 85%)
+        else if (leadSourceRole === 'individual_partner') {
+          const partner = await Partner.findById(leadSourceId);
+          if (partner) {
+            const percentage = loanAmount <= 5000000 ? 80 : 85;
+            const commissionAmount = Math.round((xotoCommissionFromBank * percentage) / 100);
+            
+            recipientInfo = {
+              recipientType: 'partner',
+              recipientId: partner._id,
+              recipientModel: 'Partner',
+              recipientName: partner.displayName,
+              recipientPercentage: percentage,
+              commissionAmount: commissionAmount,
+              calculationFormula: `${xotoCommissionFromBank.toLocaleString()} × ${percentage}% = ${commissionAmount.toLocaleString()} AED`,
+              percentageSource: 'partner.commissionConfiguration'
+            };
+            
+            if (partner.bankDetails && partner.bankDetails.iban) {
+              recipientInfo.payoutBankDetails = {
+                beneficiaryName: partner.bankDetails.beneficiaryName || partner.displayName,
+                bankName: partner.bankDetails.bankName,
+                iban: partner.bankDetails.iban,
+                swiftCode: partner.bankDetails.swiftCode
+              };
+            }
+          }
+        }
+        
+        // Create commission if recipient exists and commission amount > 0
+       // ✅ Internal commission for website/admin leads — always create a record
+if (!recipientInfo) {
+  const existingCommission = await Commission.findOne({ caseId: caseData._id, isDeleted: false });
+  if (!existingCommission) {
+    const commissionId = `INT-${Date.now()}-${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
+
+    const commission = await Commission.create({
+      commissionId,
+      caseId:        caseData._id,
+      caseReference: caseData.caseReference,
+      leadId:        caseData.sourceLeadId,
+      customerName:  caseData.clientInfo?.fullName,
+      recipientRole: 'internal',
+      recipientId:   null,
+      recipientModel:null,
+      recipientName: 'Xoto (Internal)',
+      leadSource:    leadSourceRole || 'admin',
+      isInternal:    true,
+      loanAmount,
+      loanTier:      loanAmount <= 5000000 ? '≤5M AED' : '>5M AED',
+      bankCommissionToXoto: xotoCommissionFromBank,
+      bankCommissionRate:   0.01,
+      recipientPercentage:  0,
+      commissionAmount:     0,
+      calculationFormula:   `${xotoCommissionFromBank.toLocaleString()} × 0% = 0 AED`,
+      percentageSource:     'internal',
+      disbursedAt:          new Date(),
+      status:               'Completed',  // internal — no payout needed
+      isDeleted:            false,
+      xotoEarnings: {
+        amount:      xotoCommissionFromBank,
+        rate:        '1%',
+        calculation: `${loanAmount.toLocaleString()} × 1% = ${xotoCommissionFromBank.toLocaleString()} AED`,
+        note:        `Lead from ${leadSourceRole || 'admin/website'}. No commission paid. Xoto keeps full amount.`,
+      },
+      createdBy: { role: 'system' },
+      notes: `Internal record. Xoto earned AED ${xotoCommissionFromBank.toLocaleString()} (1% of AED ${loanAmount.toLocaleString()}). No payout.`,
+    });
+
+    commissionCreated = true;
+    commissionData = {
+      id:        commission.commissionId,
+      amount:    0,
+      recipient: 'Xoto (Internal)',
+      status:    'Completed',
+      xotoEarning: xotoCommissionFromBank,
+    };
+  }
+}
+
+
+
+// ✅ If lead has no sourceInfo at all — still create internal record
+if (!lead || !lead.sourceInfo) {
+  const existingCommission = await Commission.findOne({ caseId: caseData._id, isDeleted: false });
+  if (!existingCommission) {
+    const commissionId = `INT-${Date.now()}-${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
+    await Commission.create({
+      commissionId,
+      caseId:         caseData._id,
+      caseReference:  caseData.caseReference,
+      leadId:         caseData.sourceLeadId,
+      customerName:   caseData.clientInfo?.fullName,
+      recipientRole:  'internal',
+      recipientId:    null,
+      recipientModel: null,
+      recipientName:  'Xoto (Internal)',
+      isInternal:     true,
+      loanAmount,
+      loanTier:       loanAmount <= 5000000 ? '≤5M AED' : '>5M AED',
+      bankCommissionToXoto: xotoCommissionFromBank,
+      bankCommissionRate:   0.01,
+      recipientPercentage:  0,
+      commissionAmount:     0,
+      calculationFormula:   `${xotoCommissionFromBank.toLocaleString()} × 0% = 0 AED`,
+      percentageSource:     'internal',
+      disbursedAt:          new Date(),
+      status:               'Completed',
+      xotoEarnings: {
+        amount:      xotoCommissionFromBank,
+        rate:        '1%',
+        calculation: `${loanAmount.toLocaleString()} × 1% = ${xotoCommissionFromBank.toLocaleString()} AED`,
+        note:        'No lead source info found. Xoto keeps full commission.',
+      },
+      createdBy: { role: 'system' },
+      notes: `Internal record. No lead source. Xoto earned AED ${xotoCommissionFromBank.toLocaleString()}.`,
+    });
+  }
+}
       }
     }
-    
-    // Handle Bank Application
-    if (status === 'Submitted to Bank' && bankReference) {
-      caseData.bankSubmission = { submittedToBankAt: new Date(), bankReferenceNumber: bankReference, bankNotes: notes };
-      caseData.timeline.submittedToBankAt = new Date();
+
+    // ── Rejected ──────────────────────────────────────────────────
+    else if (status === 'Rejected') {
+      caseData.currentStatus            = 'Rejected';
+      caseData.bankDecision.status      = 'Rejected';
+      caseData.bankDecision.rejectionReason = notes || 'Rejected by bank';
+      caseData.bankDecision.decisionDate    = new Date();
+      if (notes) caseData.internalNotes.push(notes);
+      await caseData.save();
     }
-    
-    // Handle Disbursed
-    if (status === 'Disbursed' && approvedAmount) {
-      if (typeof caseData.updateDisbursement === 'function') {
-        await caseData.updateDisbursement(approvedAmount, bankReference);
-      }
+
+    // ── Lost ──────────────────────────────────────────────────────
+    else if (status === 'Lost') {
+      caseData.currentStatus = 'Lost';
+      if (notes) caseData.internalNotes.push(notes);
+      await caseData.save();
     }
-    
-    // Handle Rejected
-    if (status === 'Rejected') {
-      if (typeof caseData.rejectCase === 'function') {
-        await caseData.rejectCase(notes || 'Rejected by bank');
-      }
+
+    else {
+      return res.status(400).json({ success: false, message: `Invalid status: ${status}` });
     }
-    
-    // Add notes
-    if (notes && !['Pre-Approved', 'Submitted to Bank', 'Disbursed', 'Rejected'].includes(status)) {
-      caseData.internalNotes = caseData.internalNotes || [];
-      caseData.internalNotes.push(`${previousStatus} → ${status}: ${notes}`);
-    }
-    
-    await caseData.save();
-    
-    // ✅ UPDATE LEAD STATUS based on new case status
+
+    // Update lead status
     await updateLeadStatusFromCase(caseData.sourceLeadId, status, { reason: notes });
     
     await HistoryService.logCaseActivity(caseData, 'CASE_STATUS_UPDATED', await getUserInfo(req), {
-      description: `Case status changed from ${previousStatus} to ${status}`,
-      notes: notes
+      description: `Status: ${previousStatus} → ${status}`,
+      notes,
     });
-    
-    return res.status(200).json({ 
-      success: true, 
-      message: `Case status updated from ${previousStatus} to ${status}`, 
-      data: caseData 
-    });
-    
+
+    // Prepare response
+    const responseData = {
+      success: true,
+      message: `Status updated: ${previousStatus} → ${status}`,
+      data: {
+        _id: caseData._id,
+        caseReference: caseData.caseReference,
+        previousStatus,
+        currentStatus: caseData.currentStatus,
+        timeline: caseData.timeline,
+        disbursementInfo: caseData.disbursementInfo
+      },
+    };
+
+    if (commissionCreated) {
+      responseData.message += ` ✅ Commission auto-created: ${commissionData.amount.toLocaleString()} AED for ${commissionData.recipient}`;
+      responseData.commission = commissionData;
+    } else if (commissionData?.alreadyExists) {
+      responseData.message += ` ℹ️ Commission already existed: ${commissionData.amount.toLocaleString()} AED for ${commissionData.recipient} (${commissionData.status})`;
+      responseData.commission = commissionData;
+    }
+
+    return res.status(200).json(responseData);
+
   } catch (error) {
-    console.error("Update case status error:", error);
+    console.error('updateCaseStatus error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

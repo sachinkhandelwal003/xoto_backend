@@ -362,5 +362,6 @@ agentSchema.pre('save', function (next) {
   next();
 });
 
+// ✅ FIX: Check if model already exists before creating
 const VaultAgent = mongoose.models.VaultAgent || mongoose.model('VaultAgent', agentSchema);
 module.exports = VaultAgent;

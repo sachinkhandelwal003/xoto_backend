@@ -127,5 +127,6 @@ advisorSchema.statics.getLeastLoaded = function () {
 
 
 
+// ✅ FIX: Check if model already exists before creating
 const VaultAdvisor = mongoose.models.VaultAdvisor || mongoose.model('VaultAdvisor', advisorSchema);
 module.exports = VaultAdvisor;

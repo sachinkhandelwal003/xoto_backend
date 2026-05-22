@@ -197,11 +197,11 @@ const caseSchema = new mongoose.Schema(
       type: String,
       enum: [
         'Draft',
-        'Submitted to Xoto',              // Advisor cases only
-        'In Ops Queue - Pending Pick-up', // Advisor cases only
-        'Assigned - Pending Review',      // Advisor cases only
-        'Under Review',                   // Advisor cases only
-        'Returned - Pending Correction',  // Advisor cases only
+        'Submitted to Xoto',              // Both advisor and partner cases
+        'In Ops Queue - Pending Pick-up', // Both advisor and partner cases
+        'Assigned - Pending Review',     // Both advisor and partner cases
+        'Under Review',                   // Both advisor and partner cases
+        'Returned - Pending Correction',  // Both advisor and partner cases
         'Resubmitted-After Correction',   // Advisor cases only
         'Submitted to Bank',              // Both flows meet here
         'Bank Application',
@@ -328,23 +328,10 @@ caseSchema.methods.updateDocumentSummary = async function () {
 caseSchema.methods.isReadyForSubmission = async function () {
   try {
     const CaseDocumentRequirement = mongoose.model('CaseDocumentRequirement');
-
-    // Partner cases: partner must upload all Partner-handled docs
-    if (this.createdBy.role === 'partner') {
-      const pending = await CaseDocumentRequirement.countDocuments({
-        caseId:     this._id,
-        handledBy:  'Partner',
-        isUploaded: false,
-        isDeleted:  false,
-      });
-      return pending === 0;
-    }
-
-    // Advisor cases: advisor must upload all Advisor-handled docs before sending to Ops
-    // Ops-handled docs (bank forms) are uploaded by Ops after they pick up the case
-    const pending = await CaseDocumentRequirement.countDocuments({
+    const handledBy = this.createdBy.role === 'partner' ? 'Partner' : 'Advisor';
+    const pending   = await CaseDocumentRequirement.countDocuments({
       caseId:     this._id,
-      handledBy:  'Advisor',
+      handledBy,
       isUploaded: false,
       isDeleted:  false,
     });
@@ -360,38 +347,16 @@ caseSchema.methods.isReadyForSubmission = async function () {
 // Blocked for partner cases
 // ══════════════════════════════════════════════════════════════════
 caseSchema.methods.submitToXoto = async function () {
-  if (this.createdBy.role === 'partner')
-    throw new Error('Partner cases submit directly to bank — no Ops queue');
-
   const isReady = await this.isReadyForSubmission();
   if (!isReady)
-    throw new Error('All advisor-required documents must be uploaded before submitting');
+    throw new Error('All required documents must be uploaded before submitting');
 
-  this.currentStatus             = 'Submitted to Xoto';
+  this.currentStatus              = 'Submitted to Xoto';
   this.timeline.submittedToXotoAt = new Date();
-  this.advisorSubmittedAt        = new Date();
+  this.advisorSubmittedAt         = new Date();
   return this.save();
 };
 
-// ══════════════════════════════════════════════════════════════════
-// METHOD — Partner submits directly to bank (no Ops)
-// ══════════════════════════════════════════════════════════════════
-caseSchema.methods.submitDirectToBank = async function (bankRef) {
-  if (this.createdBy.role !== 'partner')
-    throw new Error('Only partner-created cases can submit directly to bank');
-
-  const isReady = await this.isReadyForSubmission();
-  if (!isReady)
-    throw new Error('All documents must be uploaded before submitting to bank');
-
-  this.currentStatus                    = 'Submitted to Bank';
-  this.timeline.submittedToBankAt       = new Date();
-  this.timeline.submittedToXotoAt       = new Date();
-  this.bankSubmission.submittedToBankAt = new Date();
-  if (bankRef) this.bankSubmission.bankReferenceNumber = bankRef;
-
-  return this.save();
-};
 
 // ══════════════════════════════════════════════════════════════════
 // METHODS — Ops Queue (advisor cases only)
@@ -472,8 +437,8 @@ caseSchema.methods.submitToBank = async function (bankRef, bankNotes) {
   const allowedStatuses = ['Under Review', 'Assigned - Pending Review', 'Submitted to Xoto'];
   if (!allowedStatuses.includes(this.currentStatus))
     throw new Error(`Cannot submit to bank from status: ${this.currentStatus}`);
-  if (!this.documentSummary.allVerified && this.createdBy.role !== 'partner')
-    throw new Error('All documents must be verified before bank submission');
+if (!this.documentSummary.allVerified)
+  throw new Error('All documents must be verified before bank submission');
 
   this.currentStatus                    = 'Submitted to Bank';
   this.timeline.submittedToBankAt       = new Date();

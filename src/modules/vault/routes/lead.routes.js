@@ -14,7 +14,7 @@ import {
   AdvisororPartnerUpdateLeadStatus,
   AdvisororPartnerUpdateLeadInfo,
   calculateLeadEligibility,
-  getLeadEligibility,partnerUpdateLeadInfo,partnerUpdateLeadStatus
+  getLeadEligibility,partnerUpdateLeadInfo,partnerUpdateLeadStatus,bulkUploadLeads,createAdminLead
 } from '../controllers/lead.controller.js';
 
 import multer from 'multer';
@@ -35,6 +35,8 @@ const router = express.Router();
 // ══════════════════════════════════════════════════════════════════
 router.post('/website', createWebsiteLead);
 
+router.post('/admin/create', protect, createAdminLead);
+router.post('/admin/bulk-upload', protect, upload.single('file'), bulkUploadLeads);
 // ══════════════════════════════════════════════════════════════════
 // AGENT — Referral Partner + Partner-Affiliated Agent
 // ══════════════════════════════════════════════════════════════════

@@ -566,7 +566,7 @@ export const adminGetAllLeads = async (req, res) => {
       query['assignedTo.advisorId'] = null;
     }
 
-    // Search filter (customer name, email, mobile)
+    // Search filter
     if (search) {
       query.$or = [
         { 'customerInfo.firstName': { $regex: search, $options: 'i' } },
@@ -591,18 +591,97 @@ export const adminGetAllLeads = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const limitNum = parseInt(limit);
 
-    // Execute queries
-    const [leads, total] = await Promise.all([
-      Lead.find(query)
-        .sort(sortOptions)
-        .skip(skip)
-        .limit(limitNum)
-        .populate('assignedTo.advisorId', 'firstName lastName email')
-        .populate('sourceInfo.createdById', 'name firstName lastName email'),
-      Lead.countDocuments(query),
-    ]);
+    // ✅ Get leads WITHOUT problematic populate
+    const leads = await Lead.find(query)
+      .sort(sortOptions)
+      .skip(skip)
+      .limit(limitNum)
+      .lean();
+    
+    const total = await Lead.countDocuments(query);
 
-    // Get summary statistics (only for admin-managed leads)
+    // ✅ Manually enrich leads with creator and advisor info
+    const enrichedLeads = await Promise.all(leads.map(async (lead) => {
+      const enriched = { ...lead };
+      
+      // Enrich assignedTo advisor info
+      if (lead.assignedTo?.advisorId) {
+        try {
+          const advisor = await VaultAdvisor.findById(lead.assignedTo.advisorId)
+            .select('fullName firstName lastName email')
+            .lean();
+          if (advisor) {
+            enriched.assignedTo = {
+              ...lead.assignedTo,
+              advisorDetails: {
+                fullName: advisor.fullName || `${advisor.firstName || ''} ${advisor.lastName || ''}`.trim(),
+                email: advisor.email
+              }
+            };
+          }
+        } catch (err) {
+          console.error(`Error fetching advisor for lead ${lead._id}:`, err.message);
+        }
+      }
+      
+      // Enrich sourceInfo creator info based on model type
+      if (lead.sourceInfo?.createdById && lead.sourceInfo?.createdByModel) {
+        try {
+          if (lead.sourceInfo.createdByModel === 'VaultAgent') {
+            const agent = await VaultAgent.findById(lead.sourceInfo.createdById)
+              .select('name firstName lastName email agentType')
+              .lean();
+            if (agent) {
+              enriched.sourceInfo = {
+                ...lead.sourceInfo,
+                creatorDetails: {
+                  type: 'agent',
+                  name: agent.name ? `${agent.name.first_name} ${agent.name.last_name}` : agent.firstName,
+                  email: agent.email,
+                  agentType: agent.agentType
+                }
+              };
+            }
+          } else if (lead.sourceInfo.createdByModel === 'Partner') {
+            const partner = await Partner.findById(lead.sourceInfo.createdById)
+              .select('companyName dbaName partnerCategory')
+              .lean();
+            if (partner) {
+              enriched.sourceInfo = {
+                ...lead.sourceInfo,
+                creatorDetails: {
+                  type: 'partner',
+                  name: partner.companyName || partner.dbaName,
+                  category: partner.partnerCategory
+                }
+              };
+            }
+          } else if (lead.sourceInfo.createdByModel === 'Admin') {
+            // Admin model - use stored name
+            enriched.sourceInfo = {
+              ...lead.sourceInfo,
+              creatorDetails: {
+                type: 'admin',
+                name: lead.sourceInfo.createdByName || 'Admin'
+              }
+            };
+          }
+        } catch (err) {
+          console.error(`Error fetching creator for lead ${lead._id}:`, err.message);
+          enriched.sourceInfo = {
+            ...lead.sourceInfo,
+            creatorDetails: {
+              type: lead.sourceInfo.createdByModel,
+              name: lead.sourceInfo.createdByName || 'Unknown'
+            }
+          };
+        }
+      }
+      
+      return enriched;
+    }));
+
+    // Get summary statistics
     const summary = {
       totalLeads: total,
       byStatus: {
@@ -628,7 +707,7 @@ export const adminGetAllLeads = async (req, res) => {
 
     return res.status(200).json({
       success: true, 
-      data: leads, 
+      data: enrichedLeads, 
       total,
       summary,
       filters: {
@@ -636,7 +715,9 @@ export const adminGetAllLeads = async (req, res) => {
         assigned: assigned || null,
         search: search || null,
         dateFrom: dateFrom || null,
-        dateTo: dateTo || null
+        dateTo: dateTo || null,
+        sortBy,
+        sortOrder
       },
       pagination: { 
         totalPages: Math.ceil(total / limitNum), 
@@ -651,7 +732,6 @@ export const adminGetAllLeads = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
-
 // ══════════════════════════════════════════════════════════════════
 // 9. ADMIN — GET UNASSIGNED LEADS
 // ══════════════════════════════════════════════════════════════════
@@ -667,7 +747,6 @@ export const getUnassignedLeads = async (req, res) => {
     }
     
     // Query for unassigned leads that need advisor assignment
-    // Exclude partner-related leads (individual_partner and partner_affiliated_agent)
     const query = { 
       isDeleted: false, 
       currentStatus: 'New', 
@@ -677,18 +756,63 @@ export const getUnassignedLeads = async (req, res) => {
       }
     };
     
-    // Also exclude leads from partner-affiliated agents
-    // Partner-affiliated agents have source = 'partner_affiliated_agent'
-    // Individual partners have source = 'individual_partner'
-    
+    // Get leads WITHOUT populate
     const leads = await Lead.find(query)
       .sort({ createdAt: 1 })
-      .populate('sourceInfo.createdById', 'name firstName lastName email companyName');
+      .lean();
     
-    // Get counts for summary
-    const totalUnassigned = await Lead.countDocuments(query);
+    // Enrich leads with creator info
+    const enrichedLeads = await Promise.all(leads.map(async (lead) => {
+      const enriched = { ...lead };
+      
+      if (lead.sourceInfo?.createdById && lead.sourceInfo?.createdByModel) {
+        try {
+          if (lead.sourceInfo.createdByModel === 'VaultAgent') {
+            const agent = await VaultAgent.findById(lead.sourceInfo.createdById)
+              .select('name firstName lastName email')
+              .lean();
+            if (agent) {
+              enriched.sourceInfo = {
+                ...lead.sourceInfo,
+                creatorDetails: {
+                  type: 'agent',
+                  name: agent.name ? `${agent.name.first_name} ${agent.name.last_name}` : agent.firstName,
+                  email: agent.email
+                }
+              };
+            }
+          } else if (lead.sourceInfo.createdByModel === 'Partner') {
+            const partner = await Partner.findById(lead.sourceInfo.createdById)
+              .select('companyName dbaName')
+              .lean();
+            if (partner) {
+              enriched.sourceInfo = {
+                ...lead.sourceInfo,
+                creatorDetails: {
+                  type: 'partner',
+                  name: partner.companyName || partner.dbaName
+                }
+              };
+            }
+          } else if (lead.sourceInfo.createdByModel === 'Admin') {
+            enriched.sourceInfo = {
+              ...lead.sourceInfo,
+              creatorDetails: {
+                type: 'admin',
+                name: lead.sourceInfo.createdByName || 'Admin'
+              }
+            };
+          }
+        } catch (err) {
+          console.error(`Error fetching creator for lead ${lead._id}:`, err.message);
+        }
+      }
+      
+      return enriched;
+    }));
     
-    // Also get count of leads that are excluded (for admin info)
+    const totalUnassigned = enrichedLeads.length;
+    
     const partnerLeadsCount = await Lead.countDocuments({
       isDeleted: false,
       currentStatus: 'New',
@@ -698,7 +822,7 @@ export const getUnassignedLeads = async (req, res) => {
     
     return res.status(200).json({ 
       success: true, 
-      data: leads, 
+      data: enrichedLeads, 
       total: totalUnassigned,
       excludedPartnerLeads: partnerLeadsCount,
       message: `${totalUnassigned} leads need assignment. ${partnerLeadsCount} partner leads are managed separately.`
@@ -708,7 +832,6 @@ export const getUnassignedLeads = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
-
 // ══════════════════════════════════════════════════════════════════
 // 10. ADMIN — ASSIGN LEAD TO ADVISOR
 // ══════════════════════════════════════════════════════════════════
@@ -1301,3 +1424,477 @@ export const createPartnerLead = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+
+
+
+
+
+// ══════════════════════════════════════════════════════════════════
+// 16. ADMIN CREATE SINGLE LEAD (Manual Entry)
+// POST /admin/create
+// ══════════════════════════════════════════════════════════════════
+export const createAdminLead = async (req, res) => {
+  try {
+    // Check Admin role
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc || roleDoc.code !== '18') {
+      return res.status(403).json({ success: false, message: 'Admin only' });
+    }
+
+    const { customerInfo, propertyDetails, loanRequirements, notesToXoto, assignToAdvisorId } = req.body;
+
+    // Validate required fields
+    if (!customerInfo?.firstName || !customerInfo?.lastName || !customerInfo?.mobileNumber) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'firstName, lastName and mobileNumber are required' 
+      });
+    }
+
+    // Validate phone format
+    if (!/^[0-9]{9,15}$/.test(customerInfo.mobileNumber.replace(/\s/g, ''))) {
+      return res.status(400).json({ success: false, message: 'Invalid phone number format' });
+    }
+
+    // Duplicate check (active leads only)
+    const duplicate = await Lead.findOne({
+      'customerInfo.mobileNumber': customerInfo.mobileNumber,
+      currentStatus: { $nin: ['Lost', 'Not Proceeding', 'Disbursed'] },
+      isDeleted: false,
+      createdAt: { $gte: new Date(Date.now() - 180 * 24 * 3600 * 1000) },
+    });
+
+    if (duplicate) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Lead already exists with status: ${duplicate.currentStatus}` 
+      });
+    }
+
+    // Prepare lead data
+    const leadData = {
+      sourceInfo: {
+        source: 'admin',
+        createdByRole: 'admin',
+        createdById: req.user._id,
+        createdByModel: 'Admin',
+        createdByName: req.user?.fullName || req.user?.email || 'Admin',
+        submissionMethod: 'manual_entry',
+        sourceIp: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+      customerInfo: {
+        firstName: customerInfo.firstName,
+        lastName: customerInfo.lastName,
+        countryCode: customerInfo.countryCode || '+971',
+        mobileNumber: customerInfo.mobileNumber,
+        email: customerInfo.email || null,
+        nationality: customerInfo.nationality || null,
+        residencyStatus: customerInfo.residencyStatus || null,
+        employmentStatus: customerInfo.employmentStatus || null,
+        monthlySalary: customerInfo.monthlySalary || null,
+        dateOfBirth: customerInfo.dateOfBirth || null,
+        gender: customerInfo.gender || null,
+        maritalStatus: customerInfo.maritalStatus || null,
+      },
+      propertyDetails: {
+        transactionType: propertyDetails?.transactionType || null,
+        propertyValue: propertyDetails?.propertyValue || null,
+        loanAmountRequired: propertyDetails?.loanAmountRequired || null,
+        propertyAddress: {
+          area: propertyDetails?.propertyAddress?.area || null,
+          city: propertyDetails?.propertyAddress?.city || 'Dubai',
+        },
+      },
+      loanRequirements: {
+        timeline: loanRequirements?.timeline || null,
+        preferredTenureYears: loanRequirements?.preferredTenureYears || 25,
+      },
+      notesToXoto: notesToXoto || null,
+      currentStatus: 'New',
+      duplicateCheck: { isDuplicate: false, checkPerformedAt: new Date() },
+    };
+
+    // If assign to advisor immediately
+    if (assignToAdvisorId) {
+      const advisor = await VaultAdvisor.findById(assignToAdvisorId);
+      if (advisor && advisor.isActiveAdvisor()) {
+        const assignedAt = new Date();
+        const slaDeadline = new Date(Date.now() + 4 * 60 * 60 * 1000);
+        leadData.assignedTo = {
+          advisorId: advisor._id,
+          advisorName: advisor.fullName,
+          assignedAt,
+          assignedBy: req.user._id,
+        };
+        leadData.sla = { deadline: slaDeadline, breached: false };
+        leadData.currentStatus = 'Assigned';
+      }
+    }
+
+    const lead = await Lead.create(leadData);
+
+    await HistoryService.logLeadActivity(lead, 'LEAD_CREATED_BY_ADMIN', await getUserInfo(req), {
+      description: `Admin created lead for ${customerInfo.firstName} ${customerInfo.lastName}`,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: assignToAdvisorId ? 'Lead created and assigned to advisor' : 'Lead created successfully',
+      data: lead,
+    });
+
+  } catch (err) {
+    console.error('createAdminLead error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════
+// 17. ADMIN BULK UPLOAD LEADS (CSV/Excel)
+// POST /admin/bulk-upload
+// ══════════════════════════════════════════════════════════════════
+// Updated bulkUploadLeads function - Handles both CSV and Excel
+
+export const bulkUploadLeads = async (req, res) => {
+  try {
+    // Check Admin role
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc || roleDoc.code !== '18') {
+      return res.status(403).json({ success: false, message: 'Admin only' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Please upload a CSV or Excel file' });
+    }
+
+    // Check file type
+    const fileExt = path.extname(req.file.originalname).toLowerCase();
+    if (!['.csv', '.xlsx', '.xls'].includes(fileExt)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Unsupported file type. Please upload .csv, .xlsx, or .xls file' 
+      });
+    }
+
+    // Parse file - FIX for CSV
+    let data = [];
+    
+    try {
+      if (fileExt === '.csv') {
+        // ✅ FIX: Proper CSV parsing
+        const csvContent = req.file.buffer.toString('utf8');
+        const lines = csvContent.split(/\r?\n/);
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+        
+        for (let i = 1; i < lines.length; i++) {
+          if (lines[i].trim() === '') continue;
+          
+          const values = lines[i].split(',').map(v => v.trim());
+          const row = {};
+          
+          for (let j = 0; j < headers.length; j++) {
+            row[headers[j]] = values[j] || '';
+          }
+          data.push(row);
+        }
+      } else {
+        // Excel file parsing
+        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        data = xlsx.utils.sheet_to_json(worksheet);
+      }
+    } catch (parseError) {
+      console.error('Parse error:', parseError);
+      return res.status(400).json({
+        success: false,
+        message: 'Failed to parse file. Please check file format.',
+        error: parseError.message
+      });
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'The uploaded file contains no lead records. Please add data and re-upload.' 
+      });
+    }
+
+    // Define required columns (case-insensitive)
+    const requiredColumns = ['first_name', 'last_name', 'mobile_number'];
+    const firstRow = data[0];
+    const headers = Object.keys(firstRow).map(h => h.toLowerCase());
+    
+    const missingColumns = requiredColumns.filter(col => !headers.includes(col));
+    
+    if (missingColumns.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Missing required columns: ${missingColumns.join(', ')}. Please use the template.`,
+        template: {
+          required: ['first_name', 'last_name', 'mobile_number'],
+          optional: ['email', 'nationality', 'residency_status', 'employment_status', 'monthly_salary', 'property_value', 'loan_amount', 'timeline', 'notes', 'advisor_email']
+        }
+      });
+    }
+
+    // Process rows
+    const results = {
+      success: [],
+      failed: [],
+      duplicateInFile: [],
+      duplicateInSystem: [],
+      total: data.length,
+      created: 0,
+      failedCount: 0
+    };
+
+    const processedPhones = new Set();
+
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      const rowNumber = i + 2;
+
+      try {
+        // Get values with case-insensitive keys
+        const firstName = row.first_name || row['First Name'] || row['firstName'] || '';
+        const lastName = row.last_name || row['Last Name'] || row['lastName'] || '';
+        let mobileNumber = row.mobile_number || row['Mobile Number'] || row['mobileNumber'] || row['phone_number'] || '';
+        
+        // Validate required fields
+        if (!firstName || !lastName || !mobileNumber) {
+          results.failed.push({
+            row: rowNumber,
+            reason: 'Missing required fields: first_name, last_name, or mobile_number',
+            data: row
+          });
+          results.failedCount++;
+          continue;
+        }
+
+        // Clean phone number
+        mobileNumber = String(mobileNumber).replace(/\s/g, '');
+        if (mobileNumber.startsWith('+971')) mobileNumber = mobileNumber.substring(3);
+        if (mobileNumber.startsWith('971')) mobileNumber = mobileNumber.substring(2);
+        if (!/^[0-9]{9,15}$/.test(mobileNumber)) {
+          results.failed.push({
+            row: rowNumber,
+            reason: 'Invalid phone number format. Use numbers only (e.g., 501234567)',
+            data: row
+          });
+          results.failedCount++;
+          continue;
+        }
+
+        // Check duplicate within same file
+        if (processedPhones.has(mobileNumber)) {
+          results.duplicateInFile.push({
+            row: rowNumber,
+            reason: 'Duplicate within upload file',
+            mobileNumber: mobileNumber,
+            data: row
+          });
+          results.failedCount++;
+          continue;
+        }
+
+        // Check duplicate in system
+        const existingLead = await Lead.findOne({
+          'customerInfo.mobileNumber': mobileNumber,
+          currentStatus: { $nin: ['Lost', 'Not Proceeding', 'Disbursed'] },
+          isDeleted: false,
+        });
+
+        if (existingLead) {
+          results.duplicateInSystem.push({
+            row: rowNumber,
+            reason: `Lead already exists with status: ${existingLead.currentStatus}`,
+            existingLeadId: existingLead._id,
+            existingAdvisor: existingLead.assignedTo?.advisorName || 'Unassigned',
+            data: row
+          });
+          results.failedCount++;
+          continue;
+        }
+
+        processedPhones.add(mobileNumber);
+
+        // Get advisor if specified
+        let advisorId = null;
+        let advisorName = null;
+        const advisorEmail = row.advisor_email || row['Advisor Email'] || row['advisorEmail'] || '';
+        
+        if (advisorEmail) {
+          const advisor = await VaultAdvisor.findOne({ email: advisorEmail });
+          if (advisor && advisor.isActiveAdvisor()) {
+            advisorId = advisor._id;
+            advisorName = advisor.fullName;
+          }
+        }
+
+        // Build lead object
+        const leadData = {
+          sourceInfo: {
+            source: 'admin',
+            createdByRole: 'admin',
+            createdById: req.user._id,
+            createdByModel: 'Admin',
+            createdByName: req.user?.fullName || req.user?.email || 'Admin',
+            submissionMethod: 'bulk_upload',
+            sourceIp: req.ip,
+            userAgent: req.headers['user-agent'],
+          },
+          customerInfo: {
+            firstName: firstName,
+            lastName: lastName,
+            countryCode: row.country_code || row['Country Code'] || '+971',
+            mobileNumber: mobileNumber,
+            email: row.email || row['Email'] || null,
+            nationality: row.nationality || null,
+            residencyStatus: row.residency_status || row['Residency Status'] || null,
+            employmentStatus: row.employment_status || row['Employment Status'] || null,
+            monthlySalary: row.monthly_salary ? parseFloat(row.monthly_salary) : null,
+            dateOfBirth: row.date_of_birth || row['Date of Birth'] ? new Date(row.date_of_birth || row['Date of Birth']) : null,
+            gender: row.gender || null,
+            maritalStatus: row.marital_status || row['Marital Status'] || null,
+          },
+          propertyDetails: {
+            transactionType: row.transaction_type || row['Transaction Type'] || null,
+            propertyValue: row.property_value ? parseFloat(row.property_value) : null,
+            loanAmountRequired: row.loan_amount ? parseFloat(row.loan_amount) : null,
+            propertyAddress: {
+              area: row.property_area || row['Property Area'] || null,
+              city: 'Dubai'
+            }
+          },
+          loanRequirements: {
+            timeline: row.timeline || null,
+          },
+          notesToXoto: row.notes || null,
+          currentStatus: 'New',
+          duplicateCheck: { isDuplicate: false, checkPerformedAt: new Date() }
+        };
+
+        // Assign to advisor if specified
+        if (advisorId) {
+          const assignedAt = new Date();
+          const slaDeadline = new Date(Date.now() + 4 * 60 * 60 * 1000);
+          leadData.assignedTo = {
+            advisorId: advisorId,
+            advisorName: advisorName,
+            assignedAt,
+            assignedBy: req.user._id,
+          };
+          leadData.sla = { deadline: slaDeadline, breached: false };
+          leadData.currentStatus = 'Assigned';
+        }
+
+        const lead = await Lead.create(leadData);
+        results.success.push({
+          row: rowNumber,
+          leadId: lead._id,
+          customerName: `${firstName} ${lastName}`,
+          mobileNumber: mobileNumber,
+          assignedTo: advisorName || 'Unassigned'
+        });
+        results.created++;
+
+      } catch (rowError) {
+        console.error(`Row ${rowNumber} error:`, rowError);
+        results.failed.push({
+          row: rowNumber,
+          reason: rowError.message,
+          data: row
+        });
+        results.failedCount++;
+      }
+    }
+
+    const response = {
+      success: results.created > 0,
+      summary: {
+        total: results.total,
+        created: results.created,
+        failed: results.failedCount,
+        duplicateInFile: results.duplicateInFile.length,
+        duplicateInSystem: results.duplicateInSystem.length
+      },
+      message: `${results.created} leads created successfully, ${results.failedCount} failed.`,
+      details: {
+        success: results.success,
+        failed: results.failed,
+        duplicateInFile: results.duplicateInFile,
+        duplicateInSystem: results.duplicateInSystem
+      }
+    };
+
+    return res.status(results.created > 0 ? 201 : 400).json(response);
+
+  } catch (error) {
+    console.error('bulkUploadLeads error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════
+// 18. DOWNLOAD BULK UPLOAD TEMPLATE
+// GET /admin/bulk-upload/template
+// ══════════════════════════════════════════════════════════════════
+// export const downloadBulkUploadTemplate = async (req, res) => {
+//   try {
+//     const roleDoc = await Role.findById(req.user.role);
+//     if (!roleDoc || roleDoc.code !== '18') {
+//       return res.status(403).json({ success: false, message: 'Admin only' });
+//     }
+
+//     const templateData = [
+//       {
+//         first_name: 'Ahmed',
+//         last_name: 'Al Mansoori',
+//         mobile_number: '501234567',
+//         email: 'ahmed@example.com',
+//         country_code: '+971',
+//         nationality: 'UAE',
+//         residency_status: 'UAE National',
+//         employment_status: 'Salaried',
+//         monthly_salary: '25000',
+//         property_value: '1500000',
+//         loan_amount: '1200000',
+//         timeline: 'Immediately',
+//         notes: 'Interested in Dubai Hills',
+//         advisor_email: 'advisor@xoto.ae'
+//       },
+//       {
+//         first_name: 'Sarah',
+//         last_name: 'Khan',
+//         mobile_number: '507654321',
+//         email: 'sarah@example.com',
+//         country_code: '+971',
+//         nationality: 'India',
+//         residency_status: 'UAE Resident',
+//         employment_status: 'Salaried',
+//         monthly_salary: '35000',
+//         property_value: '2500000',
+//         loan_amount: '2000000',
+//         timeline: '1-3 months',
+//         notes: 'Prefers fixed rate',
+//         advisor_email: ''
+//       }
+//     ];
+
+//     const worksheet = xlsx.utils.json_to_sheet(templateData);
+//     const workbook = xlsx.utils.book_new();
+//     xlsx.utils.book_append_sheet(workbook, worksheet, 'Lead_Template');
+    
+//     const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    
+//     res.setHeader('Content-Disposition', 'attachment; filename=lead_bulk_upload_template.xlsx');
+//     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    
+//     return res.send(buffer);
+//   } catch (err) {
+//     console.error('downloadBulkUploadTemplate error:', err);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };

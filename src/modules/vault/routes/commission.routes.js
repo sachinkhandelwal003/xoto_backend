@@ -7,6 +7,7 @@ import {
   createCommission, 
   confirmCommission, 
   markCommissionAsPaid, 
+  processCommissionPayment,
   getMyCommissions, 
   getPartnerCommissions, 
   adminGetAllCommissions,
@@ -16,32 +17,27 @@ import { protect, protectPartner,protectMulti } from '../../../middleware/auth.j
 
 const router = express.Router();
 
-// ==================== PUBLIC / SELF ROUTES ====================
-router.get('/my', protect, getMyCommissions);
+// ==================== SELF ROUTES (Freelance Agent & Partner) ====================
+router.get('/my', protectMulti, getMyCommissions);
 
 // ==================== PARTNER ROUTES ====================
-router.get('/partner', protect, getPartnerCommissions);
+router.get('/partner', protectPartner, getPartnerCommissions);
 
 // ==================== ADMIN ROUTES ====================
-// Preview commission calculation
+// Preview commission before creation
 router.post('/admin/preview/:caseId', protect, previewCommission);
 
 // Create commission from disbursed case
 router.post('/admin/create-from-case/:caseId', protect, createCommissionFromCase);
-
-// Auto create commission
 router.post('/admin/create', protect, createCommission);
 
-// Confirm commission
+// Manage commission
 router.post('/admin/:id/confirm', protect, confirmCommission);
-
-// Mark as paid
 router.post('/admin/:id/pay', protect, markCommissionAsPaid);
+router.post('/admin/:id/process-payment', protect, processCommissionPayment);
 
-// Get all commissions
+// View commissions
 router.get('/admin/all', protect, adminGetAllCommissions);
-
-// Get commission by ID
 router.get('/admin/:id', protect, getCommissionById);
 
 module.exports = router; 
