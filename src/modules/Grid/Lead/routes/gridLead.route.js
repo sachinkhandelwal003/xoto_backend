@@ -51,6 +51,12 @@ router.get('/submitted-queue',       controller.getSubmittedQueue);       // una
 router.get('/:id/suggest-advisors',  controller.suggestAdvisorsForLead);  // advisor suggestions
 router.put('/:id/assign',            controller.assignAdvisorToLead);     // assign advisor
 
+// ── GENERAL LEADS (Admin only) ───────────────────────────────────────────
+router.post('/general/create',       controller.createGeneralLead);       // single general lead
+router.post('/general/bulk',         controller.bulkCreateGeneralLeads);  // bulk upload (array/csv parse)
+router.get ('/general',              controller.getGeneralLeads);         // all general leads + stats
+ 
+
 // Commission management (referral leads)
 router.put('/:id/commission', referral.updateCommissionStatus);
 

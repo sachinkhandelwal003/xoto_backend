@@ -178,6 +178,8 @@ app.use('/commissions', require('./modules/Grid/Commission/Commission.routes.js'
 
 app.use('/feedback', feedback);
 app.use('/presentation', presentationRoutes);  
+app.use('/deal-record', require('./modules/Grid/dealrecord/routes/Dealrecord.routes.js'))
+app.use('/deal-records', require('./modules/Grid/dealrecord/routes/Dealrecord.routes.js'))
 
 // History
 app.use('/customer-history', customerHistoryRoutes);
