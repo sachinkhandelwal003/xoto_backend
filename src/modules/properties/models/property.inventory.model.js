@@ -90,7 +90,7 @@ const PropertyInventorySchema = new mongoose.Schema(
         
         currency: {
             type: String,
-            default: "AED"
+            default: undefined
         },
 
         // =========================
@@ -98,24 +98,24 @@ const PropertyInventorySchema = new mongoose.Schema(
         // =========================
         hasView: {
             type: Boolean,
-            default: false
+            default: undefined
         },
         
         viewType: {
             type: [String],
             enum: ["sea", "city", "garden", "landmark", "pool", "park"],
-            default: []
+            default: undefined
         },
         
         parkingSpaces: {
             type: Number,
-            default: 0
+            default: undefined
         },
         
         furnishing: {
             type: String,
             enum: ["furnished", "semi_furnished", "unfurnished"],
-            default: "unfurnished"
+            default: undefined
         },
 
         // =========================
@@ -207,7 +207,7 @@ const PropertyInventorySchema = new mongoose.Schema(
         // =========================
         paymentPlan: {
             type: String,
-            default: ""
+            default: undefined
         },
         
         downPayment: {
