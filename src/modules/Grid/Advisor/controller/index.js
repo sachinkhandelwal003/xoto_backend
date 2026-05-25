@@ -528,33 +528,211 @@ exports.updateMyProfile = asyncHandler(async (req, res) => {
 exports.getGridAdvisorDashboard = asyncHandler(async (req, res) => {
   const advisorId = req.user._id;
 
+  // 1. Fetch Advisor basic info
   const advisor = await GridAdvisor.findById(advisorId)
     .select('firstName lastName leaderboard workload')
     .lean();
 
-  const myLeads = await GridLead.find({ assigned_to: advisorId })
+  // 2. Fetch all leads assigned to this advisor for calculating stats and charts
+  const allLeads = await GridLead.find({ assigned_to: advisorId, is_deleted: false })
+    .populate('source.listing_id')
+    .lean();
+
+  // 3. Fetch latest 5 leads for the UI list
+  const myLeads = await GridLead.find({ assigned_to: advisorId, is_deleted: false })
+    .populate('source.listing_id')
     .sort({ assigned_at: -1, createdAt: -1 })
     .limit(5)
     .lean();
 
-  const allAdvisors = await GridAdvisor.find({ status: 'active' })
-    .select('firstName lastName leaderboard workload')
-    .sort({ 'leaderboard.compositeScore': -1 })
-    .limit(10)
-    .lean();
+  // 4. Calculate dynamic stats
+  let activeLeads = 0;
+  let dealsClosed = 0;
+  let presentations = 0;
 
-  const activeLeads = advisor?.workload?.activeLeadsCount || 0;
-  const totalDeals = advisor?.workload?.totalDealsCompleted || 0;
-  const presentations = advisor?.workload?.totalPresentationsGenerated || 0;
-  const conversionRate = advisor?.leaderboard?.conversionRate || 0;
+  allLeads.forEach(lead => {
+    // Active Leads count (not completed and not not_proceeding)
+    if (!['completed', 'not_proceeding'].includes(lead.status)) {
+      activeLeads++;
+    }
+    // Closed Deals count
+    if (lead.status === 'completed') {
+      dealsClosed++;
+    }
+    // Presentations count
+    if (lead.presentations && Array.isArray(lead.presentations)) {
+      presentations += lead.presentations.length;
+    }
+  });
 
-  const leaderboard = allAdvisors.map((a, i) => ({
-    name: `${a.firstName} ${a.lastName}`,
-    deals: a.leaderboard?.dealsClosedCount || 0,
-    conversion: a.leaderboard?.conversionRate || 0,
-    score: a.leaderboard?.compositeScore || 0
+  const totalLeadsCount = allLeads.length;
+  const conversionRate = totalLeadsCount > 0 
+    ? Math.round((dealsClosed / totalLeadsCount) * 100) 
+    : 0;
+
+  // 5. Generate Leads by Month & Commission Over Time for the last 6 months
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const today = new Date();
+  
+  const last6Months = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    last6Months.push({
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      month: monthNames[d.getMonth()],
+      year: d.getFullYear(),
+      leads: 0,
+      closed: 0,
+      commission: 0
+    });
+  }
+
+  allLeads.forEach(lead => {
+    // Leads count per month
+    if (lead.createdAt) {
+      const createdDate = new Date(lead.createdAt);
+      const createdKey = `${createdDate.getFullYear()}-${String(createdDate.getMonth() + 1).padStart(2, '0')}`;
+      const monthObj = last6Months.find(m => m.key === createdKey);
+      if (monthObj) {
+        monthObj.leads++;
+      }
+    }
+
+    // Closed and commission per month
+    if (lead.status === 'completed') {
+      const closedAt = lead.deal_record?.closed_at || lead.updatedAt || lead.createdAt;
+      if (closedAt) {
+        const closedDate = new Date(closedAt);
+        const closedKey = `${closedDate.getFullYear()}-${String(closedDate.getMonth() + 1).padStart(2, '0')}`;
+        const monthObj = last6Months.find(m => m.key === closedKey);
+        if (monthObj) {
+          monthObj.closed++;
+          monthObj.commission += lead.deal_record?.commission_amount || 0;
+        }
+      }
+    }
+  });
+
+  const leadsByMonth = last6Months.map(m => ({
+    month: m.month,
+    leads: m.leads,
+    closed: m.closed
   }));
 
+  const commissionOverTime = last6Months.map(m => ({
+    month: m.month,
+    commission: m.commission
+  }));
+
+  // 6. Lead Status Breakdown (New, Site Visit, Negotiation, Closed)
+  let newCount = 0;
+  let siteVisitCount = 0;
+  let negotiationCount = 0;
+  let closedCount = 0;
+
+  allLeads.forEach(lead => {
+    const status = lead.status;
+    if (['new', 'contacted', 'qualified'].includes(status)) {
+      newCount++;
+    } else if (status === 'site_visit_scheduled') {
+      siteVisitCount++;
+    } else if (['in_discussion', 'offer_made', 'reserved', 'spa_signed'].includes(status)) {
+      negotiationCount++;
+    } else if (status === 'completed') {
+      closedCount++;
+    }
+  });
+
+  const leadStatusBreakdown = [
+    { name: 'New', value: newCount, color: '#0369a1' },
+    { name: 'Site Visit', value: siteVisitCount, color: '#b45309' },
+    { name: 'Negotiation', value: negotiationCount, color: '#7e22ce' },
+    { name: 'Closed', value: closedCount, color: '#16a34a' },
+  ];
+
+  // 7. Conversion Funnel (Leads, Site Visits, Negotiations, Closed Deals)
+  let funnelLeads = 0;
+  let funnelSiteVisits = 0;
+  let funnelNegotiations = 0;
+  let funnelClosed = 0;
+
+  allLeads.forEach(lead => {
+    funnelLeads++;
+
+    const hasSiteVisit = ['site_visit_scheduled', 'offer_made', 'reserved', 'spa_signed', 'completed'].includes(lead.status) || 
+                         lead.status_history?.some(h => h.status === 'site_visit_scheduled');
+    if (hasSiteVisit) {
+      funnelSiteVisits++;
+    }
+
+    const hasNegotiation = ['in_discussion', 'offer_made', 'reserved', 'spa_signed', 'completed'].includes(lead.status) || 
+                           lead.status_history?.some(h => ['in_discussion', 'offer_made', 'reserved', 'spa_signed'].includes(h.status));
+    if (hasNegotiation) {
+      funnelNegotiations++;
+    }
+
+    if (lead.status === 'completed') {
+      funnelClosed++;
+    }
+  });
+
+  // Ensure strict funnel shape for visual clarity (leads >= site visits >= negotiations >= closed)
+  funnelSiteVisits = Math.max(funnelSiteVisits, funnelNegotiations, funnelClosed);
+  funnelNegotiations = Math.max(funnelNegotiations, funnelClosed);
+
+  const conversionFunnel = [
+    { stage: 'Leads', value: funnelLeads, fill: '#0369a1' },
+    { stage: 'Site Visits', value: funnelSiteVisits, fill: '#7e22ce' },
+    { stage: 'Negotiations', value: funnelNegotiations, fill: '#b45309' },
+    { stage: 'Closed Deals', value: funnelClosed, fill: '#16a34a' },
+  ];
+
+  // 8. Dynamic Leaderboard (Live rankings)
+  const activeAdvisors = await GridAdvisor.find({ status: 'active' })
+    .select('firstName lastName leaderboard workload')
+    .lean();
+
+  const advisorIds = activeAdvisors.map(a => a._id);
+
+  const advisorLeadStats = await GridLead.aggregate([
+    {
+      $match: {
+        assigned_to: { $in: advisorIds },
+        is_deleted: false
+      }
+    },
+    {
+      $group: {
+        _id: '$assigned_to',
+        totalLeads: { $sum: 1 },
+        dealsClosed: {
+          $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+        }
+      }
+    }
+  ]);
+
+  const statsMap = new Map(advisorLeadStats.map(row => [String(row._id), row]));
+
+  const leaderboard = activeAdvisors.map(a => {
+    const row = statsMap.get(String(a._id)) || { totalLeads: 0, dealsClosed: 0 };
+    const deals = row.dealsClosed;
+    const conversion = row.totalLeads > 0 ? Math.round((row.dealsClosed / row.totalLeads) * 100) : 0;
+    // Points formula: 100 points per closed deal, 10 points per assigned lead
+    const score = (deals * 100) + (row.totalLeads * 10);
+    return {
+      name: `${a.firstName} ${a.lastName}`,
+      deals,
+      conversion,
+      score
+    };
+  });
+
+  // Sort by score descending, then deals closed
+  leaderboard.sort((a, b) => b.score - a.score || b.deals - a.deals);
+  const topLeaderboard = leaderboard.slice(0, 10);
+
+  // 9. Format Recent Leads list
   const recentLeads = myLeads.map(lead => ({
     initials: lead.contact_info?.name?.first_name?.[0]?.toUpperCase() || lead.contact_info?.name?.last_name?.[0]?.toUpperCase() || 'L',
     name: `${lead.contact_info?.name?.first_name || 'Unknown'} ${lead.contact_info?.name?.last_name || 'Lead'}`,
@@ -566,44 +744,117 @@ exports.getGridAdvisorDashboard = asyncHandler(async (req, res) => {
     avatarColor: '#4c1d95'
   }));
 
-  const recentActivity = recentLeads.slice(0, 5).map((lead, i) => ({
-    iconKey: i === 0 ? 'inbox' : i === 1 ? 'home' : i === 2 ? 'check' : 'edit',
-    iconBg: i === 0 ? '#f3e8ff' : i === 1 ? '#e0f2fe' : i === 2 ? '#dcfce7' : '#fef3c7',
-    iconColor: i === 0 ? '#7e22ce' : i === 1 ? '#0369a1' : i === 2 ? '#16a34a' : '#b45309',
-    text: i === 0 ? `New lead assigned — ${lead.name}` : i === 1 ? `Site visit scheduled — ${lead.name}` : i === 2 ? `Action required — Follow up with ${lead.name}` : `Note added — ${lead.name}`,
-    time: i === 0 ? 'Today, 11:30 AM' : i === 1 ? 'Today, 10:00 AM' : i === 2 ? 'Yesterday, 4:15 PM' : 'Yesterday, 2:30 PM'
+  // 10. Generate real activity stream from advisor's leads
+  const activities = [];
+  allLeads.forEach(lead => {
+    const clientName = `${lead.contact_info?.name?.first_name || 'Unknown'} ${lead.contact_info?.name?.last_name || 'Lead'}`;
+
+    // New Lead assignment activity
+    const assignDate = lead.assigned_at || lead.createdAt;
+    if (assignDate) {
+      activities.push({
+        date: new Date(assignDate),
+        iconKey: 'inbox',
+        iconBg: '#f3e8ff',
+        iconColor: '#7e22ce',
+        text: `New lead assigned — ${clientName}`,
+      });
+    }
+
+    // Status changes activity
+    if (lead.status_history && Array.isArray(lead.status_history)) {
+      lead.status_history.forEach(history => {
+        let text = `Status updated to ${history.status?.replace('_', ' ')} — ${clientName}`;
+        let iconKey = 'edit';
+        let iconBg = '#fef3c7';
+        let iconColor = '#b45309';
+
+        if (history.status === 'site_visit_scheduled') {
+          iconKey = 'home';
+          iconBg = '#e0f2fe';
+          iconColor = '#0369a1';
+        } else if (history.status === 'completed') {
+          iconKey = 'check';
+          iconBg = '#dcfce7';
+          iconColor = '#16a34a';
+        }
+
+        activities.push({
+          date: new Date(history.changed_at || lead.updatedAt),
+          iconKey,
+          iconBg,
+          iconColor,
+          text,
+        });
+      });
+    }
+
+    // Notes activity
+    if (lead.notes && Array.isArray(lead.notes)) {
+      lead.notes.forEach(note => {
+        activities.push({
+          date: new Date(note.created_at || lead.updatedAt),
+          iconKey: 'edit',
+          iconBg: '#fef3c7',
+          iconColor: '#b45309',
+          text: `Note added — ${clientName}: "${note.text?.substring(0, 40)}${note.text?.length > 40 ? '...' : ''}"`,
+        });
+      });
+    }
+
+    // Communications activity
+    if (lead.communications && Array.isArray(lead.communications)) {
+      lead.communications.forEach(comm => {
+        activities.push({
+          date: new Date(comm.conducted_at || lead.updatedAt),
+          iconKey: 'check',
+          iconBg: '#dcfce7',
+          iconColor: '#16a34a',
+          text: `${comm.comm_type?.charAt(0).toUpperCase() + comm.comm_type?.slice(1)} logged — ${clientName}`,
+        });
+      });
+    }
+  });
+
+  activities.sort((a, b) => b.date - a.date);
+
+  const formatActivityTime = (date) => {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHrs < 24) {
+      if (date.getDate() === now.getDate()) {
+        return `Today, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      } else {
+        return `Yesterday, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      }
+    }
+    if (diffDays === 1) return `Yesterday, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const recentActivity = activities.slice(0, 5).map(act => ({
+    iconKey: act.iconKey,
+    iconBg: act.iconBg,
+    iconColor: act.iconColor,
+    text: act.text,
+    time: formatActivityTime(act.date)
   }));
 
-  const leadsByMonth = [
-    { month: 'Jan', leads: 45, closed: 12 },
-    { month: 'Feb', leads: 52, closed: 15 },
-    { month: 'Mar', leads: 48, closed: 14 },
-    { month: 'Apr', leads: 60, closed: 18 },
-    { month: 'May', leads: 55, closed: 16 },
-    { month: 'Jun', leads: 58, closed: 17 },
-  ];
-
-  const commissionOverTime = [
-    { month: 'Jan', commission: 45000 },
-    { month: 'Feb', commission: 52000 },
-    { month: 'Mar', commission: 48000 },
-    { month: 'Apr', commission: 62000 },
-    { month: 'May', commission: 58000 },
-  ];
-
-  const leadStatusBreakdown = [
-    { name: 'New', value: activeLeads > 0 ? Math.round(activeLeads * 0.4) : 10, color: '#0369a1' },
-    { name: 'Site Visit', value: activeLeads > 0 ? Math.round(activeLeads * 0.3) : 8, color: '#b45309' },
-    { name: 'Negotiation', value: activeLeads > 0 ? Math.round(activeLeads * 0.2) : 5, color: '#7e22ce' },
-    { name: 'Closed', value: totalDeals || 3, color: '#16a34a' },
-  ];
-
-  const conversionFunnel = [
-    { stage: 'Leads', value: activeLeads + totalDeals + 100, fill: '#0369a1' },
-    { stage: 'Site Visits', value: Math.round((activeLeads + totalDeals + 100) * 0.6), fill: '#7e22ce' },
-    { stage: 'Negotiations', value: Math.round((activeLeads + totalDeals + 100) * 0.35), fill: '#b45309' },
-    { stage: 'Closed Deals', value: totalDeals || 15, fill: '#16a34a' },
-  ];
+  if (recentActivity.length === 0) {
+    recentActivity.push({
+      iconKey: 'inbox',
+      iconBg: '#f3e8ff',
+      iconColor: '#7e22ce',
+      text: 'Welcome to your Xoto GRID Dashboard!',
+      time: 'Just now'
+    });
+  }
 
   res.status(200).json({
     status: 'success',
@@ -615,10 +866,10 @@ exports.getGridAdvisorDashboard = asyncHandler(async (req, res) => {
       stats: {
         activeLeads,
         presentations,
-        dealsClosed: totalDeals,
+        dealsClosed,
         conversionRate
       },
-      leaderboard,
+      leaderboard: topLeaderboard,
       recentLeads,
       recentActivity,
       charts: {
