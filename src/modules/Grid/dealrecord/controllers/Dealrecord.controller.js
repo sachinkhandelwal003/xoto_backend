@@ -12,6 +12,7 @@ const Inventory       = require('../../../properties/models/property.inventory.m
 const asyncHandler    = require('../../../../utils/asyncHandler');
 const { APIError }    = require('../../../../utils/errorHandler');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
+const { Transform }   = require('stream');
 
 // ─── Commission calculator ────────────────────────────────────────────────────
 const calcCommission = (transactionValue, grossPercent, partnerPercent, referralPercent) => {
@@ -49,6 +50,13 @@ const validatePercent = (value, fieldName) => {
   return percent;
 };
 
+// ─── BUG FIX #1: isInternalAdvisorDeal was missing entirely ──────────────────
+// PRD §12.5 — when only an advisor is linked (no external agent/agency/referral),
+// Xoto retains 100% of the gross commission; no partner disbursement occurs.
+const isInternalAdvisorDeal = ({ advisorId, agentId, agencyId, referralPartnerId }) => {
+  return Boolean(advisorId) && !agentId && !agencyId && !referralPartnerId;
+};
+
 const getAgreementTerms = async (partnerAgreementId, { agencyId, agentId, referralPartnerId }, session = null) => {
   if (!partnerAgreementId) return null;
 
@@ -58,8 +66,8 @@ const getAgreementTerms = async (partnerAgreementId, { agencyId, agentId, referr
     throw new APIError(`Partner Agreement is ${agreement.status}; only active agreements can be linked`, StatusCodes.BAD_REQUEST);
   }
 
-  const linkedToAgency = agencyId && agreement.agencyId?.toString() === agencyId.toString();
-  const linkedToAgent = agentId && agreement.agentId?.toString() === agentId.toString();
+  const linkedToAgency   = agencyId        && agreement.agencyId?.toString()          === agencyId.toString();
+  const linkedToAgent    = agentId         && agreement.agentId?.toString()            === agentId.toString();
   const linkedToReferral = referralPartnerId && agreement.referralPartnerId?.toString() === referralPartnerId.toString();
 
   if (!linkedToAgency && !linkedToAgent && !linkedToReferral) {
@@ -67,7 +75,7 @@ const getAgreementTerms = async (partnerAgreementId, { agencyId, agentId, referr
   }
 
   return {
-    partnerPercent: validatePercent(agreement.commissionSplitPercent, 'commissionSplitPercent'),
+    partnerPercent:  validatePercent(agreement.commissionSplitPercent, 'commissionSplitPercent'),
     referralPercent: validatePercent(agreement.referralSplitPercent || 0, 'referralSplitPercent'),
   };
 };
@@ -84,15 +92,15 @@ const validateDealRefs = async ({
   agencyId, inventoryUnitId,
 }, session = null) => {
   const [lead, property, customer] = await Promise.all([
-    refExists(GridLead, leadId, 'Lead', session),
-    refExists(Property, propertyId, 'Property', session),
-    refExists(Customer, customerId, 'Customer', session),
+    refExists(GridLead,    leadId,     'Lead',     session),
+    refExists(Property,    propertyId, 'Property', session),
+    refExists(Customer,    customerId, 'Customer', session),
   ]);
 
   await Promise.all([
     refExists(GridAdvisor, advisorId, 'Advisor', session),
-    refExists(Agent, agentId, 'Agent', session),
-    refExists(Agency, agencyId, 'Agency', session),
+    refExists(Agent,       agentId,   'Agent',   session),
+    refExists(Agency,      agencyId,  'Agency',  session),
   ]);
 
   const inventory = await refExists(Inventory, inventoryUnitId, 'Inventory unit', session);
@@ -109,7 +117,6 @@ const validateDealRefs = async ({
 const syncLeadDealRecord = (deal, commission, session = null) => GridLead.findByIdAndUpdate(
   deal.leadId,
   {
-    status: 'completed',
     'deal_record.created':            true,
     'deal_record.deal_record_id':     deal._id,
     'deal_record.inventory_unit_id':  deal.inventoryUnitId || null,
@@ -268,10 +275,12 @@ exports.createDealRecord = asyncHandler(async (req, res) => {
     );
   }
 
-const session = await mongoose.startSession();
+  const session = await mongoose.startSession();
   let deal;
   try {
     await session.withTransaction(async () => {
+
+      // ── BUG FIX #2: lead checks moved inside transaction with session ─────
       const existing = await DealRecord.findOne({ leadId, isVoided: false }).session(session);
       if (existing) {
         throw new APIError(
@@ -279,26 +288,27 @@ const session = await mongoose.startSession();
           StatusCodes.CONFLICT
         );
       }
-const lead = await GridLead.findById(leadId);
 
-if (!lead) {
-  throw new APIError('Lead not found', StatusCodes.NOT_FOUND);
-}
+      const lead = await GridLead.findById(leadId).session(session);
+      if (!lead) {
+        throw new APIError('Lead not found', StatusCodes.NOT_FOUND);
+      }
 
-const CLOSABLE_STATUSES = ['reserved', 'spa_signed'];
-if (!CLOSABLE_STATUSES.includes(lead.status)) {
-  throw new APIError(
-    `Deal records can only be created for leads in reserved or spa_signed status. Current: ${lead.status}`,
-    StatusCodes.BAD_REQUEST
-  );
-}
+      const CLOSABLE_STATUSES = ['reserved', 'spa_signed'];
+      if (!CLOSABLE_STATUSES.includes(lead.status)) {
+        throw new APIError(
+          `Deal records can only be created for leads in reserved or spa_signed status. Current: ${lead.status}`,
+          StatusCodes.BAD_REQUEST
+        );
+      }
 
-if (lead?.deal_record?.created === true) {
-  throw new APIError(
-    'Deal record already exists for this lead',
-    StatusCodes.CONFLICT
-  );
-}
+      if (lead?.deal_record?.created === true) {
+        throw new APIError(
+          'Deal record already exists for this lead',
+          StatusCodes.CONFLICT
+        );
+      }
+
       await validateDealRefs({
         leadId, propertyId, customerId, advisorId, agentId, agencyId, inventoryUnitId,
       }, session);
@@ -308,13 +318,24 @@ if (lead?.deal_record?.created === true) {
         agentId,
         referralPartnerId,
       }, session);
+
       const finalGrossPercent = validatePercent(grossPercent, 'grossPercent');
-      const finalPartnerPercent = agreementTerms
-        ? agreementTerms.partnerPercent
-        : validatePercent(partnerPercent, 'partnerPercent');
-      const finalReferralPercent = agreementTerms
-        ? agreementTerms.referralPercent
-        : validatePercent(referralPercent, 'referralPercent');
+
+      // ── BUG FIX #3: use consistent variable names throughout ──────────────
+      let finalPartnerPercent;
+      let finalReferralPercent;
+
+      if (isInternalAdvisorDeal({ advisorId, agentId, agencyId, referralPartnerId })) {
+        // PRD §12.5 — full commission retained by Xoto; no partner disbursement
+        finalPartnerPercent  = 0;
+        finalReferralPercent = 0;
+      } else if (agreementTerms) {
+        finalPartnerPercent  = agreementTerms.partnerPercent;
+        finalReferralPercent = agreementTerms.referralPercent;
+      } else {
+        finalPartnerPercent  = validatePercent(partnerPercent,  'partnerPercent');
+        finalReferralPercent = validatePercent(referralPercent, 'referralPercent');
+      }
 
       if (finalPartnerPercent + finalReferralPercent > 100) {
         throw new APIError('partnerPercent and referralPercent cannot exceed 100 combined', StatusCodes.BAD_REQUEST);
@@ -327,7 +348,7 @@ if (lead?.deal_record?.created === true) {
       deal = new DealRecord({
         leadId,
         propertyId,
-        inventoryUnitId: inventoryUnitId || null,
+        inventoryUnitId:    inventoryUnitId    || null,
         customerId,
         advisorId:          advisorId          || null,
         agentId:            agentId            || null,
@@ -413,16 +434,16 @@ exports.updateDealRecord = asyncHandler(async (req, res) => {
     throw new APIError('No valid fields to update', StatusCodes.BAD_REQUEST);
   }
 
-  const previousAdvisorId = deal.advisorId;
+  const previousAdvisorId       = deal.advisorId;
   const previousInventoryUnitId = deal.inventoryUnitId;
 
   await validateDealRefs({
-    leadId: deal.leadId,
-    propertyId: deal.propertyId,
-    customerId: deal.customerId,
-    advisorId: updates.advisorId ?? deal.advisorId,
-    agentId: updates.agentId ?? deal.agentId,
-    agencyId: updates.agencyId ?? deal.agencyId,
+    leadId:          deal.leadId,
+    propertyId:      deal.propertyId,
+    customerId:      deal.customerId,
+    advisorId:       updates.advisorId       ?? deal.advisorId,
+    agentId:         updates.agentId         ?? deal.agentId,
+    agencyId:        updates.agencyId        ?? deal.agencyId,
     inventoryUnitId: updates.inventoryUnitId ?? deal.inventoryUnitId,
   });
 
@@ -432,34 +453,63 @@ exports.updateDealRecord = asyncHandler(async (req, res) => {
   }
 
   // Recalculate commission if financials changed
-  if (
-    updates.transactionValue !== undefined ||
-    updates.grossPercent     !== undefined ||
-    updates.partnerPercent   !== undefined ||
-    updates.referralPercent  !== undefined ||
+  const financialsChanged =
+    updates.transactionValue   !== undefined ||
+    updates.grossPercent       !== undefined ||
+    updates.partnerPercent     !== undefined ||
+    updates.referralPercent    !== undefined ||
     updates.partnerAgreementId !== undefined ||
-    updates.agencyId !== undefined ||
-    updates.agentId !== undefined ||
-    updates.referralPartnerId !== undefined
-  ) {
+    updates.agencyId           !== undefined ||
+    updates.agentId            !== undefined ||
+    updates.referralPartnerId  !== undefined;
+
+  if (financialsChanged) {
     const agreementTerms = await getAgreementTerms(
       updates.partnerAgreementId ?? deal.partnerAgreementId,
       {
-        agencyId: updates.agencyId ?? deal.agencyId,
-        agentId: updates.agentId ?? deal.agentId,
+        agencyId:          updates.agencyId          ?? deal.agencyId,
+        agentId:           updates.agentId           ?? deal.agentId,
         referralPartnerId: updates.referralPartnerId ?? deal.referralPartnerId,
       }
     );
+
     const finalGrossPercent = validatePercent(
       req.body.grossPercent ?? deal.commission.grossPercent,
       'grossPercent'
     );
-    const finalPartnerPercent = agreementTerms
-      ? agreementTerms.partnerPercent
-      : validatePercent(req.body.partnerPercent ?? deal.commission.partnerPercent, 'partnerPercent');
-    const finalReferralPercent = agreementTerms
-      ? agreementTerms.referralPercent
-      : validatePercent(req.body.referralPercent ?? deal.commission.referralPercent, 'referralPercent');
+
+    // Resolve effective IDs after applying updates
+    const effectiveAdvisorId  = updates.advisorId          ?? deal.advisorId;
+    const effectiveAgentId    = updates.agentId            ?? deal.agentId;
+    const effectiveAgencyId   = updates.agencyId           ?? deal.agencyId;
+    const effectiveReferralId = updates.referralPartnerId  ?? deal.referralPartnerId;
+
+    // ── BUG FIX #4: use consistent variable names (no _update suffix) ──────
+    let finalPartnerPercent;
+    let finalReferralPercent;
+
+    if (isInternalAdvisorDeal({
+      advisorId:         effectiveAdvisorId,
+      agentId:           effectiveAgentId,
+      agencyId:          effectiveAgencyId,
+      referralPartnerId: effectiveReferralId,
+    })) {
+      // PRD §12.5 — internal advisor deal; Xoto retains full commission
+      finalPartnerPercent  = 0;
+      finalReferralPercent = 0;
+    } else if (agreementTerms) {
+      finalPartnerPercent  = agreementTerms.partnerPercent;
+      finalReferralPercent = agreementTerms.referralPercent;
+    } else {
+      finalPartnerPercent  = validatePercent(
+        req.body.partnerPercent ?? deal.commission.partnerPercent,
+        'partnerPercent'
+      );
+      finalReferralPercent = validatePercent(
+        req.body.referralPercent ?? deal.commission.referralPercent,
+        'referralPercent'
+      );
+    }
 
     if (finalPartnerPercent + finalReferralPercent > 100) {
       throw new APIError('partnerPercent and referralPercent cannot exceed 100 combined', StatusCodes.BAD_REQUEST);
@@ -477,10 +527,10 @@ exports.updateDealRecord = asyncHandler(async (req, res) => {
     deal.referralPartnerId && deal.commission.referralShare > 0 ? 'pending' : 'not_applicable';
 
   deal.editHistory.push({
-    editedBy:  adminId,
-    editedAt:  new Date(),
-    fields:    snapshot,
-    reason:    req.body.editReason || '',
+    editedBy: adminId,
+    editedAt: new Date(),
+    fields:   snapshot,
+    reason:   req.body.editReason || '',
   });
 
   const session = await mongoose.startSession();
@@ -557,7 +607,7 @@ exports.uploadEvidence = asyncHandler(async (req, res) => {
 
   await deal.save();
   await GridLead.findByIdAndUpdate(deal.leadId, {
-    'deal_record.evidence_uploaded': true,
+    'deal_record.evidence_uploaded':  true,
     'deal_record.evidence_documents': deal.evidenceDocuments.map(d => ({
       doc_type:    d.docType,
       url:         d.url,
@@ -598,29 +648,37 @@ exports.confirmDeal = asyncHandler(async (req, res) => {
     );
   }
 
-  const previousStatus      = deal.commissionStatus;
-  deal.commissionStatus     = 'confirmed';
-  deal.confirmedAt          = new Date();
-  deal.confirmedBy          = adminId;
-  deal.isLocked             = true;
+  const previousStatus  = deal.commissionStatus;
+  deal.commissionStatus = 'confirmed';
+  deal.confirmedAt      = new Date();
+  deal.confirmedBy      = adminId;
+  deal.isLocked         = true;
 
-  // Referral commission becomes confirmed alongside main commission
-if (!deal.referralPartnerId) {
-  deal.referralCommissionStatus = 'not_applicable';
-}
+  // ── BUG FIX #5: referral commission status logic ──────────────────────────
+  // If no referral partner: not_applicable (unchanged from creation)
+  // If referral partner exists AND referralShare > 0: stays 'pending' (confirmed separately via /confirm-referral)
+  // If referral partner exists but share is 0: not_applicable
+  if (!deal.referralPartnerId || !deal.commission?.referralShare || deal.commission.referralShare <= 0) {
+    deal.referralCommissionStatus = 'not_applicable';
+  }
+  // else: referralCommissionStatus remains 'pending' — admin must call /confirm-referral separately
 
   pushStatusLog(deal, previousStatus, 'confirmed', adminId, req.body.note || '');
   await deal.save();
+
   await GridLead.findByIdAndUpdate(deal.leadId, {
+    status:                         'completed',
     'deal_record.commission_status': 'confirmed',
     ...(deal.referralPartnerId && deal.referralCommissionStatus !== 'not_applicable' ? {
       'referral_info.commission_status': deal.referralCommissionStatus,
     } : {}),
   });
 
-  // Mark inventory as sold
+  // Mark inventory as sold (sale type only — lease stays booked until confirmed)
   if (deal.inventoryUnitId) {
-    await Inventory.findByIdAndUpdate(deal.inventoryUnitId, { status: 'sold' });
+    await Inventory.findByIdAndUpdate(deal.inventoryUnitId, {
+      status: deal.dealType === 'sale' ? 'sold' : 'booked',
+    });
   }
 
   res.json({
@@ -660,7 +718,6 @@ exports.markAsPaid = asyncHandler(async (req, res) => {
     'deal_record.commission_status': 'paid',
   });
 
-
   res.json({
     success: true,
     message: 'Commission marked as paid',
@@ -676,8 +733,78 @@ exports.markAsPaid = asyncHandler(async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
+// CONFIRM REFERRAL COMMISSION — Admin only (PRD §3.2, §12.5)
+// Flow: referralCommissionStatus: pending → confirmed
+//       Main commissionStatus must already be 'confirmed' or 'paid'
+// PATCH /deal-records/:id/confirm-referral
+// ════════════════════════════════════════════════════════════════════════════
+exports.confirmReferralCommission = asyncHandler(async (req, res) => {
+  const adminId = req.user._id;
+
+  const deal = await DealRecord.findById(req.params.id);
+  if (!deal) throw new APIError('Deal record not found', StatusCodes.NOT_FOUND);
+
+  if (deal.isVoided) {
+    throw new APIError('Cannot confirm referral commission on a voided deal', StatusCodes.BAD_REQUEST);
+  }
+
+  if (!deal.referralPartnerId) {
+    throw new APIError('No referral partner is linked to this deal', StatusCodes.BAD_REQUEST);
+  }
+
+  if (!['confirmed', 'paid'].includes(deal.commissionStatus)) {
+    throw new APIError(
+      `Main deal commission must be confirmed before confirming referral commission. ` +
+      `Current deal status: ${deal.commissionStatus}`,
+      StatusCodes.BAD_REQUEST
+    );
+  }
+
+  if (deal.referralCommissionStatus !== 'pending') {
+    throw new APIError(
+      `Referral commission cannot be confirmed from its current status: ` +
+      `${deal.referralCommissionStatus}. Expected: pending`,
+      StatusCodes.BAD_REQUEST
+    );
+  }
+
+  if (!deal.commission?.referralShare || deal.commission.referralShare <= 0) {
+    throw new APIError(
+      'Referral commission amount is zero — nothing to confirm. ' +
+      'Check the commission split on this deal record.',
+      StatusCodes.BAD_REQUEST
+    );
+  }
+
+  const previousStatus          = deal.referralCommissionStatus;
+  deal.referralCommissionStatus = 'confirmed';
+
+  pushStatusLog(deal, `referral_${previousStatus}`, 'referral_confirmed', adminId, req.body.note || '');
+  await deal.save();
+
+  try {
+    await GridLead.findByIdAndUpdate(deal.leadId, {
+      'referral_info.commission_status': 'confirmed',
+    });
+  } catch (err) {
+    console.warn('[DealRecord] confirmReferralCommission: lead sync failed:', err.message);
+  }
+
+  return res.json({
+    success: true,
+    message: 'Referral commission confirmed — record is now eligible for payout',
+    data: {
+      dealReference:            deal.dealReference,
+      referralPartnerId:        deal.referralPartnerId,
+      referralCommissionStatus: deal.referralCommissionStatus,
+      referralShare:            deal.commission.referralShare,
+      mainCommissionStatus:     deal.commissionStatus,
+    },
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
 // MARK REFERRAL COMMISSION AS PAID — Admin only (PRD §12.5)
-// Separate from main commission — PRD §3.2: 25-30% referral payout
 // PATCH /deal-records/:id/pay-referral
 // ════════════════════════════════════════════════════════════════════════════
 exports.markReferralAsPaid = asyncHandler(async (req, res) => {
@@ -703,7 +830,6 @@ exports.markReferralAsPaid = asyncHandler(async (req, res) => {
   pushStatusLog(deal, 'referral_confirmed', 'referral_paid', adminId, req.body.note || '');
   await deal.save();
 
-  // Sync to lead
   try {
     await GridLead.findByIdAndUpdate(deal.leadId, {
       'referral_info.commission_status':  'paid',
@@ -771,7 +897,6 @@ exports.unflagDeal = asyncHandler(async (req, res) => {
 
 // ════════════════════════════════════════════════════════════════════════════
 // VOID DEAL — Super Admin only (PRD §12.3)
-// Soft delete — preserves commission ledger integrity per PRD §14.4
 // PATCH /deal-records/:id/void
 // ════════════════════════════════════════════════════════════════════════════
 exports.voidDeal = asyncHandler(async (req, res) => {
@@ -786,21 +911,48 @@ exports.voidDeal = asyncHandler(async (req, res) => {
   if (!deal) throw new APIError('Deal record not found', StatusCodes.NOT_FOUND);
   if (deal.isVoided) throw new APIError('Deal already voided', StatusCodes.BAD_REQUEST);
 
-  deal.isVoided   = true;
-  deal.voidReason = reason;
-  deal.voidedBy   = req.user._id;
-  deal.voidedAt   = new Date();
+  if (deal.commissionStatus === 'paid') {
+    throw new APIError(
+      'Cannot void a deal after commission has been marked as paid. ' +
+      'Commission ledger integrity must be preserved (PRD §14.4). ' +
+      'If this deal requires correction, please escalate to Xoto finance team.',
+      StatusCodes.FORBIDDEN
+    );
+  }
 
-  // Release inventory if linked and not sold
-await releaseInventoryFromDeal(deal.inventoryUnitId, deal._id);
+  if (deal.referralCommissionStatus === 'paid') {
+    throw new APIError(
+      'Cannot void a deal after referral commission has been marked as paid. ' +
+      'Referral payout ledger integrity must be preserved (PRD §14.4). ' +
+      'If this deal requires correction, please escalate to Xoto finance team.',
+      StatusCodes.FORBIDDEN
+    );
+  }
 
-  // Revert lead status
-  await clearLeadDealRecord(deal.leadId);
+  // ── BUG FIX #6: void side-effects inside a transaction for atomicity ─────
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      deal.isVoided   = true;
+      deal.voidReason = reason;
+      deal.voidedBy   = req.user._id;
+      deal.voidedAt   = new Date();
 
-  pushStatusLog(deal, deal.commissionStatus, 'voided', req.user._id, reason);
-  await deal.save();
+      pushStatusLog(deal, deal.commissionStatus, 'voided', req.user._id, reason);
+      await deal.save({ session });
 
-  res.json({ success: true, message: 'Deal record voided', data: { dealReference: deal.dealReference, voidedAt: deal.voidedAt } });
+      await releaseInventoryFromDeal(deal.inventoryUnitId, deal._id, session);
+      await clearLeadDealRecord(deal.leadId, session);
+    });
+  } finally {
+    session.endSession();
+  }
+
+  res.json({
+    success: true,
+    message: 'Deal record voided',
+    data: { dealReference: deal.dealReference, voidedAt: deal.voidedAt },
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -851,9 +1003,9 @@ exports.getAllDealRecords = asyncHandler(async (req, res) => {
   if (dealType)          filter.dealType          = dealType;
   if (referralPartnerId) filter.referralPartnerId = referralPartnerId;
   if (propertyId)        filter.propertyId        = propertyId;
-  if (isFlagged   !== undefined) filter.isFlagged    = isFlagged   === 'true';
-  if (isVoided    !== undefined) filter.isVoided     = isVoided    === 'true';
-  if (isEscalated !== undefined) filter.isEscalated  = isEscalated === 'true';
+  if (isFlagged   !== undefined) filter.isFlagged   = isFlagged   === 'true';
+  if (isVoided    !== undefined) filter.isVoided    = isVoided    === 'true';
+  if (isEscalated !== undefined) filter.isEscalated = isEscalated === 'true';
 
   if (fromDate || toDate) {
     filter.createdAt = {};
@@ -865,15 +1017,15 @@ exports.getAllDealRecords = asyncHandler(async (req, res) => {
 
   const [deals, total] = await Promise.all([
     DealRecord.find(filter)
-      .populate('leadId',       'contact_info classification lead_type source')
-      .populate('propertyId',   'propertyName area city propertySubType price mainLogo')
-      .populate('customerId',   'firstName lastName phone email')
-      .populate('advisorId',    'firstName lastName email phone employeeId')
-      .populate('agentId',      'first_name last_name email phone_number')
-      .populate('agencyId',     'companyName primaryContactEmail')
-      .populate('referralPartnerId', 'firstName lastName phone')
-      .populate('inventoryUnitId',   'unitNumber floorNumber unitType bedroomType price status')
-      .populate('createdBy',    'firstName lastName email')
+      .populate('leadId',             'contact_info classification lead_type source')
+      .populate('propertyId',         'propertyName area city propertySubType price mainLogo')
+      .populate('customerId',         'firstName lastName phone email')
+      .populate('advisorId',          'firstName lastName email phone employeeId')
+      .populate('agentId',            'first_name last_name email phone_number')
+      .populate('agencyId',           'companyName primaryContactEmail')
+      .populate('referralPartnerId',  'firstName lastName phone')
+      .populate('inventoryUnitId',    'unitNumber floorNumber unitType bedroomType price status')
+      .populate('createdBy',          'firstName lastName email')
       .populate('partnerAgreementId', 'commissionSplitPercent effectiveDate status')
       .sort({ createdAt: sortDir })
       .skip(skip)
@@ -881,8 +1033,6 @@ exports.getAllDealRecords = asyncHandler(async (req, res) => {
     DealRecord.countDocuments(filter),
   ]);
 
- // Summary runs on the full filtered set (not just the current page)
-// so totals reflect all matching deals, not only the paginated slice.
   const summary = await DealRecord.aggregate([
     { $match: filter },
     {
@@ -899,14 +1049,14 @@ exports.getAllDealRecords = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    data:    deals,
+    data:       deals,
     pagination: paginationMeta(total, page, limit),
     summary,
   });
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// GET SINGLE DEAL RECORD — Admin + owning Advisor (PRD §10.4, ownership check)
+// GET SINGLE DEAL RECORD (PRD §10.4)
 // GET /deal-records/:id
 // ════════════════════════════════════════════════════════════════════════════
 exports.getDealRecordById = asyncHandler(async (req, res) => {
@@ -914,21 +1064,20 @@ exports.getDealRecordById = asyncHandler(async (req, res) => {
 
   const deal = await DealRecord.findById(req.params.id)
     .populate('leadId')
-    .populate('propertyId',   'propertyName area city propertySubType price mainLogo completionDate')
-    .populate('customerId',   'firstName lastName phone email')
-    .populate('advisorId',    'firstName lastName email phone employeeId department')
-    .populate('agentId',      'first_name last_name email phone_number operating_city')
-    .populate('agencyId',     'companyName primaryContactName primaryContactEmail')
-    .populate('referralPartnerId', 'firstName lastName phone email')
+    .populate('propertyId',         'propertyName area city propertySubType price mainLogo completionDate')
+    .populate('customerId',         'firstName lastName phone email')
+    .populate('advisorId',          'firstName lastName email phone employeeId department')
+    .populate('agentId',            'first_name last_name email phone_number operating_city')
+    .populate('agencyId',           'companyName primaryContactName primaryContactEmail')
+    .populate('referralPartnerId',  'firstName lastName phone email')
     .populate('inventoryUnitId')
     .populate('partnerAgreementId')
-    .populate('createdBy',    'firstName lastName email')
-    .populate('confirmedBy',  'firstName lastName email')
-    .populate('paidBy',       'firstName lastName email');
+    .populate('createdBy',          'firstName lastName email')
+    .populate('confirmedBy',        'firstName lastName email')
+    .populate('paidBy',             'firstName lastName email');
 
   if (!deal) throw new APIError('Deal record not found', StatusCodes.NOT_FOUND);
 
-  // ── Ownership check (PRD §10.4) ───────────────────────────────────────────
   if (isAdvisor(role)) {
     const ownsDeal = deal.advisorId && deal.advisorId._id?.toString() === userId.toString();
     if (!ownsDeal) throw new APIError('You can only view your own deal records', StatusCodes.FORBIDDEN);
@@ -939,7 +1088,6 @@ exports.getDealRecordById = asyncHandler(async (req, res) => {
     if (!ownsDeal) throw new APIError('You can only view your own deal records', StatusCodes.FORBIDDEN);
   }
 
-  // Agents see a sanitised view (strip full commission breakdown per PRD §8.5)
   if (isAgent(role)) {
     return res.json({
       success: true,
@@ -949,7 +1097,7 @@ exports.getDealRecordById = asyncHandler(async (req, res) => {
         dealType:         deal.dealType,
         transactionValue: deal.transactionValue,
         commissionStatus: deal.commissionStatus,
-        partnerShare:     deal.commission.partnerShare,   // only their share
+        partnerShare:     deal.commission.partnerShare,
         property:         deal.propertyId,
         customer:         deal.customerId,
         unit:             deal.inventoryUnitId,
@@ -965,7 +1113,7 @@ exports.getDealRecordById = asyncHandler(async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// GET ADVISOR'S OWN DEALS (PRD §7.1 My Leads / Deals)
+// GET ADVISOR'S OWN DEALS (PRD §7.1)
 // GET /deal-records/my-deals
 // ════════════════════════════════════════════════════════════════════════════
 exports.getMyDeals = asyncHandler(async (req, res) => {
@@ -978,8 +1126,8 @@ exports.getMyDeals = asyncHandler(async (req, res) => {
 
   const [deals, total] = await Promise.all([
     DealRecord.find(filter)
-      .populate('propertyId',  'propertyName area price mainLogo')
-      .populate('customerId',  'firstName lastName')
+      .populate('propertyId',      'propertyName area price mainLogo')
+      .populate('customerId',      'firstName lastName')
       .populate('inventoryUnitId', 'unitNumber floorNumber bedroomType')
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -987,7 +1135,6 @@ exports.getMyDeals = asyncHandler(async (req, res) => {
     DealRecord.countDocuments(filter),
   ]);
 
-  // Strip commission breakdown — advisor only sees their own summary
   const sanitized = deals.map(d => ({
     _id:              d._id,
     dealReference:    d.dealReference,
@@ -1006,7 +1153,7 @@ exports.getMyDeals = asyncHandler(async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// GET AGENCY DEALS — Agency sees all affiliated agents' deals (PRD §11.3)
+// GET AGENCY DEALS (PRD §11.3)
 // GET /deal-records/agency-deals
 // ════════════════════════════════════════════════════════════════════════════
 exports.getAgencyDeals = asyncHandler(async (req, res) => {
@@ -1040,16 +1187,11 @@ exports.getAgencyDeals = asyncHandler(async (req, res) => {
     },
   ]);
 
-  res.json({
-    success: true,
-    data:    deals,
-    commissionSummary,
-    pagination: paginationMeta(total, page, limit),
-  });
+  res.json({ success: true, data: deals, commissionSummary, pagination: paginationMeta(total, page, limit) });
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// GET REFERRAL PARTNER DEALS — own deals only (PRD §3.2)
+// GET REFERRAL PARTNER DEALS (PRD §3.2)
 // GET /deal-records/referral-deals
 // ════════════════════════════════════════════════════════════════════════════
 exports.getReferralDeals = asyncHandler(async (req, res) => {
@@ -1133,6 +1275,202 @@ exports.getCommissionStats = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    data:    { byStatus, byType, monthly, flaggedCount: flagged },
+    data: { byStatus, byType, monthly, flaggedCount: flagged },
   });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// GET AGENT'S OWN DEALS (PRD §8.2)
+// GET /deal-records/my-agent-deals
+// ════════════════════════════════════════════════════════════════════════════
+exports.getMyAgentDeals = asyncHandler(async (req, res) => {
+  const agentId = req.user._id;
+  const { commissionStatus } = req.query;
+  const { page, limit, skip } = paginate(req.query);
+
+  const filter = { agentId, isVoided: false };
+  if (commissionStatus) filter.commissionStatus = commissionStatus;
+
+  const [deals, total] = await Promise.all([
+    DealRecord.find(filter)
+      .populate('propertyId',      'propertyName area price mainLogo')
+      .populate('customerId',      'firstName lastName')
+      .populate('inventoryUnitId', 'unitNumber floorNumber bedroomType')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit),
+    DealRecord.countDocuments(filter),
+  ]);
+
+  const sanitized = deals.map(d => ({
+    _id:              d._id,
+    dealReference:    d.dealReference,
+    dealType:         d.dealType,
+    transactionValue: d.transactionValue,
+    commissionStatus: d.commissionStatus,
+    partnerShare:     d.commission.partnerShare,
+    property:         d.propertyId,
+    customer:         d.customerId,
+    unit:             d.inventoryUnitId,
+    confirmedAt:      d.confirmedAt,
+    paidAt:           d.paidAt,
+    createdAt:        d.createdAt,
+  }));
+
+  res.json({ success: true, data: sanitized, pagination: paginationMeta(total, page, limit) });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// CSV EXPORT (PRD §12.5)
+// GET /deal-records/export
+// ════════════════════════════════════════════════════════════════════════════
+const csvCell = (val) => {
+  if (val === null || val === undefined) return '';
+  const str = String(val);
+  if (str.includes(',') || str.includes('\n') || str.includes('"')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+};
+
+const csvRow = (cells) => cells.map(csvCell).join(',') + '\r\n';
+
+const COLUMNS = [
+  { header: 'Deal Reference',       value: d => d.dealReference },
+  { header: 'Deal Type',            value: d => d.dealType },
+  { header: 'Transaction Value',    value: d => d.transactionValue },
+  { header: 'Currency',             value: d => d.currency },
+  { header: 'Property',             value: d => d.propertyId?.propertyName || d.propertyId?.toString() },
+  { header: 'Area',                 value: d => d.propertyId?.area },
+  { header: 'City',                 value: d => d.propertyId?.city },
+  { header: 'Unit Number',          value: d => d.inventoryUnitId?.unitNumber },
+  { header: 'Customer Name',        value: d => [d.customerId?.firstName, d.customerId?.lastName].filter(Boolean).join(' ') },
+  { header: 'Customer Phone',       value: d => d.customerId?.phone },
+  { header: 'Advisor',              value: d => [d.advisorId?.firstName, d.advisorId?.lastName].filter(Boolean).join(' ') },
+  { header: 'Agent',                value: d => [d.agentId?.first_name, d.agentId?.last_name].filter(Boolean).join(' ') },
+  { header: 'Agency',               value: d => d.agencyId?.companyName },
+  { header: 'Referral Partner',     value: d => [d.referralPartnerId?.firstName, d.referralPartnerId?.lastName].filter(Boolean).join(' ') },
+  { header: 'Gross Commission',     value: d => d.commission?.grossAmount },
+  { header: 'Gross %',              value: d => d.commission?.grossPercent },
+  { header: 'Xoto Retained',        value: d => d.commission?.xotoRetained },
+  { header: 'Xoto %',               value: d => d.commission?.xotoPercent },
+  { header: 'Partner Share',        value: d => d.commission?.partnerShare },
+  { header: 'Partner %',            value: d => d.commission?.partnerPercent },
+  { header: 'Referral Share',       value: d => d.commission?.referralShare },
+  { header: 'Referral %',           value: d => d.commission?.referralPercent },
+  { header: 'Commission Status',    value: d => d.commissionStatus },
+  { header: 'Referral Comm Status', value: d => d.referralCommissionStatus },
+  { header: 'Confirmed At',         value: d => d.confirmedAt  ? new Date(d.confirmedAt).toISOString()  : '' },
+  { header: 'Confirmed By',         value: d => [d.confirmedBy?.firstName, d.confirmedBy?.lastName].filter(Boolean).join(' ') },
+  { header: 'Paid At',              value: d => d.paidAt       ? new Date(d.paidAt).toISOString()       : '' },
+  { header: 'Referral Paid At',     value: d => d.referralPaidAt ? new Date(d.referralPaidAt).toISOString() : '' },
+  { header: 'Is Flagged',           value: d => d.isFlagged    ? 'Yes' : 'No' },
+  { header: 'Flag Reason',          value: d => d.flagReason },
+  { header: 'Is Voided',            value: d => d.isVoided     ? 'Yes' : 'No' },
+  { header: 'Void Reason',          value: d => d.voidReason },
+  { header: 'Is Escalated',         value: d => d.isEscalated  ? 'Yes' : 'No' },
+  { header: 'Partner Agreement',    value: d => d.partnerAgreementId?._id?.toString() },
+  { header: 'Notes',                value: d => d.notes },
+  { header: 'Created At',           value: d => new Date(d.createdAt).toISOString() },
+  { header: 'Created By',           value: d => [d.createdBy?.firstName, d.createdBy?.lastName].filter(Boolean).join(' ') },
+];
+
+const buildExportFilter = (query) => {
+  const {
+    commissionStatus, agentId, agencyId, advisorId,
+    dealType, fromDate, toDate,
+    isFlagged, isVoided, isEscalated,
+    referralPartnerId, propertyId,
+  } = query;
+
+  const filter = {};
+  if (commissionStatus)  filter.commissionStatus  = commissionStatus;
+  if (agentId)           filter.agentId           = agentId;
+  if (agencyId)          filter.agencyId          = agencyId;
+  if (advisorId)         filter.advisorId         = advisorId;
+  if (dealType)          filter.dealType          = dealType;
+  if (referralPartnerId) filter.referralPartnerId = referralPartnerId;
+  if (propertyId)        filter.propertyId        = propertyId;
+  if (isFlagged   !== undefined) filter.isFlagged   = isFlagged   === 'true';
+  if (isVoided    !== undefined) filter.isVoided    = isVoided    === 'true';
+  if (isEscalated !== undefined) filter.isEscalated = isEscalated === 'true';
+  if (fromDate || toDate) {
+    filter.createdAt = {};
+    if (fromDate) filter.createdAt.$gte = new Date(fromDate);
+    if (toDate)   filter.createdAt.$lte = new Date(toDate);
+  }
+  return filter;
+};
+
+const buildFilename = (query) => {
+  const parts = ['xoto-commission-export'];
+  if (query.commissionStatus) parts.push(query.commissionStatus);
+  if (query.dealType)         parts.push(query.dealType);
+  if (query.fromDate)         parts.push(`from-${query.fromDate.slice(0, 10)}`);
+  if (query.toDate)           parts.push(`to-${query.toDate.slice(0, 10)}`);
+  parts.push(new Date().toISOString().slice(0, 10));
+  return parts.join('_') + '.csv';
+};
+
+exports.exportDealRecords = asyncHandler(async (req, res) => {
+  const filter   = buildExportFilter(req.query);
+  const sortDir  = req.query.sortOrder === 'asc' ? 1 : -1;
+  const filename = buildFilename(req.query);
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Transfer-Encoding', 'chunked');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  res.write('\uFEFF');
+  res.write(csvRow(COLUMNS.map(c => c.header)));
+
+  const cursor = DealRecord
+    .find(filter)
+    .populate('propertyId',         'propertyName area city')
+    .populate('customerId',         'firstName lastName phone')
+    .populate('advisorId',          'firstName lastName')
+    .populate('agentId',            'first_name last_name')
+    .populate('agencyId',           'companyName')
+    .populate('referralPartnerId',  'firstName lastName')
+    .populate('inventoryUnitId',    'unitNumber')
+    .populate('confirmedBy',        'firstName lastName')
+    .populate('createdBy',          'firstName lastName')
+    .populate('partnerAgreementId', '_id')
+    .sort({ createdAt: sortDir })
+    .lean()
+    .cursor();
+
+  let rowCount = 0;
+
+  const csvTransform = new Transform({
+    objectMode: true,
+    transform(deal, _enc, done) {
+      try {
+        this.push(csvRow(COLUMNS.map(col => col.value(deal))));
+        rowCount++;
+        done();
+      } catch (err) {
+        done(err);
+      }
+    },
+  });
+
+  await new Promise((resolve, reject) => {
+    cursor
+      .pipe(csvTransform)
+      .pipe(res, { end: false })
+      .on('finish', resolve)
+      .on('error', reject);
+
+    cursor.on('error', reject);
+    csvTransform.on('error', reject);
+  });
+
+  console.info(
+    `[DealRecord Export] user=${req.user._id} rows=${rowCount} ` +
+    `filter=${JSON.stringify(filter)} file=${filename}`
+  );
+
+  res.end();
 });

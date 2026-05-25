@@ -30,6 +30,7 @@ router.use(protectMulti);
 
 router.get('/my-leads',    controller.getMyAssignedLeads);   // advisor ke assigned leads
 router.put('/:id/status',  controller.updateMyLeadStatus);   // status update (flow-enforced)
+router.put('/:id/admin-status', controller.updateMyLeadStatus); // admin status update alias
 
 // Advisor manually suggest karta hai aur client react karta hai
 router.post('/:id/suggest-property',    controller.suggestPropertyToClient);

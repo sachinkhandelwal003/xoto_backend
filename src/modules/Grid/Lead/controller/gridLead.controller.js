@@ -13,6 +13,16 @@ const Property = require('../../../properties/models/property.model.js');
 const PropertyInventory = require('../../../properties/models/property.inventory.model.js');
 const { matchPropertiesForLead } = require('./gridLead.matchHelper');
 
+const isGridAdmin = (role) => {
+  if (!role) return false;
+  if (typeof role === 'object') {
+    return role?.isSuperAdmin === true ||
+      Number(role?.code) === 0 ||
+      Number(role?.code) === 1;
+  }
+  return ['admin', 'super_admin', 'xoto_super_admin', 'xoto_staff_admin'].includes(role);
+};
+
 
 // ════════════════════════════════════════════════════════════════════════════
 // WEBSITE LEADS
@@ -686,9 +696,11 @@ exports.getMyAssignedLeads = asyncHandler(async (req, res) => {
 exports.updateMyLeadStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status, notes = '', inventoryUnitId } = req.body;
-  const advisorId = req.user?._id;
+  const actorId = req.user?._id;
+  const actorIsAdmin = isGridAdmin(req.user?.role);
+  const actorType = actorIsAdmin ? 'admin' : 'advisor';
 
-  if (!advisorId) {
+  if (!actorId) {
     return res.status(StatusCodes.UNAUTHORIZED).json({ success: false, message: 'Unauthorized' });
   }
 
@@ -697,10 +709,11 @@ exports.updateMyLeadStatus = asyncHandler(async (req, res) => {
     return res.status(StatusCodes.NOT_FOUND).json({ success: false, message: 'Lead not found' });
   }
 
-  if (!lead.assigned_to || lead.assigned_to.toString() !== advisorId.toString()) {
+  const isAssignedAdvisor = lead.assigned_to && lead.assigned_to.toString() === actorId.toString();
+  if (!actorIsAdmin && !isAssignedAdvisor) {
     return res.status(StatusCodes.FORBIDDEN).json({
       success: false,
-      message: 'Only assigned advisor can update this lead status',
+      message: 'Only assigned advisor or admin can update this lead status',
     });
   }
 
@@ -771,7 +784,7 @@ const FLOW = [
       const inventoryUpdate = {};
       if (status === 'reserved') {
         inventoryUpdate.status = 'reserved';
-        inventoryUpdate.reservedBy = advisorId;
+        inventoryUpdate.reservedBy = actorId;
         inventoryUpdate.reservedAt = new Date();
         inventoryUpdate.leadId = lead._id;
       } else if (status === 'spa_signed') {
@@ -803,7 +816,7 @@ const FLOW = [
   lead.status_history = lead.status_history || [];
   lead.status_history.push({
     status,
-    changed_by: advisorId,
+    changed_by: actorId,
     changed_at: new Date(),
     notes:      notesTrim || undefined,
   });
@@ -811,8 +824,8 @@ const FLOW = [
   lead.notes = lead.notes || [];
   lead.notes.push({
     text:        notesTrim ? `Status updated to "${status}". Note: ${notesTrim}` : `Status updated to "${status}"`,
-    author:      req.user?.firstName || 'Advisor',
-    author_type: 'advisor',
+    author:      req.user?.firstName || req.user?.first_name || (actorIsAdmin ? 'Admin' : 'Advisor'),
+    author_type: actorType,
     is_private:  false,
     created_at:  new Date(),
   });

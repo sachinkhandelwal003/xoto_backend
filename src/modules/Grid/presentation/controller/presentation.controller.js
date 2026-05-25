@@ -10,6 +10,10 @@ const {
 const Presentation = require('../model/presentation.model');
 const { GetObjectCommand } = require('@aws-sdk/client-s3');
 const s3 = require('../../../../config/s3Client');
+const Agent = require('../../Agent/models/agent');
+const Advisor = require('../../Advisor/model');
+const PropertyInventory = require('../../../properties/models/property.inventory.model');
+const Property = require('../../../properties/models/property.model');
 
 // ── POST /api/presentation/generate-narrative ────────────────────────────────
 // Step 1: Sirf AI narrative generate karo (preview ke liye)
@@ -29,6 +33,97 @@ const generateNarrative = async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to generate narrative', error: err.message });
   }
 };
+
+const resolvePresentationCreator = async (userId, submittedProfile = {}) => {
+  const clean = (value) => String(value || '').trim();
+  const roleText = clean(submittedProfile.userType || submittedProfile.role?.name || submittedProfile.role).toLowerCase();
+
+  const fromAgent = async () => {
+    const agent = await Agent.findById(userId)
+      .select('first_name last_name fullName email phone_number agency')
+      .populate('agency', 'companyName agency_name agencyName')
+      .lean();
+    if (!agent) return null;
+
+    return {
+      ...submittedProfile,
+      first_name: agent.first_name,
+      last_name: agent.last_name,
+      name: agent.fullName || `${agent.first_name || ''} ${agent.last_name || ''}`.trim(),
+      phone: agent.phone_number,
+      phone_number: agent.phone_number,
+      email: agent.email,
+      userType: 'agent',
+      agencyName: agent.agency?.companyName || agent.agency?.agency_name || agent.agency?.agencyName || submittedProfile.agencyName,
+    };
+  };
+
+  const fromAdvisor = async () => {
+    const advisor = await Advisor.findById(userId)
+      .select('firstName lastName email phone employeeId')
+      .lean();
+    if (!advisor) return null;
+
+    return {
+      ...submittedProfile,
+      firstName: advisor.firstName,
+      lastName: advisor.lastName,
+      name: `${advisor.firstName || ''} ${advisor.lastName || ''}`.trim(),
+      phone: advisor.phone,
+      email: advisor.email,
+      employeeId: advisor.employeeId,
+      userType: 'advisor',
+    };
+  };
+
+  if (roleText.includes('agent')) return (await fromAgent()) || submittedProfile;
+  if (roleText.includes('advisor')) return (await fromAdvisor()) || submittedProfile;
+
+  return (await fromAgent()) || (await fromAdvisor()) || submittedProfile;
+};
+
+const enrichPropertyInventory = async (propertyId, property) => {
+  const resolvedPropertyId = propertyId || property?._id || property?.id;
+  if (!resolvedPropertyId) return property;
+
+  try {
+    const dbProperty = await Property.findById(resolvedPropertyId).lean();
+    const inventory = await PropertyInventory.find({ propertyId: resolvedPropertyId })
+      .sort({ unitType: 1, bedroomType: 1, price: 1, unitNumber: 1 })
+      .select('unitNumber buildingName floorNumber unitType bedroomType bedrooms bathrooms area areaUnit price currency status paymentPlan')
+      .lean();
+
+    const mergedProperty = {
+      ...(dbProperty || {}),
+      ...(property || {}),
+    };
+
+    if ((!Array.isArray(mergedProperty.amenities) || !mergedProperty.amenities.length) && dbProperty?.amenities?.length) {
+      mergedProperty.amenities = dbProperty.amenities;
+    }
+
+    if ((!Array.isArray(mergedProperty.paymentPlan) || !mergedProperty.paymentPlan.length) && dbProperty?.paymentPlan?.length) {
+      mergedProperty.paymentPlan = dbProperty.paymentPlan;
+    }
+
+    if ((!mergedProperty.facilities || !Object.keys(mergedProperty.facilities).length) && dbProperty?.facilities) {
+      mergedProperty.facilities = dbProperty.facilities;
+    }
+
+    if ((!mergedProperty.developerDetails || !Object.keys(mergedProperty.developerDetails).length) && dbProperty?.developerDetails) {
+      mergedProperty.developerDetails = dbProperty.developerDetails;
+    }
+
+    return {
+      ...mergedProperty,
+      ...(inventory.length ? { inventory } : {}),
+    };
+  } catch (err) {
+    console.warn('Presentation property enrichment failed:', err.message);
+    return property;
+  }
+};
+
 
 
 
@@ -62,6 +157,43 @@ const trackAndServe = async (req, res) => {
 
     // ✅ PDF download button inject karo — </body> se pehle
 const pdfDownloadUrl = `${req.baseUrl}/pdf/${encodeURIComponent(token)}`;
+const presentationThemePatch = `
+<style id="presentation-theme-patch">
+  .slide-header {
+    min-height: 92px !important;
+    padding: 22px 80px !important;
+    align-items: center !important;
+    gap: 30px !important;
+    background: linear-gradient(90deg, #4A027C, #26003f) !important;
+    box-shadow: 0 16px 38px rgba(74,2,124,0.18) !important;
+  }
+  .slide-header::after {
+    left: 80px !important;
+    right: 80px !important;
+    bottom: 0 !important;
+    width: auto !important;
+    height: 2px !important;
+    background: linear-gradient(90deg, #C5A059, rgba(197,160,89,0.18)) !important;
+  }
+  .slide-title {
+    color: #fff !important;
+    font-size: 42px !important;
+  }
+  .slide-title em {
+    color: #C5A059 !important;
+  }
+  .header-logo {
+    height: 38px !important;
+    max-width: 190px !important;
+    opacity: 1 !important;
+    background: transparent !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+  }
+  .content-area {
+    padding-top: 34px !important;
+  }
+</style>`;
 const pdfDownloadHtml = `
 <style>
   #pdf-fab {
@@ -132,7 +264,7 @@ const pdfDownloadHtml = `
   }
 </style>
 
-<button id="pdf-fab" onclick="downloadPdf()">
+<button type="button" id="pdf-fab">
   <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
     <path d="M12 16l-5-5 1.41-1.41L11 13.17V4h2v9.17l2.59-2.58L17 11l-5 5zm-6 2h12v2H6v-2z"/>
   </svg>
@@ -140,8 +272,9 @@ const pdfDownloadHtml = `
 </button>
 
 <script>
-  function downloadPdf() {
+  const downloadPdf = () => {
     const btn = document.getElementById('pdf-fab');
+    if (!btn) return;
     btn.innerHTML = 'Preparing PDF...';
     btn.style.opacity = '0.7';
     btn.style.pointerEvents = 'none';
@@ -153,13 +286,40 @@ const pdfDownloadHtml = `
       btn.style.opacity = '1';
       btn.style.pointerEvents = 'auto';
     }, 2500);
-  }
+  };
+
+  document.getElementById('pdf-fab')?.addEventListener('click', downloadPdf);
+
+  document.querySelectorAll('.controls .nav-btn').forEach((button, index) => {
+    if (button.dataset.action) return;
+
+    button.addEventListener('click', () => {
+      if (index === 0 && typeof window.toggleAutoPlay === 'function') window.toggleAutoPlay();
+      if (index === 1 && typeof window.prevSlide === 'function') window.prevSlide();
+      if (index === 2 && typeof window.nextSlide === 'function') window.nextSlide();
+    });
+  });
 </script>`;
 
     // </body> se pehle inject karo
+    htmlContent = htmlContent.replace('</head>', `${presentationThemePatch}\n</head>`);
     htmlContent = htmlContent.replace('</body>', `${pdfDownloadHtml}\n</body>`);
 
     res.setHeader('Content-Type', 'text/html');
+    res.setHeader(
+      'Content-Security-Policy',
+      [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
+        "script-src-attr 'none'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
+        "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com",
+        "img-src 'self' data: blob: https: http:",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+      ].join('; ')
+    );
     res.send(htmlContent);
 
   } catch (err) {
@@ -248,7 +408,9 @@ const savePresentationHandler = async (req, res) => {   // ← naam badlo
       return res.status(400).json({ success: false, message: 'property, narrative, settings required' });
     }
 
-    const htmlContent = await buildHtmlPresentation(property, narrative, settings, agentProfile || {});
+    const resolvedAgentProfile = await resolvePresentationCreator(agentId, agentProfile || {});
+    const propertyWithInventory = await enrichPropertyInventory(propertyId, property);
+    const htmlContent = await buildHtmlPresentation(propertyWithInventory, narrative, settings, resolvedAgentProfile);
 
     const fileName = `${agentId}_${Date.now()}`;
     const { key, url } = await uploadToS3(htmlContent, fileName);
@@ -308,7 +470,11 @@ const downloadPdf = async (req, res) => {
     const pdfBuffer = await generatePdfFromPresentation(token);
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="xoto-presentation.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="xoto-presentation-${token}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.send(pdfBuffer);
 
   } catch (err) {
