@@ -42,26 +42,29 @@ const getModelByRole = (roleName) => {
 export const getProfileData = async (req, res) => {
   try {
     const user  = req.user;
-    const Model = getModelByRole(user.role.name);
+    const roleName = typeof user.role === "object" ? user.role?.name : user.role;
+    const Model = getModelByRole(roleName);
     if (!Model) return res.status(400).json({ message: "Invalid Role" });
 
     let query = Model.findOne({ _id: user._id });
 
         // Specific population based on roles
-        if (user.role.name === "Freelancer") {
+        if (roleName === "Freelancer") {
             query.populate("payment.preferred_currency services_offered.category services_offered.subcategories.type");
-        } else if (user.role.name === "Vendor-B2C") {
+        } else if (roleName === "Vendor-B2C") {
             query.populate("store_details.categories");
-        }else if (user.role.name === "GridAdvisor") {
+        }else if (roleName === "GridAdvisor") {
     query.populate("createdBy", "firstName lastName email");  // ← add karo
+} else if (roleName === "GridReferralPartner") {
+            // Referral partner stores role as a string, so there is no role ref to populate.
 } else {
             query.populate("role");
         }
 
         // VaultAgent — partner info bhi populate karo
-        if (user.role.name === "VaultAgent") {
+        if (roleName === "VaultAgent") {
           query.populate("partnerId", "companyName status _id");
-        } else if (user.role.name === "Agent") {
+        } else if (roleName === "Agent") {
           query.populate("role").populate("agency", "agency_name agencyName companyName");
         }
 
