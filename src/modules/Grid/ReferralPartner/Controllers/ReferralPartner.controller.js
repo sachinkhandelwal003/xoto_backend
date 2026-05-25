@@ -148,11 +148,18 @@ exports.getProfile = async (req, res) => {
 
 exports.updateBasicInfo = async (req, res) => {
   try {
-    const { firstName, lastName, email, dateOfBirth, profilePhotoUrl } = req.body; // ✅ add profilePhotoUrl
+    const { firstName, lastName, email, phone, dateOfBirth, profilePhotoUrl } = req.body;
+
+    if (phone) {
+      const existingUser = await GridReferralPartner.findOne({ phone, _id: { $ne: req.user._id } });
+      if (existingUser) {
+        return res.status(409).json({ status: "fail", message: "Phone number already registered by another user" });
+      }
+    }
 
     const partner = await GridReferralPartner.findByIdAndUpdate(
       req.user._id,
-      { firstName, lastName, email, dateOfBirth, profilePhotoUrl }, // ✅ add here too
+      { firstName, lastName, email, phone, dateOfBirth, profilePhotoUrl },
       { new: true, runValidators: true }
     ).select("-password");
 
