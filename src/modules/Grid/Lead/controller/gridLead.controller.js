@@ -1009,9 +1009,9 @@ exports.getLeadById = asyncHandler(async (req, res) => {
 
   if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
 
-  const role = req.user?.role;
+  const roleName = req.user?.role?.name?.toLowerCase();
 
-  if (role === 'agent' || role === 'referral_partner') {
+  if (roleName === 'agent' || roleName === 'gridreferralpartner' || roleName === 'referral_partner') {
     const userId    = req.user._id?.toString();
     const createdBy = lead.created_by_agent?._id?.toString() || lead.created_by?.toString();
     if (userId !== createdBy) {
@@ -1035,7 +1035,7 @@ exports.getLeadById = asyncHandler(async (req, res) => {
     }
   }
 
-  if (role === 'advisor') {
+  if (roleName === 'gridadvisor' || roleName === 'advisor') {
     const advisorId = req.user._id?.toString();
     if (lead.assigned_to?._id?.toString() !== advisorId) {
       return res.status(403).json({ success: false, message: 'Access denied' });

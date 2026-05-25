@@ -14,25 +14,25 @@ import VaultMortgageOps from "../../vault/models/MortgageOps.js";
 import GridReferralPartner from "../../Grid/ReferralPartner/Model/ReferralPartner.model.js";
 // ── Role ke basis par model return karo ──────────────────────────────
 const getModelByRole = (roleName) => {
-    switch (roleName) {
-        case "Supervisor":
-        case "Accountant": return AllUsers;
-        case "Freelancer": return Freelancer;
-        case "Customer": return Customer;
-        case "SuperAdmin": return Admin;
-      case "Admin": return Admin;
-            case "VaultAdmin": return Admin;
-        case "Vendor-B2C": return Vendor;
-        case "Agent": return Agent;
-        case "Developer": return Developer;
-                case "Agency": return Agency;
-                                case "VaultPartner": return VaultPartner;
-                case "VaultAgent": return VaultAgent;
-                case "GridAdvisor": return GridAdvisor;
-                case "Vault-Advisor": return VaultAdvisor;
-                case "Vault-Mortgage-Ops": return VaultMortgageOps;
-                case "gridreferralpartner":
-  return GridReferralPartner;
+    if (!roleName) return null;
+    switch (roleName.toLowerCase()) {
+        case "supervisor":
+        case "accountant": return AllUsers;
+        case "freelancer": return Freelancer;
+        case "customer": return Customer;
+        case "superadmin":
+        case "admin":
+        case "vaultadmin": return Admin;
+        case "vendor-b2c": return Vendor;
+        case "agent": return Agent;
+        case "developer": return Developer;
+        case "agency": return Agency;
+        case "vaultpartner": return VaultPartner;
+        case "vaultagent": return VaultAgent;
+        case "gridadvisor": return GridAdvisor;
+        case "vault-advisor": return VaultAdvisor;
+        case "vault-mortgage-ops": return VaultMortgageOps;
+        case "gridreferralpartner": return GridReferralPartner;
 
         default: return null;
     }
