@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const bcrypt = require("bcryptjs");
 const mongoose = require('mongoose');
 const Agency = require('../models/index');
 const Agent = require('../models/agent');
@@ -98,37 +99,49 @@ const assertAgencyAgent = async (agencyId, agentId) => {
  */
 exports.login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
-
+ 
   if (!email || !password) {
     throw new APIError('Email and password are required', StatusCodes.BAD_REQUEST);
   }
-
-const agency = await Agency.findOne({ primaryContactEmail: email, isActive: true })
-.select('+password')
-.populate('role', 'code name');
-if (!agency) throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
-
-if (agency.isSuspended) {
-  throw new APIError('Account suspended. Contact Xoto Admin.', StatusCodes.FORBIDDEN);
-}
-
-
+ 
+  const agency = await Agency.findOne({ primaryContactEmail: email, isActive: true })
+    .select('+password')
+    .populate('role', 'code name');
+ 
+  if (!agency) throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
+ 
+  if (agency.isSuspended) {
+    throw new APIError('Account suspended. Contact Xoto Admin.', StatusCodes.FORBIDDEN);
+  }
+ 
   const isMatch = await agency.comparePassword(password);
   if (!isMatch) {
     throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
   }
-
-  if (agency.tempPassword) {
-    await generateAndSendOTP(agency, 'password_reset', 'email');
-    return res.status(200).json({
-      status: 'success',
-      requirePasswordReset: true,
-      message: 'Temporary password detected. A reset OTP has been sent to your registered email.',
-    });
-  }
-
+ 
+  // ✅ FIX: tempPassword case — resetToken bhi bhejo
+  // if (agency.tempPassword) {
+  //   await generateAndSendOTP(agency, 'password_reset', 'email');
+ 
+  //   // Short-lived token — sirf OTP verify karne ke liye (15 min)
+  //   const resetToken = jwt.sign(
+  //     { id: agency._id, purpose: 'password_reset', type: 'agency' },
+  //     process.env.JWT_SECRET,
+  //     { expiresIn: '15m' }
+  //   );
+  
+    //   return res.status(200).json({
+    //     status:               'success',
+    //     requirePasswordReset: true,
+    //     resetToken,                      // ← yeh add kiya
+    //     email:                agency.primaryContactEmail,
+    //     message:              'Temporary password detected. A reset OTP has been sent to your registered email.',
+    //   });
+    // }
+ 
   sendTokenResponse(agency, 200, res);
 });
+
 
 /**
  * POST /agency/auth/request-otp
@@ -1237,31 +1250,37 @@ exports.createAgencyByAdmin = asyncHandler(async (req, res) => {
     throw new APIError('Agency already exists with this email or RERA number', StatusCodes.BAD_REQUEST);
   }
 
-  const generatedPassword = 'Xoto@' + Math.floor(1000 + Math.random() * 9000);
+const generatedPassword =
+'Xoto@' + Math.floor(1000 + Math.random() * 9000);
 
-  const agency = await Agency.create({
+const finalPassword =
+req.body.password?.trim() || generatedPassword;
+
+const agency = await Agency.create({
     companyName,
     reraRegistrationNumber,
     tradeLicenceUrl,
-    reraLicenceUrl:       reraLicenceUrl       || '',   // ✅
-    letterOfAuthorityUrl: letterOfAuthorityUrl || '',   // ✅
-    logo:                 logo                 || '',   // ✅
-    profilePhoto:         profilePhoto         || '',   // ✅
+    reraLicenceUrl: reraLicenceUrl || '',
+    letterOfAuthorityUrl: letterOfAuthorityUrl || '',
+    logo: logo || '',
+    profilePhoto: profilePhoto || '',
     primaryContactName,
     primaryContactEmail,
     primaryContactPhone,
-    address:           address           || {},         // ✅
-    operatingLocation: operatingLocation || {},         // ✅
-    role:              agencyRole?._id   || null,
-    password:          generatedPassword,
-    tempPassword:      true,
-    subscriptionTier:  subscriptionTier  || 'basic',
-    presentationQuota: presentationQuota || 100,
-    isActive:          true,
-    isSuspended:       false,
-    createdBy:         req.user?._id     || null,
-  });
+    address: address || {},
+    operatingLocation: operatingLocation || {},
+    role: agencyRole?._id || null,
 
+    password: finalPassword, // FIXED
+
+    tempPassword: !req.body.password,
+
+    subscriptionTier: subscriptionTier || 'basic',
+    presentationQuota: presentationQuota || 100,
+    isActive: true,
+    isSuspended: false,
+    createdBy: req.user?._id || null,
+});
   try {
     await sendEmail({
       to: primaryContactEmail,
@@ -1269,7 +1288,7 @@ exports.createAgencyByAdmin = asyncHandler(async (req, res) => {
       html: agencyWelcomeEmail({
         companyName,
         primaryContactEmail,
-        tempPassword: generatedPassword,
+        tempPassword: finalPassword,
       }),
     });
   } catch (emailErr) {

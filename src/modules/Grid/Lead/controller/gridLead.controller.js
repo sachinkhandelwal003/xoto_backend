@@ -261,13 +261,12 @@ exports.getLeads = asyncHandler(async (req, res) => {
     GridLead.find(filter)
       .populate('source.listing_id')
       .populate('matched_listings.listing_id')
-      .populate('customerId', 'name firstName lastName email mobile phone')
-      .populate('assigned_to', 'firstName lastName email phone')
-      .populate({
-        path: 'created_by_agent',
-        select: 'first_name last_name email phone_number agency',
-        populate: { path: 'agency', select: 'companyName agency_name name primaryContactEmail' },
-      })
+      .populate('assigned_to', 'firstName lastName email')
+       .populate({                                 
+      path:   'created_by_agent',
+      model:  'GridAgent',
+      select: 'first_name last_name email phone_number role',
+    })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit),
