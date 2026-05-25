@@ -226,11 +226,35 @@ exports.submitDeveloperApplication = async (req, res) => {
 exports.createDeveloper = async (req, res) => {
     try {
         const {
-            name, companyName, email, phone_number, phone, country_code,
-            city, country, address, reraNumber, developerLicenseNumber,
-            dldNumber, dldRegistrationNumber, primaryContactName,
-            tradeLicenseDocument, description, websiteUrl,
-        } = req.body;
+    name,
+    companyName,
+    email,
+    phone_number,
+    phone,
+    country_code,
+
+    city,
+    country,
+    address,
+
+    reraNumber,
+    developerLicenseNumber,
+    dldNumber,
+    dldRegistrationNumber,
+
+    primaryContactName,
+    authorizedPersonName,
+    officialEmailId,
+    operatingYears,
+
+    logo,
+    kycDocuments,
+    agreementDocuments,
+
+    tradeLicenseDocument,
+    description,
+    websiteUrl,
+} = req.body;
 
         const finalCompanyName = (companyName || name || "").trim();
         const finalEmail = normalizeEmail(email || req.body.email || req.body.officialEmailId || "");
@@ -272,46 +296,96 @@ exports.createDeveloper = async (req, res) => {
         const hashedPassword = await bcrypt.hash(tempPassword, 10);
         const now = new Date();
 
-        const developer = await Developer.create({
-            name:                           finalCompanyName,
-            companyName:                    finalCompanyName,
-            email:                          finalEmail,
-            password:                       hashedPassword,
-            phone_number:                   finalPhone,
-            country_code:                   country_code || "+971",
-            role:                           roleDoc._id,
-            city:                           city || "",
-            country:                        country || "",
-            address:                        address || "",
-            reraNumber:                     finalDeveloperLicenseNumber.trim(),
-            developerLicenseNumber:         finalDeveloperLicenseNumber.trim(),
-            dldNumber:                      finalDldNumber.trim(),
-            dldRegistrationNumber:          finalDldNumber.trim(),
-            primaryContactName:             finalPrimaryContactName.trim(),
-            authorizedPersonName:           finalPrimaryContactName.trim(),
-            tradeLicenseDocument:           tradeLicenseDocument?.url ? {
-                name:       tradeLicenseDocument.name || "Trade licence",
-                url:        tradeLicenseDocument.url,
-                uploadedAt: now,
-            } : undefined,
-            description:                    description || "",
-            websiteUrl:                     websiteUrl || "",
-            onboardingSource:               "admin_created",
-            applicationStatus:              "approved",
-            applicationReviewedAt:          now,
-            applicationReviewedBy:          req.user?._id || null,
-            commercialAgreementStatus:      "completed",
-            commercialAgreementCompletedAt: now,
-            commercialAgreementCompletedBy: req.user?._id || null,
-            accessGranted:                  true,
-            accessGrantedAt:                now,
-            accessGrantedBy:                req.user?._id || null,
-            accountStatus:                  "active",
-            onboardingStatus:               "completed",
-            onboardingCompletedAt:          now,
-            isVerifiedByAdmin:              true,
-            kycStatus:                      "approved",
-        });
+    const developer = await Developer.create({
+
+    name: finalCompanyName,
+    companyName: finalCompanyName,
+    email: finalEmail,
+    password: hashedPassword,
+    phone_number: finalPhone,
+
+    country_code: country_code || "+971",
+    role: roleDoc._id,
+
+    city: city || "",
+    country: country || "",
+    address: address || "",
+
+    reraNumber: finalDeveloperLicenseNumber.trim(),
+    developerLicenseNumber: finalDeveloperLicenseNumber.trim(),
+
+    dldNumber: finalDldNumber.trim(),
+    dldRegistrationNumber: finalDldNumber.trim(),
+
+    primaryContactName: finalPrimaryContactName.trim(),
+
+    authorizedPersonName:
+        authorizedPersonName ||
+        finalPrimaryContactName,
+
+    officialEmailId:
+        officialEmailId || "",
+
+    operatingYears:
+        operatingYears || 0,
+
+    // ✅ THESE WERE MISSING
+
+    logo: logo || "",
+
+    kycDocuments:
+        kycDocuments?.map(doc=>({
+
+            type: doc.type,
+            name: doc.name,
+            url: doc.url,
+            uploadedAt: now
+
+        })) || [],
+
+    agreementDocuments:
+        agreementDocuments?.map(doc=>({
+
+            type: doc.type,
+            name: doc.name,
+            url: doc.url,
+            uploadedAt: now,
+            uploadedBy: doc.uploadedBy || "admin"
+
+        })) || [],
+
+    tradeLicenseDocument:
+        tradeLicenseDocument?.url
+        ? {
+            name: tradeLicenseDocument.name || "Trade licence",
+            url: tradeLicenseDocument.url,
+            uploadedAt: now
+          }
+        : undefined,
+
+    description: description || "",
+    websiteUrl: websiteUrl || "",
+
+    onboardingSource:"admin_created",
+    applicationStatus:"approved",
+    applicationReviewedAt:now,
+    applicationReviewedBy:req.user?._id || null,
+
+    commercialAgreementStatus:"completed",
+    commercialAgreementCompletedAt:now,
+    commercialAgreementCompletedBy:req.user?._id || null,
+
+    accessGranted:true,
+    accessGrantedAt:now,
+    accessGrantedBy:req.user?._id || null,
+
+    accountStatus:"active",
+    onboardingStatus:"completed",
+    onboardingCompletedAt:now,
+
+    isVerifiedByAdmin:true,
+    kycStatus:"approved"
+});
 
         try {
             await sendEmail({

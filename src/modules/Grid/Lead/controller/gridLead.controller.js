@@ -252,6 +252,11 @@ exports.getLeads = asyncHandler(async (req, res) => {
       .populate('source.listing_id')
       .populate('matched_listings.listing_id')
       .populate('assigned_to', 'firstName lastName email')
+       .populate({                                 
+      path:   'created_by_agent',
+      model:  'GridAgent',
+      select: 'first_name last_name email phone_number role',
+    })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit),
