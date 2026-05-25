@@ -192,14 +192,32 @@ const leadSchema = new mongoose.Schema(
     currentStatus: {
       type: String,
       enum: [
-        'New',                   // Submitted, not assigned
-        'Assigned',              // Admin assigned → SLA starts
-        'Contacted',             // Advisor made first contact
-        'Qualified',             // Eligible — Customer record created
-        'Collecting Documents',  // Advisor collecting docs from customer
-        'Documents Complete',    // Advisor marks docs ready
-        'Application Opened',    // Case/Application created
-        'Not Proceeding',        // Closed
+       // Initial
+  'New',
+  
+  // Advisor Workflow
+  'Assigned',
+  'Contacted',
+  'Qualified',
+  
+  // Document Collection
+  'Collecting Documents',
+  'Documents Complete',
+  
+  // Application
+  'Application Opened',
+  
+  // Bank Stages
+  'Bank Application',
+  'Pre-Approved',
+  'Valuation',
+  'FOL Processed',
+  'FOL Issued',
+  'FOL Signed',
+  
+  // Final
+  'Disbursed',
+  'Not Proceeding'       // Closed
       ],
       default: 'New',
     },

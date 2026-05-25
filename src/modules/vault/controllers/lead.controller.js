@@ -7,6 +7,7 @@ import HistoryService from '../services/history.service.js';
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 import xlsx from 'xlsx';
 import path from 'path';
+import { emitVaultNotification } from '../services/vaultNotification.service.js';
 
 // ══════════════════════════════════════════════════════════════════
 // HELPERS
@@ -179,6 +180,16 @@ export const createLead = async (req, res) => {
     await agent.updateOne({ $inc: { 'earnings.totalLeadsSubmitted': 1 } });
     await HistoryService.logLeadActivity(lead, 'LEAD_CREATED', await getUserInfo(req), {
       description: `Lead created for ${customerInfo.firstName} ${customerInfo.lastName}`,
+    });
+
+    emitVaultNotification({
+      eventType:     'LEAD_CREATED',
+      title:         'New Lead Submitted',
+      message:       `${customerInfo.firstName} ${customerInfo.lastName} — submitted by ${agent.name.first_name} ${agent.name.last_name} (${agent.agentType})`,
+      entityId:      lead._id,
+      entityModel:   'VaultLead',
+      createdByName: `${agent.name.first_name} ${agent.name.last_name}`,
+      createdByRole: agent.agentType,
     });
 
     return res.status(201).json({
@@ -876,31 +887,112 @@ export const assignLeadToXotoAdvisor = async (req, res) => {
 // ══════════════════════════════════════════════════════════════════
 // 11. ADVISOR — GET ASSIGNED LEADS
 // ══════════════════════════════════════════════════════════════════
+// controllers/lead.controller.js
+
+// =============================================================
+// GET ADVISOR ASSIGNED LEADS - Status wise fetching
+// =============================================================
+// controllers/lead.controller.js
+
 export const getAdvisorAssignedLeads = async (req, res) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
-    const query = { isDeleted: false, 'assignedTo.advisorId': req.user._id };
-    if (status) query.currentStatus = status;
-
+    const { status, page = 1, limit = 20, search, eligibilityStatus } = req.query;
+    
+    // IMPORTANT: Only fetch leads ASSIGNED to this advisor
+    const query = { 
+      isDeleted: false, 
+      'assignedTo.advisorId': req.user._id  // ← Only assigned to this advisor
+    };
+    
+    // Apply status filter if provided (and not 'all')
+    if (status && status !== 'all') {
+      query.currentStatus = status;
+    }
+    
+    // Search filter
+    if (search) {
+      query.$or = [
+        { 'customerInfo.firstName': { $regex: search, $options: 'i' } },
+        { 'customerInfo.lastName': { $regex: search, $options: 'i' } },
+        { 'customerInfo.email': { $regex: search, $options: 'i' } },
+        { 'customerInfo.mobileNumber': { $regex: search, $options: 'i' } },
+      ];
+    }
+    
+    // Eligibility filter
+    if (eligibilityStatus === 'eligible') {
+      query['eligibility.isEligible'] = true;
+      query['eligibility.checked'] = true;
+    } else if (eligibilityStatus === 'not_eligible') {
+      query['eligibility.isEligible'] = false;
+      query['eligibility.checked'] = true;
+    } else if (eligibilityStatus === 'not_checked') {
+      query['eligibility.checked'] = false;
+    }
+    
+    // Get paginated leads
     const [leads, total] = await Promise.all([
-      Lead.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(parseInt(limit)),
+      Lead.find(query)
+        .select('-__v')  // Exclude version field
+        .sort({ createdAt: -1 })
+        .skip((parseInt(page) - 1) * parseInt(limit))
+        .limit(parseInt(limit)),
       Lead.countDocuments(query),
     ]);
-
-    const base = { isDeleted: false, 'assignedTo.advisorId': req.user._id };
+    
+    // Get counts for ALL statuses (for stats cards)
+    const baseQuery = { isDeleted: false, 'assignedTo.advisorId': req.user._id };
+    
+    // Use aggregation for better performance
+    const statusCounts = await Lead.aggregate([
+      { $match: baseQuery },
+      { $group: { _id: '$currentStatus', count: { $sum: 1 } } }
+    ]);
+    
+    // Build summary object with all possible statuses
     const summary = {
-      total: await Lead.countDocuments(base),
-      assigned: await Lead.countDocuments({ ...base, currentStatus: 'Assigned' }),
-      contacted: await Lead.countDocuments({ ...base, currentStatus: 'Contacted' }),
-      qualified: await Lead.countDocuments({ ...base, currentStatus: 'Qualified' }),
-      collectingDocs: await Lead.countDocuments({ ...base, currentStatus: 'Collecting Documents' }),
+      total: await Lead.countDocuments(baseQuery),
+      Assigned: 0,
+      Contacted: 0,
+      Qualified: 0,
+      'Collecting Documents': 0,
+      'Bank Application': 0,
+      'Pre-Approved': 0,
+      'Valuation': 0,
+      'FOL Processed': 0,
+      'FOL Issued': 0,
+      'FOL Signed': 0,
+      'Disbursed': 0,
+      'New': 0,
+      'Lost': 0,
+      'Not Proceeding': 0
     };
-
-    return res.status(200).json({ success: true, data: leads, total, summary });
+    
+    statusCounts.forEach(item => {
+      if (summary.hasOwnProperty(item._id)) {
+        summary[item._id] = item.count;
+      }
+    });
+    
+    return res.status(200).json({
+      success: true,
+      data: leads,
+      total: total,
+      summary: summary,
+      pagination: {
+        totalPages: Math.ceil(total / parseInt(limit)),
+        currentPage: parseInt(page),
+        limit: parseInt(limit),
+        totalItems: total
+      }
+    });
   } catch (err) {
+    console.error('getAdvisorAssignedLeads error:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+
+
 
 // ══════════════════════════════════════════════════════════════════
 // 12. ADVISOR — UPDATE LEAD STATUS

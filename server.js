@@ -20,6 +20,11 @@ const io = new Server(server, {
   }
 });
 
+// Share io with vault notification service
+const { setIO } = require('./src/utils/socketInstance');
+setIO(io);
+
+
 // Online users store — { userId: socketId }
 
 const onlineUsers = {};
@@ -31,6 +36,16 @@ io.on('connection', (socket) => {
   socket.on('register', (userId) => {
     onlineUsers[userId] = socket.id;
     console.log(`Registered: ${userId} → ${socket.id}`);
+  });
+
+  // Vault: role-based room join
+  // Allowed vault role codes: 18=Admin, 21=Partner, 22=VaultAgent, 23=Ops, 26=Advisor
+  const VAULT_ROLE_CODES = ['18', '21', '22', '23', '26'];
+  socket.on('vault:join', ({ roleCode } = {}) => {
+    if (!roleCode || !VAULT_ROLE_CODES.includes(String(roleCode))) return;
+    socket.join('vault:notifications');
+    console.log(`[VaultSocket] ${socket.id} (roleCode ${roleCode}) joined vault:notifications`);
+    socket.emit('vault:joined', { room: 'vault:notifications', roleCode });
   });
 
   // 2. Chat initiate

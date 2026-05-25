@@ -1,39 +1,55 @@
-// proposal.routes.js
 import express from 'express';
-import { 
-  createProposal, 
-  sendProposal, 
-  acceptProposal, 
-  rejectProposal, 
-  getMyProposals, 
+import {
+  getEligibleBanksForLead,
+  createProposal,
+  sendProposalPDF,
+  recordCustomerPreference,
+  rejectProposal,
+  getMyProposals,
   getProposalById,
+  getProposalsByLead,
   updateProposal,
   deleteProposal,
-  getProposalBySecureLink,
-  calculateBankOffer,
-  getEligibleBanksForLead
 } from '../controllers/proposal.controller.js';
 import { protect, protectMulti } from '../../../middleware/auth.js';
 
 const router = express.Router();
 
-// ==================== PROPOSAL CRUD (Authenticated Users) ====================
-router.post('/', protectMulti, createProposal);
-router.get('/my-proposals', protectMulti, getMyProposals);
-router.get('/:id', protectMulti, getProposalById);
-router.put('/:id', protectMulti, updateProposal);
-router.delete('/:id', protectMulti, deleteProposal);
+// ── Static routes BEFORE /:id wildcards ──────────────────────────
 
-// ==================== SEND PROPOSAL ====================
-router.post('/:id/send', sendProposal);
+// Advisor previews eligible banks before creating proposal
+router.get('/eligible-banks/:leadId',  protectMulti, getEligibleBanksForLead);
 
-// ==================== PUBLIC CUSTOMER ROUTES (No Auth - Secure Link) ====================
-router.get('/secure/:id', getProposalBySecureLink);
-router.post('/:id/accept', acceptProposal);
-router.post('/:id/reject', rejectProposal);
+// Get all proposals for logged-in user (advisor/partner/admin)
+router.get('/',                         protectMulti, getMyProposals);
 
-// ==================== ELIGIBILITY & CALCULATION (Advisor Preview) ====================
-router.get('/eligible-banks/:leadId', protectMulti, getEligibleBanksForLead);
-router.post('/calculate-offer', calculateBankOffer);
+// Get proposals linked to a specific lead
+router.get('/by-lead/:leadId',          protectMulti, getProposalsByLead);
+
+// ── CRUD ─────────────────────────────────────────────────────────
+
+// Create proposal from qualified lead
+// Advisor OR Partner can create
+router.post('/',                        protectMulti, createProposal);
+
+// Get single proposal
+router.get('/:id',                      protectMulti, getProposalById);
+
+// Update proposal (Draft only)
+router.put('/:id',                      protectMulti, updateProposal);
+
+// Soft delete proposal
+router.delete('/:id',                   protectMulti, deleteProposal);
+
+// ── Workflow ──────────────────────────────────────────────────────
+
+// Generate PDF + send to customer email
+router.post('/:id/send',                protectMulti, sendProposalPDF);
+
+// Advisor records which bank customer prefers (after customer reviews PDF)
+router.put('/:id/preference',           protectMulti, recordCustomerPreference);
+
+// Advisor marks proposal as rejected (customer not proceeding)
+router.put('/:id/reject',               protectMulti, rejectProposal);
 
 module.exports = router;
