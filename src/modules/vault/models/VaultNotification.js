@@ -6,14 +6,29 @@ const vaultNotificationSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: [
+        // Lead events
         'LEAD_CREATED',
+        'LEAD_CREATED_WEBSITE',
+        'LEAD_CREATED_PARTNER',
+        'LEAD_CREATED_ADMIN',
         'LEAD_STATUS_UPDATED',
+        'LEAD_ASSIGNED',
+        // Proposal events
         'PROPOSAL_CREATED',
+        // Case events
         'CASE_CREATED',
+        'CASE_SUBMITTED',
+        'CASE_PICKED_UP',
+        'CASE_ASSIGNED_TO_OPS',
+        'CASE_STATUS_UPDATED',
+        // Commission events
+        'COMMISSION_CREATED',
+        'COMMISSION_CONFIRMED',
+        'COMMISSION_PAID',
+        // Partner & other
         'PARTNER_CREATED',
         'BANK_CREATED',
         'BANK_PRODUCT_CREATED',
-        'COMMISSION_UPDATED',
         'DOCUMENT_UPLOADED',
       ],
     },

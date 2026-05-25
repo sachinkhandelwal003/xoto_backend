@@ -245,6 +245,16 @@ export const createWebsiteLead = async (req, res) => {
       description: `Website lead: ${customerInfo.firstName} ${customerInfo.lastName}`,
     });
 
+    emitVaultNotification({
+      eventType:     'LEAD_CREATED_WEBSITE',
+      title:         'New Website Lead',
+      message:       `${customerInfo.firstName} ${customerInfo.lastName} submitted a mortgage inquiry from the website`,
+      entityId:      lead._id,
+      entityModel:   'VaultLead',
+      createdByName: 'Website Visitor',
+      createdByRole: 'website',
+    });
+
     return res.status(201).json({
       success: true,
       message: 'Thank you! Our advisor will contact you within 24 hours.',
@@ -873,6 +883,16 @@ export const assignLeadToXotoAdvisor = async (req, res) => {
         },
       }
     );
+
+    emitVaultNotification({
+      eventType:     'LEAD_ASSIGNED',
+      title:         'Leads Assigned to Advisor',
+      message:       `${leadIds.length} lead(s) assigned to ${advisor.fullName}`,
+      entityId:      advisor._id,
+      entityModel:   'XotoAdvisor',
+      createdByName: req.user?.email || 'Admin',
+      createdByRole: 'admin',
+    });
 
     return res.status(200).json({
       success: true,
@@ -1511,6 +1531,16 @@ export const createPartnerLead = async (req, res) => {
       currentStatus: 'New',
     });
 
+    emitVaultNotification({
+      eventType:     'LEAD_CREATED_PARTNER',
+      title:         'New Partner Lead',
+      message:       `${customerInfo.firstName} ${customerInfo.lastName} — submitted by Partner: ${partner.displayName || partner.companyName}`,
+      entityId:      lead._id,
+      entityModel:   'VaultLead',
+      createdByName: partner.displayName || partner.companyName,
+      createdByRole: 'individual_partner',
+    });
+
     return res.status(201).json({ success: true, message: 'Lead created', data: lead });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -1628,6 +1658,16 @@ export const createAdminLead = async (req, res) => {
 
     await HistoryService.logLeadActivity(lead, 'LEAD_CREATED_BY_ADMIN', await getUserInfo(req), {
       description: `Admin created lead for ${customerInfo.firstName} ${customerInfo.lastName}`,
+    });
+
+    emitVaultNotification({
+      eventType:     'LEAD_CREATED_ADMIN',
+      title:         'New Lead Created by Admin',
+      message:       `${customerInfo.firstName} ${customerInfo.lastName} — created by Admin${assignToAdvisorId ? ' (assigned to advisor)' : ''}`,
+      entityId:      lead._id,
+      entityModel:   'VaultLead',
+      createdByName: req.user?.email || 'Admin',
+      createdByRole: 'admin',
     });
 
     return res.status(201).json({

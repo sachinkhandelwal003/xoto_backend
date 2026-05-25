@@ -12,6 +12,7 @@ import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { initializeCaseDocuments, getCaseDocumentsByFilter } from '../utils/caseDocumentHelper.js';
 import Commission from '../models/Commission.js';
 import VaultAgent from '../models/Agent.js';
+import { emitVaultNotification } from '../services/vaultNotification.service.js';
 
 
 
@@ -327,6 +328,16 @@ export const createCase = async (req, res) => {
       description: `Case ${caseReference} created with ${documentResult.summary.total} document requirements`
     });
 
+    emitVaultNotification({
+      eventType:     'CASE_CREATED',
+      title:         'New Case Created',
+      message:       `Case ${caseReference} created for ${clientInfo.fullName} — by ${createdBy.role} ${createdBy.userName}`,
+      entityId:      caseData._id,
+      entityModel:   'Case',
+      createdByName: createdBy.userName,
+      createdByRole: createdBy.role,
+    });
+
     return res.status(201).json({
       success: true,
       message: "Case created successfully",
@@ -435,9 +446,19 @@ export const submitCaseToXoto = async (req, res) => {
     await HistoryService.logCaseActivity(caseData, 'CASE_SUBMITTED_TO_XOTO', await getUserInfo(req), {
       description: `Case ${caseData.caseReference} submitted to Xoto by ${isPartner ? 'Partner' : 'Advisor'}`
     });
-    
-    return res.status(200).json({ 
-      success: true, 
+
+    emitVaultNotification({
+      eventType:     'CASE_SUBMITTED',
+      title:         'Case Submitted to Xoto',
+      message:       `Case ${caseData.caseReference} submitted by ${isPartner ? 'Partner' : 'Advisor'} — now in Ops Queue`,
+      entityId:      caseData._id,
+      entityModel:   'Case',
+      createdByName: req.user?.email || (isPartner ? 'Partner' : 'Advisor'),
+      createdByRole: isPartner ? 'partner' : 'advisor',
+    });
+
+    return res.status(200).json({
+      success: true,
       message: "Case submitted to Xoto successfully and added to Ops queue",
       data: caseData
     });
@@ -535,7 +556,17 @@ export const opsPickUpCase = async (req, res) => {
     await HistoryService.logCaseActivity(caseData, 'CASE_PICKED_UP', await getUserInfo(req), {
       description: `Case picked up by Ops ${opsName}`
     });
-    
+
+    emitVaultNotification({
+      eventType:     'CASE_PICKED_UP',
+      title:         'Case Picked Up by Ops',
+      message:       `Case ${caseData.caseReference} picked up by Ops: ${opsName}`,
+      entityId:      caseData._id,
+      entityModel:   'Case',
+      createdByName: opsName,
+      createdByRole: 'ops',
+    });
+
     return res.status(200).json({ success: true, message: "Case picked up successfully", data: caseData });
     
   } catch (error) {
@@ -607,7 +638,17 @@ export const adminAssignCaseToOps = async (req, res) => {
     await HistoryService.logCaseActivity(caseData, 'CASE_MANUALLY_ASSIGNED', await getUserInfo(req), {
       description: `Case manually assigned to Ops ${opsName} by Admin`
     });
-    
+
+    emitVaultNotification({
+      eventType:     'CASE_ASSIGNED_TO_OPS',
+      title:         'Case Assigned to Ops',
+      message:       `Case ${caseData.caseReference} manually assigned to Ops: ${opsName} by Admin`,
+      entityId:      caseData._id,
+      entityModel:   'Case',
+      createdByName: adminName,
+      createdByRole: 'admin',
+    });
+
     return res.status(200).json({ success: true, message: `Case assigned to ${opsName}`, data: caseData });
     
   } catch (error) {
@@ -985,6 +1026,16 @@ if (!lead || !lead.sourceInfo) {
       responseData.message += ` ℹ️ Commission already existed: ${commissionData.amount.toLocaleString()} AED for ${commissionData.recipient} (${commissionData.status})`;
       responseData.commission = commissionData;
     }
+
+    emitVaultNotification({
+      eventType:     'CASE_STATUS_UPDATED',
+      title:         `Case Status: ${status}`,
+      message:       `Case ${caseData.caseReference} — ${previousStatus} → ${status}`,
+      entityId:      caseData._id,
+      entityModel:   'Case',
+      createdByName: req.user?.email || (isAdmin ? 'Admin' : 'Ops'),
+      createdByRole: isAdmin ? 'admin' : 'ops',
+    });
 
     return res.status(200).json(responseData);
 

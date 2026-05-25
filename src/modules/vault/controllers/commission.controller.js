@@ -6,6 +6,7 @@ import VaultLead from '../models/VaultLead.js';
 import Partner from '../models/Partner.js';
 import VaultAgent from '../models/Agent.js';
 import HistoryService from '../services/history.service.js';
+import { emitVaultNotification } from '../services/vaultNotification.service.js';
 
 const getUserInfo = async (req) => {
   const roleId = req.user?.role;
@@ -512,7 +513,17 @@ export const createCommissionFromCase = async (req, res) => {
       description: `Commission ${commissionId} created for ${commission.recipientName}`,
       metadata: { loanAmount, xotoCommission: xotoCommissionInfo.xotoCommissionFromBank, percentage: recipientInfo.recipientPercentage }
     });
-    
+
+    emitVaultNotification({
+      eventType:     'COMMISSION_CREATED',
+      title:         'Commission Created',
+      message:       `${commissionId} — ${recipientInfo.commissionAmount.toLocaleString()} AED for ${commission.recipientName} (${recipientInfo.recipientPercentage}%)`,
+      entityId:      commission._id,
+      entityModel:   'Commission',
+      createdByName: req.user?.email || 'Admin',
+      createdByRole: 'admin',
+    });
+
     return res.status(201).json({
       success: true,
       message: "Commission created successfully",
@@ -593,7 +604,17 @@ export const confirmCommission = async (req, res) => {
       description: `Commission ${commission.commissionId} confirmed`,
       metadata: { amountAdjusted, finalAmount: finalBankCommission }
     });
-    
+
+    emitVaultNotification({
+      eventType:     'COMMISSION_CONFIRMED',
+      title:         'Commission Confirmed',
+      message:       `${commission.commissionId} confirmed — ${commission.commissionAmount.toLocaleString()} AED for ${commission.recipientName}${amountAdjusted ? ' (amount adjusted)' : ''}`,
+      entityId:      commission._id,
+      entityModel:   'Commission',
+      createdByName: req.user?.email || 'Admin',
+      createdByRole: 'admin',
+    });
+
     return res.status(200).json({
       success: true,
       message: amountAdjusted ? "Commission confirmed with adjusted amount" : "Commission confirmed",
@@ -641,7 +662,17 @@ export const markCommissionAsPaid = async (req, res) => {
       description: `Commission ${commission.commissionId} paid to ${commission.recipientName}`,
       metadata: { paymentReference, amount: commission.commissionAmount }
     });
-    
+
+    emitVaultNotification({
+      eventType:     'COMMISSION_PAID',
+      title:         'Commission Paid',
+      message:       `${commission.commissionId} — ${commission.commissionAmount.toLocaleString()} AED paid to ${commission.recipientName} via ${paymentMethod || 'Bank Transfer'}`,
+      entityId:      commission._id,
+      entityModel:   'Commission',
+      createdByName: req.user?.email || 'Admin',
+      createdByRole: 'admin',
+    });
+
     return res.status(200).json({
       success: true,
       message: "Commission marked as paid",
