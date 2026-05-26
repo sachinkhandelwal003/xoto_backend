@@ -262,15 +262,15 @@ exports.createDealRecord = asyncHandler(async (req, res) => {
     customerId, advisorId, agentId, agencyId,
     referralPartnerId, partnerAgreementId,
     dealType, transactionValue,
-    grossPercent    = 2,
+    grossPercent,
     partnerPercent  = 0,
     referralPercent = 0,
     notes,
   } = req.body;
 
-  if (!leadId || !propertyId || !customerId || !dealType || !transactionValue) {
+if (!leadId || !propertyId || !customerId || !dealType || !transactionValue || !grossPercent) {
     throw new APIError(
-      'leadId, propertyId, customerId, dealType, and transactionValue are required',
+      'leadId, propertyId, customerId, dealType, transactionValue, and grossPercent are required',
       StatusCodes.BAD_REQUEST
     );
   }
@@ -1473,4 +1473,285 @@ exports.exportDealRecords = asyncHandler(async (req, res) => {
   );
 
   res.end();
+});
+
+exports.getAgencyDeals = asyncHandler(async (req, res) => {
+  // Support both agency-session and user-session shapes
+  const agencyId = req.agency?._id || req.user?._id;
+ 
+  if (!agencyId) {
+    throw new APIError('Agency identity could not be resolved', StatusCodes.UNAUTHORIZED);
+  }
+ 
+  const {
+    commissionStatus,
+    referralCommissionStatus,
+    agentId,
+    dealType,
+    fromDate,
+    toDate,
+    isFlagged,
+    sortOrder = 'desc',
+  } = req.query;
+ 
+  const { page, limit, skip } = paginate(req.query);
+ 
+  // ── Build filter ──────────────────────────────────────────────────────────
+  const filter = {
+    agencyId,
+    isVoided: false,
+  };
+ 
+  if (commissionStatus)          filter.commissionStatus          = commissionStatus;
+  if (referralCommissionStatus)  filter.referralCommissionStatus  = referralCommissionStatus;
+  if (agentId)                   filter.agentId                   = agentId;
+  if (dealType)                  filter.dealType                  = dealType;
+  if (isFlagged !== undefined)   filter.isFlagged                 = isFlagged === 'true';
+ 
+  if (fromDate || toDate) {
+    filter.createdAt = {};
+    if (fromDate) filter.createdAt.$gte = new Date(fromDate);
+    if (toDate)   filter.createdAt.$lte = new Date(toDate);
+  }
+ 
+  const sortDir = sortOrder === 'asc' ? 1 : -1;
+ 
+  // ── Parallel fetch: paginated list + total count + commission summary ─────
+  const [deals, total, commissionSummary] = await Promise.all([
+    DealRecord.find(filter)
+      .populate('propertyId',  'propertyName area city price mainLogo')
+      .populate('customerId',  'firstName lastName')
+      .populate('agentId',     'first_name last_name email phone_number')
+      .populate('advisorId',   'firstName lastName')
+      .populate('inventoryUnitId', 'unitNumber floorNumber bedroomType')
+      .populate('partnerAgreementId', 'commissionSplitPercent effectiveDate')
+      .sort({ createdAt: sortDir })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+ 
+    DealRecord.countDocuments(filter),
+ 
+    // Commission totals bucketed by status — scoped to this agency
+    DealRecord.aggregate([
+      { $match: { agencyId: new mongoose.Types.ObjectId(String(agencyId)), isVoided: false } },
+      {
+        $group: {
+          _id:          '$commissionStatus',
+          count:        { $sum: 1 },
+          totalPartner: { $sum: '$commission.partnerShare' },
+          totalGross:   { $sum: '$commission.grossAmount' },
+        },
+      },
+    ]),
+  ]);
+ 
+  // ── Shape summary into a flat object for easier frontend consumption ──────
+  const summaryMap = { pending: 0, confirmed: 0, paid: 0 };
+  const countMap   = { pending: 0, confirmed: 0, paid: 0 };
+  commissionSummary.forEach(({ _id, totalPartner, count }) => {
+    if (_id in summaryMap) {
+      summaryMap[_id] = totalPartner;
+      countMap[_id]   = count;
+    }
+  });
+  const totalEarned = summaryMap.pending + summaryMap.confirmed + summaryMap.paid;
+ 
+  return res.json({
+    success: true,
+    data:    deals,
+    pagination: paginationMeta(total, page, limit),
+    summary: {
+      totalEarned,
+      pending:   { amount: summaryMap.pending,   count: countMap.pending   },
+      confirmed: { amount: summaryMap.confirmed, count: countMap.confirmed },
+      paid:      { amount: summaryMap.paid,      count: countMap.paid      },
+    },
+  });
+});
+ 
+// ════════════════════════════════════════════════════════════════════════════
+// GET AGENCY STATS  (PRD §12.7 scoped to agency)
+// GET /deal-records/agency-stats
+//
+// Dashboard-level analytics: deal counts by type, monthly trend (last 12m),
+// top agent by commission.  No customer PII is exposed.
+// ════════════════════════════════════════════════════════════════════════════
+exports.getAgencyStats = asyncHandler(async (req, res) => {
+  const agencyId = req.agency?._id || req.user?._id;
+ 
+  if (!agencyId) {
+    throw new APIError('Agency identity could not be resolved', StatusCodes.UNAUTHORIZED);
+  }
+ 
+  const agencyObjId = new mongoose.Types.ObjectId(String(agencyId));
+  const baseMatch   = { agencyId: agencyObjId, isVoided: false };
+ 
+  const [byStatus, byType, monthly, byAgent] = await Promise.all([
+    // 1 — Commission totals by status
+    DealRecord.aggregate([
+      { $match: baseMatch },
+      {
+        $group: {
+          _id:          '$commissionStatus',
+          count:        { $sum: 1 },
+          totalPartner: { $sum: '$commission.partnerShare' },
+          totalGross:   { $sum: '$commission.grossAmount' },
+        },
+      },
+    ]),
+ 
+    // 2 — Deal count + value by deal type (sale vs lease)
+    DealRecord.aggregate([
+      { $match: baseMatch },
+      {
+        $group: {
+          _id:          '$dealType',
+          count:        { $sum: 1 },
+          avgValue:     { $avg: '$transactionValue' },
+          totalGross:   { $sum: '$commission.grossAmount' },
+          totalPartner: { $sum: '$commission.partnerShare' },
+        },
+      },
+    ]),
+ 
+    // 3 — Monthly trend: last 12 months
+    DealRecord.aggregate([
+      { $match: baseMatch },
+      {
+        $group: {
+          _id: {
+            year:  { $year:  '$createdAt' },
+            month: { $month: '$createdAt' },
+          },
+          count:        { $sum: 1 },
+          totalPartner: { $sum: '$commission.partnerShare' },
+        },
+      },
+      { $sort: { '_id.year': -1, '_id.month': -1 } },
+      { $limit: 12 },
+    ]),
+ 
+    // 4 — Per-agent commission breakdown (top performers)
+    DealRecord.aggregate([
+      { $match: baseMatch },
+      {
+        $group: {
+          _id:          '$agentId',
+          totalDeals:   { $sum: 1 },
+          totalPartner: { $sum: '$commission.partnerShare' },
+          paidDeals:    { $sum: { $cond: [{ $eq: ['$commissionStatus', 'paid'] }, 1, 0] } },
+          pendingAmt:   { $sum: { $cond: [{ $eq: ['$commissionStatus', 'pending']   }, '$commission.partnerShare', 0] } },
+          confirmedAmt: { $sum: { $cond: [{ $eq: ['$commissionStatus', 'confirmed'] }, '$commission.partnerShare', 0] } },
+          paidAmt:      { $sum: { $cond: [{ $eq: ['$commissionStatus', 'paid']      }, '$commission.partnerShare', 0] } },
+        },
+      },
+      { $sort: { totalPartner: -1 } },
+      { $limit: 20 },
+      {
+        $lookup: {
+          from:         Agent.collection.name,
+          localField:   '_id',
+          foreignField: '_id',
+          as:           'agent',
+        },
+      },
+      { $unwind: { path: '$agent', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id:          1,
+          totalDeals:   1,
+          totalPartner: 1,
+          paidDeals:    1,
+          pendingAmt:   1,
+          confirmedAmt: 1,
+          paidAmt:      1,
+          agentName: {
+            $concat: [
+              { $ifNull: ['$agent.first_name', ''] },
+              ' ',
+              { $ifNull: ['$agent.last_name',  ''] },
+            ],
+          },
+          agentEmail: '$agent.email',
+        },
+      },
+    ]),
+  ]);
+ 
+  return res.json({
+    success: true,
+    data: { byStatus, byType, monthly, byAgent },
+  });
+});
+ 
+// ════════════════════════════════════════════════════════════════════════════
+// GET AGENCY AGENT SUMMARY  (PRD §11.2 Agent Team section)
+// GET /deal-records/agency-agent-summary
+//
+// Returns one summary row per affiliated agent — deal counts + commission
+// totals. Useful for the Agent Team leaderboard card in the agency panel.
+// ════════════════════════════════════════════════════════════════════════════
+exports.getAgencyAgentSummary = asyncHandler(async (req, res) => {
+  const agencyId = req.agency?._id || req.user?._id;
+ 
+  if (!agencyId) {
+    throw new APIError('Agency identity could not be resolved', StatusCodes.UNAUTHORIZED);
+  }
+ 
+  const agencyObjId = new mongoose.Types.ObjectId(String(agencyId));
+ 
+  const summary = await DealRecord.aggregate([
+    { $match: { agencyId: agencyObjId, isVoided: false } },
+    {
+      $group: {
+        _id:          '$agentId',
+        totalDeals:   { $sum: 1 },
+        totalPartner: { $sum: '$commission.partnerShare' },
+        paidAmt:      { $sum: { $cond: [{ $eq: ['$commissionStatus', 'paid']      }, '$commission.partnerShare', 0] } },
+        confirmedAmt: { $sum: { $cond: [{ $eq: ['$commissionStatus', 'confirmed'] }, '$commission.partnerShare', 0] } },
+        pendingAmt:   { $sum: { $cond: [{ $eq: ['$commissionStatus', 'pending']   }, '$commission.partnerShare', 0] } },
+        lastDealAt:   { $max: '$createdAt' },
+        saleDeals:    { $sum: { $cond: [{ $eq: ['$dealType', 'sale']  }, 1, 0] } },
+        leaseDeals:   { $sum: { $cond: [{ $eq: ['$dealType', 'lease'] }, 1, 0] } },
+      },
+    },
+    { $sort: { totalPartner: -1 } },
+    {
+      $lookup: {
+        from:         Agent.collection.name,
+        localField:   '_id',
+        foreignField: '_id',
+        as:           'agent',
+      },
+    },
+    { $unwind: { path: '$agent', preserveNullAndEmptyArrays: true } },
+    {
+      $project: {
+        _id:          1,
+        totalDeals:   1,
+        totalPartner: 1,
+        paidAmt:      1,
+        confirmedAmt: 1,
+        pendingAmt:   1,
+        lastDealAt:   1,
+        saleDeals:    1,
+        leaseDeals:   1,
+        agentName: {
+          $concat: [
+            { $ifNull: ['$agent.first_name', ''] },
+            ' ',
+            { $ifNull: ['$agent.last_name', ''] },
+          ],
+        },
+        agentEmail:  '$agent.email',
+        agentPhone:  '$agent.phone_number',
+      },
+    },
+  ]);
+ 
+  return res.json({
+    success: true,
+    data:    summary,
+  });
 });

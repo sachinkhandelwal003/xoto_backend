@@ -86,6 +86,19 @@ const imageSrcToDataUri = async (src) => {
     }
   };
 
+  const dataUriMatch = /^data:([^;,]+);base64,([\s\S]+)$/i.exec(src || '');
+  if (dataUriMatch) {
+    try {
+      const contentType = dataUriMatch[1];
+      const buffer = Buffer.from(dataUriMatch[2], 'base64');
+      const optimized = await optimizeImageBuffer(buffer, contentType);
+      return `data:${optimized.contentType};base64,${optimized.buffer.toString('base64')}`;
+    } catch (err) {
+      console.warn('PDF data image optimization skipped:', err.message);
+      return src;
+    }
+  }
+
   if (s3Meta?.bucket && s3Meta?.key) {
     const response = await s3.send(new GetObjectCommand({
       Bucket: s3Meta.bucket,
@@ -149,6 +162,39 @@ const preparePresentationHtmlForPdf = async (htmlContent) => {
   return inlinedHtml.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
 };
 
+const PRESENTATION_PDF_WIDTH = 1280;
+const PRESENTATION_PDF_HEIGHT = 720;
+const PRESENTATION_PDF_IMAGE_QUALITY = 74;
+
+const buildRasterPdf = (slideImages) => new Promise((resolve, reject) => {
+  const PDFDocument = require('pdfkit');
+  const doc = new PDFDocument({
+    autoFirstPage: false,
+    margin: 0,
+    compress: true,
+    info: {
+      Title: 'Xoto Presentation',
+      Creator: 'Xoto GRID',
+      Producer: 'Xoto GRID',
+    },
+  });
+
+  const chunks = [];
+  doc.on('data', chunk => chunks.push(chunk));
+  doc.on('error', reject);
+  doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+  slideImages.forEach((imageBuffer) => {
+    doc.addPage({ size: [PRESENTATION_PDF_WIDTH, PRESENTATION_PDF_HEIGHT], margin: 0 });
+    doc.image(imageBuffer, 0, 0, {
+      width: PRESENTATION_PDF_WIDTH,
+      height: PRESENTATION_PDF_HEIGHT,
+    });
+  });
+
+  doc.end();
+});
+
 // ── 1. Generate AI Narrative ─────────────────────────────────────────────────
 const generatePresentationNarrative = async (property, clientNotes, settings) => {
   const narrative = await generateNarrative(property, clientNotes, settings);
@@ -197,7 +243,7 @@ const generatePdfFromPresentation = async (trackingToken) => {
       request.continue();
     });
 
-    await page.setViewport({ width: 1280, height: 720 });
+    await page.setViewport({ width: PRESENTATION_PDF_WIDTH, height: PRESENTATION_PDF_HEIGHT, deviceScaleFactor: 1 });
     await page.setContent(printableHtmlContent, {
       waitUntil: 'load',
       timeout: 30000,
@@ -211,144 +257,159 @@ const generatePdfFromPresentation = async (trackingToken) => {
     await page.addStyleTag({
       content: `
       @page {
-        size: 1280px 720px;
+        size: ${PRESENTATION_PDF_WIDTH}px ${PRESENTATION_PDF_HEIGHT}px;
         margin: 0;
       }
 
-      @media print {
-        *,
-        *::before,
-        *::after {
-          animation: none !important;
-          transition: none !important;
-          filter: none !important;
-          backdrop-filter: none !important;
-          box-shadow: none !important;
-        }
+      *,
+      *::before,
+      *::after {
+        animation: none !important;
+        transition: none !important;
+        caret-color: transparent !important;
+      }
 
-        html,
-        body {
-          width: 1280px !important;
-          height: auto !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          overflow: visible !important;
-          background: #fff !important;
-          display: block !important;
-        }
+      html,
+      body {
+        width: ${PRESENTATION_PDF_WIDTH}px !important;
+        height: ${PRESENTATION_PDF_HEIGHT}px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        background: #fff !important;
+      }
 
-        #pdf-fab,
-        #download-fab-wrap,
-        .controls,
-        .hint-text,
-        #play-status {
-          display: none !important;
-        }
+      #pdf-fab,
+      #download-fab-wrap,
+      .controls,
+      .hint-text,
+      #play-status {
+        display: none !important;
+      }
 
-        #deck-container {
-          width: 1280px !important;
-          height: auto !important;
-          position: static !important;
-          overflow: visible !important;
-          background: #fff !important;
-        }
+      #deck-container {
+        width: ${PRESENTATION_PDF_WIDTH}px !important;
+        height: ${PRESENTATION_PDF_HEIGHT}px !important;
+        position: fixed !important;
+        inset: 0 !important;
+        overflow: hidden !important;
+        background: #fff !important;
+      }
 
-        .slide {
-          position: relative !important;
-          inset: auto !important;
-          width: 1280px !important;
-          height: 720px !important;
-          min-width: 1280px !important;
-          min-height: 720px !important;
-          max-width: 1280px !important;
-          max-height: 720px !important;
-          display: flex !important;
-          opacity: 1 !important;
-          visibility: visible !important;
-          transform: none !important;
-          transition: none !important;
-          z-index: auto !important;
-          overflow: hidden !important;
-          page-break-after: always !important;
-          break-after: page !important;
-          -webkit-print-color-adjust: exact !important;
-          print-color-adjust: exact !important;
-        }
+      .slide {
+        position: fixed !important;
+        inset: 0 !important;
+        width: ${PRESENTATION_PDF_WIDTH}px !important;
+        height: ${PRESENTATION_PDF_HEIGHT}px !important;
+        min-width: ${PRESENTATION_PDF_WIDTH}px !important;
+        min-height: ${PRESENTATION_PDF_HEIGHT}px !important;
+        max-width: ${PRESENTATION_PDF_WIDTH}px !important;
+        max-height: ${PRESENTATION_PDF_HEIGHT}px !important;
+        display: flex !important;
+        opacity: 0 !important;
+        visibility: hidden !important;
+        transform: none !important;
+        z-index: 0 !important;
+        overflow: hidden !important;
+        pointer-events: none !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
 
-        .slide:last-child {
-          page-break-after: auto !important;
-          break-after: auto !important;
-        }
+      .slide.pdf-current-slide {
+        opacity: 1 !important;
+        visibility: visible !important;
+        z-index: 1 !important;
+      }
 
-        .slide-inner {
-          width: 1280px !important;
-          height: 720px !important;
-          min-width: 1280px !important;
-          min-height: 720px !important;
-          max-width: 1280px !important;
-          max-height: 720px !important;
-          margin: 0 !important;
-          transform: none !important;
-          overflow: hidden !important;
-          -webkit-print-color-adjust: exact !important;
-          print-color-adjust: exact !important;
-        }
+      .slide-inner {
+        width: ${PRESENTATION_PDF_WIDTH}px !important;
+        height: ${PRESENTATION_PDF_HEIGHT}px !important;
+        min-width: ${PRESENTATION_PDF_WIDTH}px !important;
+        min-height: ${PRESENTATION_PDF_HEIGHT}px !important;
+        max-width: ${PRESENTATION_PDF_WIDTH}px !important;
+        max-height: ${PRESENTATION_PDF_HEIGHT}px !important;
+        margin: 0 !important;
+        transform: none !important;
+        overflow: hidden !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
 
-        .slide-header {
-          min-height: 92px !important;
-          padding: 22px 80px !important;
-          align-items: center !important;
-          background: linear-gradient(90deg, #4A027C, #26003f) !important;
-          box-shadow: none !important;
-        }
+      .slide-header {
+        min-height: 92px !important;
+        padding: 22px 80px !important;
+        align-items: center !important;
+        background: linear-gradient(90deg, #4A027C, #26003f) !important;
+      }
 
-        .slide-header::after {
-          left: 80px !important;
-          right: 80px !important;
-          bottom: 0 !important;
-          width: auto !important;
-          height: 2px !important;
-          background: linear-gradient(90deg, #C5A059, rgba(197,160,89,0.18)) !important;
-        }
+      .slide-header::after {
+        left: 80px !important;
+        right: 80px !important;
+        bottom: 0 !important;
+        width: auto !important;
+        height: 2px !important;
+        background: linear-gradient(90deg, #C5A059, rgba(197,160,89,0.18)) !important;
+      }
 
-        .slide-title {
-          color: #fff !important;
-          font-size: 42px !important;
-        }
+      .slide-title {
+        color: #fff !important;
+        font-size: 42px !important;
+      }
 
-        .slide-title em {
-          color: #C5A059 !important;
-        }
+      .slide-title em {
+        color: #C5A059 !important;
+      }
 
-        .header-logo {
-          height: 38px !important;
-          max-width: 190px !important;
-          opacity: 1 !important;
-          background: transparent !important;
-          border-radius: 0 !important;
-          padding: 0 !important;
-        }
+      .header-logo {
+        height: 38px !important;
+        max-width: 190px !important;
+        opacity: 1 !important;
+        background: transparent !important;
+        border-radius: 0 !important;
+        padding: 0 !important;
+      }
 
-        img {
-          image-rendering: auto !important;
-        }
+      img {
+        image-rendering: auto !important;
       }
     `,
     });
 
-    await page.emulateMediaType('print');
-    const pdfBuffer = await page.pdf({
-      width: '1280px',
-      height: '720px',
-      margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' },
-      printBackground: true,
-      preferCSSPageSize: true,
-      tagged: false,
-      outline: false,
-      timeout: 60000,
-    });
+    const slideCount = await page.$$eval('.slide', slides => slides.length);
+    if (!slideCount) throw new Error('No slides found in presentation');
 
-    return Buffer.from(pdfBuffer);
+    const slideImages = [];
+    for (let index = 0; index < slideCount; index += 1) {
+      await page.evaluate((currentIndex) => {
+        document.querySelectorAll('.slide').forEach((slide, slideIndex) => {
+          slide.classList.toggle('pdf-current-slide', slideIndex === currentIndex);
+        });
+      }, index);
+
+      const slide = await page.$('.slide.pdf-current-slide');
+      if (!slide) continue;
+
+      const imageBuffer = await slide.screenshot({
+        type: 'jpeg',
+        quality: PRESENTATION_PDF_IMAGE_QUALITY,
+        captureBeyondViewport: false,
+      });
+      slideImages.push(Buffer.from(imageBuffer));
+      await slide.dispose();
+    }
+
+    if (!slideImages.length) {
+      throw new Error('Unable to render presentation slides');
+    }
+
+    const pdfBuffer = await buildRasterPdf(slideImages);
+    slideImages.length = 0;
+
+    return pdfBuffer;
+  } catch (err) {
+    console.error('PDF render failed:', err.message);
+    throw err;
   } finally {
     if (browser) await browser.close().catch(() => {});
   }
@@ -684,6 +745,23 @@ const buildHtmlPresentation = async (property, narrative, settings, agentProfile
     return [];
   })();
   const paymentPlanFallback = displayValue(property.paymentPlanText || property.payment || property.payment_plan_text || property.paymentDescription);
+  const overviewStats = [
+    ['Starting Price', priceStr],
+    ['Property Type', property.propertyType || property.type || 'On Request'],
+    ['Developer', developerName],
+    ['Timeline', completionDate || 'On Request'],
+  ];
+  const paymentPlanRows = paymentPlan.length
+    ? paymentPlan.slice(0, 6).map((item, index) => ({
+      label: displayValue(item.milestone || item.stage || item.title || `Stage ${index + 1}`) || `Stage ${index + 1}`,
+      value: displayValue(item.percentage || item.amount || item.description || item.value || item) || 'On Request',
+    }))
+    : [
+      { label: 'Payment Plan', value: paymentPlanFallback || 'Flexible payment terms available through the advisor.' },
+      { label: 'Starting Price', value: priceStr },
+      { label: 'Completion', value: completionDate || 'On Request' },
+      { label: 'Reservation', value: 'Contact advisor for booking amount and next steps.' },
+    ];
   const chunk = (items, size) => {
     const chunks = [];
     for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
@@ -1038,9 +1116,9 @@ const buildHtmlPresentation = async (property, narrative, settings, agentProfile
         .cover-chip { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18); color: white; padding: 10px 15px; border-radius: 4px; font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
         .price-badge { width: fit-content; font-size: 28px; font-weight: 300; border-left: 3px solid var(--accent); padding-left: 22px; margin-top: 18px; color: white; }
 
-        .specs-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; background: transparent; border-radius: 0; overflow: visible; border: 0; }
-        .spec-item { background: rgba(255,255,255,0.86); padding: 36px 20px; text-align: center; border: 1px solid var(--line); box-shadow: 0 16px 40px rgba(30,20,45,0.06); }
-        .spec-val { font-family: 'Cormorant Garamond', serif; font-size: 42px; color: var(--primary); line-height: 1; margin-bottom: 10px; }
+        .specs-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; background: transparent; border-radius: 0; overflow: visible; border: 0; }
+        .spec-item { background: rgba(255,255,255,0.86); padding: 28px 18px; min-height: 142px; display: flex; flex-direction: column; justify-content: center; text-align: center; border: 1px solid var(--line); box-shadow: 0 16px 40px rgba(30,20,45,0.06); }
+        .spec-val { font-family: 'Cormorant Garamond', serif; font-size: 28px; color: var(--primary); line-height: 1.14; margin-bottom: 10px; overflow-wrap: anywhere; }
         .spec-lab { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; }
 
         .gallery-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; grid-template-rows: repeat(2, 1fr); gap: 14px; height: 450px; }
@@ -1066,6 +1144,16 @@ const buildHtmlPresentation = async (property, narrative, settings, agentProfile
         .data-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; background: rgba(255,255,255,0.9); border: 1px solid var(--line); box-shadow: 0 16px 36px rgba(23,19,31,0.06); }
         .data-table th { width: 28%; text-align: left; padding: 13px 16px; font-size: 10px; text-transform: uppercase; letter-spacing: 1.3px; color: var(--primary); border-bottom: 1px solid var(--line); vertical-align: top; background: #f7f3ee; }
         .data-table td { padding: 13px 16px; font-size: 13px; line-height: 1.45; color: var(--text); border-bottom: 1px solid var(--line); overflow-wrap: anywhere; vertical-align: top; }
+        .payment-panel { height: 100%; min-height: 390px; background: rgba(255,255,255,0.92); border: 1px solid var(--line); border-top: 5px solid var(--accent); padding: 28px; box-shadow: 0 18px 46px rgba(23,19,31,0.07); display: flex; flex-direction: column; justify-content: space-between; gap: 18px; }
+        .payment-panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+        .payment-kicker { font-size: 10px; text-transform: uppercase; letter-spacing: 2px; font-weight: 900; color: var(--accent); margin-bottom: 8px; }
+        .payment-title { font-family: 'Cormorant Garamond', serif; font-size: 34px; line-height: 1; color: var(--primary); font-weight: 400; }
+        .payment-badge { border: 1px solid rgba(74,2,124,0.16); color: var(--primary); padding: 10px 14px; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+        .payment-list { display: grid; gap: 12px; }
+        .payment-row { display: grid; grid-template-columns: 130px 1fr; gap: 16px; align-items: center; padding: 14px 16px; background: #fbfaf8; border: 1px solid rgba(74,2,124,0.08); }
+        .payment-row-label { font-size: 10px; color: var(--primary); font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase; overflow-wrap: anywhere; }
+        .payment-row-value { font-size: 14px; line-height: 1.4; color: var(--text); font-weight: 700; overflow-wrap: anywhere; }
+        .payment-note { border-left: 3px solid var(--primary); padding-left: 14px; font-size: 12px; line-height: 1.55; color: var(--muted); font-weight: 600; }
 
         .agent-card { display: flex; align-items: center; gap: 50px; background: rgba(255,255,255,0.9); padding: 60px; border-radius: 10px; border-left: 8px solid var(--primary); box-shadow: 0 22px 60px rgba(23,19,31,0.10); }
         .agent-avatar { width: 120px; height: 120px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-family: 'Cormorant Garamond'; font-size: 48px; }
@@ -1143,10 +1231,12 @@ const buildHtmlPresentation = async (property, narrative, settings, agentProfile
                         </div>
                     </div>
                     <div class="specs-grid">
-                        <div class="spec-item"><div class="spec-val">${property.bedrooms || '—'}</div><div class="spec-lab">Bedrooms</div></div>
-                        <div class="spec-item"><div class="spec-val">${areaStr || '—'}</div><div class="spec-lab">${areaUnit}</div></div>
-                        <div class="spec-item"><div class="spec-val">${property.floors || '—'}</div><div class="spec-lab">Floors</div></div>
-                        <div class="spec-item"><div class="spec-val">${completionDate}</div><div class="spec-lab">Timeline</div></div>
+                        ${overviewStats.map(([label, value]) => `
+                            <div class="spec-item">
+                                <div class="spec-val">${escapeHtml(displayValue(value) || 'On Request')}</div>
+                                <div class="spec-lab">${escapeHtml(label)}</div>
+                            </div>
+                        `).join('')}
                     </div>
                 </div>
             </div>
@@ -1221,14 +1311,23 @@ const buildHtmlPresentation = async (property, narrative, settings, agentProfile
                         <div class="info-label" style="margin-top: 24px;">Investment Angle</div>
                         ${escapeHtml(narrative.investmentAngle || 'Investment details available on request.')}
                     </div>
-                    <div>
-                        <table class="data-table">
-                            <tbody>
-                                ${paymentPlan.length
-                                  ? paymentPlan.slice(0, 8).map((item, index) => `<tr><th>${escapeHtml(item.milestone || item.stage || `Stage ${index + 1}`)}</th><td>${escapeHtml(displayValue(item.percentage || item.amount || item.description || item))}</td></tr>`).join('')
-                                  : `<tr><th>Payment Plan</th><td>${escapeHtml(paymentPlanFallback || 'Contact advisor for payment plan details.')}</td></tr>`}
-                            </tbody>
-                        </table>
+                    <div class="payment-panel">
+                        <div class="payment-panel-head">
+                            <div>
+                                <div class="payment-kicker">Commercial Structure</div>
+                                <div class="payment-title">Payment Plan</div>
+                            </div>
+                            <div class="payment-badge">${escapeHtml(currency)}</div>
+                        </div>
+                        <div class="payment-list">
+                            ${paymentPlanRows.map(row => `
+                                <div class="payment-row">
+                                    <div class="payment-row-label">${escapeHtml(row.label)}</div>
+                                    <div class="payment-row-value">${escapeHtml(row.value)}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="payment-note">Final instalments, booking amount, and payment milestones should be confirmed with the advisor before client commitment.</div>
                     </div>
                 </div>
             </div>

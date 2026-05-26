@@ -129,21 +129,8 @@ const enrichPropertyInventory = async (propertyId, property) => {
 
 // ── GET /api/presentation/track/:token ──────────────────────────────────────
 // Client jab link open kare — view log karo aur HTML serve karo
-const trackAndServe = async (req, res) => {
+const servePresentationHtml = async (req, res, presentation, token) => {
   try {
-    const { token } = req.params;
-
-    const presentation = await Presentation.findOne({ trackingToken: token });
-    if (!presentation) {
-      return res.status(404).send('<h1>Presentation not found</h1>');
-    }
-
-    // View track karo
-    await trackView(token, {
-      ip:        req.ip,
-      userAgent: req.headers['user-agent'],
-    });
-
     // S3 se HTML fetch karo
     const s3Response = await s3.send(new GetObjectCommand({
       Bucket: process.env.AWS_S3_BUCKET,
@@ -323,8 +310,53 @@ const pdfDownloadHtml = `
     res.send(htmlContent);
 
   } catch (err) {
-    console.error('Track and serve error:', err.message);
+    console.error('Presentation serve error:', err.message);
     res.status(500).send('<h1>Error loading presentation</h1>');
+  }
+};
+
+const trackAndServe = async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const presentation = await Presentation.findOne({ trackingToken: token });
+    if (!presentation) {
+      return res.status(404).send('<h1>Presentation not found</h1>');
+    }
+
+    const isPreview = ['1', 'true', 'yes'].includes(String(req.query.preview || '').toLowerCase());
+    if (!isPreview) {
+      await trackView(token, {
+        ip:        req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    }
+
+    return servePresentationHtml(req, res, presentation, token);
+  } catch (err) {
+    console.error('Track and serve error:', err.message);
+    return res.status(500).send('<h1>Error loading presentation</h1>');
+  }
+};
+
+const previewAndServe = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const userId = String(req.user?._id || '');
+
+    const presentation = await Presentation.findOne({ trackingToken: token });
+    if (!presentation) {
+      return res.status(404).send('<h1>Presentation not found</h1>');
+    }
+
+    if (String(presentation.agentId) !== userId) {
+      return res.status(403).send('<h1>Not allowed to preview this presentation</h1>');
+    }
+
+    return servePresentationHtml(req, res, presentation, token);
+  } catch (err) {
+    console.error('Preview presentation error:', err.message);
+    return res.status(500).send('<h1>Error loading presentation preview</h1>');
   }
 };
 
@@ -363,9 +395,20 @@ const getMyPresentations = async (req, res) => {
 
     const total = await Presentation.countDocuments(query);
 
+    const apiBaseUrl = `${process.env.BACKEND_URL}/api/presentation`;
+    const presentationRows = presentations.map((presentation) => {
+      const row = presentation.toObject ? presentation.toObject() : presentation;
+      const trackingUrl = `${apiBaseUrl}/track/${row.trackingToken}`;
+      return {
+        ...row,
+        trackingUrl,
+        previewUrl: `${trackingUrl}?preview=1`,
+      };
+    });
+
     res.json({
       success: true,
-      data: presentations,
+      data: presentationRows,
       pagination: { total, page: Number(page), limit: Number(limit) },
     });
   } catch (err) {
@@ -426,12 +469,14 @@ const savePresentationHandler = async (req, res) => {   // ← naam badlo
 
     // const trackingUrl = `${process.env.FRONTEND_URL}/p/${presentation.trackingToken}`;
 const trackingUrl = `${process.env.BACKEND_URL}/api/presentation/track/${presentation.trackingToken}`;
+const previewUrl = `${trackingUrl}?preview=1`;
 res.json({
   success: true,
   data: {
     presentationId: presentation._id,
     trackingToken:  presentation.trackingToken,
     trackingUrl,        // backend tracking link — share karo
+    previewUrl,         // dashboard preview link, view count nahi badhega
     s3Url:          url, // S3 direct link — preview ke liye
   }
 });
@@ -487,6 +532,7 @@ module.exports = {
   generateNarrative,
   savePresentationHandler,
   trackAndServe,
+  previewAndServe,
   getViews,
   getMyPresentations,
   deletePresentation,

@@ -34,7 +34,8 @@ router.get('/export', protectMulti, adminOnly, ctrl.exportDealRecords);
 
 // ════════════════════════════════════════════════════════════════════════════
 // PERSONA-SCOPED LIST ROUTES
-// All must come before /:id to avoid route conflicts
+// !! ALL named-path routes MUST be declared before /:id to avoid Express
+//    matching the literal string as an ObjectId param !!
 // ════════════════════════════════════════════════════════════════════════════
 
 // GET    /deal-records/my-deals         Advisor's own deals (PRD §7.1)
@@ -43,14 +44,26 @@ router.get('/my-deals', protectMulti, advisorOnly, ctrl.getMyDeals);
 // GET    /deal-records/my-agent-deals   Agent's own deals (PRD §8.2)
 router.get('/my-agent-deals', protectMulti, agentOnly, ctrl.getMyAgentDeals);
 
-// GET    /deal-records/agency-deals     Agency sees all affiliated agent deals (PRD §11.3)
-router.get('/agency-deals', protectMulti, agencyOnly, ctrl.getAgencyDeals);
-
 // GET    /deal-records/referral-deals   Referral partner sees own deals (PRD §3.2)
 router.get('/referral-deals', protectMulti, referralOnly, ctrl.getReferralDeals);
 
+// ── BUG FIX: agency routes were registered AFTER /:id, so Express was
+//    matching /agency-deals, /agency-stats, /agency-agent-summary as /:id
+//    and hitting adminOrAdvisor middleware → "Role not allowed" errors.
+//    Moved all three agency routes here, ABOVE the /:id handler. ──────────
+
+// GET  /deal-records/agency-deals          Paginated deal list (PRD §11.3)
+router.get('/agency-deals',         protectMulti, agencyOnly, ctrl.getAgencyDeals);
+
+// GET  /deal-records/agency-stats          Agency analytics dashboard (PRD §12.7)
+router.get('/agency-stats',         protectMulti, agencyOnly, ctrl.getAgencyStats);
+
+// GET  /deal-records/agency-agent-summary  Per-agent leaderboard row (PRD §11.2)
+router.get('/agency-agent-summary', protectMulti, agencyOnly, ctrl.getAgencyAgentSummary);
+
 // ════════════════════════════════════════════════════════════════════════════
 // SINGLE RECORD — Admin + owning advisor/agent (PRD §10.4 ownership check)
+// Must come AFTER all named routes above
 // ════════════════════════════════════════════════════════════════════════════
 
 // GET    /deal-records/:id
@@ -75,8 +88,6 @@ router.patch('/:id/confirm', protectMulti, adminOnly, ctrl.confirmDeal);
 router.patch('/:id/pay', protectMulti, adminOnly, ctrl.markAsPaid);
 
 // PATCH  /deal-records/:id/confirm-referral  Confirm referral commission (PRD §3.2)
-// NOTE: must come before /:id/pay-referral — both match /:id/* pattern
-// Fix #1: this was the missing step that blocked markReferralAsPaid from ever running
 router.patch('/:id/confirm-referral', protectMulti, adminOnly, ctrl.confirmReferralCommission);
 
 // PATCH  /deal-records/:id/pay-referral Mark referral commission as paid (PRD §3.2)
@@ -93,7 +104,6 @@ router.patch('/:id/flag', protectMulti, adminOnly, ctrl.flagDeal);
 router.patch('/:id/unflag', protectMulti, adminOnly, ctrl.unflagDeal);
 
 // PATCH  /deal-records/:id/void         Soft delete — super admin only (PRD §14.4)
-// Fix #3: controller now blocks void if commissionStatus or referralCommissionStatus === 'paid'
 router.patch('/:id/void', protectMulti, superAdminOnly, ctrl.voidDeal);
 
 // PATCH  /deal-records/:id/escalate     Escalate to super admin

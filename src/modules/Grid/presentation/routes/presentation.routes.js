@@ -4,6 +4,7 @@ const {
   generateNarrative,
   savePresentationHandler,
   trackAndServe,
+  previewAndServe,
   getViews,
   getMyPresentations,
   deletePresentation,
@@ -22,6 +23,7 @@ router.get('/pdf/:token',   downloadPdf);
 // ── Protected routes — agent logged in hona chahiye ──
 router.post('/generate-narrative', protectMulti , generateNarrative);
 router.post('/save',               protectMulti , savePresentationHandler);
+router.get('/preview/:token',      protectMulti , previewAndServe);
 router.get('/my',                  protectMulti , getMyPresentations);
 router.get('/views/:presentationId', protectMulti , getViews);
 router.delete('/:id',              protectMulti , deletePresentation);
