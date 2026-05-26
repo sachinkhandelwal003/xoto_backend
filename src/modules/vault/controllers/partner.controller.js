@@ -9,6 +9,8 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { createToken } from '../../../middleware/auth.js';
+import { logAudit } from "../services/auditLog.service.js";
+import { emitVaultNotification } from "../services/vaultNotification.service.js";
 
 /* =====================================
    HELPER FUNCTION
@@ -230,6 +232,32 @@ export const createPartner = async (req, res) => {
 
     const partner = await Partner.create(partnerData);
 
+    // Log Audit for User Account Creation
+    await logAudit({
+      entityType: 'PARTNER',
+      entityId: partner._id,
+      action: 'USER_CREATED',
+      performedBy: req.user?._id || partner._id,
+      performedByName: req.user?.email || 'Admin',
+      performedByRole: 'admin',
+      visibleToRoles: ['admin', 'partner'],
+      metadata: { partnerCategory, legalEntityType, tradeLicenseNumber }
+    });
+
+    // Notify Partner Admin
+    await emitVaultNotification({
+      eventType: 'PARTNER_CREATED',
+      title: 'Partner Onboarded',
+      message: `Partner company ${partner.companyName || partner.displayName} has been onboarded successfully.`,
+      entityId: partner._id,
+      entityModel: 'Partner',
+      recipientId: partner._id,
+      recipientModel: 'Partner',
+      recipientRole: 'partner',
+      createdByName: 'Xoto Admin',
+      createdByRole: 'admin',
+    });
+
     // ==================== LOG HISTORY ====================
     await HistoryService.logPartnerActivity(partner, 'PARTNER_ONBOARDED', await getUserInfo(req), {
       description: `${partnerCategory === 'company' ? 'Company Partner' : 'Individual Partner'} ${partner.displayName} onboarded successfully`,
@@ -278,17 +306,67 @@ export const partnerLogin = async (req, res) => {
     const partner = await Partner.findOne({ email }).select('+password').populate('role');
 
     if (!partner) {
+      // Log failure
+      await logAudit({
+        entityType: 'USER',
+        action: 'USER_FAILED_LOGIN',
+        performedByName: email,
+        performedByRole: 'partner',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        visibleToRoles: ['admin'],
+        metadata: { reason: 'Partner email not found' }
+      });
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
     const isMatch = await bcrypt.compare(password, partner.password);
     if (!isMatch) {
+      // Log failure
+      await logAudit({
+        entityType: 'USER',
+        entityId: partner._id,
+        action: 'USER_FAILED_LOGIN',
+        performedBy: partner._id,
+        performedByName: partner.companyName || email,
+        performedByRole: 'partner',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        visibleToRoles: ['admin', 'partner'],
+        metadata: { reason: 'Password mismatch' }
+      });
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
     if (partner.status !== 'active') {
+      // Log failure
+      await logAudit({
+        entityType: 'USER',
+        entityId: partner._id,
+        action: 'USER_FAILED_LOGIN',
+        performedBy: partner._id,
+        performedByName: partner.companyName || email,
+        performedByRole: 'partner',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        visibleToRoles: ['admin', 'partner'],
+        metadata: { reason: `Account is ${partner.status}` }
+      });
       return res.status(403).json({ success: false, message: `Account is ${partner.status}. Please contact admin.` });
     }
+
+    // Log success
+    await logAudit({
+      entityType: 'USER',
+      entityId: partner._id,
+      action: 'USER_LOGIN',
+      performedBy: partner._id,
+      performedByName: partner.companyName || email,
+      performedByRole: 'partner',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      visibleToRoles: ['admin', 'partner'],
+    });
 
     await HistoryService.logSecurityEvent(partner, 'LOGIN', await getUserInfo(req), {
       description: `Partner ${partner.companyName} logged in`,

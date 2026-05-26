@@ -5,6 +5,9 @@ import CaseDocumentRequirement from '../models/CaseDocumentRequirement.js';
 import HistoryService from '../services/history.service.js';
 import crypto from 'crypto';
 import { Role } from '../../../modules/auth/models/role/role.model.js';
+import { logAudit, actorFromReq } from '../services/auditLog.service.js';
+import { emitVaultNotification } from '../services/vaultNotification.service.js';
+import { ENTITY_TYPES } from '../models/AuditLog.js';
 
 const getUserInfo = async (req) => {
   const roleId = req.user?.role;
@@ -13,7 +16,7 @@ const getUserInfo = async (req) => {
     const roleDoc = await Role.findById(roleId);
     if (roleDoc?.code === '18') userRole = 'Admin';
     else if (roleDoc?.code === '21') userRole = 'Partner';
-    else if (req.user?.agentType === 'FreelanceAgent') userRole = 'FreelanceAgent';
+    else if (req.user?.agentType === 'ReferralPartner') userRole = 'ReferralPartner';
     else if (req.user?.agentType === 'PartnerAffiliatedAgent') userRole = 'PartnerAffiliatedAgent';
     else if (req.user?.employeeType === 'XotoAdvisor') userRole = 'XotoAdvisor';
     else if (req.user?.employeeType === 'MortgageOps') userRole = 'MortgageOps';
@@ -243,6 +246,30 @@ export const uploadCaseDocument = async (req, res) => {
     
     // Update case document summary
     await updateCaseDocumentSummary(caseId);
+
+    // Log Audit for document upload
+    await logAudit({
+      entityType: ENTITY_TYPES.DOCUMENT,
+      entityId: document._id,
+      entityRef: caseData.caseReference,
+      action: isUpdate ? 'DOCUMENT_REPLACED' : 'DOCUMENT_UPLOADED',
+      newValue: { fileName: document.fileName, documentKey: document.documentKey },
+      ...actorFromReq(req, userRoleName.toLowerCase()),
+      metadata: { caseId: caseData._id.toString() }
+    });
+
+    // Notify Xoto Admin
+    await emitVaultNotification({
+      eventType: 'DOCUMENT_UPLOADED',
+      title: 'Document Uploaded',
+      message: `New document "${document.documentName}" uploaded for case ${caseData.caseReference} requires review.`,
+      entityId: caseData._id,
+      entityModel: 'Case',
+      recipientRole: 'admin',
+      sendToAllOfRole: true,
+      createdByName: req.user?.fullName || req.user?.email || 'User',
+      createdByRole: userRoleName.toLowerCase(),
+    });
     
     // Log activity
     await HistoryService.logDocumentActivity(document, isUpdate ? 'DOCUMENT_REUPLOADED' : 'DOCUMENT_UPLOADED', await getUserInfo(req), {
@@ -487,6 +514,17 @@ export const verifyDocument = async (req, res) => {
       // Update case summary
       await updateCaseDocumentSummary(document.entityId);
     }
+
+    // Log Audit for document verification
+    await logAudit({
+      entityType: ENTITY_TYPES.DOCUMENT,
+      entityId: document._id,
+      entityRef: docRequirement?.documentName || document.fileName,
+      action: 'DOCUMENT_VERIFIED',
+      newValue: { verificationStatus: 'verified', qualityScore },
+      ...actorFromReq(req, 'ops'),
+      metadata: { caseId: document.entityId.toString() }
+    });
     
     await HistoryService.logDocumentActivity(document, 'DOCUMENT_VERIFIED', await getUserInfo(req), {
       description: `Document ${document.fileName} verified`,
@@ -531,6 +569,52 @@ export const rejectDocument = async (req, res) => {
       docRequirement.isVerified = false;
       docRequirement.rejectionReason = reason;
       await docRequirement.save();
+    }
+
+    // Log Audit for document rejection
+    await logAudit({
+      entityType: ENTITY_TYPES.DOCUMENT,
+      entityId: document._id,
+      entityRef: docRequirement?.documentName || document.fileName,
+      action: 'DOCUMENT_REJECTED',
+      newValue: { verificationStatus: 'rejected', rejectionReason: reason },
+      ...actorFromReq(req, 'ops'),
+      metadata: { caseId: document.entityId.toString() }
+    });
+
+    // Notify Submitter (Partner / Advisor / Agent)
+    const caseData = await Case.findById(document.entityId);
+    if (caseData) {
+      const notificationTitle = 'Document Rejected';
+      const notificationMessage = `Document "${docRequirement?.documentName || document.fileName}" was rejected by Mortgage Ops: ${reason || 'Incomplete details'}`;
+
+      if (caseData.createdBy?.role === 'partner' && caseData.partnerId) {
+        await emitVaultNotification({
+          eventType: 'DOCUMENT_REJECTED',
+          title: notificationTitle,
+          message: notificationMessage,
+          entityId: caseData._id,
+          entityModel: 'Case',
+          recipientId: caseData.partnerId,
+          recipientModel: 'Partner',
+          recipientRole: 'partner',
+          createdByName: req.user?.fullName || 'Mortgage Ops',
+          createdByRole: 'ops',
+        });
+      } else if (caseData.createdBy?.userId) {
+        await emitVaultNotification({
+          eventType: 'DOCUMENT_REJECTED',
+          title: notificationTitle,
+          message: notificationMessage,
+          entityId: caseData._id,
+          entityModel: 'Case',
+          recipientId: caseData.createdBy.userId,
+          recipientModel: caseData.createdBy.role === 'advisor' ? 'XotoAdvisor' : 'Agent',
+          recipientRole: caseData.createdBy.role,
+          createdByName: req.user?.fullName || 'Mortgage Ops',
+          createdByRole: 'ops',
+        });
+      }
     }
     
     await HistoryService.logDocumentActivity(document, 'DOCUMENT_REJECTED', await getUserInfo(req), {

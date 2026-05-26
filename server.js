@@ -41,11 +41,35 @@ io.on('connection', (socket) => {
   // Vault: role-based room join
   // Allowed vault role codes: 18=Admin, 21=Partner, 22=VaultAgent, 23=Ops, 26=Advisor
   const VAULT_ROLE_CODES = ['18', '21', '22', '23', '26'];
-  socket.on('vault:join', ({ roleCode } = {}) => {
-    if (!roleCode || !VAULT_ROLE_CODES.includes(String(roleCode))) return;
+  socket.on('vault:join', ({ roleCode, userId, roleSlug } = {}) => {
+    // 1. Join global notifications room
     socket.join('vault:notifications');
-    console.log(`[VaultSocket] ${socket.id} (roleCode ${roleCode}) joined vault:notifications`);
-    socket.emit('vault:joined', { room: 'vault:notifications', roleCode });
+    
+    // 2. Join user-specific room if provided
+    if (userId) {
+      socket.join(`vault:user:${userId}`);
+      console.log(`[VaultSocket] ${socket.id} joined vault:user:${userId}`);
+    }
+    
+    // 3. Join role-specific room if provided or mapped
+    if (roleSlug) {
+      socket.join(`vault:role:${roleSlug}`);
+      console.log(`[VaultSocket] ${socket.id} joined vault:role:${roleSlug}`);
+    } else if (roleCode) {
+      const mapping = {
+        '18': 'admin',
+        '21': 'partner',
+        '23': 'ops',
+        '26': 'advisor',
+      };
+      const slug = mapping[String(roleCode)];
+      if (slug) {
+        socket.join(`vault:role:${slug}`);
+        console.log(`[VaultSocket] ${socket.id} joined vault:role:${slug}`);
+      }
+    }
+    
+    socket.emit('vault:joined', { room: 'vault:notifications', roleCode, userId, roleSlug });
   });
 
   // 2. Chat initiate

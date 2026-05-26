@@ -8,6 +8,8 @@ import { Role } from '../../../modules/auth/models/role/role.model.js';
 import xlsx from 'xlsx';
 import path from 'path';
 import { emitVaultNotification } from '../services/vaultNotification.service.js';
+import { logAudit, actorFromReq } from '../services/auditLog.service.js';
+import { ENTITY_TYPES, AUDIT_ACTIONS } from '../models/AuditLog.js';
 
 // ══════════════════════════════════════════════════════════════════
 // HELPERS
@@ -19,7 +21,7 @@ const getUserInfo = async (req) => {
     const code = doc?.code;
     if (code === '18') userRole = 'Admin';
     else if (code === '21') userRole = 'Partner';
-    else if (req.user?.agentType === 'FreelanceAgent') userRole = 'ReferralPartner';
+    else if (req.user?.agentType === 'ReferralPartner') userRole = 'ReferralPartner';
     else if (req.user?.agentType === 'PartnerAffiliatedAgent') userRole = 'PartnerAffiliatedAgent';
     else if (req.user?.employeeType === 'XotoAdvisor') userRole = 'XotoAdvisor';
   } catch (_) {}
@@ -65,10 +67,13 @@ const createOrGetCustomer = async (lead) => {
 
 const getNextActions = (status) => {
   const map = {
-    'Assigned': ['Contact customer within 4 hours'],
-    'Contacted': ['Run eligibility check', 'Mark Qualified if eligible'],
-    'Qualified': ['Start collecting documents from customer'],
-    'Collecting Documents': ['Collect documents — upload in Application'],
+    'Assigned':             ['Contact customer within 4 hours (SLA)'],
+    'Contacted':            ['Run eligibility check', 'Mark Qualified if eligible'],
+    'Qualified':            ['Start collecting documents from customer'],
+    'Collecting Documents': ['Collect required documents, upload in Application'],
+    'Documents Complete':   ['Create Case / Application for bank submission'],
+    'Not Proceeding':       ['Lead closed — no further action required'],
+    'Lost':                 ['Lead lost — mark reason and close'],
   };
   return map[status] || ['Update lead notes'];
 };
@@ -126,7 +131,7 @@ export const createLead = async (req, res) => {
     if (!agent || !agent.isActiveAgent())
       return res.status(403).json({ success: false, message: 'Agent account not active' });
     
-    if (agent.agentType === 'FreelanceAgent' && !agent.isVerified)
+    if (agent.agentType === 'ReferralPartner' && !agent.isVerified)
       return res.status(403).json({ success: false, message: 'Account not verified by admin' });
 
     const { customerInfo, propertyDetails, loanRequirements, notesToXoto } = req.body;
@@ -160,8 +165,8 @@ export const createLead = async (req, res) => {
 
     const lead = await Lead.create({
       sourceInfo: {
-        source: agent.agentType === 'FreelanceAgent' ? 'freelance_agent' : 'partner_affiliated_agent',
-        createdByRole: agent.agentType === 'FreelanceAgent' ? 'freelance_agent' : 'partner_affiliated_agent',
+        source: agent.agentType === 'ReferralPartner' ? 'referral_partner' : 'partner_affiliated_agent',
+        createdByRole: agent.agentType === 'ReferralPartner' ? 'referral_partner' : 'partner_affiliated_agent',
         createdById: agent._id,
         createdByModel: 'VaultAgent',
         createdByName: `${agent.name.first_name} ${agent.name.last_name}`,
@@ -192,9 +197,19 @@ export const createLead = async (req, res) => {
       createdByRole: agent.agentType,
     });
 
+    logAudit({
+      entityType: ENTITY_TYPES.LEAD,
+      entityId:   lead._id,
+      entityRef:  lead._id.toString(),
+      action:     AUDIT_ACTIONS.LEAD_CREATED,
+      newValue:   { customerName: `${customerInfo.firstName} ${customerInfo.lastName}`, source: 'agent' },
+      ...actorFromReq(req, agent.agentType === 'ReferralPartner' ? 'referral_partner' : 'partner_affiliated_agent'),
+      metadata:   { agentId: agent._id.toString(), agentType: agent.agentType },
+    });
+
     return res.status(201).json({
       success: true,
-      message: agent.agentType === 'FreelanceAgent'
+      message: agent.agentType === 'ReferralPartner'
         ? 'Lead submitted. Awaiting admin assignment.'
         : 'Lead created. Your partner can view this.',
       data: lead,
@@ -368,15 +383,16 @@ export const calculateLeadEligibility = async (req, res) => {
       dbrStatus: dbrEligible ? 'Eligible' : 'Ineligible',
       estimatedLTV: Math.round(ltv),
       recommendedLoanAmount: Math.round(availableForMortgage * 12 * tenure),
-      eligibilityNotes: isEligible 
+      eligibilityNotes: isEligible
         ? `Customer eligible. DBR: ${Math.round(currentDBR)}%, LTV: ${Math.round(ltv)}%, EMI: AED ${calculatedEMI}`
         : `Customer not eligible. ${!dbrEligible ? `DBR exceeds ${maxDBR}% limit` : ''} ${!emiEligible ? `EMI exceeds available capacity` : ''} ${!ltvEligible ? `LTV exceeds 80% limit` : ''}`,
     };
+
     await lead.save();
 
     return res.status(200).json({
       success: true,
-      message: isEligible ? 'Customer is ELIGIBLE. Mark lead as Qualified.' : 'Customer is NOT ELIGIBLE.',
+      message: isEligible ? 'Customer is ELIGIBLE.' : 'Customer is NOT ELIGIBLE.',
       data: {
         isEligible,
         eligibilityScore: Math.round(eligibilityScore),
@@ -388,6 +404,9 @@ export const calculateLeadEligibility = async (req, res) => {
         proposedEMI: calculatedEMI,
         maxAllowedDBR: maxDBR,
         eligibilityNotes: lead.eligibility.eligibilityNotes,
+        currentLeadStatus: lead.currentStatus,
+        // UI shows this recommendation — advisor CHOOSES to update status
+        recommendedNextStatus: isEligible ? 'Qualified' : null,
         checks: {
           dbr: {
             eligible: dbrEligible,
@@ -415,7 +434,7 @@ export const calculateLeadEligibility = async (req, res) => {
           }
         },
         nextActions: isEligible
-          ? ['Mark lead as Qualified', 'Start collecting documents']
+          ? ['Mark lead as Qualified', 'Start collecting documents from customer']
           : ['Review eligibility issues', 'Adjust loan amount or downpayment'],
       },
     });
@@ -452,18 +471,68 @@ export const getLeadEligibility = async (req, res) => {
 // ══════════════════════════════════════════════════════════════════
 export const getMyLeads = async (req, res) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
-    const query = { 'sourceInfo.createdById': req.user._id, isDeleted: false };
-    if (status) query.currentStatus = status;
-    
+    const { status, page = 1, limit = 20, search, eligibilityStatus } = req.query;
+
+    const baseQuery = { 'sourceInfo.createdById': req.user._id, isDeleted: false };
+    const query = { ...baseQuery };
+
+    if (status && status !== 'all') query.currentStatus = status;
+
+    if (search) {
+      query.$or = [
+        { 'customerInfo.firstName': { $regex: search, $options: 'i' } },
+        { 'customerInfo.lastName':  { $regex: search, $options: 'i' } },
+        { 'customerInfo.email':     { $regex: search, $options: 'i' } },
+        { 'customerInfo.mobileNumber': { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    if (eligibilityStatus === 'eligible') {
+      query['eligibility.isEligible'] = true;
+      query['eligibility.checked']    = true;
+    } else if (eligibilityStatus === 'not_eligible') {
+      query['eligibility.isEligible'] = false;
+      query['eligibility.checked']    = true;
+    } else if (eligibilityStatus === 'not_checked') {
+      query['eligibility.checked'] = false;
+    }
+
     const [leads, total] = await Promise.all([
-      Lead.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(parseInt(limit)),
+      Lead.find(query).select('-__v').sort({ createdAt: -1 })
+        .skip((parseInt(page) - 1) * parseInt(limit))
+        .limit(parseInt(limit)),
       Lead.countDocuments(query),
     ]);
-    
+
+    // Summary counts across all statuses (not filtered)
+    const statusCounts = await Lead.aggregate([
+      { $match: baseQuery },
+      { $group: { _id: '$currentStatus', count: { $sum: 1 } } },
+    ]);
+
+    const summary = {
+      total: await Lead.countDocuments(baseQuery),
+      New: 0, Assigned: 0, Contacted: 0, Qualified: 0,
+      'Collecting Documents': 0, 'Documents Complete': 0,
+      'Bank Application': 0, 'Pre-Approved': 0, Valuation: 0,
+      'FOL Processed': 0, 'FOL Issued': 0, 'FOL Signed': 0,
+      Disbursed: 0, Lost: 0, 'Not Proceeding': 0,
+    };
+    statusCounts.forEach(item => {
+      if (Object.prototype.hasOwnProperty.call(summary, item._id)) summary[item._id] = item.count;
+    });
+
     return res.status(200).json({
-      success: true, data: leads, total,
-      pagination: { totalPages: Math.ceil(total / limit), currentPage: parseInt(page), limit },
+      success: true,
+      data: leads,
+      total,
+      summary,
+      pagination: {
+        totalPages: Math.ceil(total / parseInt(limit)),
+        currentPage: parseInt(page),
+        limit: parseInt(limit),
+        totalItems: total,
+      },
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -567,7 +636,7 @@ export const adminGetAllLeads = async (req, res) => {
     const query = { 
       isDeleted: false,
       'sourceInfo.source': { 
-        $in: ['website', 'freelance_agent', 'admin'] 
+        $in: ['website', 'referral_partner', 'admin'] 
       }
     };
 
@@ -717,7 +786,7 @@ export const adminGetAllLeads = async (req, res) => {
       },
       bySource: {
         website: await Lead.countDocuments({ ...query, 'sourceInfo.source': 'website' }),
-        freelance_agent: await Lead.countDocuments({ ...query, 'sourceInfo.source': 'freelance_agent' }),
+        freelance_agent: await Lead.countDocuments({ ...query, 'sourceInfo.source': 'referral_partner' }),
         admin: await Lead.countDocuments({ ...query, 'sourceInfo.source': 'admin' })
       },
       assignment: {
@@ -773,7 +842,7 @@ export const getUnassignedLeads = async (req, res) => {
       currentStatus: 'New', 
       'assignedTo.advisorId': null,
       'sourceInfo.source': { 
-        $in: ['website', 'freelance_agent', 'admin'] 
+        $in: ['website', 'referral_partner', 'admin'] 
       }
     };
     
@@ -873,6 +942,73 @@ export const assignLeadToXotoAdvisor = async (req, res) => {
     const assignedAt = new Date();
     const slaDeadline = new Date(Date.now() + 4 * 60 * 60 * 1000);
 
+    // Fetch existing leads to check for reassignment
+    const leads = await Lead.find({ _id: { $in: leadIds } });
+    
+    for (const lead of leads) {
+      const oldAdvisorId = lead.assignedTo?.advisorId;
+      const isReassignment = oldAdvisorId && oldAdvisorId.toString() !== advisor._id.toString();
+
+      if (isReassignment) {
+        // Log reassignment audit
+        await logAudit({
+          entityType: 'LEAD',
+          entityId: lead._id,
+          entityRef: lead._id.toString(),
+          action: 'LEAD_REASSIGNED',
+          oldValue: { advisorId: oldAdvisorId, advisorName: lead.assignedTo.advisorName },
+          newValue: { advisorId: advisor._id, advisorName: advisor.fullName },
+          performedBy: req.user._id,
+          performedByName: req.user.email || 'Admin',
+          performedByRole: 'admin',
+          visibleToRoles: ['admin', 'advisor'],
+          metadata: { oldAdvisorId: oldAdvisorId.toString(), newAdvisorId: advisor._id.toString() }
+        });
+
+        // Notify previous advisor (Trigger #19: Lead reassigned to another advisor)
+        await emitVaultNotification({
+          eventType: 'LEAD_REASSIGNED',
+          title: 'Lead Reassigned',
+          message: `Lead ${lead.customerInfo.firstName} ${lead.customerInfo.lastName} has been reassigned to another advisor.`,
+          entityId: lead._id,
+          entityModel: 'VaultLead',
+          recipientId: oldAdvisorId,
+          recipientModel: 'XotoAdvisor',
+          recipientRole: 'advisor',
+          createdByName: 'Xoto Admin',
+          createdByRole: 'admin',
+        });
+      } else {
+        // Log standard assignment audit
+        await logAudit({
+          entityType: 'LEAD',
+          entityId: lead._id,
+          entityRef: lead._id.toString(),
+          action: 'LEAD_ASSIGNED',
+          newValue: { advisorId: advisor._id, advisorName: advisor.fullName },
+          performedBy: req.user._id,
+          performedByName: req.user.email || 'Admin',
+          performedByRole: 'admin',
+          visibleToRoles: ['admin', 'advisor'],
+          metadata: { advisorId: advisor._id.toString() }
+        });
+      }
+
+      // Notify new advisor (Trigger #16: New Lead assigned)
+      await emitVaultNotification({
+        eventType: 'LEAD_ASSIGNED',
+        title: 'New Lead Assigned',
+        message: `Lead ${lead.customerInfo.firstName} ${lead.customerInfo.lastName} has been assigned to you.`,
+        entityId: lead._id,
+        entityModel: 'VaultLead',
+        recipientId: advisor._id,
+        recipientModel: 'XotoAdvisor',
+        recipientRole: 'advisor',
+        createdByName: 'Xoto Admin',
+        createdByRole: 'admin',
+      });
+    }
+
     await Lead.updateMany(
       { _id: { $in: leadIds } },
       {
@@ -884,15 +1020,10 @@ export const assignLeadToXotoAdvisor = async (req, res) => {
       }
     );
 
-    emitVaultNotification({
-      eventType:     'LEAD_ASSIGNED',
-      title:         'Leads Assigned to Advisor',
-      message:       `${leadIds.length} lead(s) assigned to ${advisor.fullName}`,
-      entityId:      advisor._id,
-      entityModel:   'XotoAdvisor',
-      createdByName: req.user?.email || 'Admin',
-      createdByRole: 'admin',
-    });
+    // Also update advisor workload
+    advisor.workload.currentLeads = (advisor.workload.currentLeads || 0) + leadIds.length;
+    advisor.performanceMetrics.totalLeadsAssigned = (advisor.performanceMetrics.totalLeadsAssigned || 0) + leadIds.length;
+    await advisor.save();
 
     return res.status(200).json({
       success: true,
@@ -1023,11 +1154,27 @@ export const AdvisororPartnerUpdateLeadStatus = async (req, res) => {
     const { status, notes } = req.body;
 
     const lead = await Lead.findOne({ _id: leadId, isDeleted: false });
-    if (!lead) return res.status(404).json({ success: false, message: 'Lead not found or not assigned to you' });
+    if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
 
-    const allowed = ['Assigned', 'Contacted', 'Qualified', 'Collecting Documents', 'Lost'];
+    // PartnerAffiliatedAgent can only update their own leads
+    if (req.user?.agentType === 'PartnerAffiliatedAgent') {
+      if (lead.sourceInfo?.createdById?.toString() !== req.user._id.toString())
+        return res.status(403).json({ success: false, message: 'You can only update your own leads' });
+    }
+
+    // PRD 6.1 — only these 4 statuses are manually settable by advisor/partner
+    // Lead status beyond Qualified is locked once a Case is created (auto-updated via case flow)
+    const allowed = ['Contacted', 'Qualified', 'Collecting Documents', 'Documents Complete'];
     if (!allowed.includes(status))
-      return res.status(400).json({ success: false, message: `Invalid status. Allowed: ${allowed.join(', ')}` });
+      return res.status(400).json({ success: false, message: `Only these statuses can be set manually: ${allowed.join(', ')}` });
+
+    // LOCK: once a case is created, manual advisor updates are blocked (case flow controls status)
+    if (lead.conversionInfo?.convertedToApplication) {
+      return res.status(400).json({
+        success: false,
+        message: 'Lead status is locked — a Case has been created. Status is auto-managed by the case workflow.',
+      });
+    }
 
     const prevStatus = lead.currentStatus;
     lead.currentStatus = status;
@@ -1078,8 +1225,12 @@ export const AdvisororPartnerUpdateLeadInfo = async (req, res) => {
     let { customerInfo, propertyDetails, loanRequirements } = req.body;
 
     const lead = await Lead.findOne({ _id: leadId, isDeleted: false });
-    if (!lead) {
-      return res.status(404).json({ success: false, message: 'Lead not found' });
+    if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
+
+    // PartnerAffiliatedAgent can only update their own leads
+    if (req.user?.agentType === 'PartnerAffiliatedAgent') {
+      if (lead.sourceInfo?.createdById?.toString() !== req.user._id.toString())
+        return res.status(403).json({ success: false, message: 'You can only update your own leads' });
     }
 
     // Helper to sanitize empty strings to null
@@ -1487,7 +1638,15 @@ export const updateLeadStatus = async (req, res) => {
     const lead = await Lead.findOne({ _id: req.params.id, isDeleted: false });
     if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
 
-    const valid = ['New', 'Assigned', 'Contacted', 'Qualified', 'Collecting Documents', 'Bank Application', 'Pre-Approved', 'Valuation', 'FOL Processed', 'FOL Issued', 'FOL Signed', 'Disbursed', 'Lost'];
+    // PRD 4.3/6.1 — all lead statuses admin can set
+    const valid = [
+      'New', 'Assigned', 'Contacted', 'Qualified',
+      'Collecting Documents', 'Documents Complete',
+      'Application Opened', 'Bank Application',
+      'Pre-Approved', 'Valuation',
+      'FOL Processed', 'FOL Issued', 'FOL Signed',
+      'Disbursed', 'Lost', 'Not Proceeding',
+    ];
     if (!valid.includes(status))
       return res.status(400).json({ success: false, message: 'Invalid status' });
 

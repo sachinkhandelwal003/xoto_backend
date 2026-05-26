@@ -17,7 +17,7 @@ import {
   changeAdvisorPassword,getXotoAdvisorById
 } from '../controllers/xotoAdvisor.controller.js';
 
-import { protect } from '../../../middleware/auth.js';
+import { protect, protectVaultAdvisor } from '../../../middleware/auth.js';
 
 const router = express.Router();
 
@@ -36,11 +36,11 @@ router.delete('/delete/:id', protect, deleteAdvisor);
 router.post('/login', advisorLogin);
 
 // ==================== SELF (Advisor Only) ====================
-router.get('/me', protect, getAdvisorProfile);
-router.get('/dashboard', protect, getAdvisorDashboard);
-router.get('/my-leads', protect, getMyLeads);
-router.put('/lead/:leadId/status', protect, updateLeadStatus);
-router.put('/profile', protect, updateAdvisorProfile);
-router.post('/change-password', protect, changeAdvisorPassword);
+router.get('/me', protectVaultAdvisor, getAdvisorProfile);
+router.get('/dashboard', protectVaultAdvisor, getAdvisorDashboard);
+router.get('/my-leads', protectVaultAdvisor, getMyLeads);
+router.put('/lead/:leadId/status', protectVaultAdvisor, updateLeadStatus);
+router.put('/profile', protectVaultAdvisor, updateAdvisorProfile);
+router.post('/change-password', protectVaultAdvisor, changeAdvisorPassword);
 
 module.exports = router;  

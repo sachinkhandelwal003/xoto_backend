@@ -217,7 +217,8 @@ const leadSchema = new mongoose.Schema(
   
   // Final
   'Disbursed',
-  'Not Proceeding'       // Closed
+  'Lost',
+  'Not Proceeding',      // Closed / Not Proceeding
       ],
       default: 'New',
     },

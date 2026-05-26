@@ -8,6 +8,8 @@ import HistoryService from '../services/history.service.js';
 import bcrypt from 'bcryptjs';
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { createToken } from '../../../middleware/auth.js';
+import { logAudit } from '../services/auditLog.service.js';
+import { emitVaultNotification } from '../services/vaultNotification.service.js';
 
 /* =====================================
    HELPER FUNCTION
@@ -96,7 +98,7 @@ export const createMortgageOps = async (req, res) => {
       phone: { country_code: country_code || '+971', number: phone_number },
       password: hashedPassword,
       employeeCode,
-        profilePic: profilePic || null,  // 👈 ADD THIS
+      profilePic: profilePic || null,  // 👈 ADD THIS
       role: opsRole._id,
       dateOfBirth: dateOfBirth || null,
       nationality: nationality || null,
@@ -107,6 +109,18 @@ export const createMortgageOps = async (req, res) => {
       isVerified: true,
       verifiedAt: new Date(),
       verifiedBy: req.user._id
+    });
+
+    // Log Audit
+    await logAudit({
+      entityType: 'USER',
+      entityId: ops._id,
+      action: 'USER_CREATED',
+      performedBy: req.user._id,
+      performedByName: req.user.email,
+      performedByRole: 'admin',
+      visibleToRoles: ['admin', 'ops'],
+      metadata: { department: ops.department, designation: ops.designation, employeeCode }
     });
 
     await HistoryService.logEmployeeActivity(ops, 'OPS_CREATED', await getUserInfo(req), {
@@ -319,6 +333,63 @@ export const assignCaseToOps = async (req, res) => {
       metadata: { opsId, caseId }
     });
 
+    // Log Audit
+    await logAudit({
+      entityType: 'CASE',
+      entityId: caseData._id,
+      entityRef: caseData.caseReference,
+      action: 'CASE_ASSIGNED_TO_OPS',
+      newValue: { opsId: ops._id, opsName: ops.fullName },
+      performedBy: req.user._id,
+      performedByName: req.user.email,
+      performedByRole: 'admin',
+      visibleToRoles: ['admin', 'ops'],
+      metadata: { opsId: ops._id.toString() }
+    });
+
+    // Notify Specific Mortgage Ops (Trigger #30)
+    await emitVaultNotification({
+      eventType: 'CASE_ASSIGNED_TO_OPS',
+      title: 'Application Assigned',
+      message: `Application ${caseData.caseReference} has been manually assigned to you by Admin.`,
+      entityId: caseData._id,
+      entityModel: 'Case',
+      recipientId: ops._id,
+      recipientModel: 'MortgageOps',
+      recipientRole: 'ops',
+      createdByName: 'Xoto Admin',
+      createdByRole: 'admin',
+    });
+
+    // Notify Partner Admin / Creator (Trigger #11)
+    if (caseData.createdBy?.role === 'partner' && caseData.partnerId) {
+      await emitVaultNotification({
+        eventType: 'CASE_STATUS_UPDATED',
+        title: 'Application Under Review',
+        message: `Your application ${caseData.caseReference} is now assigned to Operations Executive ${ops.fullName}.`,
+        entityId: caseData._id,
+        entityModel: 'Case',
+        recipientId: caseData.partnerId,
+        recipientModel: 'Partner',
+        recipientRole: 'partner',
+        createdByName: 'Xoto Admin',
+        createdByRole: 'admin',
+      });
+    } else if (caseData.createdBy?.userId) {
+      await emitVaultNotification({
+        eventType: 'CASE_STATUS_UPDATED',
+        title: 'Application Under Review',
+        message: `Your application ${caseData.caseReference} is now assigned to Operations Executive ${ops.fullName}.`,
+        entityId: caseData._id,
+        entityModel: 'Case',
+        recipientId: caseData.createdBy.userId,
+        recipientModel: caseData.createdBy.role === 'advisor' ? 'XotoAdvisor' : 'Agent',
+        recipientRole: caseData.createdBy.role,
+        createdByName: 'Xoto Admin',
+        createdByRole: 'admin',
+      });
+    }
+
     return res.status(200).json({
       success: true,
       message: `Case assigned to ${ops.fullName}`,
@@ -350,20 +421,66 @@ export const opsLogin = async (req, res) => {
       .populate('role');
 
     if (!ops) {
+      await logAudit({
+        entityType: 'USER',
+        action: 'USER_FAILED_LOGIN',
+        performedByName: email,
+        performedByRole: 'ops',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        visibleToRoles: ['admin'],
+        metadata: { reason: 'Ops email not found' }
+      });
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
     const isMatch = await bcrypt.compare(password, ops.password);
     if (!isMatch) {
+      await logAudit({
+        entityType: 'USER',
+        entityId: ops._id,
+        action: 'USER_FAILED_LOGIN',
+        performedBy: ops._id,
+        performedByName: ops.fullName || email,
+        performedByRole: 'ops',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        visibleToRoles: ['admin', 'ops'],
+        metadata: { reason: 'Password mismatch' }
+      });
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
     if (!ops.isActiveOps()) {
+      await logAudit({
+        entityType: 'USER',
+        entityId: ops._id,
+        action: 'USER_FAILED_LOGIN',
+        performedBy: ops._id,
+        performedByName: ops.fullName || email,
+        performedByRole: 'ops',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        visibleToRoles: ['admin', 'ops'],
+        metadata: { reason: 'Ops user suspended/inactive' }
+      });
       return res.status(403).json({ success: false, message: "Account is deactivated or suspended" });
     }
 
     ops.lastLoginAt = new Date();
     await ops.save();
+
+    await logAudit({
+      entityType: 'USER',
+      entityId: ops._id,
+      action: 'USER_LOGIN',
+      performedBy: ops._id,
+      performedByName: ops.fullName || email,
+      performedByRole: 'ops',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      visibleToRoles: ['admin', 'ops'],
+    });
 
     const token = createToken(ops);
     const opsResponse = ops.toObject();
@@ -468,6 +585,62 @@ export const pickUpCase = async (req, res) => {
     ops.queueStatus.pendingReview += 1;
     await ops.save();
 
+    // Log Audit
+    await logAudit({
+      entityType: 'CASE',
+      entityId: caseData._id,
+      entityRef: caseData.caseReference,
+      action: 'CASE_PICKED_UP',
+      newValue: { opsId: ops._id, opsName: ops.fullName },
+      performedBy: ops._id,
+      performedByName: ops.fullName,
+      performedByRole: 'ops',
+      visibleToRoles: ['admin', 'ops'],
+      metadata: { opsId: ops._id.toString() }
+    });
+
+    // Notify Admin
+    await emitVaultNotification({
+      eventType: 'CASE_PICKED_UP',
+      title: 'Application Picked Up',
+      message: `Application ${caseData.caseReference} has been picked up by Operations Executive ${ops.fullName}.`,
+      entityId: caseData._id,
+      entityModel: 'Case',
+      recipientRole: 'admin',
+      sendToAllOfRole: true,
+      createdByName: ops.fullName,
+      createdByRole: 'ops',
+    });
+
+    // Notify Submitter
+    if (caseData.createdBy?.role === 'partner' && caseData.partnerId) {
+      await emitVaultNotification({
+        eventType: 'CASE_STATUS_UPDATED',
+        title: 'Application Under Review',
+        message: `Your application ${caseData.caseReference} has been picked up for review.`,
+        entityId: caseData._id,
+        entityModel: 'Case',
+        recipientId: caseData.partnerId,
+        recipientModel: 'Partner',
+        recipientRole: 'partner',
+        createdByName: ops.fullName,
+        createdByRole: 'ops',
+      });
+    } else if (caseData.createdBy?.userId) {
+      await emitVaultNotification({
+        eventType: 'CASE_STATUS_UPDATED',
+        title: 'Application Under Review',
+        message: `Your application ${caseData.caseReference} has been picked up for review.`,
+        entityId: caseData._id,
+        entityModel: 'Case',
+        recipientId: caseData.createdBy.userId,
+        recipientModel: caseData.createdBy.role === 'advisor' ? 'XotoAdvisor' : 'Agent',
+        recipientRole: caseData.createdBy.role,
+        createdByName: ops.fullName,
+        createdByRole: 'ops',
+      });
+    }
+
     return res.status(200).json({
       success: true,
       message: "Case picked up successfully",
@@ -512,6 +685,102 @@ export const updateCaseStatus = async (req, res) => {
     caseData.currentStatus = status;
     if (notes) caseData.internalNotes.push({ note: notes, addedBy: req.user.fullName, addedAt: new Date() });
     await caseData.save();
+
+    // Log Audit
+    await logAudit({
+      entityType: 'CASE',
+      entityId: caseData._id,
+      entityRef: caseData.caseReference,
+      action: 'CASE_STATUS_CHANGED',
+      oldValue: previousStatus,
+      newValue: status,
+      performedBy: ops._id,
+      performedByName: ops.fullName,
+      performedByRole: 'ops',
+      visibleToRoles: ['admin', 'ops', 'partner', 'advisor', 'referral_partner', 'partner_affiliated_agent'],
+      metadata: { previousStatus, newStatus: status, notes }
+    });
+
+    // Notify Submitter (Partner / Advisor / Agent)
+    const notificationTitle = `Application Status: ${status}`;
+    const notificationMessage = `Application ${caseData.caseReference} status has been updated to "${status}".`;
+
+    if (caseData.createdBy?.role === 'partner' && caseData.partnerId) {
+      await emitVaultNotification({
+        eventType: status === 'Returned - Pending Correction' ? 'CASE_RETURNED' : 'CASE_STATUS_UPDATED',
+        title: notificationTitle,
+        message: notificationMessage,
+        entityId: caseData._id,
+        entityModel: 'Case',
+        recipientId: caseData.partnerId,
+        recipientModel: 'Partner',
+        recipientRole: 'partner',
+        createdByName: ops.fullName,
+        createdByRole: 'ops',
+      });
+    } else if (caseData.createdBy?.userId) {
+      await emitVaultNotification({
+        eventType: status === 'Returned - Pending Correction' ? 'CASE_RETURNED' : 'CASE_STATUS_UPDATED',
+        title: notificationTitle,
+        message: notificationMessage,
+        entityId: caseData._id,
+        entityModel: 'Case',
+        recipientId: caseData.createdBy.userId,
+        recipientModel: caseData.createdBy.role === 'advisor' ? 'XotoAdvisor' : 'Agent',
+        recipientRole: caseData.createdBy.role,
+        createdByName: ops.fullName,
+        createdByRole: 'ops',
+      });
+    }
+
+    // Auto-create Commission on Disbursed
+    if (status === 'Disbursed') {
+      const existingComm = await Commission.findOne({ sourceId: caseData._id, sourceType: 'Case' });
+      if (!existingComm) {
+        const propertyValue = caseData.clientInfo?.propertyValue || 0;
+        const isAboveFiveM = propertyValue > 5000000;
+        
+        let recipientType = 'Partner';
+        let recipientId = caseData.partnerId;
+        let commissionPercentage = 75;
+
+        if (caseData.createdBy?.role === 'referral_partner') {
+          recipientType = 'ReferralPartner';
+          recipientId = caseData.createdBy.userId;
+          commissionPercentage = 2; // Default 2% for Referral Partner
+        } else if (caseData.partnerId) {
+          const partner = await Partner.findById(caseData.partnerId);
+          commissionPercentage = isAboveFiveM
+            ? partner?.commissionTier?.aboveFiveMillion || 80
+            : partner?.commissionTier?.upToFiveMillion || 75;
+        }
+
+        await Commission.create({
+          recipientType,
+          recipientId,
+          sourceType: 'Case',
+          sourceId: caseData._id,
+          clientId: caseData.clientId,
+          propertyValue,
+          commissionPercentage,
+          status: 'Pending',
+          notes: 'Auto-created commission on Disbursed. Admin verification required.',
+        });
+
+        // Notify Admin that commission is pending confirmation
+        await emitVaultNotification({
+          eventType: 'COMMISSION_CREATED',
+          title: 'New Commission Pending',
+          message: `Application ${caseData.caseReference} disbursed. Commission calculation is pending Admin confirmation.`,
+          entityId: caseData._id,
+          entityModel: 'Case',
+          recipientRole: 'admin',
+          sendToAllOfRole: true,
+          createdByName: 'System',
+          createdByRole: 'system',
+        });
+      }
+    }
 
     // Update ops performance metrics
     const ops = await MortgageOps.findById(opsId);

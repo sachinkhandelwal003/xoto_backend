@@ -156,8 +156,8 @@ lastLoginAt: { type: Date, default: null },
 
     agentType: {
       type: String,
-      enum: ['FreelanceAgent', 'PartnerAffiliatedAgent'],
-      default: 'FreelanceAgent',
+      enum: ['ReferralPartner', 'PartnerAffiliatedAgent'],
+      default: 'ReferralPartner',
     },
     partnerId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -254,7 +254,7 @@ agentSchema.methods.isActiveAgent = function () {
 
 // ✅ CORRECT: Commission eligibility for FreelanceAgent
 agentSchema.methods.canEarnCommission = function () {
-  if (this.agentType === 'FreelanceAgent') {
+  if (this.agentType === 'ReferralPartner') {
     return this.isVerified && 
            this.isActiveAgent() && 
            this.isPhoneVerified && 
@@ -266,7 +266,7 @@ agentSchema.methods.canEarnCommission = function () {
 
 // ✅ CORRECT: Get commission percentage based on loan amount (PRD Section 1.2)
 agentSchema.methods.getCommissionPercentage = function (loanAmount) {
-  if (this.agentType !== 'FreelanceAgent') return null;
+  if (this.agentType !== 'ReferralPartner') return null;
   
   const isAbove5M = loanAmount > 5000000;
   return isAbove5M ? this.freelanceCommission.above5M : this.freelanceCommission.below5M;
@@ -286,7 +286,7 @@ agentSchema.methods.markEmailVerified = function () {
 
 // ✅ CORRECT: Get detailed commission eligibility status
 agentSchema.methods.getCommissionEligibilityStatus = function() {
-  if (this.agentType === 'FreelanceAgent') {
+  if (this.agentType === 'ReferralPartner') {
     if (!this.isVerified) {
       return { eligible: false, reason: 'Profile not verified by admin' };
     }

@@ -11,7 +11,9 @@ export const initializeCaseDocuments = async ({
   bankId,
   employmentStatus,
   residencyStatus,
-  mortgageType = 'Both'
+  mortgageType = 'Both',
+  creatorRole = 'advisor',   // 'advisor' | 'partner' | 'partner_affiliated_agent' | 'admin'
+  skipBankForm = true        // advisor-only: if true, bank template forms stay with Ops
 }) => {
   try {
     // Fetch required documents with filters
@@ -93,22 +95,25 @@ export const initializeCaseDocuments = async ({
     }
 
     // Create BANK SPECIFIC documents
-    for (const doc of bankSpecificDocuments) {
-      let handledBy = 'Ops';
-      let handledByAdvisor = false;
-      let assignedToOps = true;
+    const isAdvisor = creatorRole === 'advisor';
 
-      if (doc.documentType === 'direct_upload') {
+    for (const doc of bankSpecificDocuments) {
+      let handledBy, handledByAdvisor, assignedToOps;
+
+      if (!isAdvisor) {
+        // Partner / PartnerAffiliatedAgent / Admin: creator handles ALL docs — no Ops delegation
         handledBy = 'Advisor';
         handledByAdvisor = true;
         assignedToOps = false;
         advisorHandledCount++;
-      } else if (doc.documentType === 'template_download') {
+      } else if (doc.documentType === 'template_download' && skipBankForm) {
+        // Advisor skipping bank form → delegate template forms to Ops
         handledBy = 'Ops';
         handledByAdvisor = false;
         assignedToOps = true;
         opsHandledCount++;
-      } else if (doc.documentType === 'sample_view') {
+      } else {
+        // Advisor handling all themselves (no skip), or direct_upload / sample_view types
         handledBy = 'Advisor';
         handledByAdvisor = true;
         assignedToOps = false;

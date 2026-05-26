@@ -8,6 +8,8 @@ import HistoryService from '../services/history.service.js';
 import bcrypt from 'bcryptjs';
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { createToken } from '../../../middleware/auth.js';
+import { logAudit } from '../services/auditLog.service.js';
+import { emitVaultNotification } from '../services/vaultNotification.service.js';
 
 /* =====================================
    HELPER FUNCTION
@@ -96,7 +98,7 @@ export const createXotoAdvisor = async (req, res) => {
       email,
       phone: { country_code: country_code || '+971', number: phone_number },
       password: hashedPassword,
-        profilePic: profilePic || null,  // 👈 ADD THIS
+      profilePic: profilePic || null,  // 👈 ADD THIS
       role: advisorRole._id,
       dateOfBirth: dateOfBirth || null,
       nationality: nationality || null,
@@ -107,6 +109,18 @@ export const createXotoAdvisor = async (req, res) => {
       isVerified: true,
       verifiedAt: new Date(),
       verifiedBy: req.user._id
+    });
+
+    // Log Audit
+    await logAudit({
+      entityType: 'USER',
+      entityId: advisor._id,
+      action: 'USER_CREATED',
+      performedBy: req.user._id,
+      performedByName: req.user.email,
+      performedByRole: 'admin',
+      visibleToRoles: ['admin', 'advisor'],
+      metadata: { department: advisor.department, designation: advisor.designation }
     });
 
     await HistoryService.logEmployeeActivity(advisor, 'ADVISOR_CREATED', await getUserInfo(req), {
@@ -708,20 +722,66 @@ export const advisorLogin = async (req, res) => {
       .populate('role');
 
     if (!advisor) {
+      await logAudit({
+        entityType: 'USER',
+        action: 'USER_FAILED_LOGIN',
+        performedByName: email,
+        performedByRole: 'advisor',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        visibleToRoles: ['admin'],
+        metadata: { reason: 'Advisor email not found' }
+      });
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
     const isMatch = await bcrypt.compare(password, advisor.password);
     if (!isMatch) {
+      await logAudit({
+        entityType: 'USER',
+        entityId: advisor._id,
+        action: 'USER_FAILED_LOGIN',
+        performedBy: advisor._id,
+        performedByName: advisor.fullName || email,
+        performedByRole: 'advisor',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        visibleToRoles: ['admin', 'advisor'],
+        metadata: { reason: 'Password mismatch' }
+      });
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
     if (!advisor.isActiveAdvisor()) {
+      await logAudit({
+        entityType: 'USER',
+        entityId: advisor._id,
+        action: 'USER_FAILED_LOGIN',
+        performedBy: advisor._id,
+        performedByName: advisor.fullName || email,
+        performedByRole: 'advisor',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        visibleToRoles: ['admin', 'advisor'],
+        metadata: { reason: 'Advisor is suspended/inactive' }
+      });
       return res.status(403).json({ success: false, message: "Account is deactivated or suspended" });
     }
 
     advisor.lastLoginAt = new Date();
     await advisor.save();
+
+    await logAudit({
+      entityType: 'USER',
+      entityId: advisor._id,
+      action: 'USER_LOGIN',
+      performedBy: advisor._id,
+      performedByName: advisor.fullName || email,
+      performedByRole: 'advisor',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      visibleToRoles: ['admin', 'advisor'],
+    });
 
     await HistoryService.logSecurityEvent(advisor, 'LOGIN', await getUserInfo(req), {
       description: `Xoto Advisor ${advisor.fullName} logged in`,
@@ -799,6 +859,7 @@ export const updateLeadStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid status" });
     }
 
+    const previousStatus = lead.currentStatus;
     lead.currentStatus = status;
     if (notes) lead.notesToXoto = notes;
     
@@ -817,9 +878,55 @@ export const updateLeadStatus = async (req, res) => {
 
     await lead.save();
 
+    // Log Audit
+    await logAudit({
+      entityType: 'LEAD',
+      entityId: lead._id,
+      entityRef: lead._id.toString(),
+      action: 'LEAD_STATUS_CHANGED',
+      oldValue: previousStatus,
+      newValue: status,
+      performedBy: req.user._id,
+      performedByName: req.user.fullName || req.user.email,
+      performedByRole: 'advisor',
+      visibleToRoles: ['admin', 'advisor', 'referral_partner', 'partner_affiliated_agent'],
+      metadata: { advisorId: advisorId.toString() }
+    });
+
+    // Notify Admin on Contacted
+    if (status === 'Contacted') {
+      await emitVaultNotification({
+        eventType: 'LEAD_STATUS_UPDATED',
+        title: 'Lead Contacted',
+        message: `Lead ${lead.customerInfo.firstName} ${lead.customerInfo.lastName} has been contacted by Advisor.`,
+        entityId: lead._id,
+        entityModel: 'VaultLead',
+        recipientRole: 'admin',
+        sendToAllOfRole: true,
+        createdByName: req.user.fullName || 'Advisor',
+        createdByRole: 'advisor',
+      });
+    }
+
+    // Notify Agent (Referral Partner / Affiliated Agent) if they created this lead
+    if (lead.sourceInfo?.createdById) {
+      await emitVaultNotification({
+        eventType: 'LEAD_STATUS_UPDATED',
+        title: `Lead Status: ${status}`,
+        message: `Your submitted lead for ${lead.customerInfo.firstName} ${lead.customerInfo.lastName} has been updated to "${status}".`,
+        entityId: lead._id,
+        entityModel: 'VaultLead',
+        recipientId: lead.sourceInfo.createdById,
+        recipientModel: 'Agent',
+        recipientRole: lead.sourceInfo.createdByRole || 'referral_partner',
+        createdByName: 'System',
+        createdByRole: 'system',
+      });
+    }
+
     await HistoryService.logLeadActivity(lead, 'LEAD_STATUS_UPDATED', await getUserInfo(req), {
       description: `Lead status updated to ${status}`,
-      metadata: { previousStatus: lead.currentStatus, newStatus: status }
+      metadata: { previousStatus, newStatus: status }
     });
 
     return res.status(200).json({

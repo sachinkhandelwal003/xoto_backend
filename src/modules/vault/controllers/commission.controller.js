@@ -7,6 +7,8 @@ import Partner from '../models/Partner.js';
 import VaultAgent from '../models/Agent.js';
 import HistoryService from '../services/history.service.js';
 import { emitVaultNotification } from '../services/vaultNotification.service.js';
+import { logAudit, actorFromReq } from '../services/auditLog.service.js';
+import { ENTITY_TYPES, AUDIT_ACTIONS } from '../models/AuditLog.js';
 
 const getUserInfo = async (req) => {
   const roleId = req.user?.role;
@@ -16,7 +18,7 @@ const getUserInfo = async (req) => {
     const roleDoc = await Role.findById(roleId);
     if (roleDoc?.code === '18') userRole = 'Admin';
     else if (roleDoc?.code === '21') userRole = 'Partner';
-    else if (req.user?.agentType === 'FreelanceAgent') userRole = 'FreelanceAgent';
+    else if (req.user?.agentType === 'ReferralPartner') userRole = 'ReferralPartner';
     else if (req.user?.agentType === 'PartnerAffiliatedAgent') userRole = 'PartnerAffiliatedAgent';
   }
   return {
@@ -79,15 +81,15 @@ const determineRecipient = async (caseData, xotoCommissionFromBank) => {
   const leadSourceId = lead.sourceInfo.createdById;
   
   // CASE 1: Lead from FREELANCE AGENT (40% / 50%)
-  if (leadSourceRole === 'freelance_agent') {
+  if (leadSourceRole === 'referral_partner') {
     const agent = await VaultAgent.findById(leadSourceId);
-    if (agent && agent.agentType === 'FreelanceAgent') {
+    if (agent && agent.agentType === 'ReferralPartner') {
       const referralPercentage = loanAmount <= 5000000 ? 40 : 50;
       const commissionAmount = (xotoCommissionFromBank * referralPercentage) / 100;
       const xotoNetProfit = xotoCommissionFromBank - commissionAmount;
       
       return {
-        recipientType: 'freelance_agent',
+        recipientType: 'referral_partner',
         recipientId: agent._id,
         recipientName: agent.fullName,
         recipientPercentage: referralPercentage,
@@ -202,7 +204,7 @@ if (leadSourceRole === 'admin') {
 
 // ==================== HELPER: Validate Bank Details for Payment ====================
 const validateRecipientBankDetails = async (recipientType, recipientId) => {
-  if (recipientType === 'freelance_agent') {
+  if (recipientType === 'referral_partner') {
     const agent = await VaultAgent.findById(recipientId);
     if (!agent) {
       return { valid: false, reason: 'Agent not found' };
@@ -454,7 +456,7 @@ export const createCommissionFromCase = async (req, res) => {
       recipientPercentage: recipientInfo.recipientPercentage,
       commissionAmount: recipientInfo.commissionAmount,
       calculationFormula: recipientInfo.calculationFormula,
-      percentageSource: recipientInfo.recipientType === 'freelance_agent' 
+      percentageSource: recipientInfo.recipientType === 'referral_partner' 
         ? 'freelance_commission.referralOnly' 
         : 'partner.commissionConfiguration',
       disbursedAt: new Date(),
@@ -470,7 +472,7 @@ export const createCommissionFromCase = async (req, res) => {
     }
     
     // Get payout bank details
-    if (recipientInfo.recipientType === 'freelance_agent') {
+    if (recipientInfo.recipientType === 'referral_partner') {
       const agent = await VaultAgent.findById(recipientInfo.recipientId);
       if (agent && agent.bankDetails) {
         commissionData.payoutBankDetails = {
@@ -522,6 +524,17 @@ export const createCommissionFromCase = async (req, res) => {
       entityModel:   'Commission',
       createdByName: req.user?.email || 'Admin',
       createdByRole: 'admin',
+    });
+
+    logAudit({
+      entityType:    ENTITY_TYPES.COMMISSION,
+      entityId:      commission._id,
+      entityRef:     commission.commissionId,
+      action:        AUDIT_ACTIONS.COMMISSION_GENERATED,
+      newValue:      { amount: recipientInfo.commissionAmount, recipient: commission.recipientName, status: 'Pending' },
+      visibleToRoles: ['admin'],
+      ...actorFromReq(req, 'admin'),
+      metadata:      { caseId: commission.caseId, caseReference: commission.caseReference },
     });
 
     return res.status(201).json({
@@ -605,14 +618,27 @@ export const confirmCommission = async (req, res) => {
       metadata: { amountAdjusted, finalAmount: finalBankCommission }
     });
 
-    emitVaultNotification({
+    await emitVaultNotification({
       eventType:     'COMMISSION_CONFIRMED',
       title:         'Commission Confirmed',
-      message:       `${commission.commissionId} confirmed — ${commission.commissionAmount.toLocaleString()} AED for ${commission.recipientName}${amountAdjusted ? ' (amount adjusted)' : ''}`,
+      message:       `Your commission for case ${commission.caseReference} of ${commission.commissionAmount.toLocaleString()} AED has been confirmed.`,
       entityId:      commission._id,
       entityModel:   'Commission',
-      createdByName: req.user?.email || 'Admin',
+      recipientId:   commission.recipientId,
+      recipientModel: commission.recipientModel,
+      recipientRole: commission.recipientRole,
+      createdByName: 'Xoto Admin',
       createdByRole: 'admin',
+    });
+
+    logAudit({
+      entityType:    ENTITY_TYPES.COMMISSION,
+      entityId:      commission._id,
+      entityRef:     commission.commissionId,
+      action:        AUDIT_ACTIONS.COMMISSION_CONFIRMED,
+      newValue:      { amount: commission.commissionAmount, status: 'Confirmed' },
+      visibleToRoles: ['admin'],
+      ...actorFromReq(req, 'admin'),
     });
 
     return res.status(200).json({
@@ -663,14 +689,28 @@ export const markCommissionAsPaid = async (req, res) => {
       metadata: { paymentReference, amount: commission.commissionAmount }
     });
 
-    emitVaultNotification({
+    await emitVaultNotification({
       eventType:     'COMMISSION_PAID',
       title:         'Commission Paid',
-      message:       `${commission.commissionId} — ${commission.commissionAmount.toLocaleString()} AED paid to ${commission.recipientName} via ${paymentMethod || 'Bank Transfer'}`,
+      message:       `Your commission of ${commission.commissionAmount.toLocaleString()} AED has been paid (Ref: ${paymentReference}).`,
       entityId:      commission._id,
       entityModel:   'Commission',
-      createdByName: req.user?.email || 'Admin',
+      recipientId:   commission.recipientId,
+      recipientModel: commission.recipientModel,
+      recipientRole: commission.recipientRole,
+      createdByName: 'Xoto Admin',
       createdByRole: 'admin',
+    });
+
+    logAudit({
+      entityType:    ENTITY_TYPES.COMMISSION,
+      entityId:      commission._id,
+      entityRef:     commission.commissionId,
+      action:        AUDIT_ACTIONS.COMMISSION_PAID,
+      newValue:      { amount: commission.commissionAmount, paymentMethod, status: 'Paid' },
+      visibleToRoles: ['admin'],
+      ...actorFromReq(req, 'admin'),
+      metadata:      { paymentReference },
     });
 
     return res.status(200).json({
@@ -762,7 +802,7 @@ export const getMyCommissions = async (req, res) => {
     console.log('REQ.USER:', req.user);
 
     // ✅ Check agent type directly from DB-loaded user
-    if (req.user.agentType !== 'FreelanceAgent') {
+    if (req.user.agentType !== 'ReferralPartner') {
 
       return res.status(403).json({
         success: false,
@@ -772,7 +812,7 @@ export const getMyCommissions = async (req, res) => {
     }
 
     const commissions = await Commission.find({
-      recipientRole: 'freelance_agent',
+      recipientRole: 'referral_partner',
       recipientId: req.user._id,
       isDeleted: false
     })
@@ -895,7 +935,7 @@ export const adminGetAllCommissions = async (req, res) => {
         failed: commissions.filter(c => c.status === 'Failed').reduce((s, c) => s + c.commissionAmount, 0)
       },
       byRole: {
-        freelance_agent: commissions.filter(c => c.recipientRole === 'freelance_agent').reduce((s, c) => s + c.commissionAmount, 0),
+        referral_partner: commissions.filter(c => c.recipientRole === 'referral_partner').reduce((s, c) => s + c.commissionAmount, 0),
         partner: commissions.filter(c => c.recipientRole === 'partner').reduce((s, c) => s + c.commissionAmount, 0)
       }
     };

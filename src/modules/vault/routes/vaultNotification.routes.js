@@ -4,17 +4,13 @@ import {
   markNotificationRead,
   markAllRead,
 } from '../controllers/vaultNotification.controller.js';
-import { protect } from '../../../middleware/auth.js';
+const { protectMulti } = require('../../../middleware/auth');
 
 const router = express.Router();
 
-// GET  /vault/notifications          - list all vault notifications (admin)
-router.get('/', protect, getVaultNotifications);
-
-// PATCH /vault/notifications/read-all - mark all as read (must be before /:id)
-router.patch('/read-all', protect, markAllRead);
-
-// PATCH /vault/notifications/:id/read - mark single notification as read
-router.patch('/:id/read', protect, markNotificationRead);
+// All vault roles (18/21/22/23/26) can access notifications
+router.get('/',              protectMulti, getVaultNotifications);
+router.patch('/read-all',   protectMulti, markAllRead);
+router.patch('/:id/read',   protectMulti, markNotificationRead);
 
 module.exports = router;

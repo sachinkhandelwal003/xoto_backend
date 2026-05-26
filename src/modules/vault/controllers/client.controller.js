@@ -49,7 +49,7 @@ export const generateClientPortalAccess = async (req, res) => {
     client.portalAccess.isPasswordChanged = false;
     client.portalAccess.accessGeneratedAt = new Date();
     client.portalAccess.accessGeneratedBy = req.user._id;
-    client.portalAccess.generatedByType = req.user.agentType === 'FreelanceAgent' ? 'Agent' : 'Partner';
+    client.portalAccess.generatedByType = req.user.agentType === 'ReferralPartner' ? 'Agent' : 'Partner';
     await client.save();
     
     return res.status(200).json({ success: true, message: "Portal access generated", data: { tempPassword, email: client.email } });
@@ -70,7 +70,7 @@ export const revokeClientPortalAccess = async (req, res) => {
     client.portalAccess.isRevoked = true;
     client.portalAccess.revokedAt = new Date();
     client.portalAccess.revokedBy = req.user._id;
-    client.portalAccess.revokedByType = req.user.agentType === 'FreelanceAgent' ? 'Agent' : 'Partner';
+    client.portalAccess.revokedByType = req.user.agentType === 'ReferralPartner' ? 'Agent' : 'Partner';
     await client.save();
     
     return res.status(200).json({ success: true, message: "Portal access revoked" });

@@ -123,6 +123,7 @@ app.use('/vault/commissions', require('./modules/vault/routes/commission.routes.
 
 app.use('/vault/cases/documents', require('./modules/vault/routes/document.routes.js'));
 app.use('/vault/notifications',   require('./modules/vault/routes/vaultNotification.routes.js'));
+app.use('/vault/audit',           require('./modules/vault/routes/auditLog.routes.js'));
 // Grid Referral Partner 
 app.use("/referral", referralPartnerRoutes);
 

@@ -166,14 +166,20 @@ const caseSchema = new mongoose.Schema(
     proposalId: { type: mongoose.Schema.Types.ObjectId, ref: 'Proposal', default: null },
 
     // Who created this case
-    // role: 'advisor' → goes through Ops queue
-    // role: 'partner' → skips Ops, submits directly to bank
+    // ALL cases go through Ops queue before bank submission
+    // role: 'advisor'                  → Draft → Xoto → Ops Queue → Ops Review → Bank
+    // role: 'partner'                  → Draft → Xoto → Ops Queue → Ops Review → Bank
+    // role: 'partner_affiliated_agent' → Draft → Xoto → Ops Queue → Ops Review → Bank
+    // role: 'admin'                    → admin-created, same flow
     createdBy: {
-      role:      { type: String, enum: ['advisor', 'partner', 'admin'], required: true },
+      role:      { type: String, enum: ['advisor', 'partner', 'admin', 'partner_affiliated_agent'], required: true },
       userId:    { type: mongoose.Schema.Types.ObjectId, required: true },
       userName:  { type: String, required: true },
       createdAt: { type: Date,   default: Date.now },
     },
+
+    // Advisor-only: if true, bank form docs stay with Ops; advisor only uploads global docs
+    advisorSkipBankForm: { type: Boolean, default: false },
 
     clientInfo:          { type: clientPersonalSchema,      required: true },
     propertyInfo:        { type: propertySchema,            required: true },
@@ -186,13 +192,10 @@ const caseSchema = new mongoose.Schema(
     disbursementInfo:    { type: disbursementInfoSchema,    default: () => ({}) },
 
     // ── Status ───────────────────────────────────────────────────
-    // Advisor case flow:
+    // ALL roles follow the same flow:
     //   Draft → Submitted to Xoto → In Ops Queue - Pending Pick-up
     //   → Assigned - Pending Review → Under Review
     //   → [Returned - Pending Correction] → Submitted to Bank → ...
-    //
-    // Partner case flow:
-    //   Draft → Submitted to Bank → ... (skips all Ops statuses)
     currentStatus: {
       type: String,
       enum: [
@@ -212,6 +215,7 @@ const caseSchema = new mongoose.Schema(
         'FOL Signed',
         'Disbursed',
         'Lost',
+        'Declined',
         'Rejected',
       ],
       default: 'Draft',
@@ -328,13 +332,14 @@ caseSchema.methods.updateDocumentSummary = async function () {
 caseSchema.methods.isReadyForSubmission = async function () {
   try {
     const CaseDocumentRequirement = mongoose.model('CaseDocumentRequirement');
-    const handledBy = this.createdBy.role === 'partner' ? 'Partner' : 'Advisor';
-    const pending   = await CaseDocumentRequirement.countDocuments({
-      caseId:     this._id,
-      handledBy,
-      isUploaded: false,
-      isDeleted:  false,
-    });
+    const matchQuery = { caseId: this._id, handledBy: 'Advisor', isUploaded: false, isDeleted: false };
+
+    // Advisor who skipped bank form only needs Global docs uploaded before submitting to Xoto
+    if (this.createdBy.role === 'advisor' && this.advisorSkipBankForm) {
+      matchQuery.source = 'Global';
+    }
+
+    const pending = await CaseDocumentRequirement.countDocuments(matchQuery);
     return pending === 0;
   } catch (err) {
     console.error('isReadyForSubmission:', err);

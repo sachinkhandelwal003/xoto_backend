@@ -1,5 +1,6 @@
 import Proposal from '../models/Proposal.js';
 import Lead from '../models/VaultLead.js';
+import VaultAgent from '../models/Agent.js';
 import mongoose from 'mongoose';
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 import sendEmail from '../../../utils/sendEmail.js';
@@ -8,6 +9,7 @@ import { PutObjectCommand } from '@aws-sdk/client-s3';
 import s3 from '../../../config/s3Client.js';
 import { buildProposalHTML } from '../utils/proposalPDF.js';
 import { emitVaultNotification } from '../services/vaultNotification.service.js';
+import { logAudit, actorFromReq } from '../services/auditLog.service.js';
 
 // =============================================================
 // HELPER - Generate PDF buffer using puppeteer
@@ -30,18 +32,22 @@ const generatePDFBuffer = async (html) => {
 
 // =============================================================
 // HELPER - Get user info
+// protectMulti populates req.user.role as full object {_id, code, name}
 // =============================================================
 const getUserInfo = async (req) => {
-  const roleId = req.user?.role;
   let userRole = 'advisor';
   try {
-    if (roleId) {
-      const roleDoc = await Role.findById(roleId);
-      const code = roleDoc?.code;
-      if (code === '18') userRole = 'admin';
-      else if (code === '21') userRole = 'partner';
-      else userRole = 'advisor';
+    const role = req.user?.role;
+    let code;
+    if (role && typeof role === 'object' && role.code != null) {
+      code = String(role.code);
+    } else if (role) {
+      const roleDoc = await Role.findById(role);
+      code = roleDoc?.code ? String(roleDoc.code) : null;
     }
+    if (code === '18') userRole = 'admin';
+    else if (code === '21') userRole = 'partner';
+    else userRole = 'advisor';
   } catch { userRole = 'advisor'; }
   return {
     userId: req.user?._id,
@@ -90,8 +96,9 @@ export const getEligibleBanksForLead = async (req, res) => {
     const { leadId } = req.params;
     const lead = await Lead.findById(leadId);
     if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
-    if (lead.currentStatus !== 'Qualified')
-      return res.status(400).json({ success: false, message: `Lead must be Qualified. Current: ${lead.currentStatus}` });
+    const proposalReadyStatuses = ['Qualified', 'Collecting Documents', 'Documents Complete'];
+    if (!proposalReadyStatuses.includes(lead.currentStatus))
+      return res.status(400).json({ success: false, message: `Lead must be Qualified or in document collection. Current: ${lead.currentStatus}` });
 
     const BankProduct = mongoose.model('BankMortgageProducts');
     const ci = lead.customerInfo;
@@ -194,15 +201,23 @@ export const createProposal = async (req, res) => {
 
     const lead = await Lead.findById(leadId);
     if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
-    if (lead.currentStatus !== 'Qualified')
-      return res.status(400).json({ success: false, message: `Lead must be Qualified. Current: ${lead.currentStatus}` });
+    const proposalReadyStatuses = ['Qualified', 'Collecting Documents', 'Documents Complete'];
+    if (!proposalReadyStatuses.includes(lead.currentStatus))
+      return res.status(400).json({ success: false, message: `Lead must be Qualified or in document collection. Current: ${lead.currentStatus}` });
 
-    const roleDoc = await Role.findById(req.user.role);
-    const isAdmin = roleDoc?.code === '18';
-    const isPartner = roleDoc?.code === '21';
-    const isAdvisor = roleDoc?.code === '26';
-    if (!isAdmin && !isPartner && !isAdvisor)
-      return res.status(403).json({ success: false, message: 'Only Advisor or Partner can create proposals' });
+    const roleObj  = req.user?.role;
+    const roleCode2 = typeof roleObj === 'object' ? String(roleObj.code ?? '') : String(roleObj ?? '');
+    const isAdmin    = roleCode2 === '18';
+    const isPartner  = roleCode2 === '21';
+    const isAdvisor  = roleCode2 === '26';
+    const isPartnerAffiliatedAgent = roleCode2 === '22' && req.user?.agentType === 'PartnerAffiliatedAgent';
+
+    if (!isAdmin && !isPartner && !isAdvisor && !isPartnerAffiliatedAgent)
+      return res.status(403).json({ success: false, message: 'Only Advisor, Partner, or Partner-Affiliated Agent can create proposals' });
+
+    // PartnerAffiliatedAgent can only create proposals for their own leads
+    if (isPartnerAffiliatedAgent && lead.sourceInfo?.createdById?.toString() !== req.user._id.toString())
+      return res.status(403).json({ success: false, message: 'You can only create proposals for your own leads' });
 
     const { userRole, userName } = await getUserInfo(req);
     const BankProduct = mongoose.model('BankMortgageProducts');
@@ -313,6 +328,17 @@ export const createProposal = async (req, res) => {
       createdByRole: userRole,
     });
 
+    await logAudit({
+      entityType:    'LEAD',
+      entityId:      lead._id,
+      entityRef:     proposal.proposalReference,
+      action:        'PROPOSAL_CREATED',
+      newValue:      { banksCount: selectedBanks.length },
+      ...actorFromReq(req, userRole),
+      visibleToRoles: ['admin', 'advisor', 'partner', 'partner_affiliated_agent'],
+      metadata:      { leadId: leadId.toString(), proposalId: proposal._id.toString() }
+    });
+
     return res.status(201).json({ success: true, message: 'Proposal created successfully', data: proposal });
   } catch (err) {
     console.error('createProposal:', err);
@@ -412,8 +438,19 @@ export const sendProposalPDF = async (req, res) => {
       }],
     });
 
-    const { userId, userName } = await getUserInfo(req);
+    const { userId, userRole, userName } = await getUserInfo(req);
     await proposal.markAsSent(email, pdfUrl, { userId, userName });
+
+    await logAudit({
+      entityType:    'LEAD',
+      entityId:      proposal.leadId,
+      entityRef:     proposal.proposalReference,
+      action:        'PROPOSAL_PDF_SENT',
+      newValue:      { email, pdfUrl },
+      ...actorFromReq(req, userRole),
+      visibleToRoles: ['admin', 'advisor', 'partner', 'partner_affiliated_agent'],
+      metadata:      { proposalId: proposal._id.toString() }
+    });
 
     return res.status(200).json({
       success: true,
@@ -452,8 +489,19 @@ export const recordCustomerPreference = async (req, res) => {
       return res.status(400).json({ success: false, message: `Cannot record preference for ${proposal.status} proposal` });
     }
 
-    const { userId, userName } = await getUserInfo(req);
+    const { userId, userRole, userName } = await getUserInfo(req);
     await proposal.recordCustomerPreference(bankId, bankName, productId, feedbackNote, { userId, userName });
+
+    await logAudit({
+      entityType:    'LEAD',
+      entityId:      proposal.leadId,
+      entityRef:     proposal.proposalReference,
+      action:        'CUSTOMER_PREFERENCE_RECORDED',
+      newValue:      { bankId, bankName, feedbackNote },
+      ...actorFromReq(req, userRole),
+      visibleToRoles: ['admin', 'advisor', 'partner', 'partner_affiliated_agent'],
+      metadata:      { proposalId: proposal._id.toString() }
+    });
 
     return res.status(200).json({
       success: true,
@@ -504,11 +552,28 @@ export const getMyProposals = async (req, res) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
 
-    const roleDoc = await Role.findById(req.user.role);
-    const isAdmin = roleDoc?.code === '18';
+    const roleObj2  = req.user?.role;
+    const roleCode3 = typeof roleObj2 === 'object' ? String(roleObj2.code ?? '') : String(roleObj2 ?? '');
+    const isAdmin   = roleCode3 === '18';
+    const isPartner = roleCode3 === '21';
 
     const query = { isDeleted: false };
-    if (!isAdmin) query['createdBy.userId'] = req.user._id;
+
+    if (isAdmin) {
+      // Admin sees all proposals
+    } else if (isPartner) {
+      // Partner sees their own proposals + affiliated agents' proposals
+      const affiliatedAgents = await VaultAgent.find(
+        { partnerId: req.user._id, agentType: 'PartnerAffiliatedAgent', isDeleted: false },
+        '_id'
+      );
+      const agentIds = affiliatedAgents.map(a => a._id);
+      query['createdBy.userId'] = { $in: [req.user._id, ...agentIds] };
+    } else {
+      // Advisor / PartnerAffiliatedAgent / others see only their own
+      query['createdBy.userId'] = req.user._id;
+    }
+
     if (status) query.status = status;
 
     const [proposals, total] = await Promise.all([

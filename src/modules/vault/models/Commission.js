@@ -39,7 +39,7 @@ const commissionSchema = new mongoose.Schema(
     // internal → No payout (Admin/Website leads)
     recipientRole: {
       type: String,
-      enum: ['freelance_agent', 'partner', 'internal'],
+      enum: ['referral_partner', 'partner', 'internal'],
       required: true,
     },
     recipientId:    { type: mongoose.Schema.Types.ObjectId, refPath: 'recipientModel', default: null },
@@ -54,7 +54,7 @@ const commissionSchema = new mongoose.Schema(
     // ── Lead source tracking ─────────────────────────────────────
     leadSource: {
       type: String,
-      enum: ['freelance_agent', 'partner_affiliated_agent', 'individual_partner', 'website', 'admin'],
+      enum: ['referral_partner', 'partner_affiliated_agent', 'individual_partner', 'website', 'admin'],
       default: null
     },
     isInternal: { type: Boolean, default: false }, // true for website/admin leads
@@ -216,7 +216,7 @@ commissionSchema.methods.updateRecipientEarnings = async function () {
   const VaultAgent = mongoose.model('VaultAgent');
   const Partner = mongoose.model('Partner');
 
-  if (this.recipientRole === 'freelance_agent') {
+  if (this.recipientRole === 'referral_partner') {
     const agent = await VaultAgent.findById(this.recipientId);
     if (agent) {
       await agent.updateEarningsFromCommission(this.commissionAmount, this.status === 'Confirmed');
@@ -245,7 +245,7 @@ commissionSchema.statics.getLoanTier = function (loanAmount) {
 };
 
 commissionSchema.statics.getRecipientPercentage = function (leadSourceRole, loanAmount) {
-  if (leadSourceRole === 'freelance_agent') {
+  if (leadSourceRole === 'referral_partner') {
     return loanAmount <= 5000000 ? 40 : 50;
   }
   if (leadSourceRole === 'partner_affiliated_agent' || leadSourceRole === 'individual_partner') {
@@ -336,14 +336,14 @@ commissionSchema.statics.createFromCase = async function (caseData, adminId = nu
   let recipientInfo = null;
   
   // CASE 1: Freelance Agent
-  if (leadSourceRole === 'freelance_agent') {
+  if (leadSourceRole === 'referral_partner') {
     const agent = await VaultAgent.findById(leadSourceId);
-    if (agent && agent.agentType === 'FreelanceAgent') {
+    if (agent && agent.agentType === 'ReferralPartner') {
       const recipientPercentage = loanAmount <= 5000000 ? 40 : 50;
       const { commissionAmount, formula } = this.calculateCommission(bankCommissionToXoto, recipientPercentage);
       
       recipientInfo = {
-        recipientRole: 'freelance_agent',
+        recipientRole: 'referral_partner',
         recipientId: agent._id,
         recipientModel: 'VaultAgent',
         recipientName: agent.fullName,
@@ -450,7 +450,7 @@ commissionSchema.statics.createFromCase = async function (caseData, adminId = nu
     recipientPercentage: recipientInfo.recipientPercentage,
     commissionAmount: recipientInfo.commissionAmount,
     calculationFormula: recipientInfo.calculationFormula,
-    referralType: recipientInfo.recipientRole === 'freelance_agent' ? 'Referral Only' : null,
+    referralType: recipientInfo.recipientRole === 'referral_partner' ? 'Referral Only' : null,
     percentageSource: recipientInfo.percentageSource,
     disbursedAt: new Date(),
     status: 'Pending',
@@ -481,7 +481,7 @@ commissionSchema.statics.createFromCase = async function (caseData, adminId = nu
   await caseData.save();
   
   // Update recipient earnings
-  if (recipientInfo.recipientRole === 'freelance_agent') {
+  if (recipientInfo.recipientRole === 'referral_partner') {
     const agent = await VaultAgent.findById(recipientInfo.recipientId);
     if (agent && typeof agent.updateEarningsFromCommission === 'function') {
       await agent.updateEarningsFromCommission(recipientInfo.commissionAmount);

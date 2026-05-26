@@ -63,7 +63,7 @@ const historySchema = new mongoose.Schema(
       userRole: { 
         type: String, 
         enum: [
-          'Admin', 'Partner', 'FreelanceAgent', 'PartnerAffiliatedAgent', 
+          'Admin', 'Partner', 'ReferralPartner', 'PartnerAffiliatedAgent', 
           'IndividualPartner',  // ✅ ADDED
           'XotoAdvisor',        // ✅ ADDED
           'MortgageOps',        // ✅ ADDED

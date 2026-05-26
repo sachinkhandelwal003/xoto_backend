@@ -18,7 +18,7 @@ import {
   changeOpsPassword,getMortgageOpsById
 } from '../controllers/mortgageOps.controller.js';
 
-import { protect } from '../../../middleware/auth.js';
+import { protect, protectVaultOps } from '../../../middleware/auth.js';
 
 const router = express.Router();
 
@@ -37,12 +37,12 @@ router.delete('/delete/:id', protect, deleteOps);
 router.post('/login', opsLogin);
 
 // ==================== SELF (Ops Only) ====================
-router.get('/me', protect, getOpsProfile);
-router.get('/dashboard', protect, getOpsDashboard);
-router.get('/my-cases', protect, getMyCases);
-router.get('/queue', protect, getOpsQueue);
-router.post('/pickup/:caseId', protect, pickUpCase);
-router.put('/case/:caseId/status', protect, updateCaseStatus);
-router.post('/change-password', protect, changeOpsPassword);
+router.get('/me', protectVaultOps, getOpsProfile);
+router.get('/dashboard', protectVaultOps, getOpsDashboard);
+router.get('/my-cases', protectVaultOps, getMyCases);
+router.get('/queue', protectVaultOps, getOpsQueue);
+router.post('/pickup/:caseId', protectVaultOps, pickUpCase);
+router.put('/case/:caseId/status', protectVaultOps, updateCaseStatus);
+router.post('/change-password', protectVaultOps, changeOpsPassword);
 
 module.exports = router;  

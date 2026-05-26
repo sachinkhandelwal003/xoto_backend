@@ -8,6 +8,7 @@ const Commission = require("../models/Commission");
 const Role       = require("../models/Role");
 // const Notification = require("../models/Notification.model");
 // const AuditLog   = require("../models/AuditLog.model");
+const { logAudit } = require("../services/auditLog.service");
 
 const bcrypt = require("bcryptjs");
 const jwt    = require("jsonwebtoken");
@@ -59,18 +60,52 @@ exports.loginAdmin = async (req, res) => {
     // ✅ Find admin with role populated
     const admin = await Admin.findOne({ email, is_deleted: false }).populate("role");
     if (!admin || !admin.isActive) {
+      await logAudit({
+        entityType: 'USER',
+        action: 'USER_FAILED_LOGIN',
+        performedByName: email,
+        performedByRole: 'admin',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        visibleToRoles: ['admin'],
+        metadata: { reason: 'Admin email not found or inactive' }
+      });
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
     // ✅ bcrypt compare — never plain-text
     const isMatch = await bcrypt.compare(password, admin.password);
     if (!isMatch) {
+      await logAudit({
+        entityType: 'USER',
+        entityId: admin._id,
+        action: 'USER_FAILED_LOGIN',
+        performedBy: admin._id,
+        performedByName: `${admin.name?.first_name} ${admin.name?.last_name}`,
+        performedByRole: 'admin',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        visibleToRoles: ['admin'],
+        metadata: { reason: 'Password mismatch' }
+      });
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
     // ✅ Update last login
     admin.lastLoginAt = new Date();
     await admin.save();
+
+    await logAudit({
+      entityType: 'USER',
+      entityId: admin._id,
+      action: 'USER_LOGIN',
+      performedBy: admin._id,
+      performedByName: `${admin.name?.first_name} ${admin.name?.last_name}`,
+      performedByRole: 'admin',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      visibleToRoles: ['admin'],
+    });
 
     // ✅ JWT with env secret
     const token = jwt.sign(
@@ -247,7 +282,7 @@ exports.createAgent = async (req, res) => {
         country_code: phone.country_code || "+971",
         number:       phone.number,
       },
-      agentType:          agentType || "FreelanceAgent",  // ✅ valid enum
+      agentType:          agentType || "ReferralPartner",  // ✅ valid enum
       maritalStatus:      maritalStatus || null,
       numberOfDependents: numberOfDependents || 0,
       dependents:         dependents || [],
@@ -457,7 +492,7 @@ exports.getDashboardStats = async (req, res) => {
       confirmedCommissions,
       pendingAffiliations,
     ] = await Promise.all([
-      Agent.countDocuments({ agentType: "FreelanceAgent", is_deleted: false }),
+      Agent.countDocuments({ agentType: "ReferralPartner", is_deleted: false }),
       Agent.countDocuments({ agentType: "PartnerAffiliatedAgent", is_deleted: false }),
       Partner.countDocuments({ is_deleted: false }),
       Client.countDocuments({ is_deleted: false }),
@@ -655,9 +690,9 @@ exports.confirmCommission = async (req, res) => {
 
     // Notify recipient
     await Notification.create({
-      recipientType: commission.recipientType === "FreelanceAgent" ? "Agent" : "Partner",
+      recipientType: commission.recipientType === "ReferralPartner" ? "Agent" : "Partner",
       recipientId: commission.recipientId,
-      type: commission.recipientType === "FreelanceAgent" ? "COMMISSION_CONFIRMED" : "PARTNER_COMMISSION_CONFIRMED",
+      type: commission.recipientType === "ReferralPartner" ? "COMMISSION_CONFIRMED" : "PARTNER_COMMISSION_CONFIRMED",
       title: "Commission Confirmed",
       body: `Your commission of AED ${commission.commissionAmount.toLocaleString()} has been confirmed.`,
       relatedEntityType: "Commission",

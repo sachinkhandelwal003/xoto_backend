@@ -17,7 +17,7 @@ const getUserInfo = async (req) => {
     const roleDoc = await Role.findById(roleId);
     if (roleDoc?.code === '18') userRole = 'Admin';
     else if (roleDoc?.code === '21') userRole = 'Partner';
-    else if (req.user?.agentType === 'FreelanceAgent') userRole = 'FreelanceAgent';
+    else if (req.user?.agentType === 'ReferralPartner') userRole = 'ReferralPartner';
     else if (req.user?.agentType === 'PartnerAffiliatedAgent') userRole = 'PartnerAffiliatedAgent';
     else if (req.user?.employeeType === 'XotoAdvisor') userRole = 'Advisor';
     else if (req.user?.employeeType === 'MortgageOps') userRole = 'MortgageOps';
@@ -83,14 +83,14 @@ export const getAdminDashboardStats = async (req, res) => {
       VaultLead.countDocuments({ isDeleted: false }),
       Case.countDocuments({ isDeleted: false, currentStatus: { $nin: ['Disbursed', 'Rejected', 'Lost'] } }),
       Partner.countDocuments({ isDeleted: false, status: 'active' }),
-      VaultAgent.countDocuments({ isDeleted: false, isActive: true, agentType: 'FreelanceAgent' }),
+      VaultAgent.countDocuments({ isDeleted: false, isActive: true, agentType: 'ReferralPartner' }),
       XotoAdvisor.countDocuments({ isDeleted: false, isActive: true }),
       MortgageOps.countDocuments({ isDeleted: false, isActive: true }),
       Case.countDocuments({ isDeleted: false, currentStatus: 'Disbursed' }),
       Case.countDocuments({ isDeleted: false, currentStatus: { $in: ['Draft', 'Submitted to Xoto', 'In Ops Queue - Pending Pick-up', 'Under Review', 'Bank Application', 'Pre-Approved', 'Valuation', 'FOL Issued', 'FOL Signed'] } }),
       VaultLead.countDocuments({ isDeleted: false, 'sla.breached': true }),
       VaultLead.countDocuments({ isDeleted: false, 'sourceInfo.source': 'website' }),
-      VaultLead.countDocuments({ isDeleted: false, 'sourceInfo.source': 'freelance_agent' }),
+      VaultLead.countDocuments({ isDeleted: false, 'sourceInfo.source': 'referral_partner' }),
       VaultLead.countDocuments({ isDeleted: false, 'sourceInfo.source': 'admin' })
     ]);
 
@@ -151,7 +151,7 @@ export const getAdminDashboardStats = async (req, res) => {
     const advisors = await XotoAdvisor.find({ isDeleted: false, isActive: true });
     const overloadedAdvisors = advisors.filter(a => a.workload?.currentLeads >= a.workload?.maxLeadsCapacity).length;
     const availableAdvisors = advisors.filter(a => a.workload?.currentLeads < a.workload?.maxLeadsCapacity).length;
-    const unassignedLeads = await VaultLead.countDocuments({ isDeleted: false, currentStatus: 'New', 'assignedTo.advisorId': null, 'sourceInfo.source': { $in: ['website', 'freelance_agent', 'admin'] } });
+    const unassignedLeads = await VaultLead.countDocuments({ isDeleted: false, currentStatus: 'New', 'assignedTo.advisorId': null, 'sourceInfo.source': { $in: ['website', 'referral_partner', 'admin'] } });
 
     // ==================== RECENT ITEMS ====================
     const recentLeads = await VaultLead.find({ isDeleted: false }).sort({ createdAt: -1 }).limit(10).lean();
@@ -486,7 +486,7 @@ export const getAgentDashboardStats = async (req, res) => {
     const dateFilter = getDateFilter(range, fromDate, toDate);
 
     const leadFilter = { 'sourceInfo.createdById': agentId, isDeleted: false, ...dateFilter };
-    const commissionFilter = { recipientId: agentId, recipientRole: 'freelance_agent', isDeleted: false, ...dateFilter };
+    const commissionFilter = { recipientId: agentId, recipientRole: 'referral_partner', isDeleted: false, ...dateFilter };
 
     const leads = await VaultLead.find(leadFilter).sort({ createdAt: -1 });
     const commissions = await Commission.find(commissionFilter);

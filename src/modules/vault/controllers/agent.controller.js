@@ -4,6 +4,8 @@ import bcrypt     from 'bcryptjs';
 import { Role }   from '../../../modules/auth/models/role/role.model.js';
 import { createToken } from '../../../middleware/auth.js';
 import crypto     from 'crypto';
+import { logAudit } from '../services/auditLog.service.js';
+import { emitVaultNotification } from '../services/vaultNotification.service.js';
 
 // ══════════════════════════════════════════════════════════════════
 // HELPER — profile completion (used only for in-memory objects
@@ -21,7 +23,7 @@ const checkProfileCompleteness = (agent) => {
   agent.isProfileComplete            = agent.profileCompletionPercentage === 100;
 
   // Auto-enable commission only for FreelanceAgent when complete + verified
-  if (agent.agentType === 'FreelanceAgent') {
+  if (agent.agentType === 'ReferralPartner') {
     agent.commissionEligible = agent.isProfileComplete && agent.isVerified;
   }
   // PartnerAffiliatedAgent — never eligible directly
@@ -53,7 +55,7 @@ export const agentSignup = async (req, res) => {
     }
 
     const hashedPassword  = await bcrypt.hash(password, 10);
-    let agentType         = 'FreelanceAgent';
+    let agentType         = 'ReferralPartner';
     let affiliationStatus = 'none';
     let partner           = null;
 
@@ -80,6 +82,62 @@ export const agentSignup = async (req, res) => {
       isEmailVerified:  false, // ✅ not verified — no OTP done yet
       commissionEligible: false,
     });
+
+    // Log Audit
+    await logAudit({
+      entityType: 'AGENT',
+      entityId: newAgent._id,
+      action: 'USER_CREATED',
+      performedBy: newAgent._id,
+      performedByName: `${first_name} ${last_name}`,
+      performedByRole: agentType === 'ReferralPartner' ? 'referral_partner' : 'partner_affiliated_agent',
+      visibleToRoles: ['admin', agentType === 'ReferralPartner' ? 'referral_partner' : 'partner_affiliated_agent'],
+      metadata: { agentType, partnerId: partner?._id }
+    });
+
+    if (agentType === 'ReferralPartner') {
+      // Notify Admin (New Referral Partner registration)
+      await emitVaultNotification({
+        eventType: 'NEW_REFERRAL_PARTNER_REGISTRATION',
+        title: 'New Referral Partner Registration',
+        message: `New Referral Partner ${first_name} ${last_name} has registered and is pending verification.`,
+        entityId: newAgent._id,
+        entityModel: 'Agent',
+        recipientRole: 'admin',
+        sendToAllOfRole: true,
+        createdByName: `${first_name} ${last_name}`,
+        createdByRole: 'referral_partner',
+      });
+    } else {
+      // PartnerAffiliatedAgent
+      // Notify Partner Admin (New agent affiliation request)
+      if (partner) {
+        await emitVaultNotification({
+          eventType: 'AGENT_AFFILIATION_PENDING',
+          title: 'New Agent Affiliation Request',
+          message: `Agent ${first_name} ${last_name} is requesting affiliation with your company.`,
+          entityId: newAgent._id,
+          entityModel: 'Agent',
+          recipientId: partner._id,
+          recipientModel: 'Partner',
+          recipientRole: 'partner',
+          createdByName: `${first_name} ${last_name}`,
+          createdByRole: 'partner_affiliated_agent',
+        });
+      }
+      // Notify Xoto Admin (New partner-affiliated agent registration awaiting partner approval)
+      await emitVaultNotification({
+        eventType: 'NEW_AFFILIATED_AGENT_REGISTRATION',
+        title: 'New Affiliated Agent Registration',
+        message: `New affiliated agent ${first_name} ${last_name} registered for partner ${partner?.companyName || 'unknown'}.`,
+        entityId: newAgent._id,
+        entityModel: 'Agent',
+        recipientRole: 'admin',
+        sendToAllOfRole: true,
+        createdByName: `${first_name} ${last_name}`,
+        createdByRole: 'partner_affiliated_agent',
+      });
+    }
 
     const agentResponse = newAgent.toObject();
     delete agentResponse.password;
@@ -112,19 +170,74 @@ export const agentLogin = async (req, res) => {
       .populate('role')
       .populate('partnerId', 'companyName');
 
-    if (!agent) return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    if (!agent) {
+      // Log login failure
+      await logAudit({
+        entityType: 'USER',
+        action: 'USER_FAILED_LOGIN',
+        performedByName: email,
+        performedByRole: 'referral_partner',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        visibleToRoles: ['admin'],
+        metadata: { reason: 'Email not found' }
+      });
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
 
     const isMatch = await bcrypt.compare(password, agent.password);
-    if (!isMatch) return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    if (!isMatch) {
+      // Log login failure
+      await logAudit({
+        entityType: 'USER',
+        entityId: agent._id,
+        action: 'USER_FAILED_LOGIN',
+        performedBy: agent._id,
+        performedByName: `${agent.name?.first_name} ${agent.name?.last_name}`,
+        performedByRole: agent.agentType === 'ReferralPartner' ? 'referral_partner' : 'partner_affiliated_agent',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        visibleToRoles: ['admin', agent.agentType === 'ReferralPartner' ? 'referral_partner' : 'partner_affiliated_agent'],
+        metadata: { reason: 'Password mismatch' }
+      });
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
 
-    if (!agent.isActive)    return res.status(403).json({ success: false, message: 'Account deactivated' });
-    if (agent.suspendedAt)  return res.status(403).json({ success: false, message: `Account suspended: ${agent.suspensionReason}` });
-    if (agent.agentType === 'PartnerAffiliatedAgent' && agent.affiliationStatus === 'rejected')
-      return res.status(403).json({ success: false, message: 'Affiliation rejected by partner' });
+    if (!agent.isActive || agent.suspendedAt) {
+      const reason = agent.suspendedAt ? `Account suspended: ${agent.suspensionReason}` : 'Account inactive';
+      // Log login failure
+      await logAudit({
+        entityType: 'USER',
+        entityId: agent._id,
+        action: 'USER_FAILED_LOGIN',
+        performedBy: agent._id,
+        performedByName: `${agent.name?.first_name} ${agent.name?.last_name}`,
+        performedByRole: agent.agentType === 'ReferralPartner' ? 'referral_partner' : 'partner_affiliated_agent',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        visibleToRoles: ['admin', agent.agentType === 'ReferralPartner' ? 'referral_partner' : 'partner_affiliated_agent'],
+        metadata: { reason }
+      });
+      if (!agent.isActive)    return res.status(403).json({ success: false, message: 'Account deactivated' });
+      if (agent.suspendedAt)  return res.status(403).json({ success: false, message: `Account suspended: ${agent.suspensionReason}` });
+    }
 
     // ✅ Update lastLoginAt
     agent.lastLoginAt = new Date();
     await agent.save();
+
+    // Log successful login
+    await logAudit({
+      entityType: 'USER',
+      entityId: agent._id,
+      action: 'USER_LOGIN',
+      performedBy: agent._id,
+      performedByName: `${agent.name?.first_name} ${agent.name?.last_name}`,
+      performedByRole: agent.agentType === 'ReferralPartner' ? 'referral_partner' : 'partner_affiliated_agent',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      visibleToRoles: ['admin', agent.agentType === 'ReferralPartner' ? 'referral_partner' : 'partner_affiliated_agent'],
+    });
 
     const token = createToken(agent);
     const agentResponse = agent.toObject();
@@ -132,7 +245,7 @@ export const agentLogin = async (req, res) => {
 
     // Warning hints for incomplete setup
     let warning = null;
-    if (agent.agentType === 'FreelanceAgent' && !agent.commissionEligible) {
+    if (agent.agentType === 'ReferralPartner' && !agent.commissionEligible) {
       if (agent.profileCompletionPercentage < 100) warning = 'Complete Emirates ID & Bank details to earn commission';
       else if (!agent.isVerified)                  warning = 'Pending admin verification';
     }
@@ -181,7 +294,7 @@ export const adminOnboardFreelanceAgent = async (req, res) => {
       email,
       password:         hashedPassword,
       role:             freelanceRole._id,
-      agentType:        'FreelanceAgent',
+      agentType:        'ReferralPartner',
       partnerId:        null,
       affiliationStatus:'none',
       isActive:         true,
@@ -319,7 +432,7 @@ export const verifyAgent = async (req, res) => {
     }
 
     // Admin verifies FreelanceAgent
-    else if (agent.agentType === 'FreelanceAgent') {
+    else if (agent.agentType === 'ReferralPartner') {
       if (!isAdmin)
         return res.status(403).json({ success: false, message: 'Only admin can verify freelance agents' });
 
@@ -349,6 +462,65 @@ export const verifyAgent = async (req, res) => {
     }
 
     await agent.save();
+
+    // Log Audit
+    if (agent.agentType === 'PartnerAffiliatedAgent') {
+      await logAudit({
+        entityType: 'AGENT',
+        entityId: agent._id,
+        action: action === 'approve' ? 'PARTNER_AFFILIATION_APPROVED' : 'PARTNER_AFFILIATION_REJECTED',
+        performedBy: req.user._id,
+        performedByName: req.user.companyName || req.user.email,
+        performedByRole: 'partner',
+        visibleToRoles: ['admin', 'partner', 'partner_affiliated_agent'],
+        metadata: { action, reason: rejectionReason }
+      });
+
+      // Notify Agent
+      await emitVaultNotification({
+        eventType: 'AFFILIATION_VERIFICATION_STATUS',
+        title: action === 'approve' ? 'Affiliation Approved' : 'Affiliation Rejected',
+        message: action === 'approve'
+          ? `Your affiliation with partner ${req.user.companyName} has been approved.`
+          : `Your affiliation with partner ${req.user.companyName} was rejected: ${rejectionReason}`,
+        entityId: agent._id,
+        entityModel: 'Agent',
+        recipientId: agent._id,
+        recipientModel: 'Agent',
+        recipientRole: 'partner_affiliated_agent',
+        createdByName: req.user.companyName || 'Partner',
+        createdByRole: 'partner',
+      });
+    } else {
+      // FreelanceAgent (Referral Partner) verified by Admin
+      await logAudit({
+        entityType: 'AGENT',
+        entityId: agent._id,
+        action: action === 'verify' ? 'USER_ACTIVATED' : 'USER_SUSPENDED',
+        performedBy: req.user._id,
+        performedByName: req.user.email,
+        performedByRole: 'admin',
+        visibleToRoles: ['admin', 'referral_partner'],
+        metadata: { action, reason: rejectionReason }
+      });
+
+      // Notify Agent
+      await emitVaultNotification({
+        eventType: 'AFFILIATION_VERIFICATION_STATUS',
+        title: action === 'verify' ? 'Account Verified' : 'Account Rejected',
+        message: action === 'verify'
+          ? 'Your Referral Partner account has been verified by Xoto Admin.'
+          : `Your Referral Partner account was rejected: ${rejectionReason}`,
+        entityId: agent._id,
+        entityModel: 'Agent',
+        recipientId: agent._id,
+        recipientModel: 'Agent',
+        recipientRole: 'referral_partner',
+        createdByName: 'Xoto Admin',
+        createdByRole: 'admin',
+      });
+    }
+
     return res.status(200).json({ success: true, message: `Agent ${action}d successfully` });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -463,7 +635,7 @@ export const getAllAgents = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Admin only' });
 
     const { page = 1, limit = 10, isActive, search } = req.query;
-    const query = { isDeleted: false, agentType: 'FreelanceAgent' };
+    const query = { isDeleted: false, agentType: 'ReferralPartner' };
     if (isActive !== undefined) query.isActive = isActive === 'true';
     if (search) {
       query.$or = [
@@ -675,7 +847,7 @@ export const updateAgentProfile = async (req, res) => {
     ).select('-password').populate('partnerId', 'companyName');
 
     // Recalculate commission eligibility after profile update
-    if (updatedAgent.agentType === 'FreelanceAgent') {
+    if (updatedAgent.agentType === 'ReferralPartner') {
       const eligibility = updatedAgent.getCommissionEligibilityStatus();
       if (eligibility.eligible !== updatedAgent.commissionEligible) {
         updatedAgent.commissionEligible = eligibility.eligible;

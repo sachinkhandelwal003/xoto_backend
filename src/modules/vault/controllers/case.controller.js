@@ -13,6 +13,8 @@ import { initializeCaseDocuments, getCaseDocumentsByFilter } from '../utils/case
 import Commission from '../models/Commission.js';
 import VaultAgent from '../models/Agent.js';
 import { emitVaultNotification } from '../services/vaultNotification.service.js';
+import { logAudit, actorFromReq } from '../services/auditLog.service.js';
+import { ENTITY_TYPES, AUDIT_ACTIONS } from '../models/AuditLog.js';
 
 
 
@@ -29,8 +31,8 @@ const getUserInfo = async (req) => {
     } else if (roleDoc?.code === '21') {
       userRole = 'Partner';
       partnerId = req.user._id;
-    } else if (req.user?.agentType === 'FreelanceAgent') {
-      userRole = 'FreelanceAgent';
+    } else if (req.user?.agentType === 'ReferralPartner') {
+      userRole = 'ReferralPartner';
     } else if (req.user?.agentType === 'PartnerAffiliatedAgent') {
       userRole = 'PartnerAffiliatedAgent';
     } else if (req.user?.employeeType === 'XotoAdvisor') {
@@ -83,8 +85,9 @@ const updateLeadStatusFromCase = async (sourceLeadId, caseStatus, additionalData
     'Disbursed': 'Disbursed',                     // PRD Section 4.3
     
     // ==================== Lead: Lost ====================
-    'Rejected': 'Lost',                           // PRD Section 4.3
-    'Lost': 'Lost'                                // PRD Section 4.3
+    'Rejected':  'Lost',   // PRD Section 4.3
+    'Declined':  'Lost',   // PRD Section 4.3
+    'Lost':      'Lost',   // PRD Section 4.3
 };
   
   const leadStatus = leadStatusMap[caseStatus];
@@ -117,9 +120,10 @@ const updateLeadStatusFromCase = async (sourceLeadId, caseStatus, additionalData
 
 export const createCase = async (req, res) => {
   try {
-    const { 
-      sourceLeadId, proposalId, caseReference, clientInfo, propertyInfo, 
-      loanInfo, currentStatus, internalNotes, customerNotes 
+    const {
+      sourceLeadId, proposalId, caseReference, clientInfo, propertyInfo,
+      loanInfo, currentStatus, internalNotes, customerNotes,
+      skipBankForm   // advisor-only: true = delegate bank forms to Ops
     } = req.body;
 
     // Validation
@@ -145,9 +149,13 @@ export const createCase = async (req, res) => {
     const lead = await Lead.findById(sourceLeadId);
     if (!lead) return res.status(404).json({ success: false, message: "Lead not found" });
 
-    // Check lead status
-    if (lead.currentStatus !== 'Qualified') {
-      return res.status(400).json({ success: false, message: `Lead must be Qualified to create a case. Current status: ${lead.currentStatus}` });
+    // PRD 6.1 — lead must be at Qualified stage or beyond (Collecting Documents / Documents Complete)
+    const caseReadyStatuses = ['Qualified', 'Collecting Documents', 'Documents Complete'];
+    if (!caseReadyStatuses.includes(lead.currentStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Lead must be Qualified (or in document collection) to create a case. Current status: ${lead.currentStatus}. Run eligibility check first.`,
+      });
     }
 
     // User role & permission
@@ -155,9 +163,14 @@ export const createCase = async (req, res) => {
     const isAdmin = roleDoc?.code === '18';
     const isPartner = roleDoc?.code === '21';
     const isAdvisor = roleDoc?.code === '26';
+    const isPartnerAffiliatedAgent = roleDoc?.code === '22' && req.user?.agentType === 'PartnerAffiliatedAgent';
 
-    if (!isAdmin && !isPartner && !isAdvisor) {
+    if (!isAdmin && !isPartner && !isAdvisor && !isPartnerAffiliatedAgent) {
       return res.status(403).json({ success: false, message: "Not authorized to create case" });
+    }
+
+    if (isPartnerAffiliatedAgent && lead.sourceInfo?.createdById?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'You can only create cases for your own leads' });
     }
 
     // Get Bank Product Details
@@ -200,23 +213,31 @@ export const createCase = async (req, res) => {
       if (!partner.isActive()) {
         return res.status(403).json({ success: false, message: "Partner account not active" });
       }
-      
+
       // ✅ FIX: Get proper userName for both company and individual partners
       let userName = '';
       if (partner.partnerCategory === 'company') {
         userName = partner.companyName || partner.dbaName || partner.email || 'Partner';
       } else {
         // Individual partner
-        userName = partner.individualDetails 
+        userName = partner.individualDetails
           ? `${partner.individualDetails.firstName} ${partner.individualDetails.lastName}`.trim()
           : partner.email || 'Individual Partner';
       }
-      
-      createdBy = { 
-        role: 'partner', 
-        userId: partner._id, 
+
+      createdBy = {
+        role: 'partner',
+        userId: partner._id,
         userName: userName,
-        createdAt: now 
+        createdAt: now
+      };
+    }
+    else if (isPartnerAffiliatedAgent) {
+      createdBy = {
+        role: 'partner_affiliated_agent',
+        userId: req.user._id,
+        userName: req.user?.fullName || req.user?.email || 'Partner Affiliated Agent',
+        createdAt: now,
       };
     }
 
@@ -231,12 +252,16 @@ export const createCase = async (req, res) => {
       : (customerNotes && typeof customerNotes === 'string' && customerNotes.trim() 
           ? [customerNotes.trim()] : []);
 
+    // Determine skip flag — only advisors can skip; all other roles always handle all docs
+    const advisorSkipBankForm = isAdvisor ? (skipBankForm === true || skipBankForm === 'true') : false;
+
     // Create case
     const caseData = await Case.create({
       caseReference,
       sourceLeadId,
       proposalId: proposalId || null,
       createdBy,
+      advisorSkipBankForm,
       
       clientInfo: {
         fullName: clientInfo.fullName,
@@ -297,7 +322,9 @@ export const createCase = async (req, res) => {
       bankId: product.bank._id,
       employmentStatus: employmentStatus,
       residencyStatus: residencyStatus,
-      mortgageType: product.mortgageType || 'Both'
+      mortgageType: product.mortgageType || 'Both',
+      creatorRole: createdBy.role,
+      skipBankForm: advisorSkipBankForm,
     });
 
     // Update case document summary
@@ -336,6 +363,16 @@ export const createCase = async (req, res) => {
       entityModel:   'Case',
       createdByName: createdBy.userName,
       createdByRole: createdBy.role,
+    });
+
+    logAudit({
+      entityType: ENTITY_TYPES.CASE,
+      entityId:   caseData._id,
+      entityRef:  caseData.caseReference,
+      action:     AUDIT_ACTIONS.CASE_CREATED,
+      newValue:   { caseReference, clientName: clientInfo.fullName, advisorSkipBankForm },
+      ...actorFromReq(req, createdBy.role),
+      metadata:   { sourceLeadId },
     });
 
     return res.status(201).json({
@@ -404,13 +441,23 @@ export const submitCaseToXoto = async (req, res) => {
     const roleCode = roleDoc?.code;
     const isAdvisor = roleCode === '26';
     const isPartner = roleCode === '21';
-    
+    const isPartnerAffiliatedAgent = roleCode === '22' && req.user?.agentType === 'PartnerAffiliatedAgent';
+
     if (isAdvisor && caseData.createdBy?.role !== 'advisor') {
       return res.status(403).json({ success: false, message: "You can only submit cases you created" });
     }
-    
+
     if (isPartner && caseData.createdBy?.role !== 'partner') {
       return res.status(403).json({ success: false, message: "You can only submit cases you created" });
+    }
+
+    if (isPartnerAffiliatedAgent) {
+      if (caseData.createdBy?.role !== 'partner_affiliated_agent' ||
+          caseData.createdBy?.userId?.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ success: false, message: "You can only submit your own cases" });
+      }
+    } else if (!isAdvisor && !isPartner) {
+      return res.status(403).json({ success: false, message: "Not authorized to submit cases" });
     }
     
     if (caseData.currentStatus !== 'Draft') {
@@ -443,18 +490,46 @@ export const submitCaseToXoto = async (req, res) => {
     // Update lead status
     await updateLeadStatusFromCase(caseData.sourceLeadId, caseData.currentStatus);
     
+    const submitterRole = isPartner ? 'Partner' : isPartnerAffiliatedAgent ? 'Partner Affiliated Agent' : 'Advisor';
+    const submitterRoleSlug = isPartner ? 'partner' : isPartnerAffiliatedAgent ? 'partner_affiliated_agent' : 'advisor';
+
     await HistoryService.logCaseActivity(caseData, 'CASE_SUBMITTED_TO_XOTO', await getUserInfo(req), {
-      description: `Case ${caseData.caseReference} submitted to Xoto by ${isPartner ? 'Partner' : 'Advisor'}`
+      description: `Case ${caseData.caseReference} submitted to Xoto by ${submitterRole}`
     });
 
-    emitVaultNotification({
-      eventType:     'CASE_SUBMITTED',
-      title:         'Case Submitted to Xoto',
-      message:       `Case ${caseData.caseReference} submitted by ${isPartner ? 'Partner' : 'Advisor'} — now in Ops Queue`,
+    // Notify Xoto Admin (Trigger #24)
+    await emitVaultNotification({
+      eventType:     'NEW_APPLICATION_SUBMITTED',
+      title:         'New Application Submitted',
+      message:       `Application ${caseData.caseReference} has been submitted by ${submitterRole} and requires review.`,
       entityId:      caseData._id,
       entityModel:   'Case',
-      createdByName: req.user?.email || (isPartner ? 'Partner' : 'Advisor'),
-      createdByRole: isPartner ? 'partner' : 'advisor',
+      recipientRole: 'admin',
+      sendToAllOfRole: true,
+      createdByName: req.user?.fullName || req.user?.email || submitterRole,
+      createdByRole: submitterRoleSlug,
+    });
+
+    // Notify ALL active Mortgage Ops (Trigger #29)
+    await emitVaultNotification({
+      eventType:     'CASE_SUBMITTED',
+      title:         'New Application in Ops Queue',
+      message:       `Application ${caseData.caseReference} is now available in the Ops Queue for pickup.`,
+      entityId:      caseData._id,
+      entityModel:   'Case',
+      recipientRole: 'ops',
+      sendToAllOfRole: true,
+      createdByName: 'System',
+      createdByRole: 'system',
+    });
+
+    logAudit({
+      entityType: ENTITY_TYPES.CASE,
+      entityId:   caseData._id,
+      entityRef:  caseData.caseReference,
+      action:     AUDIT_ACTIONS.CASE_SUBMITTED_TO_XOTO,
+      newValue:   { status: 'In Ops Queue - Pending Pick-up' },
+      ...actorFromReq(req, submitterRoleSlug),
     });
 
     return res.status(200).json({
@@ -770,6 +845,15 @@ export const updateCaseStatus = async (req, res) => {
       await caseData.updateBankStatus(status, { notes });
     }
 
+    // ── Terminal — Lost / Declined / Rejected (PRD 7.1) ──────────
+    else if (['Lost', 'Declined', 'Rejected'].includes(status)) {
+      if (!notes?.trim())
+        return res.status(400).json({ success: false, message: 'Reason/notes required to close case' });
+      caseData.currentStatus = status;
+      if (notes) caseData.internalNotes.push(`[${status}] ${notes}`);
+      await caseData.save();
+    }
+
     // ── Disbursed — AUTO-CREATE COMMISSION ✅ ─────────────────────
     else if (status === 'Disbursed') {
       if (!approvedAmount)
@@ -792,14 +876,14 @@ export const updateCaseStatus = async (req, res) => {
         let recipientInfo = null;
         
         // CASE 1: Freelance Agent (40% / 50%)
-        if (leadSourceRole === 'freelance_agent') {
+        if (leadSourceRole === 'referral_partner') {
           const agent = await VaultAgent.findById(leadSourceId);
-          if (agent && agent.agentType === 'FreelanceAgent') {
+          if (agent && agent.agentType === 'ReferralPartner') {
             const percentage = loanAmount <= 5000000 ? 40 : 50;
             const commissionAmount = Math.round((xotoCommissionFromBank * percentage) / 100);
             
             recipientInfo = {
-              recipientType: 'freelance_agent',
+              recipientType: 'referral_partner',
               recipientId: agent._id,
               recipientModel: 'VaultAgent',
               recipientName: agent.fullName,
@@ -1037,6 +1121,17 @@ if (!lead || !lead.sourceInfo) {
       createdByRole: isAdmin ? 'admin' : 'ops',
     });
 
+    logAudit({
+      entityType: ENTITY_TYPES.APPLICATION,
+      entityId:   caseData._id,
+      entityRef:  caseData.caseReference,
+      action:     AUDIT_ACTIONS.CASE_STATUS_CHANGED,
+      oldValue:   { status: previousStatus },
+      newValue:   { status },
+      ...actorFromReq(req, isAdmin ? 'admin' : 'ops'),
+      metadata:   { notes },
+    });
+
     return res.status(200).json(responseData);
 
   } catch (error) {
@@ -1050,10 +1145,18 @@ export const resubmitCaseAfterCorrection = async (req, res) => {
   try {
     const { id } = req.params;
     const { correctionNotes } = req.body;
-    
+
     const caseData = await Case.findOne({ _id: id, isDeleted: false });
     if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
-    
+
+    // Ownership check for PartnerAffiliatedAgent
+    if (req.user?.agentType === 'PartnerAffiliatedAgent') {
+      if (caseData.createdBy?.role !== 'partner_affiliated_agent' ||
+          caseData.createdBy?.userId?.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ success: false, message: 'You can only resubmit your own cases' });
+      }
+    }
+
     if (caseData.currentStatus !== 'Returned - Pending Correction') {
       return res.status(400).json({ success: false, message: `Invalid status: ${caseData.currentStatus}` });
     }
@@ -1105,18 +1208,29 @@ export const getAllCases = async (req, res) => {
     
     // CASE 3: PARTNER (role code 21 or type 'partner')
     else if (roleCode === '21' || userType === 'partner') {
-      // Partner sees ONLY cases they created
-      query['createdBy.role'] = 'partner';
+      // Partner sees their own cases + cases created by their affiliated agents
+      const affiliatedAgents = await VaultAgent.find(
+        { partnerId: req.user._id, agentType: 'PartnerAffiliatedAgent', isDeleted: false },
+        '_id'
+      );
+      const agentIds = affiliatedAgents.map(a => a._id);
+      query.$or = [
+        { 'createdBy.role': 'partner', 'createdBy.userId': req.user._id },
+        { 'createdBy.role': 'partner_affiliated_agent', 'createdBy.userId': { $in: agentIds } },
+      ];
+    }
+
+    // CASE 4a: PARTNER-AFFILIATED AGENT — can see their own cases
+    else if (req.user?.agentType === 'PartnerAffiliatedAgent') {
+      query['createdBy.role'] = 'partner_affiliated_agent';
       query['createdBy.userId'] = req.user._id;
     }
-    
-    // CASE 4: AGENT (freelance or partner-affiliated)
-    else if (req.user.agentType) {
-      // Agents should NOT see cases directly
-      // Cases are managed by partners/advisors
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Agents cannot access cases directly. Cases are managed by partners/advisors.' 
+
+    // CASE 4b: FREELANCE AGENT — cannot access cases directly
+    else if (req.user?.agentType === 'ReferralPartner') {
+      return res.status(403).json({
+        success: false,
+        message: 'Agents cannot access cases directly. Cases are managed by partners/advisors.',
       });
     }
     
@@ -1193,7 +1307,7 @@ export const getAllCases = async (req, res) => {
       data: cases,
       total,
       summary,
-      userRole: roleCode === '18' ? 'admin' : (roleCode === '26' ? 'advisor' : (roleCode === '21' ? 'partner' : 'unknown')),
+      userRole: roleCode === '18' ? 'admin' : roleCode === '26' ? 'advisor' : roleCode === '21' ? 'partner' : req.user?.agentType === 'PartnerAffiliatedAgent' ? 'partner_affiliated_agent' : 'unknown',
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(total / limitNum),
