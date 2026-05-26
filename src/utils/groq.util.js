@@ -1,6 +1,9 @@
 const axios = require('axios');
 
 const generateNarrative = async (property, clientNotes, settings) => {
+  if (!process.env.GROQ_API_KEY) {
+    throw new Error('GROQ_API_KEY environment variable is not set. Presentation AI generation requires a GROQ API key.');
+  }
   const prompt = `
 You are a luxury real estate copywriter for Xoto, a premium UAE real estate platform.
 

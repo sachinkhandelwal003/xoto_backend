@@ -5,6 +5,35 @@ const Property = require("../models/property.model");
 const { inventoryCategories, determineInventoryCategory } = require("../config/inventory.categories.config");
 const mongoose = require("mongoose");
 
+// Helper to resolve inherited fields from parent property
+const resolveInventoryUnit = (unitDoc) => {
+  if (!unitDoc) return null;
+  const unit = unitDoc.toObject ? unitDoc.toObject() : unitDoc;
+  const property = unit.propertyId;
+
+  const hasProp = property && typeof property === "object";
+  const isUnset = (val) => val === undefined || val === null;
+
+  return {
+    ...unit,
+    currency: !isUnset(unit.currency) ? unit.currency : (hasProp ? (property.currency || "AED") : "AED"),
+    hasView: !isUnset(unit.hasView) ? unit.hasView : (hasProp ? (property.hasView || false) : false),
+    viewType: (Array.isArray(unit.viewType) && unit.viewType.length > 0) ? unit.viewType : (hasProp ? (property.viewType || []) : []),
+    parkingSpaces: !isUnset(unit.parkingSpaces) ? unit.parkingSpaces : (hasProp ? (property.parkingSpaces || 0) : 0),
+    furnishing: !isUnset(unit.furnishing) ? unit.furnishing : (hasProp ? (property.furnishing || "unfurnished") : "unfurnished"),
+    paymentPlan: !isUnset(unit.paymentPlan) && unit.paymentPlan !== "" ? unit.paymentPlan : (hasProp && property.paymentPlan && property.paymentPlan.length > 0 ? property.paymentPlan[0]?.title : ""),
+    
+    rawValues: {
+      currency: unit.currency,
+      hasView: unit.hasView,
+      viewType: unit.viewType,
+      parkingSpaces: unit.parkingSpaces,
+      furnishing: unit.furnishing,
+      paymentPlan: unit.paymentPlan
+    }
+  };
+};
+
 // ─── AUTO GENERATE INVENTORY ─────────────────────────────────────────────────
 exports.autoGenerateInventory = async (req, res) => {
   try {
@@ -75,11 +104,11 @@ exports.autoGenerateInventory = async (req, res) => {
                     area: floorConfig.area,
                     areaUnit: floorConfig.areaUnit || "sqft",
                     price: floorConfig.price,
-                    currency: floorConfig.currency || (property.currency || "AED"),
-                    hasView: floorConfig.hasView !== undefined ? floorConfig.hasView : (property.hasView || false),
-                    viewType: floorConfig.viewType || (property.viewType || []),
-                    parkingSpaces: floorConfig.parkingSpaces !== undefined ? floorConfig.parkingSpaces : (property.parkingSpaces || 0),
-                    furnishing: floorConfig.furnishing || (property.furnishing || "unfurnished"),
+                    currency: (floorConfig.currency && floorConfig.currency !== property.currency) ? floorConfig.currency : undefined,
+                    hasView: (floorConfig.hasView !== undefined && floorConfig.hasView !== property.hasView) ? floorConfig.hasView : undefined,
+                    viewType: (floorConfig.viewType && JSON.stringify(floorConfig.viewType) !== JSON.stringify(property.viewType)) ? floorConfig.viewType : undefined,
+                    parkingSpaces: (floorConfig.parkingSpaces !== undefined && floorConfig.parkingSpaces !== property.parkingSpaces) ? floorConfig.parkingSpaces : undefined,
+                    furnishing: (floorConfig.furnishing && floorConfig.furnishing !== property.furnishing) ? floorConfig.furnishing : undefined,
                     extraFields,
                     status: floorConfig.status || "available"
                   };
@@ -117,11 +146,11 @@ exports.autoGenerateInventory = async (req, res) => {
                   area: villaType.area,
                   areaUnit: villaType.areaUnit || "sqft",
                   price: villaType.price,
-                  currency: villaType.currency || (property.currency || "AED"),
-                  hasView: villaType.hasView !== undefined ? villaType.hasView : (property.hasView || false),
-                  viewType: villaType.viewType || (property.viewType || []),
-                  parkingSpaces: villaType.parkingSpaces !== undefined ? villaType.parkingSpaces : (property.parkingSpaces || 0),
-                  furnishing: villaType.furnishing || (property.furnishing || "unfurnished"),
+                  currency: (villaType.currency && villaType.currency !== property.currency) ? villaType.currency : undefined,
+                  hasView: (villaType.hasView !== undefined && villaType.hasView !== property.hasView) ? villaType.hasView : undefined,
+                  viewType: (villaType.viewType && JSON.stringify(villaType.viewType) !== JSON.stringify(property.viewType)) ? villaType.viewType : undefined,
+                  parkingSpaces: (villaType.parkingSpaces !== undefined && villaType.parkingSpaces !== property.parkingSpaces) ? villaType.parkingSpaces : undefined,
+                  furnishing: (villaType.furnishing && villaType.furnishing !== property.furnishing) ? villaType.furnishing : undefined,
                   status: villaType.status || "available"
                 };
                 
@@ -157,11 +186,11 @@ exports.autoGenerateInventory = async (req, res) => {
                   area: townhouseType.area,
                   areaUnit: townhouseType.areaUnit || "sqft",
                   price: townhouseType.price,
-                  currency: townhouseType.currency || (property.currency || "AED"),
-                  hasView: townhouseType.hasView !== undefined ? townhouseType.hasView : (property.hasView || false),
-                  viewType: townhouseType.viewType || (property.viewType || []),
-                  parkingSpaces: townhouseType.parkingSpaces !== undefined ? townhouseType.parkingSpaces : (property.parkingSpaces || 0),
-                  furnishing: townhouseType.furnishing || (property.furnishing || "unfurnished"),
+                  currency: (townhouseType.currency && townhouseType.currency !== property.currency) ? townhouseType.currency : undefined,
+                  hasView: (townhouseType.hasView !== undefined && townhouseType.hasView !== property.hasView) ? townhouseType.hasView : undefined,
+                  viewType: (townhouseType.viewType && JSON.stringify(townhouseType.viewType) !== JSON.stringify(property.viewType)) ? townhouseType.viewType : undefined,
+                  parkingSpaces: (townhouseType.parkingSpaces !== undefined && townhouseType.parkingSpaces !== property.parkingSpaces) ? townhouseType.parkingSpaces : undefined,
+                  furnishing: (townhouseType.furnishing && townhouseType.furnishing !== property.furnishing) ? townhouseType.furnishing : undefined,
                   status: townhouseType.status || "available"
                 };
                 
@@ -196,11 +225,11 @@ exports.autoGenerateInventory = async (req, res) => {
                   area: floorConfig.area,
                   areaUnit: floorConfig.areaUnit || "sqft",
                   price: floorConfig.price,
-                  currency: floorConfig.currency || (property.currency || "AED"),
-                  hasView: floorConfig.hasView !== undefined ? floorConfig.hasView : (property.hasView || false),
-                  viewType: floorConfig.viewType || (property.viewType || []),
-                  parkingSpaces: floorConfig.parkingSpaces !== undefined ? floorConfig.parkingSpaces : (property.parkingSpaces || 0),
-                  furnishing: floorConfig.furnishing || (property.furnishing || "unfurnished"),
+                  currency: (floorConfig.currency && floorConfig.currency !== property.currency) ? floorConfig.currency : undefined,
+                  hasView: (floorConfig.hasView !== undefined && floorConfig.hasView !== property.hasView) ? floorConfig.hasView : undefined,
+                  viewType: (floorConfig.viewType && JSON.stringify(floorConfig.viewType) !== JSON.stringify(property.viewType)) ? floorConfig.viewType : undefined,
+                  parkingSpaces: (floorConfig.parkingSpaces !== undefined && floorConfig.parkingSpaces !== property.parkingSpaces) ? floorConfig.parkingSpaces : undefined,
+                  furnishing: (floorConfig.furnishing && floorConfig.furnishing !== property.furnishing) ? floorConfig.furnishing : undefined,
                   status: floorConfig.status || "available"
                 };
                 
@@ -235,11 +264,11 @@ exports.autoGenerateInventory = async (req, res) => {
                   area: floorConfig.area,
                   areaUnit: floorConfig.areaUnit || "sqft",
                   price: floorConfig.price,
-                  currency: floorConfig.currency || (property.currency || "AED"),
-                  hasView: floorConfig.hasView !== undefined ? floorConfig.hasView : (property.hasView || false),
-                  viewType: floorConfig.viewType || (property.viewType || []),
-                  parkingSpaces: floorConfig.parkingSpaces !== undefined ? floorConfig.parkingSpaces : (property.parkingSpaces || 0),
-                  furnishing: floorConfig.furnishing || (property.furnishing || "unfurnished"),
+                  currency: (floorConfig.currency && floorConfig.currency !== property.currency) ? floorConfig.currency : undefined,
+                  hasView: (floorConfig.hasView !== undefined && floorConfig.hasView !== property.hasView) ? floorConfig.hasView : undefined,
+                  viewType: (floorConfig.viewType && JSON.stringify(floorConfig.viewType) !== JSON.stringify(property.viewType)) ? floorConfig.viewType : undefined,
+                  parkingSpaces: (floorConfig.parkingSpaces !== undefined && floorConfig.parkingSpaces !== property.parkingSpaces) ? floorConfig.parkingSpaces : undefined,
+                  furnishing: (floorConfig.furnishing && floorConfig.furnishing !== property.furnishing) ? floorConfig.furnishing : undefined,
                   status: floorConfig.status || "available"
                 };
                 
@@ -274,7 +303,7 @@ exports.autoGenerateInventory = async (req, res) => {
                   area: plotType.area,
                   areaUnit: plotType.areaUnit || "sqft",
                   price: plotType.price,
-                  currency: plotType.currency || (property.currency || "AED"),
+                  currency: (plotType.currency && plotType.currency !== property.currency) ? plotType.currency : undefined,
                   status: plotType.status || "available"
                 };
                 
@@ -309,8 +338,8 @@ exports.autoGenerateInventory = async (req, res) => {
                   area: warehouse.area,
                   areaUnit: warehouse.areaUnit || "sqft",
                   price: warehouse.price,
-                  currency: warehouse.currency || (property.currency || "AED"),
-                  parkingSpaces: warehouse.parkingSpaces !== undefined ? warehouse.parkingSpaces : 2,
+                  currency: (warehouse.currency && warehouse.currency !== property.currency) ? warehouse.currency : undefined,
+                  parkingSpaces: (warehouse.parkingSpaces !== undefined && warehouse.parkingSpaces !== property.parkingSpaces) ? warehouse.parkingSpaces : undefined,
                   status: warehouse.status || "available"
                 };
                 
@@ -480,11 +509,12 @@ exports.createInventory = async (req, res) => {
                 area: unit.area || 0,
                 areaUnit: unit.areaUnit || "sqft",
                 price: unit.price || 0,
-                currency: unit.currency || "AED",
-                hasView: unit.hasView || false,
-                viewType: unit.viewType || [],
-                parkingSpaces: unit.parkingSpaces || 0,
-                furnishing: unit.furnishing || "unfurnished",
+                currency: (unit.currency && unit.currency !== "inherit" && unit.currency !== "") ? unit.currency : undefined,
+                hasView: (unit.hasView !== undefined && unit.hasView !== "inherit") ? (unit.hasView === "true" || unit.hasView === true) : undefined,
+                viewType: (unit.viewType && unit.viewType !== "inherit" && (!Array.isArray(unit.viewType) || unit.viewType.length > 0)) ? unit.viewType : undefined,
+                parkingSpaces: (unit.parkingSpaces !== undefined && unit.parkingSpaces !== "inherit") ? Number(unit.parkingSpaces) : undefined,
+                furnishing: (unit.furnishing && unit.furnishing !== "inherit" && unit.furnishing !== "") ? unit.furnishing : undefined,
+                paymentPlan: (unit.paymentPlan && unit.paymentPlan !== "inherit" && unit.paymentPlan !== "") ? unit.paymentPlan : undefined,
                 status: unit.status || "available"
             });
 
@@ -590,7 +620,7 @@ exports.bulkImportInventory = async (req, res) => {
                     continue;
                 }
 
-                const newUnit = await Inventory.create({
+                 const newUnit = await Inventory.create({
                     propertyId,
                     developerId,
                     unitNumber: unit.unitNumber,
@@ -603,11 +633,12 @@ exports.bulkImportInventory = async (req, res) => {
                     area: unit.area,
                     areaUnit: unit.areaUnit || "sqft",
                     price: unit.price,
-                    currency: unit.currency || "AED",
-                    hasView: unit.hasView || false,
-                    viewType: unit.viewType || [],
-                    parkingSpaces: unit.parkingSpaces || 0,
-                    furnishing: unit.furnishing || "unfurnished",
+                    currency: (unit.currency && unit.currency !== "inherit" && unit.currency !== "") ? unit.currency : undefined,
+                    hasView: (unit.hasView !== undefined && unit.hasView !== "inherit") ? (unit.hasView === "true" || unit.hasView === true) : undefined,
+                    viewType: (unit.viewType && unit.viewType !== "inherit" && (!Array.isArray(unit.viewType) || unit.viewType.length > 0)) ? (typeof unit.viewType === "string" ? [unit.viewType] : unit.viewType) : undefined,
+                    parkingSpaces: (unit.parkingSpaces !== undefined && unit.parkingSpaces !== "inherit") ? Number(unit.parkingSpaces) : undefined,
+                    furnishing: (unit.furnishing && unit.furnishing !== "inherit" && unit.furnishing !== "") ? unit.furnishing : undefined,
+                    paymentPlan: (unit.paymentPlan && unit.paymentPlan !== "inherit" && unit.paymentPlan !== "") ? unit.paymentPlan : undefined,
                     status: unit.status || "available"
                 });
 
@@ -700,9 +731,12 @@ exports.getInventoryByProperty = async (req, res) => {
 
         const total = await Inventory.countDocuments(query);
         const inventory = await Inventory.find(query)
+            .populate("propertyId")
             .sort({ buildingName: 1, floorNumber: 1, unitNumber: 1 })
             .skip(skip)
             .limit(limit);
+
+        const resolvedInventory = inventory.map(resolveInventoryUnit);
 
         // Get counts by status
         const counts = {
@@ -821,7 +855,7 @@ exports.getInventoryByProperty = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            data: inventory,
+            data: resolvedInventory,
             counts: counts,
             floorConfigurations: property.floorConfigurations,
             pagination: {
@@ -849,7 +883,7 @@ exports.getSingleInventory = async (req, res) => {
   try {
     const { unitId } = req.params;
 
-    const inventory = await Inventory.findById(unitId);
+    const inventory = await Inventory.findById(unitId).populate("propertyId");
 
     if (!inventory) {
       return res.status(404).json({
@@ -860,7 +894,7 @@ exports.getSingleInventory = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      data: inventory
+      data: resolveInventoryUnit(inventory)
     });
 
   } catch (error) {
@@ -896,16 +930,28 @@ exports.updateInventory = async (req, res) => {
             });
         }
 
+        const updateData = { ...req.body };
+        const sharedFields = ["currency", "hasView", "viewType", "parkingSpaces", "furnishing", "paymentPlan"];
+        sharedFields.forEach(field => {
+            if (updateData[field] === "inherit" || updateData[field] === "" || updateData[field] === null || updateData[field] === undefined) {
+                updateData[field] = null;
+            } else if (field === "hasView") {
+                updateData[field] = updateData[field] === "true" || updateData[field] === true;
+            } else if (field === "parkingSpaces") {
+                updateData[field] = Number(updateData[field]);
+            }
+        });
+
         const updatedInventory = await Inventory.findByIdAndUpdate(
             id,
-            { ...req.body },
+            updateData,
             { new: true, runValidators: true }
-        );
+        ).populate("propertyId");
 
         return res.status(200).json({
             success: true,
             message: "Inventory updated successfully",
-            data: updatedInventory
+            data: resolveInventoryUnit(updatedInventory)
         });
 
     } catch (error) {
