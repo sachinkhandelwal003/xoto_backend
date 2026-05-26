@@ -886,14 +886,36 @@ exports.getGridAdvisorDashboard = asyncHandler(async (req, res) => {
 // GET ADVISOR LEADERBOARD — Admin only
 // ════════════════════════════════════════════════════════════════════════════
 exports.getAdvisorLeaderboard = asyncHandler(async (req, res) => {
-  const { limit = 50 } = req.query;
+  const { limit = 50, period = 'weekly' } = req.query;
   const GridLead = require('../../Lead/model/gridLead.model');
+
+  let dateFilter = {};
+  if (period !== 'trust') {
+    const now = new Date();
+    let startDate = new Date();
+    if (period === 'weekly') {
+      startDate.setDate(now.getDate() - 7);
+    } else if (period === 'monthly') {
+      startDate.setDate(now.getDate() - 30);
+    } else if (period === 'quarterly') {
+      startDate.setDate(now.getDate() - 90);
+    } else if (period === 'annual') {
+      startDate.setDate(now.getDate() - 365);
+    }
+    dateFilter = { createdAt: { $gte: startDate } };
+  }
 
   const [advisors, leadRows] = await Promise.all([
     GridAdvisor.find({})
       .select('firstName lastName email phone employeeId department status profilePhotoUrl leaderboard workload createdAt')
       .lean(),
     GridLead.aggregate([
+      {
+        $match: {
+          is_deleted: false,
+          ...dateFilter
+        }
+      },
       {
         $group: {
           _id: '$assigned_to',
@@ -940,14 +962,19 @@ exports.getAdvisorLeaderboard = asyncHandler(async (req, res) => {
         compositeScore: advisor.leaderboard?.compositeScore || 0,
         lastLeadAt: leads.lastLeadAt || null,
       };
-    })
-    .sort((a, b) => (
-      b.totalLeads - a.totalLeads ||
-      b.convertedLeads - a.convertedLeads ||
-      b.compositeScore - a.compositeScore ||
-      a.name.localeCompare(b.name)
-    ))
-    .map((advisor, index) => ({ ...advisor, rank: index + 1 }));
+    });
+
+  // Sort based on period
+  if (period === 'trust') {
+    // Trust Ranking: Sort by composite score
+    rows.sort((a, b) => b.compositeScore - a.compositeScore || b.totalLeads - a.totalLeads);
+  } else {
+    // Top Converters: ranked by leads-to-completed conversion ratio (conversionRate)
+    rows.sort((a, b) => b.conversionRate - a.conversionRate || b.convertedLeads - a.convertedLeads || b.totalLeads - a.totalLeads);
+  }
+
+  // Assign ranks dynamically
+  const rankedRows = rows.map((advisor, index) => ({ ...advisor, rank: index + 1 }));
 
   const max = Math.min(Math.max(Number(limit) || 50, 1), 100);
 
@@ -955,13 +982,14 @@ exports.getAdvisorLeaderboard = asyncHandler(async (req, res) => {
     status: 'success',
     data: {
       summary: {
-        totalAdvisors: rows.length,
-        activeAdvisors: rows.filter(row => row.status === 'active').length,
-        totalLeads: rows.reduce((sum, row) => sum + row.totalLeads, 0),
-        activeLeads: rows.reduce((sum, row) => sum + row.activeLeads, 0),
-        convertedLeads: rows.reduce((sum, row) => sum + row.convertedLeads, 0),
+        totalAdvisors: rankedRows.length,
+        activeAdvisors: rankedRows.filter(row => row.status === 'active').length,
+        totalLeads: rankedRows.reduce((sum, row) => sum + row.totalLeads, 0),
+        activeLeads: rankedRows.reduce((sum, row) => sum + row.activeLeads, 0),
+        convertedLeads: rankedRows.reduce((sum, row) => sum + row.convertedLeads, 0),
       },
-      leaderboard: rows.slice(0, max),
+      leaderboard: rankedRows.slice(0, max),
     },
   });
 });
+

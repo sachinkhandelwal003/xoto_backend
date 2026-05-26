@@ -317,15 +317,30 @@ exports.getDashboard = asyncHandler(async (req, res) => {
         },
       },
       { $sort: { convertedLeads: -1, commissionEarned: -1, totalLeads: -1 } },
-      { $limit: 1 },
+      { $limit: 5 },
     ]),
   ]);
 
-  const topAgent = topAgentRows[0]
-    ? await Agent.findById(topAgentRows[0]._id)
+  const topAgentIds = topAgentRows.map(row => row._id).filter(Boolean);
+  const topAgentDocs = topAgentIds.length
+    ? await Agent.find({ _id: { $in: topAgentIds } })
       .select('first_name last_name fullName email phone_number createdAt')
       .lean()
-    : null;
+    : [];
+  const topAgentDocMap = new Map(topAgentDocs.map(agent => [agent._id.toString(), agent]));
+  const topAgents = topAgentRows
+    .map(row => {
+      const agent = topAgentDocMap.get(row._id?.toString());
+      if (!agent) return null;
+      return {
+        ...agent,
+        totalLeads: row.totalLeads,
+        convertedLeads: row.convertedLeads,
+        commissionEarned: row.commissionEarned,
+      };
+    })
+    .filter(Boolean);
+  const topAgent = topAgents[0] || null;
 
   const recentLeads = await GridLead.find({
     created_by_agent: { $in: agentIds }
@@ -397,18 +412,9 @@ exports.getDashboard = asyncHandler(async (req, res) => {
           confirmed: monthlyCommissionByStatus.confirmed + monthlyCommissionByStatus.paid,
         },
       },
-      top_agent: topAgent ? {
-        ...topAgent,
-        totalLeads: topAgentRows[0].totalLeads,
-        convertedLeads: topAgentRows[0].convertedLeads,
-        commissionEarned: topAgentRows[0].commissionEarned,
-      } : null,
-      top_agent_of_month: topAgent ? {
-        ...topAgent,
-        totalLeads: topAgentRows[0].totalLeads,
-        convertedLeads: topAgentRows[0].convertedLeads,
-        commissionEarned: topAgentRows[0].commissionEarned,
-      } : null,
+      top_agent: topAgent,
+      top_agents: topAgents,
+      top_agent_of_month: topAgent,
       recent_activity: [
         ...recentLeads.map(item => ({ type: 'lead', ...item })),
         ...recentListings.map(item => ({ type: 'listing', ...item })),
