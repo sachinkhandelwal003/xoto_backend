@@ -2,6 +2,7 @@ const Property  = require("../models/property.model");
 const Inventory = require("../models/property.inventory.model");
 const Developer = require("../../Grid/Developer/models/developer.model");
 const Customer = require("../../auth/models/user/customer.model");
+const GridLead = require("../../Grid/Lead/model/gridLead.model");
 const { inventoryCategories, determineInventoryCategory } = require("../config/inventory.categories.config");
 // ─── Role helpers ─────────────────────────────────────────────────────────────
 const isAdmin = (role) => {
@@ -40,7 +41,8 @@ const isCatalogue = (role) => {
     return Number(role?.code) === 16 ||
            Number(role?.code) === 18;
   }
-  return role === "GridAdvisor" || role === "agent";
+  const normalized = String(role).toLowerCase();
+  return ["gridadvisor", "grid_advisor", "grid advisor", "agent"].includes(normalized);
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -663,6 +665,7 @@ exports.getPropertyById = async (req, res) => {
     // Combine data
     const combinedData = {
       ...property.toObject(),
+      inventoryConfig: property.inventory || [],
       inventory,
       inventoryStats: {
         total: totalUnits,
@@ -1020,7 +1023,9 @@ exports.getDeveloperDashboard = async (req, res) => {
     const inventory = await Inventory.find({ propertyId: { $in: propertyIds } });
 
     // Calculate active projects and units
-    const activeProjects = properties.length;
+    const activeProjects = properties.filter(p => 
+      p.approvalStatus === "approved" && p.listingStatus === "active"
+    ).length;
     const totalUnits = inventory.length;
 
     // Calculate pending approval listings count
@@ -1078,59 +1083,128 @@ exports.getDeveloperDashboard = async (req, res) => {
       };
     });
 
-    // Calculate deal funnel (mock data for now)
+    // Query interest registrations (leads) for developer's properties
+    const leads = await GridLead.find({
+      "source.listing_id": { $in: propertyIds },
+      is_active: true,
+      is_deleted: false
+    });
+
+    // Calculate Month-over-Month (MoM) comparison stats for interest registrations
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+
+    const currentPeriodLeads = leads.filter(l => l.createdAt >= thirtyDaysAgo).length;
+    const priorPeriodLeads = leads.filter(l => l.createdAt >= sixtyDaysAgo && l.createdAt < thirtyDaysAgo).length;
+
+    let changePercent = 0;
+    if (priorPeriodLeads > 0) {
+      changePercent = Math.round(((currentPeriodLeads - priorPeriodLeads) / priorPeriodLeads) * 100);
+    } else if (currentPeriodLeads > 0) {
+      changePercent = 100;
+    }
+
+    // Dynamic deal funnel based on real leads
     const dealFunnel = [
-      { stage: "Leads", count: 0 },
-      { stage: "Site Visits", count: 0 },
-      { stage: "Negotiation", count: 0 },
-      { stage: "Closed", count: inventoryStats.sold }
+      { stage: "Leads", count: leads.filter(l => ["new", "contacted", "qualified"].includes(l.status)).length },
+      { stage: "Site Visits", count: leads.filter(l => l.status === "site_visit_scheduled").length },
+      { stage: "Negotiation", count: leads.filter(l => ["in_discussion", "offer_made", "reserved"].includes(l.status)).length },
+      { stage: "Closed", count: leads.filter(l => ["spa_signed", "completed"].includes(l.status)).length }
     ];
 
-    // Mock deals closed
-    const dealsClosed = [];
+    // Dynamic closed deals based on real sold/reserved units
+    const closedUnits = inventory.filter(unit => 
+      ["sold", "spa_signed", "booked", "reserved"].includes(unit.status)
+    );
+    const dealsClosed = closedUnits.map(unit => {
+      const property = properties.find(p => p._id.toString() === unit.propertyId.toString());
+      return {
+        key: unit._id,
+        date: unit.soldAt || unit.bookedAt || unit.reservedAt || unit.updatedAt,
+        unit: `${unit.unitNumber} - ${property ? (property.projectName || property.propertyName) : "Unknown Property"}`,
+        status: unit.status === "spa_signed" ? "SPA Signed" : unit.status.charAt(0).toUpperCase() + unit.status.slice(1),
+        price: unit.salePrice || unit.price
+      };
+    }).sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    // Mock inventory status for pie chart (overall)
+    // Dynamic recent lead registrations list for the developer dashboard
+    const propMap = {};
+    properties.forEach(p => {
+      propMap[p._id.toString()] = p.projectName || p.propertyName || "Unnamed Project";
+    });
+
+    const recentLeads = leads
+      .map(l => {
+        const nameObj = l.contact_info?.name || {};
+        const fullName = l.contact_info?.name?.is_masked 
+          ? "Masked Customer" 
+          : `${nameObj.first_name || ""} ${nameObj.last_name || ""}`.trim() || "Interested Client";
+
+        return {
+          _id: l._id,
+          customerName: fullName,
+          email: l.contact_info?.email?.is_masked ? "Masked" : (l.contact_info?.email?.address || "N/A"),
+          phone: l.contact_info?.mobile?.is_masked ? "Masked" : (l.contact_info?.mobile?.number || "N/A"),
+          projectName: propMap[l.source?.listing_id?.toString()] || "General Enquiry",
+          status: l.status,
+          createdAt: l.createdAt
+        };
+      })
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 10);
+
+    const unitsSold = inventoryStats.sold + inventoryStats.spa_signed;
+    const unitsReserved = inventoryStats.reserved;
+
     const inventoryStatusPie = [
       { name: "Available", value: inventoryStats.available },
       { name: "Reserved", value: inventoryStats.reserved },
-      { name: "Sold", value: inventoryStats.sold }
+      { name: "Booked", value: inventoryStats.booked },
+      { name: "Sold", value: unitsSold },
+      { name: "Hold", value: inventoryStats.hold }
     ].filter(s => s.value > 0);
 
     const dashboardData = {
       stats: [
         {
-          label: "Active Projects / Units",
-          value: `${activeProjects} / ${totalUnits}`,
+          label: "Active Listings",
+          value: `${activeProjects} / ${properties.length}`,
           change: 0,
-          bg: "#e0f2fe",
-          color: "#0284c7"
+          bg: "#f3e8ff",
+          color: "#5c039b",
+          subtext: `${totalUnits} total units in inventory`
         },
         {
-          label: "Interest Registrations (This vs Last Month)",
-          value: "0",
-          change: 0,
-          bg: "#fef3c7",
-          color: "#d97706"
+          label: "Interest Registrations",
+          value: leads.length.toString(),
+          change: changePercent,
+          bg: "#e0f2fe",
+          color: "#0369a1",
+          subtext: `${currentPeriodLeads} new leads (30d)`
         },
         {
           label: "Reserved / Sold Units",
-          value: `${inventoryStats.reserved} / ${inventoryStats.sold}`,
+          value: `${unitsReserved} / ${unitsSold}`,
           change: 0,
-          bg: "#d1fae5",
-          color: "#059669"
+          bg: "#dcfce7",
+          color: "#16a34a",
+          subtext: `Available: ${inventoryStats.available} units`
         },
         {
-          label: "Pending Approvals (Admin)",
+          label: "Pending Approvals",
           value: pendingApprovalCount.toString(),
           change: 0,
           bg: "#fee2e2",
-          color: "#e11d48"
+          color: "#b91c1c",
+          subtext: "Requires admin action"
         }
       ],
       inventoryStatus: inventoryStatusPie,
       propertyWiseInventory: propertyWiseInventory,
       dealFunnel: dealFunnel,
       dealsClosed: dealsClosed,
+      recentLeads: recentLeads,
       inventoryStats: inventoryStats,
       properties: properties,
       inventory: inventory
@@ -1357,23 +1431,9 @@ exports.getDeveloperAnalytics = async (req, res) => {
     const propertyIds = properties.map(p => p._id);
 
     // Get all inventory units for these properties
-    const allInventory = [];
-    for (const p of properties) {
-      if (p.inventoryCategory === "residential_tower" && p.floorConfigurations) {
-        p.floorConfigurations.forEach(fc => {
-          fc.units.forEach(u => {
-            allInventory.push({
-              ...u,
-              propertyId: p._id,
-              propertyName: p.projectName || p.propertyName
-            });
-          });
-        });
-      }
-    }
+    const allInventory = await Inventory.find({ propertyId: { $in: propertyIds } });
 
     // Calculate basic stats from properties
-    const totalProperties = properties.length;
     const liveProperties = properties.filter(p => p.approvalStatus === "approved").length;
     const pendingProperties = properties.filter(p => p.approvalStatus === "pending").length;
     const draftProperties = properties.filter(p => p.approvalStatus === "draft").length;
@@ -1381,9 +1441,29 @@ exports.getDeveloperAnalytics = async (req, res) => {
 
     // Calculate inventory stats
     const totalUnits = allInventory.length;
-    const availableUnits = allInventory.filter(u => !u.status || u.status === "available").length;
+    const availableUnits = allInventory.filter(u => u.status === "available").length;
     const reservedUnits = allInventory.filter(u => u.status === "reserved").length;
-    const soldUnits = allInventory.filter(u => u.status === "sold" || u.status === "spa_signed").length;
+    const soldUnits = allInventory.filter(u => ["sold", "spa_signed", "booked"].includes(u.status)).length;
+
+    // Query interest registrations (leads) for developer's properties
+    const leads = await GridLead.find({
+      "source.listing_id": { $in: propertyIds },
+      is_active: true,
+      is_deleted: false
+    });
+
+    // Calculate Month-over-Month (MoM) comparison stats for interest registrations
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+
+    const interestRegistrationsThisMonth = leads.filter(l => l.createdAt >= thirtyDaysAgo).length;
+    const interestRegistrationsLastMonth = leads.filter(l => l.createdAt >= sixtyDaysAgo && l.createdAt < thirtyDaysAgo).length;
+
+    const enquirySourceBreakdown = {
+      platformCustomer: leads.filter(l => l.lead_type === "platform").length,
+      agentLead: leads.filter(l => l.lead_type === "agent").length
+    };
 
     // Calculate listing views and wishlists (from property fields)
     const totalViews = properties.reduce((sum, p) => sum + (p.viewCount || 0), 0);
@@ -1392,32 +1472,31 @@ exports.getDeveloperAnalytics = async (req, res) => {
     // Prepare project-wise performance data
     const projectPerformance = properties.map(p => {
       const projectInventory = allInventory.filter(u => u.propertyId.toString() === p._id.toString());
-      const projectAvailable = projectInventory.filter(u => !u.status || u.status === "available").length;
+      const projectAvailable = projectInventory.filter(u => u.status === "available").length;
       const projectReserved = projectInventory.filter(u => u.status === "reserved").length;
-      const projectSold = projectInventory.filter(u => u.status === "sold" || u.status === "spa_signed").length;
+      const projectSold = projectInventory.filter(u => ["sold", "spa_signed", "booked"].includes(u.status)).length;
 
       return {
         key: p._id.toString(),
         project: p.projectName || p.propertyName || "Untitled Project",
         views: p.viewCount || 0,
         wishlists: p.wishlistCount || 0,
-        leads: 0, // Placeholder until we have enquiry model
+        leads: leads.filter(l => l.source?.listing_id?.toString() === p._id.toString()).length,
         bookings: projectSold,
         unsold: projectAvailable + projectReserved,
         available: projectAvailable,
         reserved: projectReserved,
         sold: projectSold
       };
-    }).sort((a, b) => b.views - a.views); // Sort by views descending
+    }).sort((a, b) => b.views - a.views);
 
     // Prepare analytics data
     const analyticsData = {
-      // Enquiry & Interests Metrics (placeholders for now)
-      totalInterestRegistrations: 0,
-      interestRegistrationsThisMonth: 0,
-      interestRegistrationsLastMonth: 0,
-      leadsAssignedToAgents: 0,
-      enquirySourceBreakdown: { platformCustomer: 0, agentLead: 0 },
+      totalInterestRegistrations: leads.length,
+      interestRegistrationsThisMonth,
+      interestRegistrationsLastMonth,
+      leadsAssignedToAgents: leads.filter(l => l.assigned_to).length,
+      enquirySourceBreakdown,
 
       // Deals & Transaction Metrics
       totalDealsClosed: soldUnits,
@@ -1430,23 +1509,23 @@ exports.getDeveloperAnalytics = async (req, res) => {
         { name: "Reserved", value: reservedUnits },
         { name: "Sold", value: soldUnits }
       ],
-      averageTimeToDeal: 0, // Placeholder
+      averageTimeToDeal: 0,
       unitsSoldThisQuarter: soldUnits,
-      unitsSoldLastQuarter: 0, // Placeholder
+      unitsSoldLastQuarter: 0,
 
       // Listing Performance Metrics
       totalListingViews: totalViews,
       totalWishlists: totalWishlists,
-      averageApprovalTime: 0, // Placeholder
+      averageApprovalTime: 0,
       listingsByStatus: {
         live: liveProperties,
         pendingApproval: pendingProperties,
         draft: draftProperties,
         rejected: rejectedProperties
       },
-      editSubmissionHistory: 0, // Placeholder
+      editSubmissionHistory: 0,
 
-      // Agent Engagement Metrics (placeholders)
+      // Agent Engagement Metrics
       agentsWhoShortlisted: 0,
       presentationsGenerated: 0,
       presentationsShared: 0,

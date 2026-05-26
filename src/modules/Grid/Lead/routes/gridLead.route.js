@@ -30,6 +30,7 @@ router.use(protectMulti);
 
 router.get('/my-leads',    controller.getMyAssignedLeads);   // advisor ke assigned leads
 router.put('/:id/status',  controller.updateMyLeadStatus);   // status update (flow-enforced)
+router.put('/:id/admin-status', controller.updateMyLeadStatus); // admin status update alias
 
 // Advisor manually suggest karta hai aur client react karta hai
 router.post('/:id/suggest-property',    controller.suggestPropertyToClient);
@@ -50,6 +51,12 @@ router.get('/agent-only',            controller.getAgentLeads);           // all
 router.get('/submitted-queue',       controller.getSubmittedQueue);       // unassigned submitted leads
 router.get('/:id/suggest-advisors',  controller.suggestAdvisorsForLead);  // advisor suggestions
 router.put('/:id/assign',            controller.assignAdvisorToLead);     // assign advisor
+
+// ── GENERAL LEADS (Admin only) ───────────────────────────────────────────
+router.post('/general/create',       controller.createGeneralLead);       // single general lead
+router.post('/general/bulk',         controller.bulkCreateGeneralLeads);  // bulk upload (array/csv parse)
+router.get ('/general',              controller.getGeneralLeads);         // all general leads + stats
+ 
 
 // Commission management (referral leads)
 router.put('/:id/commission', referral.updateCommissionStatus);

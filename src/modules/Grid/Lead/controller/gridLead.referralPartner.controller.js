@@ -141,7 +141,7 @@ exports.createReferralLead = asyncHandler(async (req, res) => {
     classification_reason: 'Referral partner lead created via CRM',
 
     source: {
-      channel:    'agent_added',                    // ← REFERRAL channel
+      channel:    'referral_partner',
       listing_id: listing_id || null,
       referralPartnerId: partnerId,
     },
@@ -232,8 +232,8 @@ exports.getReferralPartnerLeads = asyncHandler(async (req, res) => {
   const { status, classification, type, search } = req.query;
 
   const filter = {
-    lead_type:         'referral_partner',
-    'source.channel':  'agent_added',
+    lead_type:         { $in: ['referral_partner', 'referral'] },
+    'source.channel':  { $in: ['referral_partner', 'agent_added'] },
     created_by_agent:  partnerId,    // sirf apne leads
   };
 
@@ -519,6 +519,80 @@ exports.updateReferralRequirements = asyncHandler(async (req, res) => {
     });
   }
 
+  const {
+    first_name,
+    last_name,
+    phone_number,
+    country_code,
+    email,
+    property_type,
+    transaction_type,
+    location_preferences,
+    budget_min,
+    budget_max,
+    bedrooms,
+    bathrooms,
+    area_sqft_min,
+    area_sqft_max,
+    furnished,
+    ready_by_date,
+    additional_notes,
+  } = requirements || {};
+
+  // Update contact_info on the lead
+  if (first_name !== undefined || last_name !== undefined || phone_number !== undefined || email !== undefined) {
+    lead.contact_info = lead.contact_info || {};
+    
+    if (first_name !== undefined || last_name !== undefined) {
+      lead.contact_info.name = lead.contact_info.name || {};
+      if (first_name !== undefined) lead.contact_info.name.first_name = first_name;
+      if (last_name !== undefined) lead.contact_info.name.last_name = last_name;
+      lead.contact_info.name.is_masked = false;
+    }
+
+    if (phone_number !== undefined) {
+      const cleanPhone = phone_number.toString().replace(/\D/g, '').slice(-15);
+      lead.contact_info.mobile = {
+        country_code: country_code || lead.contact_info.mobile?.country_code || '+971',
+        number:       cleanPhone,
+        is_masked:    false,
+        verified:     false,
+      };
+    }
+
+    if (email !== undefined) {
+      lead.contact_info.email = {
+        address:   email.toLowerCase().trim(),
+        is_masked: false,
+        verified:  false,
+      };
+    }
+  }
+
+  // Update associated Customer if any
+  if (lead.customerId) {
+    const Customer = require('../../../../modules/auth/models/user/customer.model');
+    const updateData = {};
+    if (first_name !== undefined || last_name !== undefined) {
+      if (first_name !== undefined) updateData['name.first_name'] = first_name.trim();
+      if (last_name !== undefined) updateData['name.last_name'] = last_name.trim();
+    }
+    if (phone_number !== undefined) {
+      const cleanPhone = phone_number.toString().replace(/\D/g, '').slice(-15);
+      updateData.mobile = {
+        country_code: country_code || '+971',
+        number: cleanPhone,
+        verified: false
+      };
+    }
+    if (email !== undefined) {
+      updateData.email = email.toLowerCase().trim();
+    }
+    if (Object.keys(updateData).length > 0) {
+      await Customer.findByIdAndUpdate(lead.customerId, { $set: updateData });
+    }
+  }
+
   const oldReq = lead.requirements || {};
   lead.notes.push({
     text: `Requirements updated. Reason: ${reason || 'Client changed preferences'}. Previous: Budget AED ${oldReq.budget_max || 'N/A'}, Area: ${(oldReq.location_preferences || []).map(l => l.area || l).join(', ') || 'N/A'}, Type: ${oldReq.property_type || 'N/A'}`,
@@ -552,8 +626,8 @@ exports.getReferralPartnerStats = asyncHandler(async (req, res) => {
   const partnerId = req.user._id;
 
   const baseFilter = {
-    lead_type:         'referral',
-    'source.channel':  'referral_partner',
+    lead_type:         { $in: ['referral_partner', 'referral'] },
+    'source.channel':  { $in: ['referral_partner', 'agent_added'] },
     created_by_agent:  partnerId,
   };
 
@@ -668,8 +742,8 @@ exports.getReferralLeaderboard = asyncHandler(async (req, res) => {
   const leadStats = await GridLead.aggregate([
     {
       $match: {
-        lead_type: 'referral',
-        'source.channel': 'referral_partner',
+        lead_type: { $in: ['referral_partner', 'referral'] },
+        'source.channel': { $in: ['referral_partner', 'agent_added'] },
         createdAt: { $gte: startDate },
       }
     },

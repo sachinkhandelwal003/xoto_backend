@@ -13,6 +13,16 @@ const Property = require('../../../properties/models/property.model.js');
 const PropertyInventory = require('../../../properties/models/property.inventory.model.js');
 const { matchPropertiesForLead } = require('./gridLead.matchHelper');
 
+const isGridAdmin = (role) => {
+  if (!role) return false;
+  if (typeof role === 'object') {
+    return role?.isSuperAdmin === true ||
+      Number(role?.code) === 0 ||
+      Number(role?.code) === 1;
+  }
+  return ['admin', 'super_admin', 'xoto_super_admin', 'xoto_staff_admin'].includes(role);
+};
+
 
 // ════════════════════════════════════════════════════════════════════════════
 // WEBSITE LEADS
@@ -252,6 +262,11 @@ exports.getLeads = asyncHandler(async (req, res) => {
       .populate('source.listing_id')
       .populate('matched_listings.listing_id')
       .populate('assigned_to', 'firstName lastName email')
+       .populate({                                 
+      path:   'created_by_agent',
+      model:  'GridAgent',
+      select: 'first_name last_name email phone_number role',
+    })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit),
@@ -462,7 +477,9 @@ exports.getAgentLeads = asyncHandler(async (req, res) => {
     'source.channel': 'agent_added',
   };
 
-  if (status)         filter.status         = status;
+  if (status) {
+  filter.status = new RegExp(`^${status}$`, 'i');
+}
   if (classification) filter.classification = classification;
   if (type)           filter.enquiry_type   = type;
 
@@ -678,9 +695,11 @@ exports.getMyAssignedLeads = asyncHandler(async (req, res) => {
 exports.updateMyLeadStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status, notes = '', inventoryUnitId } = req.body;
-  const advisorId = req.user?._id;
+  const actorId = req.user?._id;
+  const actorIsAdmin = isGridAdmin(req.user?.role);
+  const actorType = actorIsAdmin ? 'admin' : 'advisor';
 
-  if (!advisorId) {
+  if (!actorId) {
     return res.status(StatusCodes.UNAUTHORIZED).json({ success: false, message: 'Unauthorized' });
   }
 
@@ -689,10 +708,11 @@ exports.updateMyLeadStatus = asyncHandler(async (req, res) => {
     return res.status(StatusCodes.NOT_FOUND).json({ success: false, message: 'Lead not found' });
   }
 
-  if (!lead.assigned_to || lead.assigned_to.toString() !== advisorId.toString()) {
+  const isAssignedAdvisor = lead.assigned_to && lead.assigned_to.toString() === actorId.toString();
+  if (!actorIsAdmin && !isAssignedAdvisor) {
     return res.status(StatusCodes.FORBIDDEN).json({
       success: false,
-      message: 'Only assigned advisor can update this lead status',
+      message: 'Only assigned advisor or admin can update this lead status',
     });
   }
 
@@ -709,11 +729,12 @@ exports.updateMyLeadStatus = asyncHandler(async (req, res) => {
     });
   }
 
-  const FLOW = [
-    'new', 'contacted', 'in_discussion',
-    'site_visit_scheduled', 'offer_made', 'reserved',
-    'spa_signed', 'completed',
-  ];
+
+const FLOW = [
+  'new', 'contacted', 'qualified', 'in_discussion',
+  'site_visit_scheduled', 'offer_made', 'reserved',
+  'spa_signed', 'completed',
+];
 
   const current = lead.status;
 
@@ -762,7 +783,7 @@ exports.updateMyLeadStatus = asyncHandler(async (req, res) => {
       const inventoryUpdate = {};
       if (status === 'reserved') {
         inventoryUpdate.status = 'reserved';
-        inventoryUpdate.reservedBy = advisorId;
+        inventoryUpdate.reservedBy = actorId;
         inventoryUpdate.reservedAt = new Date();
         inventoryUpdate.leadId = lead._id;
       } else if (status === 'spa_signed') {
@@ -794,7 +815,7 @@ exports.updateMyLeadStatus = asyncHandler(async (req, res) => {
   lead.status_history = lead.status_history || [];
   lead.status_history.push({
     status,
-    changed_by: advisorId,
+    changed_by: actorId,
     changed_at: new Date(),
     notes:      notesTrim || undefined,
   });
@@ -802,8 +823,8 @@ exports.updateMyLeadStatus = asyncHandler(async (req, res) => {
   lead.notes = lead.notes || [];
   lead.notes.push({
     text:        notesTrim ? `Status updated to "${status}". Note: ${notesTrim}` : `Status updated to "${status}"`,
-    author:      req.user?.firstName || 'Advisor',
-    author_type: 'advisor',
+    author:      req.user?.firstName || req.user?.first_name || (actorIsAdmin ? 'Admin' : 'Advisor'),
+    author_type: actorType,
     is_private:  false,
     created_at:  new Date(),
   });
@@ -1002,16 +1023,21 @@ exports.getLeadById = asyncHandler(async (req, res) => {
   const lead = await GridLead.findById(id)
     .populate('source.listing_id')
     .populate('matched_listings.listing_id')
+    .populate('customerId', 'name firstName lastName email mobile phone')
     .populate('assigned_to',      'firstName lastName email phone')
-    .populate('created_by_agent', 'first_name last_name email phone_number role')
+    .populate({
+      path: 'created_by_agent',
+      select: 'first_name last_name email phone_number role agency',
+      populate: { path: 'agency', select: 'companyName agency_name name primaryContactEmail' },
+    })
     .populate('advisor_suggestions.property_id')
     .lean({ virtuals: true });
 
   if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
 
-  const role = req.user?.role;
+  const roleName = req.user?.role?.name?.toLowerCase();
 
-  if (role === 'agent' || role === 'referral_partner') {
+  if (roleName === 'agent' || roleName === 'gridreferralpartner' || roleName === 'referral_partner') {
     const userId    = req.user._id?.toString();
     const createdBy = lead.created_by_agent?._id?.toString() || lead.created_by?.toString();
     if (userId !== createdBy) {
@@ -1035,7 +1061,7 @@ exports.getLeadById = asyncHandler(async (req, res) => {
     }
   }
 
-  if (role === 'advisor') {
+  if (roleName === 'gridadvisor' || roleName === 'advisor') {
     const advisorId = req.user._id?.toString();
     if (lead.assigned_to?._id?.toString() !== advisorId) {
       return res.status(403).json({ success: false, message: 'Access denied' });
@@ -1526,5 +1552,307 @@ exports.addAdvisorNote = asyncHandler(async (req, res) => {
     success: true,
     message: 'Note added',
     data: lead.notes[lead.notes.length - 1],
+  });
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// ADMIN — CREATE GENERAL LEAD
+// ════════════════════════════════════════════════════════════════════════════
+
+exports.createGeneralLead = asyncHandler(async (req, res) => {
+  const adminId = req.user?._id;
+
+  const {
+    first_name, last_name, phone_number,
+    country_code = '+971', email,
+    enquiry_type = 'general_enquiry',
+    property_id,
+    source_channel = 'admin_manual',
+    classification = 'warm',
+    requirements,
+    notes: noteText,
+  } = req.body;
+
+  if (!first_name || !last_name || !phone_number) {
+    return res.status(400).json({
+      success: false,
+      message: 'First name, last name and phone number are required',
+    });
+  }
+
+  const ALLOWED_CHANNELS = ['admin_manual', 'phone_call', 'whatsapp', 'email', 'bulk_upload'];
+  if (!ALLOWED_CHANNELS.includes(source_channel)) {
+    return res.status(400).json({
+      success: false,
+      message: `source_channel must be one of: ${ALLOWED_CHANNELS.join(', ')}`,
+    });
+  }
+
+  const cleanPhone = phone_number.toString().replace(/\D/g, '').slice(-15);
+  const cleanEmail = email ? email.toLowerCase().trim() : null;
+
+  // Customer match karo ya naya banao
+  const matchQuery = { $or: [{ 'mobile.number': cleanPhone }] };
+  if (cleanEmail) matchQuery.$or.push({ email: cleanEmail });
+
+  let customer = await Customer.findOne(matchQuery);
+
+  if (!customer) {
+    customer = await Customer.create({
+      name: { first_name: first_name.trim(), last_name: last_name.trim() },
+      mobile: { country_code, number: cleanPhone, verified: false },
+      ...(cleanEmail && { email: cleanEmail }),
+      statistics: { first_enquiry_at: new Date(), total_leads: 0, total_enquiries: 0 },
+    });
+  }
+
+  // Duplicate check (7 din ke andar)
+  const existingLeads = await GridLead.checkDuplicate(customer._id, 7);
+  if (existingLeads.length > 0) {
+    const existing = existingLeads[0];
+    return res.status(409).json({
+      success: false,
+      message: "This customer's lead already exists.",
+      data: { lead_id: existing._id, status: existing.status, created_at: existing.createdAt },
+    });
+  }
+
+  // Property validate karo agar di hai
+  if (property_id) {
+    const property = await Property.findOne({ _id: property_id, approvalStatus: 'approved' });
+    if (!property) {
+      return res.status(400).json({ success: false, message: 'Property are not found or not approved' });
+    }
+  }
+
+  const lead = await GridLead.create({
+    lead_type:             'general',
+    enquiry_type,
+    customerId:            customer._id,
+    classification,
+    classification_reason: `General lead — Created by admin via ${source_channel}`,
+    source: {
+      channel:    source_channel,
+      listing_id: property_id || null,
+    },
+    contact_info: {
+      name:   { first_name: first_name.trim(), last_name: last_name.trim(), is_masked: false },
+      mobile: { country_code, number: cleanPhone, is_masked: false, verified: false },
+      ...(cleanEmail && { email: { address: cleanEmail, is_masked: false, verified: false } }),
+      preferred_contact: 'whatsapp',
+    },
+    ...(requirements && { requirements }),
+    ...(noteText && {
+      notes: [{
+        text:        noteText,
+        author:      `${req.user?.firstName || 'Admin'} ${req.user?.lastName || ''}`.trim(),
+        author_type: 'admin',
+        is_private:  false,
+        created_at:  new Date(),
+      }],
+    }),
+    created_by: adminId,
+    updated_by: adminId,
+  });
+
+  await Customer.findByIdAndUpdate(customer._id, {
+    $inc: { 'statistics.total_leads': 1, 'statistics.total_enquiries': 1 },
+  });
+
+  return res.status(201).json({
+    success: true,
+    message: 'General lead successfully created',
+    data: {
+      lead_id:        lead._id,
+      status:         lead.status,
+      classification: lead.classification,
+      lead_type:      lead.lead_type,
+      customer_id:    customer._id,
+    },
+  });
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// ADMIN — BULK CREATE GENERAL LEADS
+// ════════════════════════════════════════════════════════════════════════════
+
+exports.bulkCreateGeneralLeads = asyncHandler(async (req, res) => {
+  const adminId = req.user?._id;
+  const { leads: leadsArray, assign_to_advisor } = req.body;
+
+  if (!Array.isArray(leadsArray) || leadsArray.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "leads array is required and must not be empty.",
+    });
+  }
+
+  if (leadsArray.length > 500) {
+    return res.status(400).json({
+      success: false,
+        message: 'A maximum of 500 leads can be uploaded at a time.',
+      });
+  }
+
+  const results = { created: [], duplicates: [], errors: [] };
+
+  for (const [index, item] of leadsArray.entries()) {
+    try {
+      const {
+        first_name, last_name, phone_number,
+        country_code = '+971', email,
+        enquiry_type = 'general_enquiry',
+        requirements,
+        classification = 'warm',
+      } = item;
+
+      if (!first_name || !phone_number) {
+        results.errors.push({ index, reason: 'first_name aur phone_number required hain', item });
+        continue;
+      }
+
+      const cleanPhone = phone_number.toString().replace(/\D/g, '').slice(-15);
+      const cleanEmail = email ? email.toLowerCase().trim() : null;
+
+      const matchQuery = { $or: [{ 'mobile.number': cleanPhone }] };
+      if (cleanEmail) matchQuery.$or.push({ email: cleanEmail });
+
+      let customer = await Customer.findOne(matchQuery);
+      if (!customer) {
+        customer = await Customer.create({
+          name:   { first_name: first_name.trim(), last_name: (last_name || '').trim() },
+          mobile: { country_code, number: cleanPhone, verified: false },
+          ...(cleanEmail && { email: cleanEmail }),
+          statistics: { first_enquiry_at: new Date(), total_leads: 0, total_enquiries: 0 },
+        });
+      }
+
+      const existing = await GridLead.checkDuplicate(customer._id, 7);
+      if (existing.length > 0) {
+        results.duplicates.push({ index, phone_number, existing_lead_id: existing[0]._id });
+        continue;
+      }
+
+      const lead = await GridLead.create({
+        lead_type:             'general',
+        enquiry_type,
+        customerId:            customer._id,
+        classification,
+        classification_reason: 'General lead — bulk upload by admin',
+        source:                { channel: 'bulk_upload' },
+        contact_info: {
+          name:   { first_name: first_name.trim(), last_name: (last_name || '').trim(), is_masked: false },
+          mobile: { country_code, number: cleanPhone, is_masked: false, verified: false },
+          ...(cleanEmail && { email: { address: cleanEmail, is_masked: false, verified: false } }),
+          preferred_contact: 'whatsapp',
+        },
+        ...(requirements && { requirements }),
+        ...(assign_to_advisor && {
+          assigned_to: assign_to_advisor,
+          assigned_at: new Date(),
+          assigned_by: adminId,
+        }),
+        created_by: adminId,
+      });
+
+      await Customer.findByIdAndUpdate(customer._id, {
+        $inc: { 'statistics.total_leads': 1 },
+      });
+
+      results.created.push({ index, lead_id: lead._id, phone_number });
+    } catch (err) {
+      results.errors.push({ index, reason: err.message, item });
+    }
+  }
+
+  return res.status(201).json({
+    success: true,
+    message: `Bulk upload complete: ${results.created.length} created, ${results.duplicates.length} duplicates, ${results.errors.length} errors`,
+    summary: {
+      total_submitted: leadsArray.length,
+      created:         results.created.length,
+      duplicates:      results.duplicates.length,
+      errors:          results.errors.length,
+    },
+    data: results,
+  });
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// ADMIN — GET ALL GENERAL LEADS
+// ════════════════════════════════════════════════════════════════════════════
+
+exports.getGeneralLeads = asyncHandler(async (req, res) => {
+  const page  = parseInt(req.query.page,  10) || 1;
+  const limit = parseInt(req.query.limit, 10) || 10;
+  const skip  = (page - 1) * limit;
+
+  const {
+    status,
+    classification,
+    source_channel,
+    assigned,     // 'true' | 'false'
+    advisor_id,
+    search,
+    from_date,
+    to_date,
+  } = req.query;
+
+  const filter = { lead_type: 'general' };
+
+  if (status)         filter.status               = status;
+  if (classification) filter.classification       = classification;
+  if (source_channel) filter['source.channel']   = source_channel;
+  if (advisor_id)     filter.assigned_to          = advisor_id;
+
+  if (assigned === 'true')  filter.assigned_to = { $ne: null };
+  if (assigned === 'false') filter.assigned_to = null;
+
+  if (from_date || to_date) {
+    filter.createdAt = {};
+    if (from_date) filter.createdAt.$gte = new Date(from_date);
+    if (to_date)   filter.createdAt.$lte = new Date(to_date);
+  }
+
+  if (search) {
+    filter.$or = [
+      { 'contact_info.name.first_name': { $regex: search, $options: 'i' } },
+      { 'contact_info.name.last_name':  { $regex: search, $options: 'i' } },
+      { 'contact_info.email.address':   { $regex: search, $options: 'i' } },
+      { 'contact_info.mobile.number':   { $regex: search, $options: 'i' } },
+    ];
+  }
+
+  const [leads, total, assignedCount, unassignedCount, hotCount] = await Promise.all([
+    GridLead.find(filter)
+      .populate('source.listing_id',            'propertyName area price mainLogo')
+      .populate('assigned_to',                  'firstName lastName email phone')
+      .populate('matched_listings.listing_id',  'propertyName area price')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    GridLead.countDocuments(filter),
+    GridLead.countDocuments({ lead_type: 'general', assigned_to: { $ne: null } }),
+    GridLead.countDocuments({ lead_type: 'general', assigned_to: null }),
+    GridLead.countDocuments({ lead_type: 'general', classification: 'hot' }),
+  ]);
+
+  return res.json({
+    success: true,
+    stats: {
+      total_general: total,
+      assigned:      assignedCount,
+      unassigned:    unassignedCount,
+      hot:           hotCount,
+    },
+    data: leads.map(lead => ({
+      ...lead,
+      assignedAdvisor: lead.assigned_to || null,
+    })),
+    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
   });
 });
