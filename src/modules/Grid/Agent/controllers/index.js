@@ -151,8 +151,8 @@ exports.agentLogin = async (req, res) => {
     if (!isMatch)
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
 
-    if (agent.agencyApprovalStatus !== 'approved' || agent.adminApprovalStatus !== 'approved')
-      return res.status(403).json({ success: false, message: 'Account not fully approved yet.' });
+    if (agent.agencyApprovalStatus !== 'approved')
+      return res.status(403).json({ success: false, message: 'Account not approved by agency yet.' });
 
     // ✅ Populate role before token creation
     const agentWithRole = await Agent.findById(agent._id).populate({

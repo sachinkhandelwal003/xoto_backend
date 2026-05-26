@@ -1006,6 +1006,8 @@ exports.approveAgent = asyncHandler(async (req, res) => {
 
   agent.agencyApprovalStatus = 'approved';
   agent.agencyApprovedAt = new Date();
+  agent.adminApprovalStatus = 'approved';
+  agent.adminApprovedAt = new Date();
   await agent.save();
 
   res.status(200).json({
