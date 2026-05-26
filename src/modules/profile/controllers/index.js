@@ -166,10 +166,11 @@ export const updateProfilePicture = async (req, res) => {
     // ── Default field per role ────────────────────────────────────────
     if (!fieldToUpdate) {
       switch (user.role.name) {
-        case "VaultAgent":  fieldToUpdate = "profilePic";    break; // ✅ schema field
-        case "Agent":       fieldToUpdate = "profile_photo"; break;
-        case "Freelancer":  fieldToUpdate = "profile_photo"; break;
-        default:            fieldToUpdate = "logo";
+        case "VaultAgent":          fieldToUpdate = "profilePic";       break; // ✅ schema field
+        case "Agent":               fieldToUpdate = "profile_photo";    break;
+        case "Freelancer":          fieldToUpdate = "profile_photo";    break;
+        case "GridReferralPartner": fieldToUpdate = "profilePhotoUrl"; break;
+        default:                    fieldToUpdate = "logo";
       }
     }
 

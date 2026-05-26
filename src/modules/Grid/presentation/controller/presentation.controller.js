@@ -381,17 +381,55 @@ const getViews = async (req, res) => {
 // Agent ki saari presentations
 const getMyPresentations = async (req, res) => {
   try {
-    const agentId = req.user._id;
+    let agentIds = [req.user._id];
     const { leadId, page = 1, limit = 10 } = req.query;
 
-    const query = { agentId };
+    if (req.user.constructor.modelName === 'Agency') {
+      const Agent = require('../../Agent/models/agent');
+      agentIds = await Agent.find({ agency: req.user._id }).distinct('_id');
+    }
+
+    const query = { agentId: { $in: agentIds } };
     if (leadId) query.leadId = leadId;
 
     const presentations = await Presentation.find(query)
+      .populate('leadId', 'contact_info name status')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(Number(limit))
-      .select('-s3Key'); // s3 key frontend ko nahi dikhana
+      .select('-s3Key')
+      .lean(); // s3 key frontend ko nahi dikhana
+
+    const propertyIds = presentations
+      .map((presentation) => presentation.propertyId)
+      .filter(Boolean)
+      .map((id) => id.toString());
+
+    if (propertyIds.length > 0) {
+      const LegacyProperty = require('../../../properties/models/PropertyModel');
+      const GridProperty = require('../../../properties/models/property.model');
+
+      const [legacyProperties, gridProperties] = await Promise.all([
+        LegacyProperty.find({ _id: { $in: propertyIds } })
+          .select('propertyName area price bedrooms bathrooms mainLogo photos')
+          .lean(),
+        GridProperty.find({ _id: { $in: propertyIds } })
+          .select('propertyName projectName area locality price price_min price_max bedrooms bathrooms mainLogo photos media')
+          .lean(),
+      ]);
+
+      const propertyMap = new Map(
+        [...legacyProperties, ...gridProperties].map((property) => [
+          property._id.toString(),
+          property,
+        ])
+      );
+
+      presentations.forEach((presentation) => {
+        const propertyId = presentation.propertyId?.toString();
+        presentation.propertyId = propertyMap.get(propertyId) || presentation.propertyId;
+      });
+    }
 
     const total = await Presentation.countDocuments(query);
 

@@ -262,11 +262,7 @@ agentSchema.methods.comparePassword = async function (candidate) {
 
 // Platform Access Rule
 agentSchema.virtual("canAccessPlatform").get(function () {
-  return (
-    this.agencyApprovalStatus === "approved" &&
-    this.adminApprovalStatus === "approved" &&
-    this.isActive
-  );
+  return this.agencyApprovalStatus === "approved" && this.isActive;
 });
 
 agentSchema.set("toJSON", { virtuals: true });

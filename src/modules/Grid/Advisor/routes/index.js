@@ -72,6 +72,9 @@ router
   .post(protect, gridAdvisorController.createGridAdvisor)
   .get(protect, gridAdvisorController.getAllGridAdvisors);
 
+// Leaderboard route (MUST COME BEFORE /:id!)
+router.get("/leaderboard", protect, gridAdvisorController.getAdvisorLeaderboard);
+
 router
   .route("/:id")
   .get(protect, gridAdvisorController.getGridAdvisorById);
@@ -79,7 +82,5 @@ router
 router
   .route("/:id/suspend")
   .put(protect, gridAdvisorController.suspendGridAdvisor);
-
-router.get("/leaderboard", protect, gridAdvisorController.getAdvisorLeaderboard);
 
 module.exports = router;
