@@ -18,9 +18,11 @@ const isAdmin = (role) => {
 const isSuperAdmin = (role) => {
   if (!role) return false;
   if (typeof role === "object") {
-    return role?.isSuperAdmin === true || Number(role?.code) === 0;
+    return role?.isSuperAdmin === true ||
+           Number(role?.code) === 0    ||
+           Number(role?.code) === 1;
   }
-  return role === "xoto_super_admin";
+  return role === "xoto_super_admin" || role === "xoto_staff_admin";
 };
 
 const isStaffAdmin = (role) => {
