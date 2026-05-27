@@ -145,9 +145,16 @@ router.post('/agents',                   ctrl.createAgent);
 router.get('/agents',                    ctrl.getAgents);
 router.get('/agents/:agentId',           ctrl.getAgentDetail);
 router.get('/agents/:agentId/activity',  ctrl.getAgentActivity);
-router.put('/agents/:agentId/approve',   ctrl.approveAgent);
-router.put('/agents/:agentId/decline',   ctrl.declineAgent);
-router.put('/agents/:agentId/flag',      ctrl.flagAgent);
+router.patch('/agents/:agentId/approve',   ctrl.approveAgent);
+router.put('/agents/:agentId/approve',     ctrl.approveAgent);
+router.patch('/agents/:agentId/decline',   ctrl.declineAgent);
+router.put('/agents/:agentId/decline',     ctrl.declineAgent);
+router.patch('/agents/:agentId/flag',      ctrl.flagAgent);
+router.put('/agents/:agentId/flag',        ctrl.flagAgent);
+router.patch('/agents/:agentId/suspend',   ctrl.suspendAgent);
+router.put('/agents/:agentId/suspend',     ctrl.suspendAgent);
+router.patch('/agents/:agentId/unsuspend', ctrl.unsuspendAgent);
+router.put('/agents/:agentId/unsuspend',   ctrl.unsuspendAgent);
 
 // ── Leads & Listings ─────────────────────────────────────────────────────────
 router.get('/leads',    ctrl.getAgencyLeads);

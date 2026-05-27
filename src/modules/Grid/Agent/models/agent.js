@@ -205,6 +205,33 @@ role: {
       default: null,
     },
 
+    suspendedAt: {
+      type: Date,
+      default: null,
+    },
+
+    suspendedByAgency: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Agency",
+      default: null,
+    },
+
+    suspendReason: {
+      type: String,
+      default: "",
+    },
+
+    unsuspendedAt: {
+      type: Date,
+      default: null,
+    },
+
+    unsuspendedByAgency: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Agency",
+      default: null,
+    },
+
     onboarding_status: {
       type: String,
       enum: ["pending", "approved", "declined"],
