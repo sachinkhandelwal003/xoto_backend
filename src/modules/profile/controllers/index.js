@@ -12,6 +12,60 @@ import GridAdvisor from "../../Grid/Advisor/model/index.js"
 import VaultAdvisor from "../../vault/models/XotoAdvisor.js";
 import VaultMortgageOps from "../../vault/models/MortgageOps.js";
 import GridReferralPartner from "../../Grid/ReferralPartner/Model/ReferralPartner.model.js";
+// ── Commission eligibility status for VaultAgent ─────────────────────
+function buildAgentCommissionStatus(agent) {
+  if (agent.agentType === "ReferralPartner") {
+    const steps = [
+      { key: "phone",    label: "Phone verified",            done: !!agent.isPhoneVerified },
+      { key: "eid",      label: "Emirates ID uploaded",      done: !!(agent.emiratesId?.number && agent.emiratesId?.frontImageUrl) },
+      { key: "eidVerif", label: "Emirates ID verified",      done: !!agent.emiratesId?.verified },
+      { key: "bank",     label: "Bank details provided",     done: !!agent.bankDetails?.iban },
+      { key: "bankVerif","label": "Bank details verified",   done: !!agent.bankDetails?.verified },
+      { key: "admin",    label: "Admin account verification",done: !!agent.isVerified },
+    ];
+    const pending = steps.filter(s => !s.done);
+    return {
+      type:               "referral_partner",
+      isActive:           agent.isActive,
+      canSubmitLeads:     agent.isActive,
+      commissionEligible: agent.commissionEligible,
+      pendingSteps:       pending,
+      allDone:            pending.length === 0,
+      message: pending.length === 0
+        ? "Account fully verified — you can earn commission on all disbursed leads."
+        : `Account active for submitting leads. Complete ${pending.length} step${pending.length > 1 ? "s" : ""} to unlock commission.`,
+    };
+  }
+
+  if (agent.agentType === "PartnerAffiliatedAgent") {
+    const affiliationPending = agent.affiliationStatus === "pending";
+    const steps = [
+      { key: "affiliation", label: "Affiliation approved by partner", done: agent.affiliationStatus === "verified" },
+      { key: "eid",         label: "Emirates ID uploaded",            done: !!(agent.emiratesId?.number && agent.emiratesId?.frontImageUrl) },
+      { key: "bank",        label: "Bank details provided",           done: !!agent.bankDetails?.iban },
+    ];
+    const pending = steps.filter(s => !s.done);
+    return {
+      type:                  "partner_affiliated_agent",
+      isActive:              agent.isActive,
+      canSubmitLeads:        agent.isActive,
+      affiliationStatus:     agent.affiliationStatus,
+      commissionEligible:    false,
+      commissionNote:        "Commission for your leads is paid to your partner company. Your partner determines your internal payout rate.",
+      internalCommissionPct: agent.partnerInternalCommission?.percentage ?? null,
+      partnerName:           agent.partnerId?.companyName ?? null,
+      pendingSteps:          pending,
+      allDone:               pending.length === 0,
+      message: affiliationPending
+        ? "Your account is active for submitting leads. Waiting for partner approval to access full features."
+        : pending.length === 0
+          ? "Account fully set up. Commission is paid to your partner company."
+          : `Account active for submitting leads. Complete ${pending.length} step${pending.length > 1 ? "s" : ""} to finish your profile setup.`,
+    };
+  }
+  return null;
+}
+
 // ── Role ke basis par model return karo ──────────────────────────────
 const getModelByRole = (roleName) => {
     if (!roleName) return null;
@@ -63,13 +117,20 @@ export const getProfileData = async (req, res) => {
 
         // VaultAgent — partner info bhi populate karo
         if (roleName === "VaultAgent") {
-          query.populate("partnerId", "companyName status _id");
+          query.populate("partnerId", "companyName status _id defaultAgentCommissionPercentage");
         } else if (roleName === "Agent") {
           query.populate("role").populate("agency", "agency_name agencyName companyName");
         }
 
         const data = await query;
-        return res.status(200).json({ data });
+
+        // For VaultAgent, attach commission eligibility status
+        let commissionStatus = null;
+        if (roleName === "VaultAgent" && data) {
+          commissionStatus = buildAgentCommissionStatus(data);
+        }
+
+        return res.status(200).json({ data, ...(commissionStatus ? { commissionStatus } : {}) });
     } catch (error) {
         return res.status(500).json({ message: "Error fetching data", error: error.message });
     }

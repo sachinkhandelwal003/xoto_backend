@@ -14,7 +14,7 @@ entityId: { type: mongoose.Schema.Types.ObjectId, required: true },
     fileHash: { type: String, required: true },
     mimeType: { type: String, required: true },
     uploadedBy: {
-      role: { type: String, enum: ['admin', 'advisor', 'ops', 'partner'], required: true },
+      role: { type: String, enum: ['admin', 'advisor', 'ops', 'other'], required: true },
       userId: { type: mongoose.Schema.Types.ObjectId, required: true },
       userName: { type: String, required: true },
     },

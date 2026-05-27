@@ -10,6 +10,24 @@ import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { createToken } from '../../../middleware/auth.js';
 import { logAudit } from '../services/auditLog.service.js';
 import { emitVaultNotification } from '../services/vaultNotification.service.js';
+import sendEmail from '../../../utils/sendEmail.js';
+
+const credentialEmailHtml = (name, email, password, role) => `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#f9f9f9;">
+  <div style="background:#5C039B;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+    <h1 style="color:#fff;margin:0;font-size:22px;">Xoto Vault</h1>
+  </div>
+  <div style="background:#fff;padding:32px;border-radius:0 0 8px 8px;border:1px solid #e5e7eb;">
+    <h2 style="color:#111;margin-top:0;">Welcome, ${name}!</h2>
+    <p style="color:#555;">Your <strong>${role}</strong> account on Xoto Vault has been created by the admin. Your login credentials are below:</p>
+    <div style="background:#F5F0FF;border:1px solid #E9D5FF;border-radius:8px;padding:16px;margin:24px 0;">
+      <p style="margin:0 0 8px;"><strong>Email:</strong> ${email}</p>
+      <p style="margin:0;"><strong>Password:</strong> ${password}</p>
+    </div>
+    <p style="color:#c0392b;font-size:13px;"><strong>Important:</strong> Log in and change your password immediately.</p>
+    <p style="color:#555;margin-bottom:0;">— Xoto Vault Team</p>
+  </div>
+</div>`;
 
 /* =====================================
    HELPER FUNCTION
@@ -127,6 +145,16 @@ export const createXotoAdvisor = async (req, res) => {
       description: `Xoto Advisor ${advisor.fullName} created`,
       metadata: { createdBy: req.user?.email }
     });
+
+    try {
+      await sendEmail({
+        to: email,
+        subject: 'Your Xoto Vault Advisor Account Credentials',
+        html: credentialEmailHtml(`${first_name} ${last_name}`, email, password, 'Xoto Advisor'),
+      });
+    } catch (emailErr) {
+      console.error('Credential email failed (advisor):', emailErr.message);
+    }
 
     const advisorResponse = advisor.toObject();
     delete advisorResponse.password;
@@ -643,6 +671,37 @@ async (req, res) => {
 };
 
 /* =====================================
+   3b. GET ADVISORS WITH WORKLOAD (for assignment dropdown)
+===================================== */
+export const getAdvisorsForAssignment = async (req, res) => {
+  try {
+    const roleDoc = await Role.findById(req.user.role);
+    if (!roleDoc || roleDoc.code !== '18') {
+      return res.status(403).json({ success: false, message: "Access denied. Admin only." });
+    }
+
+    const advisors = await XotoAdvisor.find({ isDeleted: false, isActive: true, suspendedAt: null })
+      .select('name email workload performanceMetrics')
+      .sort({ 'workload.currentLeads': 1 }); // least busy first
+
+    const data = advisors.map(a => ({
+      _id: a._id,
+      fullName: a.fullName,
+      email: a.email,
+      currentLeads: a.workload.currentLeads,
+      maxCapacity: a.workload.maxLeadsCapacity,
+      availableSlots: Math.max(0, a.workload.maxLeadsCapacity - a.workload.currentLeads),
+      atCapacity: a.workload.currentLeads >= a.workload.maxLeadsCapacity,
+      slaComplianceRate: a.performanceMetrics?.slaComplianceRate || 0,
+    }));
+
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/* =====================================
    4. ADMIN ASSIGN LEAD TO ADVISOR
 ===================================== */
 export const assignLeadToAdvisor = async (req, res) => {
@@ -672,13 +731,20 @@ export const assignLeadToAdvisor = async (req, res) => {
     }
 
     // Update lead with advisor assignment
+    const slaDeadline = new Date(Date.now() + 4 * 60 * 60 * 1000); // 4 business hours SLA
     lead.assignedTo = {
       advisorId: advisor._id,
       advisorName: advisor.fullName,
       assignedAt: new Date(),
       assignedBy: req.user._id
     };
-    lead.slaDeadline = new Date(Date.now() + 4 * 60 * 60 * 1000); // 4 hours SLA
+    lead.currentStatus = 'Assigned';
+    lead.sla = {
+      ...lead.sla?.toObject?.() || lead.sla || {},
+      deadline: slaDeadline,
+      breached: false,
+      breachedAt: null,
+    };
     await lead.save();
 
     // Update advisor workload
@@ -697,7 +763,8 @@ export const assignLeadToAdvisor = async (req, res) => {
       data: {
         advisorName: advisor.fullName,
         currentWorkload: advisor.workload.currentLeads,
-        slaDeadline: lead.slaDeadline
+        maxCapacity: advisor.workload.maxLeadsCapacity,
+        slaDeadline: lead.sla.deadline,
       }
     });
 
@@ -863,16 +930,24 @@ export const updateLeadStatus = async (req, res) => {
     lead.currentStatus = status;
     if (notes) lead.notesToXoto = notes;
     
-    // Track SLA compliance
-    if (status === 'Contacted' && lead.slaDeadline && new Date() <= lead.slaDeadline) {
-      // Update advisor SLA compliance
-      const advisor = await XotoAdvisor.findById(advisorId);
-      if (advisor) {
-        // Calculate new SLA compliance rate
-        const totalLeads = advisor.performanceMetrics.totalLeadsAssigned;
-        const compliantLeads = (advisor.performanceMetrics.slaComplianceRate / 100) * totalLeads + 1;
-        advisor.performanceMetrics.slaComplianceRate = (compliantLeads / (totalLeads + 1)) * 100;
-        await advisor.save();
+    // Track SLA — record first contact time and update advisor compliance rate
+    if (status === 'Contacted' && !lead.sla?.firstContactAt) {
+      lead.sla = lead.sla || {};
+      lead.sla.firstContactAt = new Date();
+
+      const withinSla = lead.sla.deadline && new Date() <= new Date(lead.sla.deadline);
+      if (withinSla) {
+        const advisor = await XotoAdvisor.findById(advisorId);
+        if (advisor) {
+          const total = advisor.performanceMetrics.totalLeadsAssigned || 1;
+          const prevCompliant = Math.round((advisor.performanceMetrics.slaComplianceRate / 100) * total);
+          advisor.performanceMetrics.slaComplianceRate = ((prevCompliant + 1) / total) * 100;
+          await advisor.save();
+        }
+      } else if (lead.sla.deadline) {
+        // Mark breached if first contact is after deadline
+        lead.sla.breached = true;
+        lead.sla.breachedAt = new Date();
       }
     }
 
@@ -1024,7 +1099,26 @@ export const suspendAdvisor = async (req, res) => {
     advisor.isActive = false;
     await advisor.save();
 
-    return res.status(200).json({ success: true, message: "Advisor suspended successfully" });
+    // Return active leads to pool for reassignment
+    const terminalStatuses = ['Disbursed', 'Lost', 'Not Proceeding'];
+    const affectedLeads = await VaultLead.updateMany(
+      { 'assignedTo.advisorId': advisor._id, currentStatus: { $nin: terminalStatuses } },
+      {
+        $set: {
+          currentStatus: 'New',
+          'assignedTo.advisorId': null,
+          'assignedTo.advisorName': null,
+          'assignedTo.assignedAt': null,
+          'assignedTo.assignedBy': null,
+        }
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Advisor suspended successfully",
+      leadsReturnedToPool: affectedLeads.modifiedCount,
+    });
 
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });

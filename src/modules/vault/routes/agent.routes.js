@@ -5,26 +5,30 @@ const {
   agentLogin,
   requestPasswordReset,
   resetPassword,
-  
+
   // Onboarding
   adminOnboardFreelanceAgent,
   partnerOnboardAffiliatedAgent,
-  
+
   // Verification
   verifyAgent,
-  
+
   // Management
   suspendAgent,
   activateAgent,
   getAgentById,
   getAllAgents,
   getAgentsByPartner,
-  
+
   // Profile
   getAgentProfile,
   updateAgentProfile,
   changePassword,
-  
+
+  // Commission
+  setAgentInternalCommission,
+  setPartnerDefaultAgentCommission,
+
 } = require('../controllers/agent.controller');
 const { protect, protectPartner, protectVaultAgent, protectMulti } = require('../../../middleware/auth');
 
@@ -45,6 +49,8 @@ router.get('/admin/all-agents', protect, getAllAgents);
 router.post('/partner/onboard-affiliate', protectPartner, partnerOnboardAffiliatedAgent);
 router.post('/partner/verify/:id', protectPartner, verifyAgent);
 router.get('/partner/agents', protectPartner, getAgentsByPartner);
+router.put('/partner/agents/:id/commission', protectPartner, setAgentInternalCommission);
+router.put('/partner/default-commission', protectPartner, setPartnerDefaultAgentCommission);
 
 // ==================== COMMON (Admin, Partner, or Self) ====================
 router.post('/suspend/:id', protectMulti, suspendAgent);

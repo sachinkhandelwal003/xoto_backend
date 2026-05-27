@@ -155,12 +155,12 @@ const leadSchema = new mongoose.Schema(
     sourceInfo: {
       source: {
         type: String,
-        enum: ['freelance_agent', 'partner_affiliated_agent', 'individual_partner', 'website', 'admin'],
+        enum: ['referral_partner', 'partner_affiliated_agent', 'individual_partner', 'website', 'admin'],
         required: true,
       },
       createdByRole: {
         type: String,
-        enum: ['freelance_agent', 'partner_affiliated_agent', 'individual_partner', 'website', 'admin'],
+        enum: ['referral_partner', 'partner_affiliated_agent', 'individual_partner', 'website', 'admin'],
         required: true,
       },
       createdById:    { type: mongoose.Schema.Types.ObjectId, refPath: 'sourceInfo.createdByModel', default: null },

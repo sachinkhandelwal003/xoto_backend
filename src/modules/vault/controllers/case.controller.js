@@ -12,7 +12,7 @@ import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { initializeCaseDocuments, getCaseDocumentsByFilter } from '../utils/caseDocumentHelper.js';
 import Commission from '../models/Commission.js';
 import VaultAgent from '../models/Agent.js';
-import { emitVaultNotification } from '../services/vaultNotification.service.js';
+import { emitVaultNotification, dispatchVaultNotification } from '../services/vaultNotification.service.js';
 import { logAudit, actorFromReq } from '../services/auditLog.service.js';
 import { ENTITY_TYPES, AUDIT_ACTIONS } from '../models/AuditLog.js';
 
@@ -355,14 +355,13 @@ export const createCase = async (req, res) => {
       description: `Case ${caseReference} created with ${documentResult.summary.total} document requirements`
     });
 
-    emitVaultNotification({
+    await dispatchVaultNotification(req, {
       eventType:     'CASE_CREATED',
       title:         'New Case Created',
       message:       `Case ${caseReference} created for ${clientInfo.fullName} — by ${createdBy.role} ${createdBy.userName}`,
       entityId:      caseData._id,
       entityModel:   'Case',
-      createdByName: createdBy.userName,
-      createdByRole: createdBy.role,
+      caseId:        caseData._id,
     });
 
     logAudit({
@@ -632,14 +631,13 @@ export const opsPickUpCase = async (req, res) => {
       description: `Case picked up by Ops ${opsName}`
     });
 
-    emitVaultNotification({
+    await dispatchVaultNotification(req, {
       eventType:     'CASE_PICKED_UP',
       title:         'Case Picked Up by Ops',
       message:       `Case ${caseData.caseReference} picked up by Ops: ${opsName}`,
       entityId:      caseData._id,
       entityModel:   'Case',
-      createdByName: opsName,
-      createdByRole: 'ops',
+      caseId:        caseData._id,
     });
 
     return res.status(200).json({ success: true, message: "Case picked up successfully", data: caseData });
@@ -660,7 +658,14 @@ export const returnCaseToQueue = async (req, res) => {
     
     const caseData = await Case.findOne({ _id: caseId, isDeleted: false });
     if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
-    
+
+    if (caseData.currentStatus === 'Under Review') {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot return a case to queue once substantive review has begun. Use 'Return Application' to send it back to the submitter instead.",
+      });
+    }
+
     const opsId = req.user._id;
     const ops = await Ops.findById(opsId);
     let opsName = ops?.fullName || ops?.email || 'Ops User';
@@ -714,14 +719,13 @@ export const adminAssignCaseToOps = async (req, res) => {
       description: `Case manually assigned to Ops ${opsName} by Admin`
     });
 
-    emitVaultNotification({
+    await dispatchVaultNotification(req, {
       eventType:     'CASE_ASSIGNED_TO_OPS',
       title:         'Case Assigned to Ops',
       message:       `Case ${caseData.caseReference} manually assigned to Ops: ${opsName} by Admin`,
       entityId:      caseData._id,
       entityModel:   'Case',
-      createdByName: adminName,
-      createdByRole: 'admin',
+      caseId:        caseData._id,
     });
 
     return res.status(200).json({ success: true, message: `Case assigned to ${opsName}`, data: caseData });
@@ -1111,14 +1115,13 @@ if (!lead || !lead.sourceInfo) {
       responseData.commission = commissionData;
     }
 
-    emitVaultNotification({
+    await dispatchVaultNotification(req, {
       eventType:     'CASE_STATUS_UPDATED',
       title:         `Case Status: ${status}`,
       message:       `Case ${caseData.caseReference} — ${previousStatus} → ${status}`,
       entityId:      caseData._id,
       entityModel:   'Case',
-      createdByName: req.user?.email || (isAdmin ? 'Admin' : 'Ops'),
-      createdByRole: isAdmin ? 'admin' : 'ops',
+      caseId:        caseData._id,
     });
 
     logAudit({

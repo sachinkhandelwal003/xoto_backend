@@ -2,6 +2,9 @@ import VaultNotification from '../models/VaultNotification.js';
 import MortgageOps from '../models/MortgageOps.js';
 import Admin from '../models/Admin.js';
 import { getIO } from '../../../utils/socketInstance.js';
+import Lead from '../models/VaultLead.js';
+import Case from '../models/Case.js';
+import VaultAgent from '../models/Agent.js';
 
 export const emitVaultNotification = async ({
   eventType,
@@ -95,3 +98,152 @@ export const emitVaultNotification = async ({
     console.error('[VaultNotification] Failed to emit:', err.message);
   }
 };
+
+export const dispatchVaultNotification = async (req, {
+  eventType,
+  title,
+  message,
+  entityId = null,
+  entityModel = null,
+  leadId = null,
+  caseId = null
+}) => {
+  try {
+    const roleId = req.user?.role;
+    let actorRole = 'system';
+    let actorId = req.user?._id;
+    let actorName = req.user?.fullName || req.user?.companyName || req.user?.email || 'System';
+
+    if (roleId) {
+      const Role = (await import('../../../modules/auth/models/role/role.model.js')).Role;
+      const roleDoc = await Role.findById(roleId);
+      const code = roleDoc?.code;
+      if (code === '18') actorRole = 'admin';
+      else if (code === '21') actorRole = 'partner';
+      else if (code === '23') actorRole = 'ops';
+      else if (code === '26') actorRole = 'advisor';
+      else if (code === '22') {
+        actorRole = req.user?.agentType === 'PartnerAffiliatedAgent' ? 'partner_affiliated_agent' : 'referral_partner';
+      }
+    }
+
+    let lead = null;
+    if (leadId) {
+      lead = await Lead.findById(leadId);
+    } else if (caseId) {
+      const caseDoc = await Case.findById(caseId);
+      if (caseDoc) {
+        lead = await Lead.findById(caseDoc.sourceLeadId);
+      }
+    }
+
+    const recipientRoles = new Set();
+    const recipientIds = new Set();
+
+    const addRecipient = (id, model, role) => {
+      if (id) {
+        recipientIds.add(JSON.stringify({ id: id.toString(), model, role }));
+      } else if (role) {
+        recipientRoles.add(role);
+      }
+    };
+
+    // Rule A: Xoto Advisor Actions
+    if (actorRole === 'advisor') {
+      addRecipient(null, null, 'admin');
+      if (lead && lead.sourceInfo?.createdByRole === 'referral_partner') {
+        addRecipient(lead.sourceInfo.createdById, 'VaultAgent', 'referral_partner');
+      }
+    }
+    // Rule B: Partner-Affiliated Agent Actions
+    else if (actorRole === 'partner_affiliated_agent') {
+      addRecipient(null, null, 'admin');
+      const agent = await VaultAgent.findById(actorId);
+      if (agent && agent.partnerId) {
+        addRecipient(agent.partnerId, 'Partner', 'partner');
+      }
+    }
+    // Rule C: Partner Actions
+    else if (actorRole === 'partner') {
+      // Only notify Admin for Case submissions, others stay silent
+      if (eventType === 'CASE_SUBMITTED_TO_XOTO' || eventType === 'NEW_APPLICATION_SUBMITTED') {
+        addRecipient(null, null, 'admin');
+      }
+    }
+    // Rule D: Ops Actions
+    else if (actorRole === 'ops') {
+      let submitterId = null;
+      let submitterModel = null;
+      let submitterRole = null;
+
+      if (caseId) {
+        const caseDoc = await Case.findById(caseId);
+        if (caseDoc && caseDoc.createdBy) {
+          submitterId = caseDoc.createdBy.userId;
+          const createdRole = caseDoc.createdBy.role;
+          submitterRole = createdRole === 'affiliated_agent' ? 'partner_affiliated_agent' : createdRole;
+          submitterModel = ['partner_affiliated_agent', 'referral_partner'].includes(submitterRole) ? 'VaultAgent' : 
+                           submitterRole === 'partner' ? 'Partner' : 'XotoAdvisor';
+        }
+      }
+
+      if (submitterId) {
+        addRecipient(submitterId, submitterModel, submitterRole);
+        if (submitterRole === 'partner_affiliated_agent') {
+          const agent = await VaultAgent.findById(submitterId);
+          if (agent && agent.partnerId) {
+            addRecipient(agent.partnerId, 'Partner', 'partner');
+          }
+        }
+      }
+
+      if (lead && lead.sourceInfo?.createdByRole === 'referral_partner') {
+        addRecipient(lead.sourceInfo.createdById, 'VaultAgent', 'referral_partner');
+      }
+
+      if (eventType === 'CASE_DISBURSED' || eventType === 'CASE_DECLINED') {
+        addRecipient(null, null, 'admin');
+      }
+    }
+
+    const notifications = [];
+
+    for (const idStr of recipientIds) {
+      const rec = JSON.parse(idStr);
+      const notif = await emitVaultNotification({
+        eventType,
+        title,
+        message,
+        entityId,
+        entityModel,
+        recipientId: rec.id,
+        recipientModel: rec.model,
+        recipientRole: rec.role,
+        createdByName: actorName,
+        createdByRole: actorRole,
+      });
+      notifications.push(notif);
+    }
+
+    for (const role of recipientRoles) {
+      const notif = await emitVaultNotification({
+        eventType,
+        title,
+        message,
+        entityId,
+        entityModel,
+        recipientRole: role,
+        sendToAllOfRole: true,
+        createdByName: actorName,
+        createdByRole: actorRole,
+      });
+      if (Array.isArray(notif)) notifications.push(...notif);
+      else if (notif) notifications.push(notif);
+    }
+
+    return notifications;
+  } catch (error) {
+    console.error('[dispatchVaultNotification] Error:', error.message);
+  }
+};
+

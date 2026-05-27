@@ -3,6 +3,7 @@ import express from 'express';
 import {
   createXotoAdvisor,
   getAllXotoAdvisors,
+  getAdvisorsForAssignment,
   getAdvisorWorkload,
   assignLeadToAdvisor,
   advisorLogin,
@@ -27,6 +28,7 @@ router.get('/all', protect, getAllXotoAdvisors);
 router.get('/get/:id', protect, getXotoAdvisorById);
 
 router.get('/workload', protect, getAdvisorWorkload);
+router.get('/for-assignment', protect, getAdvisorsForAssignment);
 router.post('/assign-lead', protect, assignLeadToAdvisor);
 router.post('/suspend/:id', protect, suspendAdvisor);
 router.post('/activate/:id', protect, activateAdvisor);

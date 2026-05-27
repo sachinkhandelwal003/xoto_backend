@@ -11,6 +11,24 @@ import { Role } from '../../../modules/auth/models/role/role.model.js';
 import { createToken } from '../../../middleware/auth.js';
 import { logAudit } from "../services/auditLog.service.js";
 import { emitVaultNotification } from "../services/vaultNotification.service.js";
+import sendEmail from '../../../utils/sendEmail.js';
+
+const credentialEmailHtml = (name, email, password, role) => `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#f9f9f9;">
+  <div style="background:#5C039B;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+    <h1 style="color:#fff;margin:0;font-size:22px;">Xoto Vault</h1>
+  </div>
+  <div style="background:#fff;padding:32px;border-radius:0 0 8px 8px;border:1px solid #e5e7eb;">
+    <h2 style="color:#111;margin-top:0;">Welcome, ${name}!</h2>
+    <p style="color:#555;">Your <strong>${role}</strong> account on Xoto Vault has been created by the admin. Your login credentials are below:</p>
+    <div style="background:#F5F0FF;border:1px solid #E9D5FF;border-radius:8px;padding:16px;margin:24px 0;">
+      <p style="margin:0 0 8px;"><strong>Email:</strong> ${email}</p>
+      <p style="margin:0;"><strong>Password:</strong> ${password}</p>
+    </div>
+    <p style="color:#c0392b;font-size:13px;"><strong>Important:</strong> Log in and change your password immediately.</p>
+    <p style="color:#555;margin-bottom:0;">— Xoto Vault Team</p>
+  </div>
+</div>`;
 
 /* =====================================
    HELPER FUNCTION
@@ -269,6 +287,18 @@ export const createPartner = async (req, res) => {
       },
       importance: 'HIGH',
     });
+
+    // Send login credentials to partner email
+    const partnerDisplayName = partner.companyName || partner.displayName || primaryContact?.name || 'Partner';
+    try {
+      await sendEmail({
+        to: email,
+        subject: 'Your Xoto Vault Partner Account Credentials',
+        html: credentialEmailHtml(partnerDisplayName, email, password, partnerCategory === 'company' ? 'Company Partner' : 'Individual Partner'),
+      });
+    } catch (emailErr) {
+      console.error('Credential email failed (partner):', emailErr.message);
+    }
 
     // ==================== RESPONSE ====================
     const partnerResponse = partner.toObject();

@@ -11,10 +11,15 @@ import VaultLead from '../models/VaultLead.js';
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 
 const getUserInfo = async (req) => {
-  const roleId = req.user?.role;
+  const roleId = req.user?.role?._id || req.user?.role;
   let userRole = 'System';
   if (roleId) {
-    const roleDoc = await Role.findById(roleId);
+    let roleDoc = null;
+    if (req.user?.role?.code) {
+      roleDoc = req.user.role;
+    } else {
+      roleDoc = await Role.findById(roleId);
+    }
     if (roleDoc?.code === '18') userRole = 'Admin';
     else if (roleDoc?.code === '21') userRole = 'Partner';
     else if (req.user?.agentType === 'ReferralPartner') userRole = 'ReferralPartner';
@@ -57,8 +62,15 @@ const getDateFilter = (range, fromDate, toDate) => {
 // ==================== ADMIN DASHBOARD STATISTICS ====================
 export const getAdminDashboardStats = async (req, res) => {
   try {
-    const roleDoc = await Role.findById(req.user.role);
-    if (roleDoc?.code !== '18') {
+    let roleCode = req.user?.role?.code;
+    if (!roleCode) {
+      const roleId = req.user?.role?._id || req.user?.role;
+      if (roleId) {
+        const roleDoc = await Role.findById(roleId);
+        roleCode = roleDoc?.code;
+      }
+    }
+    if (roleCode !== '18') {
       return res.status(403).json({ success: false, message: 'Admin access required' });
     }
 
@@ -160,7 +172,7 @@ export const getAdminDashboardStats = async (req, res) => {
     return res.status(200).json({
       success: true,
       data: {
-        kpis: { totalLeads, activeCases, totalPartners, totalFreelanceAgents, totalAdvisors, totalOpsExecutives, conversionRate, disbursedCases, pendingCases, slaBreachedLeads, unassignedLeads, leadsBySource: { website: totalWebsiteLeads, freelance_agent: totalFreelanceLeads, admin: totalAdminLeads } },
+        kpis: { totalLeads, activeCases, totalPartners, totalFreelanceAgents, totalAdvisors, totalOpsExecutives, conversionRate, disbursedCases, pendingCases, slaBreachedLeads, unassignedLeads, leadsBySource: { website: totalWebsiteLeads, referral_partner: totalFreelanceLeads, admin: totalAdminLeads } },
         leadStatus: { new: leadStatusMap['New'] || 0, assigned: leadStatusMap['Assigned'] || 0, contacted: leadStatusMap['Contacted'] || 0, qualified: leadStatusMap['Qualified'] || 0, collectingDocuments: leadStatusMap['Collecting Documents'] || 0, documentsComplete: leadStatusMap['Documents Complete'] || 0, applicationOpened: leadStatusMap['Application Opened'] || 0, disbursed: leadStatusMap['Disbursed'] || 0, notProceeding: leadStatusMap['Not Proceeding'] || 0 },
         caseStatus: { draft: caseStatusMap['Draft'] || 0, submittedToXoto: caseStatusMap['Submitted to Xoto'] || 0, inOpsQueue: caseStatusMap['In Ops Queue - Pending Pick-up'] || 0, underReview: caseStatusMap['Under Review'] || 0, bankApplication: caseStatusMap['Bank Application'] || 0, preApproved: caseStatusMap['Pre-Approved'] || 0, valuation: caseStatusMap['Valuation'] || 0, folIssued: caseStatusMap['FOL Issued'] || 0, folSigned: caseStatusMap['FOL Signed'] || 0, disbursed: caseStatusMap['Disbursed'] || 0, rejected: caseStatusMap['Rejected'] || 0, lost: caseStatusMap['Lost'] || 0 },
         graphs: { leadsOverTime: leadsOverTime.map(item => ({ date: item._id, count: item.count })), casesOverTime: casesOverTime.map(item => ({ date: item._id, count: item.count })), disbursementsOverTime: disbursementsOverTime.map(item => ({ date: item._id, count: item.count, amount: item.amount || 0 })), leadsBySource: leadsBySource.map(item => ({ source: item._id, count: item.count })), commissionSummary: commissionSummary.map(item => ({ status: item._id, amount: item.total, count: item.count })) },
@@ -486,10 +498,8 @@ export const getAgentDashboardStats = async (req, res) => {
     const dateFilter = getDateFilter(range, fromDate, toDate);
 
     const leadFilter = { 'sourceInfo.createdById': agentId, isDeleted: false, ...dateFilter };
-    const commissionFilter = { recipientId: agentId, recipientRole: 'referral_partner', isDeleted: false, ...dateFilter };
 
     const leads = await VaultLead.find(leadFilter).sort({ createdAt: -1 });
-    const commissions = await Commission.find(commissionFilter);
 
     const totalLeads = leads.length;
     const qualifiedLeads = leads.filter(l => l.currentStatus === 'Qualified').length;
@@ -502,8 +512,38 @@ export const getAgentDashboardStats = async (req, res) => {
     const folIssued = leads.filter(l => l.currentStatus === 'FOL Issued').length;
     const folSigned = leads.filter(l => l.currentStatus === 'FOL Signed').length;
 
-    const totalCommissionEarned = commissions.filter(c => c.status === 'Paid').reduce((s, c) => s + (c.commissionAmount || 0), 0);
-    const pendingCommission = commissions.filter(c => ['Pending', 'Confirmed'].includes(c.status)).reduce((s, c) => s + (c.commissionAmount || 0), 0);
+    // Calculate active Referrals (leads not in ['Disbursed', 'Not Proceeding'])
+    const activeReferrals = leads.filter(l => !['Disbursed', 'Not Proceeding'].includes(l.currentStatus)).length;
+
+    let commissions = [];
+    let totalCommissionEarned = 0;
+    let pendingCommission = 0;
+
+    if (agent.agentType === 'PartnerAffiliatedAgent') {
+      const partnerCommFilter = { sourceAgentId: agentId, recipientRole: 'partner', isDeleted: false, ...dateFilter };
+      commissions = await Commission.find(partnerCommFilter);
+      const internalPercentage = agent.partnerInternalCommission?.percentage || 0;
+      
+      totalCommissionEarned = commissions
+        .filter(c => c.status === 'Paid')
+        .reduce((s, c) => s + ((c.commissionAmount || 0) * internalPercentage / 100), 0);
+        
+      pendingCommission = commissions
+        .filter(c => ['Pending', 'Confirmed'].includes(c.status))
+        .reduce((s, c) => s + ((c.commissionAmount || 0) * internalPercentage / 100), 0);
+    } else {
+      const referralCommFilter = { recipientId: agentId, recipientRole: 'referral_partner', isDeleted: false, ...dateFilter };
+      commissions = await Commission.find(referralCommFilter);
+      
+      totalCommissionEarned = commissions
+        .filter(c => c.status === 'Paid')
+        .reduce((s, c) => s + (c.commissionAmount || 0), 0);
+        
+      pendingCommission = commissions
+        .filter(c => ['Pending', 'Confirmed'].includes(c.status))
+        .reduce((s, c) => s + (c.commissionAmount || 0), 0);
+    }
+
     const conversionRate = totalLeads > 0 ? Number(((disbursedLeads / totalLeads) * 100).toFixed(2)) : 0;
 
     const profileCompletion = {
@@ -525,11 +565,28 @@ export const getAgentDashboardStats = async (req, res) => {
       { $sort: { _id: 1 } }
     ]);
 
-    const commissionTrend = await Commission.aggregate([
-      { $match: commissionFilter },
-      { $group: { _id: { $dateToString: { format: '%Y-%m', date: '$createdAt' } }, amount: { $sum: '$commissionAmount' }, count: { $sum: 1 } } },
-      { $sort: { _id: 1 } }
-    ]);
+    // Group commissions by month and calculate amount/count based on user type
+    const trendMap = {};
+    commissions.forEach(c => {
+      if (c.createdAt) {
+        const month = c.createdAt.toISOString().substring(0, 7);
+        let amt = c.commissionAmount || 0;
+        if (agent.agentType === 'PartnerAffiliatedAgent') {
+          const internalPercentage = agent.partnerInternalCommission?.percentage || 0;
+          amt = amt * internalPercentage / 100;
+        }
+        if (!trendMap[month]) {
+          trendMap[month] = { amount: 0, count: 0 };
+        }
+        trendMap[month].amount += amt;
+        trendMap[month].count += 1;
+      }
+    });
+    const commissionTrend = Object.keys(trendMap).sort().map(month => ({
+      month,
+      amount: trendMap[month].amount,
+      count: trendMap[month].count
+    }));
 
     const leadStatus = {
       new: leads.filter(l => l.currentStatus === 'New').length,
@@ -552,15 +609,40 @@ export const getAgentDashboardStats = async (req, res) => {
       createdAt: l.createdAt
     }));
 
+    // Fetch top 3 ReferralPartners for leaderboard preview
+    let leaderboardPreview = [];
+    if (agent.agentType === 'ReferralPartner') {
+      const topAgents = await VaultAgent.find({
+        agentType: 'ReferralPartner',
+        isDeleted: false,
+        isActive: true,
+        'earnings.totalCommissionEarned': { $gt: 0 }
+      })
+      .sort({ 'earnings.totalCommissionEarned': -1 })
+      .limit(3)
+      .lean();
+
+      leaderboardPreview = topAgents.map(a => {
+        const firstName = a.name?.first_name || '';
+        const lastName = a.name?.last_name || '';
+        const blurredLastName = lastName ? lastName[0] + '***' : '';
+        return {
+          name: `${firstName} ${blurredLastName}`.trim(),
+          totalCommissionEarned: a.earnings?.totalCommissionEarned || 0,
+        };
+      });
+    }
+
     return res.status(200).json({
       success: true,
       data: {
         agentInfo: { _id: agent._id, name: agent.fullName, email: agent.email, agentType: agent.agentType },
         profileCompletion,
-        kpis: { totalLeads, qualifiedLeads, disbursedLeads, conversionRate, totalCommissionEarned, pendingCommission },
+        kpis: { totalLeads, qualifiedLeads, activeReferrals, disbursedLeads, conversionRate, totalCommissionEarned, pendingCommission },
         leadStatus,
-        graphs: { leadsOverTime: leadsOverTime.map(item => ({ date: item._id, count: item.count })), commissionTrend: commissionTrend.map(item => ({ month: item._id, amount: item.amount || 0, count: item.count || 0 })) },
+        graphs: { leadsOverTime: leadsOverTime.map(item => ({ date: item._id, count: item.count })), commissionTrend },
         recentLeads,
+        leaderboardPreview,
         timestamp: new Date().toISOString()
       }
     });
@@ -573,8 +655,14 @@ export const getAgentDashboardStats = async (req, res) => {
 // ==================== GET DASHBOARD STATS BY ROLE ====================
 export const getDashboardStatsByRole = async (req, res) => {
   try {
-    const roleDoc = await Role.findById(req.user.role);
-    const roleCode = roleDoc?.code;
+    let roleCode = req.user?.role?.code;
+    if (!roleCode) {
+      const roleId = req.user?.role?._id || req.user?.role;
+      if (roleId) {
+        const roleDoc = await Role.findById(roleId);
+        roleCode = roleDoc?.code;
+      }
+    }
 
     switch (roleCode) {
       case '18': return getAdminDashboardStats(req, res);

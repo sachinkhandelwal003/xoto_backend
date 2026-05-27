@@ -52,9 +52,13 @@ export const initializeCaseDocuments = async ({
 
     let advisorHandledCount = 0;
     let opsHandledCount = 0;
+    let otherHandledCount = 0;
     const createdDocuments = [];
 
-    // Create GLOBAL documents (Always handled by Advisor)
+const isOtherRole =
+ ['partner', 'partner_affiliated_agent']
+ .includes(creatorRole);
+    // Create GLOBAL documents (Always handled by Advisor or Partner)
     for (const doc of globalDocuments) {
       const created = await CaseDocumentRequirement.create({
         caseId: caseId,
@@ -69,11 +73,11 @@ export const initializeCaseDocuments = async ({
         templateUrl: doc.template?.fileUrl || null,
         templateFileName: doc.template?.fileName || null,
         sampleUrl: doc.sampleDocument?.fileUrl || null,
-        handledBy: 'Advisor',
+        handledBy: isOtherRole ? 'Other' : 'Advisor',
         isUploaded: false,
         isVerified: false,
         toggleState: {
-          handledByAdvisor: true,
+          handledByAdvisor: !isOtherRole,
           assignedToOps: false,
           toggledAt: null
         },
@@ -91,17 +95,26 @@ export const initializeCaseDocuments = async ({
         displayOrder: doc.displayOrder || 0
       });
       createdDocuments.push(created);
-      advisorHandledCount++;
+    if (isOtherRole) {
+ otherHandledCount++;
+} else {
+ advisorHandledCount++;
+}
     }
 
     // Create BANK SPECIFIC documents
-    const isAdvisor = creatorRole === 'advisor';
-
     for (const doc of bankSpecificDocuments) {
       let handledBy, handledByAdvisor, assignedToOps;
 
-      if (!isAdvisor) {
-        // Partner / PartnerAffiliatedAgent / Admin: creator handles ALL docs — no Ops delegation
+      if (isOtherRole) {
+        handledBy = 'Other';
+
+ handledByAdvisor = false;
+
+ assignedToOps = false;
+
+ otherHandledCount++;
+      } else if (creatorRole === 'admin') {
         handledBy = 'Advisor';
         handledByAdvisor = true;
         assignedToOps = false;
@@ -167,6 +180,7 @@ export const initializeCaseDocuments = async ({
         bank: bankSpecificDocuments.length,
         advisorHandled: advisorHandledCount,
         opsHandled: opsHandledCount,
+        otherHandled: otherHandledCount,
         mandatory: createdDocuments.filter(d => d.isMandatory).length,
         optional: createdDocuments.filter(d => !d.isMandatory).length,
         directUpload: createdDocuments.filter(d => d.actionType === 'direct_upload').length,
@@ -187,6 +201,7 @@ export const initializeCaseDocuments = async ({
         bank: 0,
         advisorHandled: 0,
         opsHandled: 0,
+        otherHandled: 0,
         mandatory: 0,
         optional: 0,
         directUpload: 0,
@@ -224,7 +239,9 @@ export const getCaseDocumentsByFilter = async (caseId, filters = {}) => {
         global: documents.filter(d => d.source === 'Global').length,
         bank: documents.filter(d => d.source === 'Bank').length,
         advisorHandled: documents.filter(d => d.handledBy === 'Advisor').length,
-        opsHandled: documents.filter(d => d.handledBy === 'Ops').length
+        opsHandled: documents.filter(d => d.handledBy === 'Ops').length,
+        otherHandled:
+ documents.filter(d => d.handledBy === 'Other').length
       }
     };
     

@@ -7,7 +7,7 @@ import HistoryService from '../services/history.service.js';
 import { Role } from '../../../modules/auth/models/role/role.model.js';
 import xlsx from 'xlsx';
 import path from 'path';
-import { emitVaultNotification } from '../services/vaultNotification.service.js';
+import { emitVaultNotification, dispatchVaultNotification } from '../services/vaultNotification.service.js';
 import { logAudit, actorFromReq } from '../services/auditLog.service.js';
 import { ENTITY_TYPES, AUDIT_ACTIONS } from '../models/AuditLog.js';
 
@@ -187,14 +187,13 @@ export const createLead = async (req, res) => {
       description: `Lead created for ${customerInfo.firstName} ${customerInfo.lastName}`,
     });
 
-    emitVaultNotification({
+    await dispatchVaultNotification(req, {
       eventType:     'LEAD_CREATED',
       title:         'New Lead Submitted',
       message:       `${customerInfo.firstName} ${customerInfo.lastName} — submitted by ${agent.name.first_name} ${agent.name.last_name} (${agent.agentType})`,
       entityId:      lead._id,
       entityModel:   'VaultLead',
-      createdByName: `${agent.name.first_name} ${agent.name.last_name}`,
-      createdByRole: agent.agentType,
+      leadId:        lead._id,
     });
 
     logAudit({
@@ -786,7 +785,7 @@ export const adminGetAllLeads = async (req, res) => {
       },
       bySource: {
         website: await Lead.countDocuments({ ...query, 'sourceInfo.source': 'website' }),
-        freelance_agent: await Lead.countDocuments({ ...query, 'sourceInfo.source': 'referral_partner' }),
+        referral_partner: await Lead.countDocuments({ ...query, 'sourceInfo.source': 'referral_partner' }),
         admin: await Lead.countDocuments({ ...query, 'sourceInfo.source': 'admin' })
       },
       assignment: {
@@ -1198,6 +1197,14 @@ export const AdvisororPartnerUpdateLeadStatus = async (req, res) => {
     }
 
     await lead.save();
+    await dispatchVaultNotification(req, {
+      eventType:     'LEAD_STATUS_CHANGED',
+      title:         'Lead Status Updated',
+      message:       `Lead ${lead.customerInfo.firstName} ${lead.customerInfo.lastName} status updated to ${status}`,
+      entityId:      lead._id,
+      entityModel:   'VaultLead',
+      leadId:        lead._id,
+    });
     await HistoryService.logLeadActivity(lead, 'LEAD_STATUS_CHANGED', await getUserInfo(req), {
       description: `${prevStatus} → ${status}`,
     });
@@ -1690,14 +1697,13 @@ export const createPartnerLead = async (req, res) => {
       currentStatus: 'New',
     });
 
-    emitVaultNotification({
+    await dispatchVaultNotification(req, {
       eventType:     'LEAD_CREATED_PARTNER',
       title:         'New Partner Lead',
       message:       `${customerInfo.firstName} ${customerInfo.lastName} — submitted by Partner: ${partner.displayName || partner.companyName}`,
       entityId:      lead._id,
       entityModel:   'VaultLead',
-      createdByName: partner.displayName || partner.companyName,
-      createdByRole: 'individual_partner',
+      leadId:        lead._id,
     });
 
     return res.status(201).json({ success: true, message: 'Lead created', data: lead });
@@ -1819,14 +1825,13 @@ export const createAdminLead = async (req, res) => {
       description: `Admin created lead for ${customerInfo.firstName} ${customerInfo.lastName}`,
     });
 
-    emitVaultNotification({
+    await dispatchVaultNotification(req, {
       eventType:     'LEAD_CREATED_ADMIN',
       title:         'New Lead Created by Admin',
       message:       `${customerInfo.firstName} ${customerInfo.lastName} — created by Admin${assignToAdvisorId ? ' (assigned to advisor)' : ''}`,
       entityId:      lead._id,
       entityModel:   'VaultLead',
-      createdByName: req.user?.email || 'Admin',
-      createdByRole: 'admin',
+      leadId:        lead._id,
     });
 
     return res.status(201).json({

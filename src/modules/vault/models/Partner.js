@@ -195,6 +195,10 @@ const partnerSchema = new mongoose.Schema(
     // Commission Configuration (Updated to 80/85)
     commissionConfiguration: { type: commissionTierSchema, required: true },
 
+    // Default internal commission % to pay affiliated agents (partner decides this)
+    // Can be overridden per-agent via partnerInternalCommission on the VaultAgent model
+    defaultAgentCommissionPercentage: { type: Number, default: null },
+
     // Agreement Details
     agreementDetails: { type: agreementSchema, required: true },
 
