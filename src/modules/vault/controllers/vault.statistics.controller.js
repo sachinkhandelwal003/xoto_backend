@@ -457,23 +457,49 @@ export const getOpsDashboardStats = async (req, res) => {
       { $sort: { _id: 1 } }
     ]);
 
-    const queueCases = await Case.find(queueFilter).sort({ createdAt: 1 }).limit(10).lean();
+    const [queueCases, recentProcessed, recentDisbursed] = await Promise.all([
+      Case.find(queueFilter).sort({ createdAt: 1 }).limit(10).lean(),
+      Case.find({ ...caseFilter, currentStatus: { $nin: ['In Ops Queue - Pending Pick-up', 'Disbursed', 'Rejected', 'Lost'] } })
+        .sort({ updatedAt: -1 }).limit(10)
+        .select('caseReference clientInfo currentStatus updatedAt assignedTo propertyInfo')
+        .lean(),
+      Case.find({ ...caseFilter, currentStatus: 'Disbursed' })
+        .sort({ updatedAt: -1 }).limit(10)
+        .select('caseReference clientInfo currentStatus updatedAt assignedTo propertyInfo')
+        .lean()
+    ]);
+
+    const opsName = `${ops.name?.first_name || ''} ${ops.name?.last_name || ''}`.trim();
+
     const formattedQueueCases = queueCases.map(c => {
       const hoursInQueue = Math.floor((Date.now() - new Date(c.createdAt)) / (1000 * 60 * 60));
       let urgency = 'normal';
       if (hoursInQueue >= 48) urgency = 'urgent';
       else if (hoursInQueue >= 24) urgency = 'warning';
-      return { _id: c._id, caseReference: c.caseReference, customerName: c.clientInfo?.fullName || 'N/A', hoursInQueue, urgency, loanAmount: c.propertyInfo?.loanAmount || 0 };
+      return { _id: c._id, caseReference: c.caseReference, customerName: c.clientInfo?.fullName || 'N/A', hoursInQueue, urgency, loanAmount: c.propertyInfo?.loanAmount || 0, status: 'pendingReview' };
+    });
+
+    const formatCase = (c) => ({
+      _id: c._id,
+      caseReference: c.caseReference,
+      customerName: c.clientInfo?.fullName || 'N/A',
+      status: c.currentStatus,
+      updatedAt: c.updatedAt,
+      loanAmount: c.propertyInfo?.loanAmount || 0,
+      processedBy: opsName,
+      processedById: ops._id
     });
 
     return res.status(200).json({
       success: true,
       data: {
-        opsInfo: { _id: ops._id, name: `${ops.name?.first_name || ''} ${ops.name?.last_name || ''}`, email: ops.email },
+        opsInfo: { _id: ops._id, name: opsName, email: ops.email },
         workload,
         kpis: { totalAssigned, activeCases, disbursed, successRate, queueCount, urgentQueue },
         caseStatus: { pendingReview, underReview, returned: returnedCases, bankApplication: bankApp, preApproved, valuation, folIssued, folSigned, disbursed, rejected, lost },
         queue: { total: queueCount, urgent: urgentQueue, canPickUp: queueCount > 0 && !workload.isOverloaded, cases: formattedQueueCases },
+        processedCases: recentProcessed.map(formatCase),
+        disbursedCases: recentDisbursed.map(formatCase),
         quickActions: { availableInQueue: queueCount, needsReview: pendingReview, needsBankUpdate: bankApp + preApproved + valuation },
         graphs: { casesOverTime: casesOverTime.map(item => ({ date: item._id, count: item.count })), queueTrend: queueTrend.map(item => ({ date: item._id, count: item.count })), disbursementTrend: disbursementTrend.map(item => ({ date: item._id, count: item.count, amount: item.amount || 0 })) },
         timestamp: new Date().toISOString()

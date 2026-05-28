@@ -5,6 +5,7 @@ import { getIO } from '../../../utils/socketInstance.js';
 import Lead from '../models/VaultLead.js';
 import Case from '../models/Case.js';
 import VaultAgent from '../models/Agent.js';
+import PlatformNotificationConfig from '../models/PlatformNotificationConfig.js';
 
 export const emitVaultNotification = async ({
   eventType,
@@ -45,6 +46,14 @@ export const emitVaultNotification = async ({
 
     // 2. Create database documents and emit via Socket.io
     for (const rec of recipients) {
+      if (rec.role) {
+        const config = await PlatformNotificationConfig.findOne({ persona: rec.role });
+        if (config && config.preferences && config.preferences.get(eventType) === false) {
+          console.log(`[VaultNotification] Skipped eventType ${eventType} for ${rec.role} as it is disabled in settings`);
+          continue;
+        }
+      }
+
       const notification = await VaultNotification.create({
         eventType,
         title,

@@ -1161,17 +1161,20 @@ export const AdvisororPartnerUpdateLeadStatus = async (req, res) => {
         return res.status(403).json({ success: false, message: 'You can only update your own leads' });
     }
 
-    // PRD 6.1 — only these 4 statuses are manually settable by advisor/partner
-    // Lead status beyond Qualified is locked once a Case is created (auto-updated via case flow)
-    const allowed = ['Contacted', 'Qualified', 'Collecting Documents', 'Documents Complete'];
+    // PRD 6.1 — only these statuses are manually settable by advisor/partner (pre-qualification flow)
+    const allowed = ['Contacted', 'Collecting Documents', 'Documents Complete', 'Qualified'];
     if (!allowed.includes(status))
       return res.status(400).json({ success: false, message: `Only these statuses can be set manually: ${allowed.join(', ')}` });
 
-    // LOCK: once a case is created, manual advisor updates are blocked (case flow controls status)
-    if (lead.conversionInfo?.convertedToApplication) {
+    // LOCK: once lead reaches Qualified (or beyond), no more manual updates — case workflow drives all further changes
+    const LOCKED_AFTER = ['Qualified', 'Application Opened', 'Bank Application', 'Pre-Approved',
+      'Valuation', 'FOL Processed', 'FOL Issued', 'FOL Signed', 'Disbursed', 'Lost', 'Not Proceeding'];
+    if (LOCKED_AFTER.includes(lead.currentStatus)) {
       return res.status(400).json({
         success: false,
-        message: 'Lead status is locked — a Case has been created. Status is auto-managed by the case workflow.',
+        message: lead.conversionInfo?.convertedToApplication
+          ? 'Lead status is locked — a Case has been created. Status is auto-managed by the case workflow.'
+          : 'Lead status is locked after qualification. Create a case to continue the workflow.',
       });
     }
 

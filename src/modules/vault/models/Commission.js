@@ -248,7 +248,7 @@ commissionSchema.statics.getRecipientPercentage = function (leadSourceRole, loan
   if (leadSourceRole === 'referral_partner') {
     return loanAmount <= 5000000 ? 40 : 50;
   }
-  if (leadSourceRole === 'partner_affiliated_agent' || leadSourceRole === 'individual_partner') {
+  if (leadSourceRole === 'partner_affiliated_agent' || leadSourceRole === 'individual_partner' || leadSourceRole === 'partner') {
     return loanAmount <= 5000000 ? 80 : 85;
   }
   return 0;
@@ -394,8 +394,8 @@ commissionSchema.statics.createFromCase = async function (caseData, adminId = nu
     }
   }
   
-  // CASE 3: Individual Partner
-  else if (leadSourceRole === 'individual_partner') {
+  // CASE 3: Partner (company or individual)
+  else if (leadSourceRole === 'individual_partner' || leadSourceRole === 'partner') {
     const partner = await Partner.findById(leadSourceId);
     if (partner) {
       const recipientPercentage = loanAmount <= 5000000 ? 80 : 85;
@@ -405,13 +405,13 @@ commissionSchema.statics.createFromCase = async function (caseData, adminId = nu
         recipientRole: 'partner',
         recipientId: partner._id,
         recipientModel: 'Partner',
-        recipientName: partner.displayName,
+        recipientName: partner.displayName || partner.companyName || 'Partner',
         recipientPercentage: recipientPercentage,
         commissionAmount: commissionAmount,
         calculationFormula: formula,
         percentageSource: 'partner.commissionConfiguration',
         payoutBankDetails: partner.bankDetails?.iban ? {
-          beneficiaryName: partner.bankDetails.beneficiaryName || partner.displayName,
+          beneficiaryName: partner.bankDetails.beneficiaryName || partner.displayName || partner.companyName,
           bankName: partner.bankDetails.bankName,
           iban: partner.bankDetails.iban,
           swiftCode: partner.bankDetails.swiftCode
@@ -574,8 +574,12 @@ commissionSchema.statics.getXotoEarningsSummary = async function (startDate, end
 // ══════════════════════════════════════════════════════════════════
 commissionSchema.pre('save', function (next) {
   if (this.recipientRole !== 'internal') {
-    if (this.commissionAmount <= 0 && this.status !== 'Completed') {
-      return next(new Error('Commission amount must be greater than 0 for external commissions'));
+    // During auto-creation, the status is 'Pending' and amount can be 0 until admin enters bank commission
+    if (this.status !== 'Pending' && this.status !== 'Completed' && this.commissionAmount <= 0) {
+      return next(new Error('Commission amount must be greater than 0 for confirmed external commissions'));
+    }
+    if (this.commissionAmount < 0) {
+      return next(new Error('Commission amount cannot be negative'));
     }
     if (this.recipientPercentage < 0 || this.recipientPercentage > 100) {
       return next(new Error('Commission percentage must be between 0 and 100'));

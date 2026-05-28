@@ -6,22 +6,29 @@ import mongoose from 'mongoose';
 
 const clientPersonalSchema = new mongoose.Schema(
   {
-    fullName: { type: String, required: true },
-    email: { type: String, required: true, lowercase: true },
-    mobile: { type: String, required: true },
-    nationality: { type: String, required: true },
-    residencyStatus: { type: String, enum: ['UAE National', 'UAE Resident', 'Non-Resident'], required: true },
-    employmentStatus: { type: String, enum: ['Salaried', 'Self-Employed'], required: true },
+    fullName:         { type: String, default: null },
+    email:            { type: String, default: null, lowercase: true },
+    mobile:           { type: String, default: null },
+    nationality:      { type: String, default: null },
+    residencyStatus:  { type: String, default: null },
+    employmentStatus: { type: String, default: null },
+    dateOfBirth:      { type: Date,   default: null },
+    employer:         { type: String, default: null },
+    monthlySalary:    { type: Number, default: null },
   },
   { _id: false }
 );
 
 const propertySchema = new mongoose.Schema(
   {
-    propertyValue: { type: Number, required: true },
-    loanAmount: { type: Number, required: true },
+    propertyValue:   { type: Number, default: null },
+    loanAmount:      { type: Number, default: null },
+    downPayment:     { type: Number, default: null },
+    tenureYears:     { type: Number, default: 25 },
+    propertyType:    { type: String, default: null },
+    transactionType: { type: String, default: null },
     propertyAddress: {
-      area: { type: String, required: true },
+      area: { type: String, default: null },
       city: { type: String, default: 'Dubai' },
     },
   },
@@ -30,28 +37,30 @@ const propertySchema = new mongoose.Schema(
 
 const bankSelectionSchema = new mongoose.Schema(
   {
-    bankId: { type: mongoose.Schema.Types.ObjectId, ref: 'Bank', required: true },
-    bankName: { type: String, required: true },
-    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'BankMortgageProducts', required: true },
-    productName: { type: String, required: true },
-    interestRate: { type: Number, required: true },
-    tenureYears: { type: Number, required: true, default: 25 },
-    monthlyEMI: { type: Number, required: true },
+    bankId:       { type: mongoose.Schema.Types.ObjectId, ref: 'Bank', default: null },
+    bankName:     { type: String, default: null },
+    productId:    { type: mongoose.Schema.Types.ObjectId, ref: 'BankMortgageProducts', default: null },
+    productName:  { type: String, default: null },
+    interestRate: { type: Number, default: null },
+    tenureYears:  { type: Number, default: 25 },
+    monthlyEMI:   { type: Number, default: null },
   },
   { _id: false }
 );
 
 const eligibilitySnapshotSchema = new mongoose.Schema(
   {
-    checkedAt: { type: Date, default: null },
-    isEligible: { type: Boolean, default: false },
-    dbrPercentage: { type: Number, default: 0 },
-    dbrStatus: { type: String, enum: ['Eligible', 'Borderline', 'Ineligible', 'Not Checked'], default: 'Not Checked' },
-    estimatedLTV: { type: Number, default: 0 },
-    eligibilityScore: { type: Number, default: 0 },
-    riskGrade: { type: String, default: null },
-    recommendedLoanAmount: { type: Number, default: 0 },
-    eligibilityNotes: { type: String, default: null },
+    checkedAt:             { type: Date,    default: null },
+    isEligible:            { type: Boolean, default: false },
+    dbrPercentage:         { type: Number,  default: 0 },
+    dbrStatus:             { type: String,  default: 'Not Checked' },
+    estimatedLTV:          { type: Number,  default: 0 },
+    eligibilityScore:      { type: Number,  default: 0 },
+    riskGrade:             { type: String,  default: null },
+    recommendedLoanAmount: { type: Number,  default: 0 },
+    eligibilityNotes:      { type: String,  default: null },
+    monthlySalary:         { type: Number,  default: null },
+    existingMonthlyDebt:   { type: Number,  default: null },
   },
   { _id: false }
 );
@@ -185,9 +194,9 @@ const caseSchema = new mongoose.Schema(
     // Advisor-only: if true, bank form docs stay with Ops; advisor only uploads global docs
     advisorSkipBankForm: { type: Boolean, default: false },
 
-    clientInfo: { type: clientPersonalSchema, required: true },
-    propertyInfo: { type: propertySchema, required: true },
-    bankSelection: { type: bankSelectionSchema, required: true },
+    clientInfo:    { type: clientPersonalSchema,   default: () => ({}) },
+    propertyInfo:  { type: propertySchema,         default: () => ({}) },
+    bankSelection: { type: bankSelectionSchema,    default: () => ({}) },
     eligibilitySnapshot: { type: eligibilitySnapshotSchema, default: () => ({}) },
     documentSummary: { type: documentSummarySchema, default: () => ({}) },
     opsQueue: { type: opsQueueSchema, default: () => ({}) },

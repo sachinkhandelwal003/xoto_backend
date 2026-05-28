@@ -2,6 +2,7 @@
 import Document from '../models/Document.js';
 import Case from '../models/Case.js';
 import CaseDocumentRequirement from '../models/CaseDocumentRequirement.js';
+import VaultAgent from '../models/Agent.js';
 import HistoryService from '../services/history.service.js';
 import crypto from 'crypto';
 import { Role } from '../../../modules/auth/models/role/role.model.js';
@@ -95,39 +96,40 @@ export const uploadCaseDocument = async (req, res) => {
     // ==================== OTHER VALIDATION ====================
 
     if (isOther) {
-
-      if (
-        ![
-          'partner',
-          'partner_affiliated_agent'
-        ].includes(caseData.createdBy?.role)
-      ) {
+      const isPartnerCase = ['partner', 'partner_affiliated_agent'].includes(caseData.createdBy?.role) || caseData.partnerId;
+      if (!isPartnerCase) {
         return res.status(403).json({
           success: false,
-          message:
-            'You can only upload documents for your own cases'
+          message: 'You can only upload documents for partner cases'
         });
       }
 
-      if (
-        caseData.createdBy?.userId?.toString() !==
-        req.user._id.toString()
-      ) {
+      const isPartner = roleCode === '21';
+      const isPartnerAffiliatedAgent = roleCode === '22' && req.user?.agentType === 'PartnerAffiliatedAgent';
+
+      let isOwner = false;
+      if (isPartner) {
+        isOwner = (caseData.partnerId?.toString() === req.user._id.toString()) || 
+                  (caseData.createdBy?.role === 'partner' && caseData.createdBy?.userId?.toString() === req.user._id.toString());
+      } else if (isPartnerAffiliatedAgent) {
+        const agent = await VaultAgent.findById(req.user._id);
+        isOwner = (caseData.createdBy?.userId?.toString() === req.user._id.toString()) || 
+                  (caseData.partnerId && agent?.partnerId && caseData.partnerId.toString() === agent.partnerId.toString());
+      }
+
+      if (!isOwner) {
         return res.status(403).json({
           success: false,
-          message:
-            'You can only upload documents for cases you created'
+          message: 'You can only upload documents for cases belonging to your organization'
         });
       }
 
       if (caseData.currentStatus !== 'Draft') {
         return res.status(400).json({
           success: false,
-          message:
-            'Cannot upload documents after case is submitted'
+          message: 'Cannot upload documents after case is submitted'
         });
       }
-
     }
 
     // For Advisors: Check if case belongs to them
@@ -163,7 +165,7 @@ export const uploadCaseDocument = async (req, res) => {
     }
 
     // ==================== PERMISSION CHECK BASED ON HANDLER ====================
-    if (docRequirement.handledBy === 'Advisor' && !isXotoAdvisor && !isAdmin) {
+    if (docRequirement.handledBy === 'Advisor' && !isXotoAdvisor && !isAdmin && !isOther) {
       return res.status(403).json({
         success: false,
         message: `This document must be uploaded by Advisor`
@@ -177,32 +179,17 @@ export const uploadCaseDocument = async (req, res) => {
       });
     }
 
-
-    if (
-      docRequirement.handledBy === 'Other' &&
-      !isOther &&
-      !isAdmin
-    ) {
+    if (['Partner', 'Other'].includes(docRequirement.handledBy) && !isOther && !isAdmin) {
       return res.status(403).json({
         success: false,
-        message:
-          'This document must be uploaded by External Creator'
+        message: `This document must be uploaded by Partner`
       });
     }
-    // ==================== SPECIAL PARTNER RULE ====================
-    // Partners must upload ALL documents regardless of handler
-    // They cannot rely on Ops to upload any documents
-    // ==================== OTHER FLOW ====================
-    // Other creator handles ALL documents
 
-    if (
-      isOther &&
-      docRequirement.handledBy !== 'Other'
-    ) {
+    if (isOther && !['Partner', 'Other', 'Advisor'].includes(docRequirement.handledBy)) {
       return res.status(403).json({
         success: false,
-        message:
-          'You can only upload documents assigned to Other'
+        message: 'As a Partner or Agent, you can only upload partner-assigned documents'
       });
     }
 
@@ -392,10 +379,8 @@ export const getCaseDocuments = async (req, res) => {
     const bank = requirements.filter(r => r.source === 'Bank').length;
     const advisorHandled = requirements.filter(r => r.handledBy === 'Advisor').length;
     const opsHandled = requirements.filter(r => r.handledBy === 'Ops').length;
-    const otherHandled =
-      requirements.filter(
-        r => r.handledBy === 'Other'
-      ).length;
+    const partnerHandled = requirements.filter(r => r.handledBy === 'Partner').length;
+    const otherHandled = requirements.filter(r => r.handledBy === 'Other').length;
 
     return res.status(200).json({
       success: true,
@@ -408,7 +393,9 @@ export const getCaseDocuments = async (req, res) => {
         global,
         bank,
         advisorHandled,
-        opsHandled, otherHandled
+        opsHandled,
+        partnerHandled,
+        otherHandled
       }
     });
 

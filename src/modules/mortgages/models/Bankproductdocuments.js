@@ -348,34 +348,23 @@ DocumentRequirementSchema.statics.getRequiredDocuments = async function ({
     residencyStatus,
     mortgageType
 }) {
+    // When no bank is selected, fetch global documents only
+    // When bank is selected, fetch global + that bank's specific documents
+    const bankFilter = bankId
+        ? { $or: [{ isGlobal: true }, { applicableBanks: bankId }] }
+        : { isGlobal: true };
+
     const query = {
         status: "Active",
         isDeleted: false,
         $and: [
-            {
-                $or: [
-                    { isGlobal: true },
-                    { applicableBanks: bankId }
-                ]
-            },
-            {
-                applicableEmploymentTypes: {
-                    $in: [employmentType, "Both"]
-                }
-            },
-            {
-                applicableResidencyStatuses: {
-                    $in: [residencyStatus, "All"]
-                }
-            },
-            {
-                applicableMortgageTypes: {
-                    $in: [mortgageType, "Both"]
-                }
-            }
+            bankFilter,
+            { applicableEmploymentTypes: { $in: [employmentType, "Both"] } },
+            { applicableResidencyStatuses: { $in: [residencyStatus, "All"] } },
+            { applicableMortgageTypes: { $in: [mortgageType, "Both"] } }
         ]
     };
-    
+
     return this.find(query).sort({ displayOrder: 1 });
 };
 

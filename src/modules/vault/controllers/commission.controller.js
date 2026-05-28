@@ -129,8 +129,8 @@ const determineRecipient = async (caseData, xotoCommissionFromBank) => {
     }
   }
   
-  // CASE 3: Lead from INDIVIDUAL PARTNER (80% / 85%)
-  if (leadSourceRole === 'individual_partner') {
+  // CASE 3: Lead from PARTNER (company or individual) (80% / 85%)
+  if (leadSourceRole === 'partner' || leadSourceRole === 'individual_partner') {
     const partner = await Partner.findById(leadSourceId);
     if (partner) {
       const partnerPercentage = loanAmount <= 5000000 ? 80 : 85;
@@ -140,13 +140,13 @@ const determineRecipient = async (caseData, xotoCommissionFromBank) => {
       return {
         recipientType: 'partner',
         recipientId: partner._id,
-        recipientName: partner.displayName,
+        recipientName: partner.displayName || partner.companyName || 'Partner',
         recipientPercentage: partnerPercentage,
         commissionAmount: Math.round(commissionAmount),
         calculationFormula: `${Math.round(xotoCommissionFromBank).toLocaleString()} × ${partnerPercentage}% = ${Math.round(commissionAmount).toLocaleString()} AED`,
         xotoNetProfit: Math.round(xotoNetProfit),
         profitMargin: ((xotoNetProfit / xotoCommissionFromBank) * 100).toFixed(2) + '%',
-        note: `Lead from Individual Partner: ${partner.displayName}`
+        note: `Lead from Partner: ${partner.displayName || partner.companyName || 'Partner'}`
       };
     }
   }
