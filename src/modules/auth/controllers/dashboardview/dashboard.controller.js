@@ -9,6 +9,9 @@ const Project = require('../../../auth/models/Freelancer/projectfreelancer.model
 const Product = require('../../../products/models/ProductModel')
 const Purchase = require('../../../products/models/Purchase')
 const MileStonebill = require("../../../auth/controllers/freelancer/models/MileStoneBill"); // adjust path if needed
+const Agency = require('../../../Grid/agency/models/index');
+const Agent = require('../../../Grid/Agent/models/agent');
+const Deal = require('../../../Grid/dealrecord/models/Dealrecord.model');
 
 /* ---------------- DATE RANGE HELPER ---------------- */
 const getDateRange = (range) => {
@@ -52,7 +55,27 @@ exports.superAdminDashboard = async (req, res) => {
       verifiedDevelopers,
 
       /* -------- PROPERTIES -------- */
-      propertyStats
+      propertyStats,
+      
+      /* -------- AGENCIES -------- */
+      totalAgencies,
+      activeAgencies,
+      pendingAgencies,
+
+      /* -------- AGENTS -------- */
+      totalAgents,
+      approvedAgents,
+      pendingAgents,
+      
+      /* -------- DEALS -------- */
+      totalDeals,
+      completedDeals,
+      pendingDeals,
+      
+      /* -------- PRODUCTS & SALES -------- */
+      totalProducts,
+      totalSales,
+      salesStats
     ] = await Promise.all([
 
       /* TOTAL LEADS */
@@ -90,16 +113,6 @@ exports.superAdminDashboard = async (req, res) => {
 
 
       /* LEADS BY TYPE */
-      // PropertyLead.aggregate([
-      //   { $match: { is_deleted: false } },
-      //   {
-      //     $group: {
-      //       _id: { $ifNull: ['$type', 'unknown'] },
-      //       count: { $sum: 1 }
-      //     }
-      //   }
-      // ]),
-
       PropertyLead.aggregate([
         { $match: { is_deleted: false } },
         {
@@ -163,18 +176,33 @@ exports.superAdminDashboard = async (req, res) => {
             available: { $sum: { $cond: ['$isAvailable', 1, 0] } },
             featured: { $sum: { $cond: ['$isFeatured', 1, 0] } },
             notReady: { $sum: { $cond: ['$notReadyYet', 1, 0] } },
-            // rent: {
-            //   $sum: {
-            //     $cond: [{ $eq: ['$transactionType', 'rent'] }, 1, 0]
-            //   }
-            // },
-            // sell: {
-            //   $sum: {
-            //     $cond: [{ $eq: ['$transactionType', 'sell'] }, 1, 0]
-            //   }
-            // }
+            rent: { $sum: { $cond: [{ $eq: ['$transactionType', 'rent'] }, 1, 0] } },
+            sell: { $sum: { $cond: [{ $eq: ['$transactionType', 'sell'] }, 1, 0] } }
           }
         }
+      ]),
+
+      /* AGENCIES */
+      Agency.countDocuments({}),
+      Agency.countDocuments({ isActive: true }),
+      Agency.countDocuments({ isVerifiedByAdmin: false }),
+
+      /* AGENTS */
+      Agent.countDocuments({}),
+      Agent.countDocuments({ adminApprovalStatus: 'approved' }),
+      Agent.countDocuments({ adminApprovalStatus: 'pending' }),
+
+      /* DEALS */
+      Deal.countDocuments({}),
+      Deal.countDocuments({ status: 'completed' }),
+      Deal.countDocuments({ status: 'pending' }),
+
+      /* PRODUCTS & SALES */
+      Product.countDocuments({}),
+      Purchase.countDocuments({ status: 'paid' }),
+      Purchase.aggregate([
+        { $match: { status: 'paid' } },
+        { $group: { _id: null, totalRevenue: { $sum: '$total_price' } } }
       ])
     ]);
 
@@ -196,6 +224,26 @@ exports.superAdminDashboard = async (req, res) => {
         developers: {
           total: totalDevelopers,
           verified: verifiedDevelopers
+        },
+        agencies: {
+          total: totalAgencies,
+          active: activeAgencies,
+          pending: pendingAgencies
+        },
+        agents: {
+          total: totalAgents,
+          approved: approvedAgents,
+          pending: pendingAgents
+        },
+        deals: {
+          total: totalDeals,
+          completed: completedDeals,
+          pending: pendingDeals
+        },
+        products: {
+          total: totalProducts,
+          sales: totalSales,
+          revenue: salesStats[0]?.totalRevenue || 0
         },
         properties: propertyStats[0] || {
           total: 0,

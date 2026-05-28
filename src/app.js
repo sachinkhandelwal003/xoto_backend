@@ -182,6 +182,7 @@ app.use('/feedback', feedback);
 app.use('/presentation', presentationRoutes);  
 app.use('/deal-record', require('./modules/Grid/dealrecord/routes/Dealrecord.routes.js'))
 app.use('/deal-records', require('./modules/Grid/dealrecord/routes/Dealrecord.routes.js'))
+app.use('/agreements', require('./modules/Grid/Agreements/routes/adminAgreement.routes.js'))
 
 // History
 app.use('/customer-history', customerHistoryRoutes);
