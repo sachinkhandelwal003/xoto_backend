@@ -68,22 +68,6 @@ const agencySchema = new mongoose.Schema(
       default: '',
     },
 
-    kycDocuments: [
-      {
-        type: { type: String, required: true },
-        name: { type: String, required: true },
-        url: { type: String, required: true },
-        uploadedAt: { type: Date, default: Date.now }
-      }
-    ],
-
-    kycStatus: {
-      type: String,
-      enum: ['not_submitted', 'pending', 'approved', 'rejected'],
-      default: 'not_submitted'
-    },
-
-    kycRejectionReason: { type: String, default: '' },
     onboardingStatus: { type: String, default: '' },
 
     agreementDocuments: [
