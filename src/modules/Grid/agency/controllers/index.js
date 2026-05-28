@@ -59,11 +59,10 @@ const agentDeclineEmail = ({ agentName, agencyName, reason }) => `
   </div>
 `;
 
-const agentSuspendEmail = ({ agentName, agencyName, reason }) => `
+const agentSuspendEmail = ({ agentName, agencyName }) => `
   <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
     <h2>Your Xoto Agent Account Suspended</h2>
     <p>Hi ${agentName}, your agent account with ${agencyName} has been suspended.</p>
-    ${reason ? `<div style="background: #fef2f2; padding: 20px; border-radius: 8px; margin: 20px 0;"><p><strong>Reason:</strong> ${reason}</p></div>` : ''}
     <p>— Xoto Team</p>
   </div>
 `;
@@ -1045,6 +1044,7 @@ exports.approveAgent = asyncHandler(async (req, res) => {
   agent.agencyApprovedAt = new Date();
   agent.adminApprovalStatus = 'approved';
   agent.adminApprovedAt = new Date();
+  agent.onboarding_status = 'approved';
   agent.isActive = true;
   await agent.save();
 
@@ -1176,8 +1176,7 @@ exports.suspendAgent = asyncHandler(async (req, res) => {
       subject: 'Your Xoto Agent Account Suspended',
       html: agentSuspendEmail({
         agentName,
-        agencyName: req.agency.companyName,
-        reason: agent.suspendReason
+        agencyName: req.agency.companyName
       })
     });
   } catch (emailErr) {
