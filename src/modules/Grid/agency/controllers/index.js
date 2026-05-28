@@ -1136,58 +1136,6 @@ exports.updateLogo = asyncHandler(async (req, res) => {
 });
 
 /**
- * GET /agency/kyc/status
- */
-exports.getKycStatus = asyncHandler(async (req, res) => {
-  const agency = await Agency.findById(req.agency._id).select('kycStatus kycRejectionReason onboardingStatus kycDocuments');
-  if (!agency) throw new APIError('Agency not found', StatusCodes.NOT_FOUND);
-
-  res.status(200).json({
-    status: 'success',
-    success: true,
-    data: {
-      kycStatus: agency.kycStatus,
-      kycRejectionReason: agency.kycRejectionReason,
-      onboardingStatus: agency.onboardingStatus,
-      kycDocuments: agency.kycDocuments
-    }
-  });
-});
-
-/**
- * POST /agency/kyc/submit
- */
-exports.submitKyc = asyncHandler(async (req, res) => {
-  const { kycDocuments, kycStatus, onboardingStatus } = req.body;
-  if (!kycDocuments || kycDocuments.length === 0) throw new APIError('KYC documents are required', StatusCodes.BAD_REQUEST);
-
-  const agency = await Agency.findByIdAndUpdate(
-    req.agency._id,
-    { kycDocuments, kycStatus: kycStatus || 'pending', onboardingStatus: onboardingStatus || 'kyc_submitted' },
-    { new: true, runValidators: true }
-  ).select('-password');
-
-  if (!agency) throw new APIError('Agency not found', StatusCodes.NOT_FOUND);
-
-  res.status(200).json({ status: 'success', data: agency });
-});
-
-/**
- * DELETE /agency/kyc/document/:type
- */
-exports.removeKycDocument = asyncHandler(async (req, res) => {
-  const { type } = req.params;
-
-  const agency = await Agency.findById(req.agency._id);
-  if (!agency) throw new APIError('Agency not found', StatusCodes.NOT_FOUND);
-
-  agency.kycDocuments = agency.kycDocuments.filter(doc => doc.type !== type);
-  await agency.save();
-
-  res.status(200).json({ status: 'success', data: agency });
-});
-
-/**
  * GET /agency/agreement
  */
 exports.getAgreement = asyncHandler(async (req, res) => {
@@ -1285,6 +1233,7 @@ const agency = await Agency.create({
 
     subscriptionTier: subscriptionTier || 'basic',
     presentationQuota: presentationQuota || 100,
+    onboardingStatus: 'completed',
     isActive: true,
     isSuspended: false,
     createdBy: req.user?._id || null,
@@ -1303,10 +1252,13 @@ const agency = await Agency.create({
     console.error('[Agency Welcome Email Error]', emailErr.message);
   }
 
+  const agencyResponse = agency.toObject();
+  delete agencyResponse.password;
+
   res.status(201).json({
     status: 'success',
     message: 'Agency created and credentials sent to email',
-    data: agency,
+    data: agencyResponse,
   });
 });
 /**

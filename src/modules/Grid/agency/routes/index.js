@@ -131,11 +131,6 @@ router.get('/profile',   ctrl.getProfile);
 router.patch('/profile', ctrl.updateProfile);
 router.post('/profile/logo', ctrl.updateLogo);
 
-// ── KYC ──────────────────────────────────────────────────────────────────────
-router.get('/kyc/status', ctrl.getKycStatus);
-router.post('/kyc/submit', ctrl.submitKyc);
-router.delete('/kyc/document/:type', ctrl.removeKycDocument);
-
 // ── Agreement ──────────────────────────────────────────────────────────────────
 router.get('/agreement', ctrl.getAgreement);
 router.post('/agreement/upload', ctrl.uploadAgreement);
