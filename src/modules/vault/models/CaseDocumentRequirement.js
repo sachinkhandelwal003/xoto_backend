@@ -23,13 +23,13 @@ const caseDocumentRequirementSchema = new mongoose.Schema(
     sampleUrl: { type: String, default: null },
     
     // Handler
-    handledBy: { type: String, enum: ['Advisor', 'Ops'], required: true },
+    handledBy: { type: String, enum: ['Advisor', 'Ops', 'Other'], required: true },
     toggleState: {
-      handledByAdvisor: { type: Boolean, default: false },
-      assignedToOps: { type: Boolean, default: true },
-      toggledAt: { type: Date, default: null }
-    },
-    
+ handledByAdvisor: { type: Boolean, default: false },
+ assignedToOps: { type: Boolean, default: false },
+ toggledAt: { type: Date, default: null }
+}
+    ,
     // Upload status
     isUploaded: { type: Boolean, default: false },
     isVerified: { type: Boolean, default: false },

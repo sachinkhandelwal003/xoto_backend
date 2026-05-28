@@ -185,6 +185,15 @@ lastLoginAt: { type: Date, default: null },
     // ✅ CORRECT: Simplified commission schema
     freelanceCommission: { type: freelanceCommissionSchema, default: () => ({}) },
 
+    // For PartnerAffiliatedAgent — internal commission set by the partner company
+    // This tracks what % of the commission (received by partner from Xoto) the partner
+    // agrees to pay to this specific agent. Xoto does not process this payment.
+    partnerInternalCommission: {
+      percentage:  { type: Number, default: null },   // e.g. 30 means agent gets 30% of what partner received
+      setAt:       { type: Date,   default: null },
+      notes:       { type: String, default: null },
+    },
+
     earnings: { type: commissionEarningsSchema, default: () => ({}) },
 
     role: {

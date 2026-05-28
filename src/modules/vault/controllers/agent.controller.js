@@ -6,6 +6,24 @@ import { createToken } from '../../../middleware/auth.js';
 import crypto     from 'crypto';
 import { logAudit } from '../services/auditLog.service.js';
 import { emitVaultNotification } from '../services/vaultNotification.service.js';
+import sendEmail from '../../../utils/sendEmail.js';
+
+const credentialEmailHtml = (name, email, password, role) => `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#f9f9f9;">
+  <div style="background:#5C039B;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+    <h1 style="color:#fff;margin:0;font-size:22px;">Xoto Vault</h1>
+  </div>
+  <div style="background:#fff;padding:32px;border-radius:0 0 8px 8px;border:1px solid #e5e7eb;">
+    <h2 style="color:#111;margin-top:0;">Welcome, ${name}!</h2>
+    <p style="color:#555;">Your <strong>${role}</strong> account on Xoto Vault has been created. Your login credentials are below:</p>
+    <div style="background:#F5F0FF;border:1px solid #E9D5FF;border-radius:8px;padding:16px;margin:24px 0;">
+      <p style="margin:0 0 8px;"><strong>Email:</strong> ${email}</p>
+      <p style="margin:0;"><strong>Password:</strong> ${password}</p>
+    </div>
+    <p style="color:#c0392b;font-size:13px;"><strong>Important:</strong> Log in and change your password immediately.</p>
+    <p style="color:#555;margin-bottom:0;">— Xoto Vault Team</p>
+  </div>
+</div>`;
 
 // ══════════════════════════════════════════════════════════════════
 // HELPER — profile completion (used only for in-memory objects
@@ -307,6 +325,16 @@ export const adminOnboardFreelanceAgent = async (req, res) => {
     });
     // Pre-save hook handles profileCompletionPercentage automatically
 
+    try {
+      await sendEmail({
+        to: email,
+        subject: 'Your Xoto Vault Referral Partner Account Credentials',
+        html: credentialEmailHtml(`${first_name} ${last_name}`, email, password, 'Referral Partner'),
+      });
+    } catch (emailErr) {
+      console.error('Credential email failed (freelance agent):', emailErr.message);
+    }
+
     const agentResponse = newAgent.toObject();
     delete agentResponse.password;
 
@@ -352,6 +380,13 @@ export const partnerOnboardAffiliatedAgent = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    const { internalCommissionPercentage } = req.body;
+
+    // Use explicit value, fall back to partner's default, else null
+    const commissionPct = internalCommissionPercentage != null
+      ? Number(internalCommissionPercentage)
+      : (partner.defaultAgentCommissionPercentage ?? null);
+
     const newAgent = await VaultAgent.create({
       name:                   { first_name, last_name },
       phone:                  { country_code: country_code || '+971', number: phone_number },
@@ -368,6 +403,9 @@ export const partnerOnboardAffiliatedAgent = async (req, res) => {
       isPhoneVerified:        true,
       isEmailVerified:        true,
       commissionEligible:     false,         // ✅ NEVER true — commission goes to partner
+      partnerInternalCommission: commissionPct != null
+        ? { percentage: commissionPct, setAt: new Date() }
+        : undefined,
     });
 
     partner.numberOfAgents += 1;
@@ -693,18 +731,77 @@ export const getAgentsByPartner = async (req, res) => {
 // ══════════════════════════════════════════════════════════════════
 // 11. GET OWN PROFILE
 //     GET /agents/me
+//     Returns enriched profile with commission eligibility status
 // ══════════════════════════════════════════════════════════════════
 export const getAgentProfile = async (req, res) => {
   try {
     const agent = await VaultAgent.findById(req.user._id)
       .select('-password')
-      .populate('partnerId', 'companyName');
+      .populate('partnerId', 'companyName status defaultAgentCommissionPercentage');
     if (!agent) return res.status(404).json({ success: false, message: 'Agent not found' });
-    return res.status(200).json({ success: true, data: agent });
+
+    const commissionStatus = buildCommissionStatus(agent);
+
+    return res.status(200).json({ success: true, data: agent, commissionStatus });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// ── Helper: build actionable commission status for dashboard banner ──
+function buildCommissionStatus(agent) {
+  if (agent.agentType === 'ReferralPartner') {
+    const steps = [
+      { key: 'phone',    label: 'Phone verified',           done: agent.isPhoneVerified },
+      { key: 'eid',      label: 'Emirates ID uploaded',     done: !!(agent.emiratesId?.number && agent.emiratesId?.frontImageUrl) },
+      { key: 'eidVerif', label: 'Emirates ID verified',     done: !!agent.emiratesId?.verified },
+      { key: 'bank',     label: 'Bank details provided',    done: !!agent.bankDetails?.iban },
+      { key: 'bankVerif',label: 'Bank details verified',    done: !!agent.bankDetails?.verified },
+      { key: 'admin',    label: 'Admin account verification',done: agent.isVerified },
+    ];
+    const pending = steps.filter(s => !s.done);
+    return {
+      type:           'referral_partner',
+      isActive:       agent.isActive,
+      canSubmitLeads: agent.isActive,
+      commissionEligible: agent.commissionEligible,
+      pendingSteps:   pending,
+      allDone:        pending.length === 0,
+      message:        pending.length === 0
+        ? 'Account fully verified — you can earn commission on all disbursed leads.'
+        : `Account active for submitting leads. Complete ${pending.length} step${pending.length > 1 ? 's' : ''} to unlock commission.`,
+    };
+  }
+
+  if (agent.agentType === 'PartnerAffiliatedAgent') {
+    const affiliationPending = agent.affiliationStatus === 'pending';
+    const steps = [
+      { key: 'affiliation', label: 'Affiliation approved by partner', done: agent.affiliationStatus === 'verified' },
+      { key: 'eid',         label: 'Emirates ID uploaded',            done: !!(agent.emiratesId?.number && agent.emiratesId?.frontImageUrl) },
+      { key: 'bank',        label: 'Bank details provided',           done: !!agent.bankDetails?.iban },
+    ];
+    const pending = steps.filter(s => !s.done);
+    return {
+      type:                    'partner_affiliated_agent',
+      isActive:                agent.isActive,
+      canSubmitLeads:          agent.isActive,
+      affiliationStatus:       agent.affiliationStatus,
+      commissionEligible:      false,
+      commissionNote:          'Commission for your leads is paid to your partner company. Your partner decides your internal payout rate.',
+      internalCommissionPct:   agent.partnerInternalCommission?.percentage ?? null,
+      partnerName:             agent.partnerId?.companyName ?? null,
+      pendingSteps:            pending,
+      allDone:                 pending.length === 0,
+      message:                 affiliationPending
+        ? 'Your account is active for submitting leads. Waiting for partner approval to access full features.'
+        : pending.length === 0
+          ? 'Account fully set up. Commission is paid to your partner company.'
+          : `Account active for submitting leads. Complete ${pending.length} step${pending.length > 1 ? 's' : ''} to finish your profile setup.`,
+    };
+  }
+
+  return null;
+}
 
 // ══════════════════════════════════════════════════════════════════
 // 12. UPDATE OWN PROFILE
@@ -786,27 +883,25 @@ export const updateAgentProfile = async (req, res) => {
     }
 
     // ==================== BANK DETAILS ====================
+    // Both ReferralPartner and PartnerAffiliatedAgent can save bank details.
+    // For affiliated agents, Xoto commission goes to the partner company, but
+    // the partner may pay the agent internally via their bank account.
     if (req.body.bankDetails) {
-      // Block affiliated agents from updating bank details
-      if (agent.agentType === 'PartnerAffiliatedAgent') {
-        return res.status(403).json({
-          success: false,
-          message: 'Affiliated agents do not receive commission directly. Commission is paid to partner company.',
-        });
-      }
-      
       const bd = req.body.bankDetails;
       if (bd.beneficiaryName !== undefined) updates['bankDetails.beneficiaryName'] = bd.beneficiaryName;
-      if (bd.bankName !== undefined) updates['bankDetails.bankName'] = bd.bankName;
-      if (bd.accountNumber !== undefined) updates['bankDetails.accountNumber'] = bd.accountNumber;
-      if (bd.iban !== undefined) updates['bankDetails.iban'] = bd.iban;
-      if (bd.swiftCode !== undefined) updates['bankDetails.swiftCode'] = bd.swiftCode;
-      if (bd.accountType !== undefined) updates['bankDetails.accountType'] = bd.accountType;
-      
+      if (bd.bankName        !== undefined) updates['bankDetails.bankName']        = bd.bankName;
+      if (bd.accountNumber   !== undefined) updates['bankDetails.accountNumber']   = bd.accountNumber;
+      if (bd.iban            !== undefined) updates['bankDetails.iban']            = bd.iban;
+      if (bd.swiftCode       !== undefined) updates['bankDetails.swiftCode']       = bd.swiftCode;
+      if (bd.accountType     !== undefined) updates['bankDetails.accountType']     = bd.accountType;
+
       if (Object.keys(bd).length > 0) {
-        updates['bankDetails.verified'] = false;
+        updates['bankDetails.verified']   = false;
         updates['bankDetails.verifiedAt'] = null;
-        updates['commissionEligible'] = false;
+        // Only affects commissionEligible for ReferralPartner
+        if (agent.agentType === 'ReferralPartner') {
+          updates['commissionEligible'] = false;
+        }
       }
     }
 
@@ -942,6 +1037,104 @@ export const resetPassword = async (req, res) => {
     await agent.save();
 
     return res.status(200).json({ success: true, message: 'Password reset successful' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════
+// 16. SET AGENT INTERNAL COMMISSION (Partner only)
+//     PUT /agents/partner/agents/:id/commission
+//
+//     Partner decides what % of the commission (that Xoto paid to
+//     the partner) to internally pass on to their affiliated agent.
+//     Xoto does not process this payment — it's tracked for reference.
+// ══════════════════════════════════════════════════════════════════
+export const setAgentInternalCommission = async (req, res) => {
+  try {
+    const roleDoc = await Role.findById(req.user.role);
+    if (roleDoc?.code !== '21')
+      return res.status(403).json({ success: false, message: 'Partner only' });
+
+    const { id } = req.params;
+    const { percentage, notes } = req.body;
+
+    if (percentage === undefined || percentage === null)
+      return res.status(400).json({ success: false, message: 'percentage is required' });
+
+    const pct = Number(percentage);
+    if (isNaN(pct) || pct < 0 || pct > 100)
+      return res.status(400).json({ success: false, message: 'percentage must be 0–100' });
+
+    const agent = await VaultAgent.findOne({
+      _id:        id,
+      partnerId:  req.user._id,
+      agentType:  'PartnerAffiliatedAgent',
+      isDeleted:  false,
+    });
+    if (!agent) return res.status(404).json({ success: false, message: 'Agent not found or not your agent' });
+
+    agent.partnerInternalCommission = {
+      percentage: pct,
+      setAt:      new Date(),
+      notes:      notes || null,
+    };
+    await agent.save();
+
+    await logAudit({
+      entityType: 'AGENT',
+      entityId:   agent._id,
+      action:     'PARTNER_COMMISSION_SET',
+      performedBy:     req.user._id,
+      performedByName: req.user.companyName || req.user.email,
+      performedByRole: 'partner',
+      visibleToRoles:  ['admin', 'partner'],
+      metadata: { percentage: pct, agentName: `${agent.name.first_name} ${agent.name.last_name}` }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Internal commission set to ${pct}% for ${agent.name.first_name} ${agent.name.last_name}`,
+      data: { agentId: agent._id, partnerInternalCommission: agent.partnerInternalCommission },
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════
+// 17. SET DEFAULT AGENT COMMISSION FOR PARTNER (Partner only)
+//     PUT /agents/partner/default-commission
+//
+//     Sets the partner's default internal commission % applied to
+//     all newly onboarded affiliated agents unless overridden.
+// ══════════════════════════════════════════════════════════════════
+export const setPartnerDefaultAgentCommission = async (req, res) => {
+  try {
+    const roleDoc = await Role.findById(req.user.role);
+    if (roleDoc?.code !== '21')
+      return res.status(403).json({ success: false, message: 'Partner only' });
+
+    const { percentage } = req.body;
+    if (percentage === undefined || percentage === null)
+      return res.status(400).json({ success: false, message: 'percentage is required' });
+
+    const pct = Number(percentage);
+    if (isNaN(pct) || pct < 0 || pct > 100)
+      return res.status(400).json({ success: false, message: 'percentage must be 0–100' });
+
+    const partner = await Partner.findByIdAndUpdate(
+      req.user._id,
+      { $set: { defaultAgentCommissionPercentage: pct } },
+      { new: true }
+    );
+    if (!partner) return res.status(404).json({ success: false, message: 'Partner not found' });
+
+    return res.status(200).json({
+      success: true,
+      message: `Default agent commission set to ${pct}%`,
+      data: { defaultAgentCommissionPercentage: pct },
+    });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }

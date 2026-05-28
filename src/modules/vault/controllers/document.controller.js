@@ -15,8 +15,11 @@ const getUserInfo = async (req) => {
   if (roleId) {
     const roleDoc = await Role.findById(roleId);
     if (roleDoc?.code === '18') userRole = 'Admin';
-    else if (roleDoc?.code === '21') userRole = 'Partner';
-    else if (req.user?.agentType === 'ReferralPartner') userRole = 'ReferralPartner';
+    else if (
+      roleDoc?.code === '21' ||
+      req.user?.agentType === 'PartnerAffiliatedAgent'
+    )
+      userRole = 'Other'; else if (req.user?.agentType === 'ReferralPartner') userRole = 'ReferralPartner';
     else if (req.user?.agentType === 'PartnerAffiliatedAgent') userRole = 'PartnerAffiliatedAgent';
     else if (req.user?.employeeType === 'XotoAdvisor') userRole = 'XotoAdvisor';
     else if (req.user?.employeeType === 'MortgageOps') userRole = 'MortgageOps';
@@ -51,7 +54,7 @@ export const uploadCaseDocument = async (req, res) => {
   try {
     const { caseId } = req.params;
     const { documentKey, fileUrl, fileName, fileSizeMb, mimeType } = req.body;
-    
+
     // Validation
     if (!caseId) {
       return res.status(400).json({ success: false, message: "caseId is required" });
@@ -62,122 +65,165 @@ export const uploadCaseDocument = async (req, res) => {
     if (!fileUrl) {
       return res.status(400).json({ success: false, message: "fileUrl is required" });
     }
-    
+
     // Get user role
     const roleDoc = await Role.findById(req.user.role);
     const roleCode = roleDoc?.code;
     const isAdmin = roleCode === '18';
     const isXotoAdvisor = roleCode === '26';
     const isMortgageOps = roleCode === '23';
-    const isPartner = roleCode === '21';
-    
+    const isOther =
+      roleCode === '21' ||
+      (
+        roleCode === '22' &&
+        req.user?.agentType === 'PartnerAffiliatedAgent'
+      );
     let userRoleName = 'Unknown';
     if (isAdmin) userRoleName = 'admin';
     else if (isXotoAdvisor) userRoleName = 'advisor';
     else if (isMortgageOps) userRoleName = 'ops';
-    else if (isPartner) userRoleName = 'partner';
-    
+    else if (isOther)
+      userRoleName = 'other';
     // Find the case
     const caseData = await Case.findById(caseId);
     if (!caseData) {
       return res.status(404).json({ success: false, message: "Case not found" });
     }
-    
+
     // ==================== PARTNER VALIDATION ====================
     // Partners must upload ALL documents (cannot skip any)
-    if (isPartner) {
-      // Check if case belongs to this partner
-      if (caseData.createdBy?.role !== 'partner' || caseData.createdBy?.userId?.toString() !== req.user._id.toString()) {
-        return res.status(403).json({ 
-          success: false, 
-          message: 'You can only upload documents for cases you created' 
+    // ==================== OTHER VALIDATION ====================
+
+    if (isOther) {
+
+      if (
+        ![
+          'partner',
+          'partner_affiliated_agent'
+        ].includes(caseData.createdBy?.role)
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            'You can only upload documents for your own cases'
         });
       }
-      
-      // Partners cannot upload after submission
+
+      if (
+        caseData.createdBy?.userId?.toString() !==
+        req.user._id.toString()
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            'You can only upload documents for cases you created'
+        });
+      }
+
       if (caseData.currentStatus !== 'Draft') {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Cannot upload documents after case is submitted to Xoto' 
+        return res.status(400).json({
+          success: false,
+          message:
+            'Cannot upload documents after case is submitted'
         });
       }
+
     }
-    
+
     // For Advisors: Check if case belongs to them
     if (isXotoAdvisor && caseData.createdBy?.role === 'advisor') {
       if (caseData.createdBy?.userId?.toString() !== req.user._id.toString()) {
-        return res.status(403).json({ 
-          success: false, 
-          message: 'You can only upload documents for cases you created' 
+        return res.status(403).json({
+          success: false,
+          message: 'You can only upload documents for cases you created'
         });
       }
     }
-    
+
     // Find document requirement for this case
     const docRequirement = await CaseDocumentRequirement.findOne({
       caseId: caseId,
       documentKey: documentKey,
       isDeleted: false
     });
-    
+
     if (!docRequirement) {
-      return res.status(404).json({ 
-        success: false, 
-        message: `Document "${documentKey}" is not required for this case` 
+      return res.status(404).json({
+        success: false,
+        message: `Document "${documentKey}" is not required for this case`
       });
     }
-    
+
     // Check if already uploaded
     if (docRequirement.isUploaded) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Document "${docRequirement.documentName}" is already uploaded` 
+      return res.status(400).json({
+        success: false,
+        message: `Document "${docRequirement.documentName}" is already uploaded`
       });
     }
-    
+
     // ==================== PERMISSION CHECK BASED ON HANDLER ====================
-    if (docRequirement.handledBy === 'Advisor' && !isXotoAdvisor && !isAdmin && !isPartner) {
-      return res.status(403).json({ 
-        success: false, 
-        message: `This document must be uploaded by Advisor` 
+    if (docRequirement.handledBy === 'Advisor' && !isXotoAdvisor && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: `This document must be uploaded by Advisor`
       });
     }
-    
+
     if (docRequirement.handledBy === 'Ops' && !isMortgageOps && !isAdmin) {
-      return res.status(403).json({ 
-        success: false, 
-        message: `This document must be uploaded by Mortgage Ops` 
+      return res.status(403).json({
+        success: false,
+        message: `This document must be uploaded by Mortgage Ops`
       });
     }
-    
+
+
+    if (
+      docRequirement.handledBy === 'Other' &&
+      !isOther &&
+      !isAdmin
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          'This document must be uploaded by External Creator'
+      });
+    }
     // ==================== SPECIAL PARTNER RULE ====================
     // Partners must upload ALL documents regardless of handler
     // They cannot rely on Ops to upload any documents
-    if (isPartner && docRequirement.handledBy === 'Ops') {
-      return res.status(403).json({ 
-        success: false, 
-        message: `As a Partner, you must upload all documents including bank forms. Ops team does not handle partner case documents.` 
+    // ==================== OTHER FLOW ====================
+    // Other creator handles ALL documents
+
+    if (
+      isOther &&
+      docRequirement.handledBy !== 'Other'
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          'You can only upload documents assigned to Other'
       });
     }
-    
+
     // File size validation
     const fileSizeMB = fileSizeMb || 0;
     if (fileSizeMB > docRequirement.maxFileSizeMB) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `File size exceeds ${docRequirement.maxFileSizeMB}MB limit` 
+      return res.status(400).json({
+        success: false,
+        message: `File size exceeds ${docRequirement.maxFileSizeMB}MB limit`
       });
     }
-    
+
     // File type validation
     const fileExt = fileName?.split('.').pop().toLowerCase();
     if (docRequirement.allowedFileTypes?.length && !docRequirement.allowedFileTypes.includes(fileExt)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Invalid file type. Allowed: ${docRequirement.allowedFileTypes.join(', ')}` 
+      return res.status(400).json({
+        success: false,
+        message: `Invalid file type. Allowed: ${docRequirement.allowedFileTypes.join(', ')}`
       });
     }
-    
+
     // Check for existing document (re-upload after rejection)
     const existingDoc = await Document.findOne({
       entityType: 'Case',
@@ -185,10 +231,10 @@ export const uploadCaseDocument = async (req, res) => {
       documentKey: documentKey,
       isDeleted: false
     });
-    
+
     let document;
     let isUpdate = false;
-    
+
     if (existingDoc && existingDoc.verificationStatus === 'rejected') {
       // Update existing rejected document
       existingDoc.fileUrl = fileUrl;
@@ -206,11 +252,11 @@ export const uploadCaseDocument = async (req, res) => {
       await existingDoc.save();
       document = existingDoc;
       isUpdate = true;
-    } 
+    }
     else if (!existingDoc) {
       // Create new document
       const fileHash = crypto.createHash('md5').update(fileUrl).digest('hex');
-      
+
       document = await Document.create({
         entityType: 'Case',
         entityId: caseId,
@@ -230,20 +276,20 @@ export const uploadCaseDocument = async (req, res) => {
         uploadedFromIp: req.ip,
         verificationStatus: 'pending'
       });
-    } 
+    }
     else {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Document already uploaded and is ${existingDoc.verificationStatus}` 
+      return res.status(400).json({
+        success: false,
+        message: `Document already uploaded and is ${existingDoc.verificationStatus}`
       });
     }
-    
+
     // Update CaseDocumentRequirement
     docRequirement.isUploaded = true;
     docRequirement.documentId = document._id;
     docRequirement.uploadedAt = new Date();
     await docRequirement.save();
-    
+
     // Update case document summary
     await updateCaseDocumentSummary(caseId);
 
@@ -270,12 +316,12 @@ export const uploadCaseDocument = async (req, res) => {
       createdByName: req.user?.fullName || req.user?.email || 'User',
       createdByRole: userRoleName.toLowerCase(),
     });
-    
+
     // Log activity
     await HistoryService.logDocumentActivity(document, isUpdate ? 'DOCUMENT_REUPLOADED' : 'DOCUMENT_UPLOADED', await getUserInfo(req), {
       description: `Document ${document.fileName} ${isUpdate ? 're-uploaded' : 'uploaded'} to Case ${caseData.caseReference}`,
     });
-    
+
     return res.status(201).json({
       success: true,
       message: isUpdate ? "Document re-uploaded successfully" : "Document uploaded successfully",
@@ -297,7 +343,7 @@ export const uploadCaseDocument = async (req, res) => {
         }
       }
     });
-    
+
   } catch (error) {
     console.error("Upload case document error:", error);
     return res.status(500).json({ success: false, message: error.message });
@@ -310,20 +356,20 @@ export const uploadCaseDocument = async (req, res) => {
 export const getCaseDocuments = async (req, res) => {
   try {
     const { caseId } = req.params;
-    
+
     // Get all document requirements for this case
     const requirements = await CaseDocumentRequirement.find({
       caseId: caseId,
       isDeleted: false
     }).sort({ source: -1, handledBy: 1, displayOrder: 1, documentKey: 1 });
-    
+
     // Get uploaded documents
     const uploadedDocs = await Document.find({
       entityType: 'Case',
       entityId: caseId,
       isDeleted: false
     });
-    
+
     // Merge data
     const documents = requirements.map(req => {
       const uploaded = uploadedDocs.find(ud => ud.documentKey === req.documentKey);
@@ -336,7 +382,7 @@ export const getCaseDocuments = async (req, res) => {
         uploadedBy: uploaded?.uploadedBy || null
       };
     });
-    
+
     // Calculate summary
     const total = requirements.length;
     const uploaded = requirements.filter(r => r.isUploaded).length;
@@ -346,7 +392,11 @@ export const getCaseDocuments = async (req, res) => {
     const bank = requirements.filter(r => r.source === 'Bank').length;
     const advisorHandled = requirements.filter(r => r.handledBy === 'Advisor').length;
     const opsHandled = requirements.filter(r => r.handledBy === 'Ops').length;
-    
+    const otherHandled =
+      requirements.filter(
+        r => r.handledBy === 'Other'
+      ).length;
+
     return res.status(200).json({
       success: true,
       data: documents,
@@ -358,10 +408,10 @@ export const getCaseDocuments = async (req, res) => {
         global,
         bank,
         advisorHandled,
-        opsHandled
+        opsHandled, otherHandled
       }
     });
-    
+
   } catch (error) {
     console.error("Get case documents error:", error);
     return res.status(500).json({ success: false, message: error.message });
@@ -378,43 +428,42 @@ export const toggleDocumentHandler = async (req, res) => {
   try {
     const { caseId } = req.params;
     const { documentKey, handledByAdvisor } = req.body;
-    
+
     const caseData = await Case.findById(caseId);
     if (!caseData) {
       return res.status(404).json({ success: false, message: "Case not found" });
     }
-    
+
     // Get user role
     const roleDoc = await Role.findById(req.user.role);
     const roleCode = roleDoc?.code;
     const isAdvisor = roleCode === '26';
-    const isPartner = roleCode === '21';
-    
+
     // ==================== AUTHORIZATION ====================
     // Only Advisor can toggle document handlers
     if (!isAdvisor) {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Only XOTO Advisor can update document assignment. Partners must upload all documents themselves.' 
+      return res.status(403).json({
+        success: false,
+        message: 'Only XOTO Advisor can update document assignment. Partners must upload all documents themselves.'
       });
     }
-    
+
     // Check if the case was created by this advisor
     if (caseData.createdBy?.role !== 'advisor' || caseData.createdBy?.userId?.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'You can only modify documents for cases you created' 
+      return res.status(403).json({
+        success: false,
+        message: 'You can only modify documents for cases you created'
       });
     }
-    
+
     // Check if case is in draft
     if (caseData.currentStatus !== 'Draft') {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Cannot change document handler after case is submitted to Xoto' 
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot change document handler after case is submitted to Xoto'
       });
     }
-    
+
     // Find the document requirement (only Bank documents can be toggled)
     const docRequirement = await CaseDocumentRequirement.findOne({
       caseId: caseId,
@@ -422,24 +471,24 @@ export const toggleDocumentHandler = async (req, res) => {
       source: 'Bank',  // Only bank documents can be toggled
       isDeleted: false
     });
-    
+
     if (!docRequirement) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Document not found or cannot be toggled. Only Bank documents can be reassigned.' 
+      return res.status(404).json({
+        success: false,
+        message: 'Document not found or cannot be toggled. Only Bank documents can be reassigned.'
       });
     }
-    
+
     if (docRequirement.isUploaded) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Cannot change handler after document is already uploaded' 
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot change handler after document is already uploaded'
       });
     }
-    
+
     // ==================== APPLY TOGGLE ====================
     const newHandledBy = handledByAdvisor ? 'Advisor' : 'Ops';
-    
+
     // Update the document requirement
     docRequirement.handledBy = newHandledBy;
     docRequirement.toggleState = {
@@ -450,17 +499,17 @@ export const toggleDocumentHandler = async (req, res) => {
       toggledByName: req.user?.fullName || req.user?.email
     };
     await docRequirement.save();
-    
+
     // Log the action
     await HistoryService.logDocumentActivity(null, 'DOCUMENT_HANDLER_TOGGLED', await getUserInfo(req), {
       description: `${docRequirement.documentName} reassigned from ${docRequirement.handledBy === 'Advisor' ? 'Ops' : 'Advisor'} to ${newHandledBy}`,
       caseId: caseId,
       documentKey: documentKey
     });
-    
+
     return res.status(200).json({
       success: true,
-      message: handledByAdvisor 
+      message: handledByAdvisor
         ? '✅ You (Advisor) will handle this form. Please upload before submission.'
         : '✅ Ops team will handle this form. You can skip this document.',
       data: {
@@ -470,7 +519,7 @@ export const toggleDocumentHandler = async (req, res) => {
         canSkip: !handledByAdvisor
       }
     });
-    
+
   } catch (error) {
     console.error("Toggle document handler error:", error);
     return res.status(500).json({ success: false, message: error.message });
@@ -484,33 +533,33 @@ export const verifyDocument = async (req, res) => {
   try {
     const { id } = req.params;
     const { qualityScore } = req.body;
-    
+
     const document = await Document.findById(id);
     if (!document) {
       return res.status(404).json({ success: false, message: "Document not found" });
     }
-    
+
     if (document.verificationStatus !== 'pending') {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Document is already ${document.verificationStatus}` 
+      return res.status(400).json({
+        success: false,
+        message: `Document is already ${document.verificationStatus}`
       });
     }
-    
+
     await document.verify(req.user._id, qualityScore);
-    
+
     // Update case document requirement
     const docRequirement = await CaseDocumentRequirement.findOne({
       caseId: document.entityId,
       documentKey: document.documentKey,
       isDeleted: false
     });
-    
+
     if (docRequirement) {
       docRequirement.isVerified = true;
       docRequirement.verifiedAt = new Date();
       await docRequirement.save();
-      
+
       // Update case summary
       await updateCaseDocumentSummary(document.entityId);
     }
@@ -525,11 +574,11 @@ export const verifyDocument = async (req, res) => {
       ...actorFromReq(req, 'ops'),
       metadata: { caseId: document.entityId.toString() }
     });
-    
+
     await HistoryService.logDocumentActivity(document, 'DOCUMENT_VERIFIED', await getUserInfo(req), {
       description: `Document ${document.fileName} verified`,
     });
-    
+
     return res.status(200).json({ success: true, message: "Document verified", data: document });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -543,28 +592,28 @@ export const rejectDocument = async (req, res) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
-    
+
     const document = await Document.findById(id);
     if (!document) {
       return res.status(404).json({ success: false, message: "Document not found" });
     }
-    
+
     if (document.verificationStatus !== 'pending') {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Document is already ${document.verificationStatus}` 
+      return res.status(400).json({
+        success: false,
+        message: `Document is already ${document.verificationStatus}`
       });
     }
-    
+
     await document.reject(req.user._id, reason || 'Document rejected');
-    
+
     // Update case document requirement
     const docRequirement = await CaseDocumentRequirement.findOne({
       caseId: document.entityId,
       documentKey: document.documentKey,
       isDeleted: false
     });
-    
+
     if (docRequirement) {
       docRequirement.isVerified = false;
       docRequirement.rejectionReason = reason;
@@ -616,16 +665,16 @@ export const rejectDocument = async (req, res) => {
         });
       }
     }
-    
+
     await HistoryService.logDocumentActivity(document, 'DOCUMENT_REJECTED', await getUserInfo(req), {
       description: `Document ${document.fileName} rejected`,
       notes: reason,
     });
-    
-    return res.status(200).json({ 
-      success: true, 
-      message: "Document rejected. User can re-upload.", 
-      data: document 
+
+    return res.status(200).json({
+      success: true,
+      message: "Document rejected. User can re-upload.",
+      data: document
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -638,31 +687,31 @@ export const rejectDocument = async (req, res) => {
 export const deleteDocument = async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const document = await Document.findById(id);
     if (!document) {
       return res.status(404).json({ success: false, message: "Document not found" });
     }
-    
+
     await document.softDelete(req.user._id);
-    
+
     // Update case document requirement
     const docRequirement = await CaseDocumentRequirement.findOne({
       caseId: document.entityId,
       documentKey: document.documentKey,
       isDeleted: false
     });
-    
+
     if (docRequirement) {
       docRequirement.isUploaded = false;
       docRequirement.documentId = null;
       docRequirement.uploadedAt = null;
       await docRequirement.save();
-      
+
       // Update case summary
       await updateCaseDocumentSummary(document.entityId);
     }
-    
+
     return res.status(200).json({ success: true, message: "Document deleted" });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });

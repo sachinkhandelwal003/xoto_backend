@@ -8,7 +8,7 @@ import puppeteer from 'puppeteer';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import s3 from '../../../config/s3Client.js';
 import { buildProposalHTML } from '../utils/proposalPDF.js';
-import { emitVaultNotification } from '../services/vaultNotification.service.js';
+import { emitVaultNotification, dispatchVaultNotification } from '../services/vaultNotification.service.js';
 import { logAudit, actorFromReq } from '../services/auditLog.service.js';
 
 // =============================================================
@@ -318,14 +318,13 @@ export const createProposal = async (req, res) => {
       status: 'Draft',
     });
 
-    emitVaultNotification({
+    await dispatchVaultNotification(req, {
       eventType:     'PROPOSAL_CREATED',
       title:         'New Proposal Created',
       message:       `${proposalReference} — created by ${userName} (${userRole})`,
       entityId:      proposal._id,
       entityModel:   'Proposal',
-      createdByName: userName,
-      createdByRole: userRole,
+      leadId,
     });
 
     await logAudit({

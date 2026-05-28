@@ -6,11 +6,11 @@ import mongoose from 'mongoose';
 
 const clientPersonalSchema = new mongoose.Schema(
   {
-    fullName:         { type: String, required: true },
-    email:            { type: String, required: true, lowercase: true },
-    mobile:           { type: String, required: true },
-    nationality:      { type: String, required: true },
-    residencyStatus:  { type: String, enum: ['UAE National', 'UAE Resident', 'Non-Resident'], required: true },
+    fullName: { type: String, required: true },
+    email: { type: String, required: true, lowercase: true },
+    mobile: { type: String, required: true },
+    nationality: { type: String, required: true },
+    residencyStatus: { type: String, enum: ['UAE National', 'UAE Resident', 'Non-Resident'], required: true },
     employmentStatus: { type: String, enum: ['Salaried', 'Self-Employed'], required: true },
   },
   { _id: false }
@@ -18,8 +18,8 @@ const clientPersonalSchema = new mongoose.Schema(
 
 const propertySchema = new mongoose.Schema(
   {
-    propertyValue:   { type: Number, required: true },
-    loanAmount:      { type: Number, required: true },
+    propertyValue: { type: Number, required: true },
+    loanAmount: { type: Number, required: true },
     propertyAddress: {
       area: { type: String, required: true },
       city: { type: String, default: 'Dubai' },
@@ -30,28 +30,28 @@ const propertySchema = new mongoose.Schema(
 
 const bankSelectionSchema = new mongoose.Schema(
   {
-    bankId:       { type: mongoose.Schema.Types.ObjectId, ref: 'Bank', required: true },
-    bankName:     { type: String, required: true },
-    productId:    { type: mongoose.Schema.Types.ObjectId, ref: 'BankMortgageProducts', required: true },
-    productName:  { type: String, required: true },
+    bankId: { type: mongoose.Schema.Types.ObjectId, ref: 'Bank', required: true },
+    bankName: { type: String, required: true },
+    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'BankMortgageProducts', required: true },
+    productName: { type: String, required: true },
     interestRate: { type: Number, required: true },
-    tenureYears:  { type: Number, required: true, default: 25 },
-    monthlyEMI:   { type: Number, required: true },
+    tenureYears: { type: Number, required: true, default: 25 },
+    monthlyEMI: { type: Number, required: true },
   },
   { _id: false }
 );
 
 const eligibilitySnapshotSchema = new mongoose.Schema(
   {
-    checkedAt:             { type: Date,    default: null },
-    isEligible:            { type: Boolean, default: false },
-    dbrPercentage:         { type: Number,  default: 0 },
-    dbrStatus:             { type: String,  enum: ['Eligible', 'Borderline', 'Ineligible', 'Not Checked'], default: 'Not Checked' },
-    estimatedLTV:          { type: Number,  default: 0 },
-    eligibilityScore:      { type: Number,  default: 0 },
-    riskGrade:             { type: String,  default: null },
-    recommendedLoanAmount: { type: Number,  default: 0 },
-    eligibilityNotes:      { type: String,  default: null },
+    checkedAt: { type: Date, default: null },
+    isEligible: { type: Boolean, default: false },
+    dbrPercentage: { type: Number, default: 0 },
+    dbrStatus: { type: String, enum: ['Eligible', 'Borderline', 'Ineligible', 'Not Checked'], default: 'Not Checked' },
+    estimatedLTV: { type: Number, default: 0 },
+    eligibilityScore: { type: Number, default: 0 },
+    riskGrade: { type: String, default: null },
+    recommendedLoanAmount: { type: Number, default: 0 },
+    eligibilityNotes: { type: String, default: null },
   },
   { _id: false }
 );
@@ -62,21 +62,22 @@ const eligibilitySnapshotSchema = new mongoose.Schema(
 // Partner cases: handledBy = Partner (no Ops involved)
 const documentSummarySchema = new mongoose.Schema(
   {
-    totalRequired:        { type: Number,  default: 0 },
-    uploadedCount:        { type: Number,  default: 0 },
-    verifiedCount:        { type: Number,  default: 0 },
-    completionPercentage: { type: Number,  default: 0 },
-    allUploaded:          { type: Boolean, default: false },
-    allVerified:          { type: Boolean, default: false },
+    totalRequired: { type: Number, default: 0 },
+    uploadedCount: { type: Number, default: 0 },
+    verifiedCount: { type: Number, default: 0 },
+    completionPercentage: { type: Number, default: 0 },
+    allUploaded: { type: Boolean, default: false },
+    allVerified: { type: Boolean, default: false },
     // Advisor-handled docs (customer documents)
-    advisorRequired:      { type: Number,  default: 0 },
-    advisorUploaded:      { type: Number,  default: 0 },
+    advisorRequired: { type: Number, default: 0 },
+    advisorUploaded: { type: Number, default: 0 },
     // Ops-handled docs (bank forms — advisor cases only)
-    opsRequired:          { type: Number,  default: 0 },
-    opsUploaded:          { type: Number,  default: 0 },
+    opsRequired: { type: Number, default: 0 },
+    opsUploaded: { type: Number, default: 0 },
     // Partner-handled docs (partner cases only — no Ops involved)
-    partnerRequired:      { type: Number,  default: 0 },
-    partnerUploaded:      { type: Number,  default: 0 },
+    // Other-handled docs (partner / partner agent / external users)
+    otherRequired: { type: Number, default: 0 },
+    otherUploaded: { type: Number, default: 0 },
   },
   { _id: false }
 );
@@ -88,18 +89,18 @@ const opsQueueSchema = new mongoose.Schema(
   {
     enteredQueueAt: { type: Date, default: null },
     pickedUpBy: {
-      opsId:      { type: mongoose.Schema.Types.ObjectId, ref: 'MortgageOps', default: null },
-      opsName:    { type: String, default: null },
-      pickedUpAt: { type: Date,   default: null },
+      opsId: { type: mongoose.Schema.Types.ObjectId, ref: 'MortgageOps', default: null },
+      opsName: { type: String, default: null },
+      pickedUpAt: { type: Date, default: null },
     },
     returnedToQueue: {
-      returnedAt: { type: Date,   default: null },
+      returnedAt: { type: Date, default: null },
       returnedBy: { type: String, default: null },
-      reason:     { type: String, default: null },
+      reason: { type: String, default: null },
     },
     returnCount: { type: Number, default: 0 },
     adminAssigned: {
-      assignedAt: { type: Date,   default: null },
+      assignedAt: { type: Date, default: null },
       assignedBy: { type: String, default: null },
     },
   },
@@ -109,11 +110,11 @@ const opsQueueSchema = new mongoose.Schema(
 // ── Bank Decision ─────────────────────────────────────────────────
 const bankDecisionSchema = new mongoose.Schema(
   {
-    status:          { type: String, enum: ['Pending', 'Approved', 'Rejected', 'Conditional'], default: 'Pending' },
-    approvedAmount:  { type: Number, default: null },
-    approvedRate:    { type: Number, default: null },
-    decisionDate:    { type: Date,   default: null },
-    decisionNotes:   { type: String, default: null },
+    status: { type: String, enum: ['Pending', 'Approved', 'Rejected', 'Conditional'], default: 'Pending' },
+    approvedAmount: { type: Number, default: null },
+    approvedRate: { type: Number, default: null },
+    decisionDate: { type: Date, default: null },
+    decisionNotes: { type: String, default: null },
     rejectionReason: { type: String, default: null },
   },
   { _id: false }
@@ -124,13 +125,13 @@ const bankDecisionSchema = new mongoose.Schema(
 // disbursedAmount triggers commission creation
 const disbursementInfoSchema = new mongoose.Schema(
   {
-    disbursedAmount:   { type: Number,  default: null }, // actual amount disbursed
-    approvedAmount:    { type: Number,  default: null }, // bank approved amount
-    disbursementDate:  { type: Date,    default: null },
-    disbursedTo:       { type: String,  default: null }, // developer / seller / existing bank
-    disbursementRef:   { type: String,  default: null }, // bank transfer reference
-    confirmedByOps:    { type: Boolean, default: false },
-    confirmedByOpsAt:  { type: Date,    default: null },
+    disbursedAmount: { type: Number, default: null }, // actual amount disbursed
+    approvedAmount: { type: Number, default: null }, // bank approved amount
+    disbursementDate: { type: Date, default: null },
+    disbursedTo: { type: String, default: null }, // developer / seller / existing bank
+    disbursementRef: { type: String, default: null }, // bank transfer reference
+    confirmedByOps: { type: Boolean, default: false },
+    confirmedByOpsAt: { type: Date, default: null },
   },
   { _id: false }
 );
@@ -138,16 +139,16 @@ const disbursementInfoSchema = new mongoose.Schema(
 // ── Timeline ──────────────────────────────────────────────────────
 const timelineSchema = new mongoose.Schema(
   {
-    createdAt:           { type: Date, default: Date.now },
-    submittedToXotoAt:   { type: Date, default: null }, // advisor cases only
-    assignedToOpsAt:     { type: Date, default: null }, // advisor cases only
-    submittedToBankAt:   { type: Date, default: null }, // both flows
-    preApprovedAt:       { type: Date, default: null },
-    valuationAt:         { type: Date, default: null },
-    folProcessedAt:      { type: Date, default: null },
-    folIssuedAt:         { type: Date, default: null },
-    folSignedAt:         { type: Date, default: null },
-    disbursedAt:         { type: Date, default: null },
+    createdAt: { type: Date, default: Date.now },
+    submittedToXotoAt: { type: Date, default: null }, // advisor cases only
+    assignedToOpsAt: { type: Date, default: null }, // advisor cases only
+    submittedToBankAt: { type: Date, default: null }, // both flows
+    preApprovedAt: { type: Date, default: null },
+    valuationAt: { type: Date, default: null },
+    folProcessedAt: { type: Date, default: null },
+    folIssuedAt: { type: Date, default: null },
+    folSignedAt: { type: Date, default: null },
+    disbursedAt: { type: Date, default: null },
   },
   { _id: false }
 );
@@ -165,6 +166,9 @@ const caseSchema = new mongoose.Schema(
     // Proposal is optional — case can be created directly from qualified lead
     proposalId: { type: mongoose.Schema.Types.ObjectId, ref: 'Proposal', default: null },
 
+    // Parent partner organization (if created by a partner or partner agent)
+    partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Partner', default: null },
+
     // Who created this case
     // ALL cases go through Ops queue before bank submission
     // role: 'advisor'                  → Draft → Xoto → Ops Queue → Ops Review → Bank
@@ -172,24 +176,24 @@ const caseSchema = new mongoose.Schema(
     // role: 'partner_affiliated_agent' → Draft → Xoto → Ops Queue → Ops Review → Bank
     // role: 'admin'                    → admin-created, same flow
     createdBy: {
-      role:      { type: String, enum: ['advisor', 'partner', 'admin', 'partner_affiliated_agent'], required: true },
-      userId:    { type: mongoose.Schema.Types.ObjectId, required: true },
-      userName:  { type: String, required: true },
-      createdAt: { type: Date,   default: Date.now },
+      role: { type: String, enum: ['advisor', 'partner', 'admin', 'partner_affiliated_agent'], required: true },
+      userId: { type: mongoose.Schema.Types.ObjectId, required: true },
+      userName: { type: String, required: true },
+      createdAt: { type: Date, default: Date.now },
     },
 
     // Advisor-only: if true, bank form docs stay with Ops; advisor only uploads global docs
     advisorSkipBankForm: { type: Boolean, default: false },
 
-    clientInfo:          { type: clientPersonalSchema,      required: true },
-    propertyInfo:        { type: propertySchema,            required: true },
-    bankSelection:       { type: bankSelectionSchema,       required: true },
+    clientInfo: { type: clientPersonalSchema, required: true },
+    propertyInfo: { type: propertySchema, required: true },
+    bankSelection: { type: bankSelectionSchema, required: true },
     eligibilitySnapshot: { type: eligibilitySnapshotSchema, default: () => ({}) },
-    documentSummary:     { type: documentSummarySchema,     default: () => ({}) },
-    opsQueue:            { type: opsQueueSchema,            default: () => ({}) },
-    timeline:            { type: timelineSchema,            default: () => ({ createdAt: new Date() }) },
-    bankDecision:        { type: bankDecisionSchema,        default: () => ({}) },
-    disbursementInfo:    { type: disbursementInfoSchema,    default: () => ({}) },
+    documentSummary: { type: documentSummarySchema, default: () => ({}) },
+    opsQueue: { type: opsQueueSchema, default: () => ({}) },
+    timeline: { type: timelineSchema, default: () => ({ createdAt: new Date() }) },
+    bankDecision: { type: bankDecisionSchema, default: () => ({}) },
+    disbursementInfo: { type: disbursementInfoSchema, default: () => ({}) },
 
     // ── Status ───────────────────────────────────────────────────
     // ALL roles follow the same flow:
@@ -224,26 +228,26 @@ const caseSchema = new mongoose.Schema(
     internalNotes: [{ type: String }],
     customerNotes: [{ type: String }],
 
-    advisorSubmittedAt:  { type: Date,   default: null },
-    resubmissionCount:   { type: Number, default: 0 },
-    notesToOps:          { type: String, default: null },
+    advisorSubmittedAt: { type: Date, default: null },
+    resubmissionCount: { type: Number, default: 0 },
+    notesToOps: { type: String, default: null },
 
     bankSubmission: {
-      submittedToBankAt:   { type: Date,   default: null },
+      submittedToBankAt: { type: Date, default: null },
       bankReferenceNumber: { type: String, default: null },
-      bankNotes:           { type: String, default: null },
+      bankNotes: { type: String, default: null },
     },
 
     // Amount tracking (for dashboard)
     amountTracking: {
       requestedAmount: { type: Number, default: null },
-      approvedAmount:  { type: Number, default: null },
+      approvedAmount: { type: Number, default: null },
       disbursedAmount: { type: Number, default: null },
-      amountStatus:    { type: String, enum: ['Pending', 'Partially Approved', 'Approved', 'Disbursed'], default: 'Pending' },
+      amountStatus: { type: String, enum: ['Pending', 'Partially Approved', 'Approved', 'Disbursed'], default: 'Pending' },
     },
 
     isDeleted: { type: Boolean, default: false },
-    deletedAt: { type: Date,    default: null },
+    deletedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
@@ -253,6 +257,7 @@ const caseSchema = new mongoose.Schema(
 // ══════════════════════════════════════════════════════════════════
 caseSchema.index({ caseReference: 1 }, { unique: true });
 caseSchema.index({ sourceLeadId: 1 });
+caseSchema.index({ partnerId: 1 });
 caseSchema.index({ currentStatus: 1 });
 caseSchema.index({ 'opsQueue.pickedUpBy.opsId': 1 });
 caseSchema.index({ 'createdBy.userId': 1 });
@@ -272,7 +277,7 @@ function calculateEMI(principal, annualRate, tenureYears) {
 // ══════════════════════════════════════════════════════════════════
 // METHOD — Document Summary
 // Aggregates from CaseDocumentRequirement collection
-// Handles all three handler types: Advisor, Ops, Partner
+// Handles all three handler types: Advisor, Ops, Other
 // ══════════════════════════════════════════════════════════════════
 caseSchema.methods.updateDocumentSummary = async function () {
   try {
@@ -282,38 +287,53 @@ caseSchema.methods.updateDocumentSummary = async function () {
       { $match: { caseId: this._id, isDeleted: false } },
       {
         $group: {
-          _id:             null,
-          totalRequired:   { $sum: 1 },
-          uploadedCount:   { $sum: { $cond: ['$isUploaded', 1, 0] } },
-          verifiedCount:   { $sum: { $cond: ['$isVerified', 1, 0] } },
+          _id: null,
+          totalRequired: { $sum: 1 },
+          uploadedCount: { $sum: { $cond: ['$isUploaded', 1, 0] } },
+          verifiedCount: { $sum: { $cond: ['$isVerified', 1, 0] } },
           // Advisor-handled
           advisorRequired: { $sum: { $cond: [{ $eq: ['$handledBy', 'Advisor'] }, 1, 0] } },
           advisorUploaded: { $sum: { $cond: [{ $and: [{ $eq: ['$handledBy', 'Advisor'] }, { $eq: ['$isUploaded', true] }] }, 1, 0] } },
           // Ops-handled (advisor cases only)
-          opsRequired:     { $sum: { $cond: [{ $eq: ['$handledBy', 'Ops'] }, 1, 0] } },
-          opsUploaded:     { $sum: { $cond: [{ $and: [{ $eq: ['$handledBy', 'Ops'] }, { $eq: ['$isUploaded', true] }] }, 1, 0] } },
+          opsRequired: { $sum: { $cond: [{ $eq: ['$handledBy', 'Ops'] }, 1, 0] } },
+          opsUploaded: { $sum: { $cond: [{ $and: [{ $eq: ['$handledBy', 'Ops'] }, { $eq: ['$isUploaded', true] }] }, 1, 0] } },
           // Partner-handled (partner cases only)
-          partnerRequired: { $sum: { $cond: [{ $eq: ['$handledBy', 'Partner'] }, 1, 0] } },
-          partnerUploaded: { $sum: { $cond: [{ $and: [{ $eq: ['$handledBy', 'Partner'] }, { $eq: ['$isUploaded', true] }] }, 1, 0] } },
+          // Other-handled (partner / external creator cases)
+          otherRequired: {
+            $sum: {
+              $cond: [{ $eq: ['$handledBy', 'Other'] }, 1, 0]
+            }
+          },
+
+          otherUploaded: {
+            $sum: {
+              $cond: [{
+                $and: [
+                  { $eq: ['$handledBy', 'Other'] },
+                  { $eq: ['$isUploaded', true] }
+                ]
+              }, 1, 0]
+            }
+          },
         },
       },
     ]);
 
     const s = stats[0] || {};
     this.documentSummary = {
-      totalRequired:        s.totalRequired   || 0,
-      uploadedCount:        s.uploadedCount   || 0,
-      verifiedCount:        s.verifiedCount   || 0,
+      totalRequired: s.totalRequired || 0,
+      uploadedCount: s.uploadedCount || 0,
+      verifiedCount: s.verifiedCount || 0,
       completionPercentage: s.totalRequired > 0
         ? Math.round((s.uploadedCount / s.totalRequired) * 100) : 0,
-      allUploaded:     (s.uploadedCount || 0) > 0 && (s.uploadedCount || 0) === (s.totalRequired || 0),
-      allVerified:     (s.verifiedCount || 0) > 0 && (s.verifiedCount || 0) === (s.totalRequired || 0),
+      allUploaded: (s.uploadedCount || 0) > 0 && (s.uploadedCount || 0) === (s.totalRequired || 0),
+      allVerified: (s.verifiedCount || 0) > 0 && (s.verifiedCount || 0) === (s.totalRequired || 0),
       advisorRequired: s.advisorRequired || 0,
       advisorUploaded: s.advisorUploaded || 0,
-      opsRequired:     s.opsRequired     || 0,
-      opsUploaded:     s.opsUploaded     || 0,
-      partnerRequired: s.partnerRequired || 0,
-      partnerUploaded: s.partnerUploaded || 0,
+      opsRequired: s.opsRequired || 0,
+      opsUploaded: s.opsUploaded || 0,
+      otherRequired: s.otherRequired || 0,
+      otherUploaded: s.otherUploaded || 0,
     };
 
     await this.save();
@@ -332,7 +352,13 @@ caseSchema.methods.updateDocumentSummary = async function () {
 caseSchema.methods.isReadyForSubmission = async function () {
   try {
     const CaseDocumentRequirement = mongoose.model('CaseDocumentRequirement');
-    const matchQuery = { caseId: this._id, handledBy: 'Advisor', isUploaded: false, isDeleted: false };
+    const isOtherRole =
+      ['partner', 'partner_affiliated_agent']
+        .includes(this.createdBy.role);
+
+    const handler =
+      isOtherRole ? 'Other' : 'Advisor';
+    const matchQuery = { caseId: this._id, handledBy: handler, isUploaded: false, isDeleted: false };
 
     // Advisor who skipped bank form only needs Global docs uploaded before submitting to Xoto
     if (this.createdBy.role === 'advisor' && this.advisorSkipBankForm) {
@@ -356,9 +382,9 @@ caseSchema.methods.submitToXoto = async function () {
   if (!isReady)
     throw new Error('All required documents must be uploaded before submitting');
 
-  this.currentStatus              = 'Submitted to Xoto';
+  this.currentStatus = 'Submitted to Xoto';
   this.timeline.submittedToXotoAt = new Date();
-  this.advisorSubmittedAt         = new Date();
+  this.advisorSubmittedAt = new Date();
   return this.save();
 };
 
@@ -370,17 +396,17 @@ caseSchema.methods.submitToXoto = async function () {
 caseSchema.methods.enterOpsQueue = async function () {
   if (this.currentStatus !== 'Submitted to Xoto')
     throw new Error('Case must be Submitted to Xoto before entering Ops queue');
-  this.currentStatus           = 'In Ops Queue - Pending Pick-up';
+  this.currentStatus = 'In Ops Queue - Pending Pick-up';
   this.opsQueue.enteredQueueAt = new Date();
-  this.opsQueue.returnCount    = 0;
+  this.opsQueue.returnCount = 0;
   return this.save();
 };
 
 caseSchema.methods.pickUpFromQueue = async function (opsId, opsName) {
   if (this.currentStatus !== 'In Ops Queue - Pending Pick-up')
     throw new Error('Case is not in the Ops queue');
-  this.currentStatus        = 'Assigned - Pending Review';
-  this.opsQueue.pickedUpBy  = { opsId, opsName, pickedUpAt: new Date() };
+  this.currentStatus = 'Assigned - Pending Review';
+  this.opsQueue.pickedUpBy = { opsId, opsName, pickedUpAt: new Date() };
   this.timeline.assignedToOpsAt = new Date();
   return this.save();
 };
@@ -389,18 +415,18 @@ caseSchema.methods.returnToQueue = async function (opsId, opsName, reason) {
   if (this.currentStatus !== 'Assigned - Pending Review')
     throw new Error('Only assigned cases can be returned to queue');
   if (!reason?.trim()) throw new Error('Reason required to return case to queue');
-  this.currentStatus             = 'In Ops Queue - Pending Pick-up';
-  this.opsQueue.returnedToQueue  = { returnedAt: new Date(), returnedBy: opsId, reason };
-  this.opsQueue.returnCount      = (this.opsQueue.returnCount || 0) + 1;
-  this.opsQueue.pickedUpBy       = { opsId: null, opsName: null, pickedUpAt: null };
+  this.currentStatus = 'In Ops Queue - Pending Pick-up';
+  this.opsQueue.returnedToQueue = { returnedAt: new Date(), returnedBy: opsId, reason };
+  this.opsQueue.returnCount = (this.opsQueue.returnCount || 0) + 1;
+  this.opsQueue.pickedUpBy = { opsId: null, opsName: null, pickedUpAt: null };
   return this.save();
 };
 
 caseSchema.methods.adminAssignToOps = async function (opsId, opsName, adminName) {
   if (this.currentStatus !== 'In Ops Queue - Pending Pick-up')
     throw new Error('Case must be in queue for manual assignment');
-  this.currentStatus        = 'Assigned - Pending Review';
-  this.opsQueue.pickedUpBy  = { opsId, opsName, pickedUpAt: new Date() };
+  this.currentStatus = 'Assigned - Pending Review';
+  this.opsQueue.pickedUpBy = { opsId, opsName, pickedUpAt: new Date() };
   this.opsQueue.adminAssigned = { assignedAt: new Date(), assignedBy: adminName };
   this.timeline.assignedToOpsAt = new Date();
   return this.save();
@@ -429,8 +455,8 @@ caseSchema.methods.returnToAdvisor = async function (reason) {
 caseSchema.methods.resubmitAfterCorrection = async function () {
   if (this.currentStatus !== 'Returned - Pending Correction')
     throw new Error('Case must be in Returned status to resubmit');
-  this.currentStatus       = 'Resubmitted-After Correction';
-  this.resubmissionCount   = (this.resubmissionCount || 0) + 1;
+  this.currentStatus = 'Resubmitted-After Correction';
+  this.resubmissionCount = (this.resubmissionCount || 0) + 1;
   return this.save();
 };
 
@@ -442,14 +468,14 @@ caseSchema.methods.submitToBank = async function (bankRef, bankNotes) {
   const allowedStatuses = ['Under Review', 'Assigned - Pending Review', 'Submitted to Xoto'];
   if (!allowedStatuses.includes(this.currentStatus))
     throw new Error(`Cannot submit to bank from status: ${this.currentStatus}`);
-if (!this.documentSummary.allVerified)
-  throw new Error('All documents must be verified before bank submission');
+  if (!this.documentSummary.allVerified)
+    throw new Error('All documents must be verified before bank submission');
 
-  this.currentStatus                    = 'Submitted to Bank';
-  this.timeline.submittedToBankAt       = new Date();
+  this.currentStatus = 'Submitted to Bank';
+  this.timeline.submittedToBankAt = new Date();
   this.bankSubmission.submittedToBankAt = new Date();
-  if (bankRef)   this.bankSubmission.bankReferenceNumber = bankRef;
-  if (bankNotes) this.bankSubmission.bankNotes           = bankNotes;
+  if (bankRef) this.bankSubmission.bankReferenceNumber = bankRef;
+  if (bankNotes) this.bankSubmission.bankNotes = bankNotes;
   return this.save();
 };
 
@@ -465,24 +491,24 @@ caseSchema.methods.updateBankStatus = async function (status, data = {}) {
   this.currentStatus = status;
 
   if (status === 'Pre-Approved') {
-    this.timeline.preApprovedAt          = new Date();
-    this.bankDecision.status             = 'Approved';
-    this.bankDecision.approvedAmount     = data.approvedAmount || null;
-    this.bankDecision.approvedRate       = data.approvedRate   || null;
-    this.bankDecision.decisionDate       = new Date();
-    this.bankDecision.decisionNotes      = data.notes          || null;
+    this.timeline.preApprovedAt = new Date();
+    this.bankDecision.status = 'Approved';
+    this.bankDecision.approvedAmount = data.approvedAmount || null;
+    this.bankDecision.approvedRate = data.approvedRate || null;
+    this.bankDecision.decisionDate = new Date();
+    this.bankDecision.decisionNotes = data.notes || null;
     this.disbursementInfo.approvedAmount = data.approvedAmount || null;
-    this.amountTracking.approvedAmount   = data.approvedAmount || null;
-    this.amountTracking.amountStatus     = 'Approved';
+    this.amountTracking.approvedAmount = data.approvedAmount || null;
+    this.amountTracking.amountStatus = 'Approved';
   }
-  if (status === 'Valuation')     this.timeline.valuationAt    = new Date();
+  if (status === 'Valuation') this.timeline.valuationAt = new Date();
   if (status === 'FOL Processed') this.timeline.folProcessedAt = new Date();
-  if (status === 'FOL Issued')    this.timeline.folIssuedAt    = new Date();
-  if (status === 'FOL Signed')    this.timeline.folSignedAt    = new Date();
+  if (status === 'FOL Issued') this.timeline.folIssuedAt = new Date();
+  if (status === 'FOL Signed') this.timeline.folSignedAt = new Date();
   if (status === 'Rejected') {
-    this.bankDecision.status          = 'Rejected';
+    this.bankDecision.status = 'Rejected';
     this.bankDecision.rejectionReason = data.reason || null;
-    this.bankDecision.decisionDate    = new Date();
+    this.bankDecision.decisionDate = new Date();
   }
 
   return this.save();
@@ -495,16 +521,16 @@ caseSchema.methods.markDisbursed = async function (disbursedAmount, disbursement
   if (this.currentStatus !== 'FOL Signed')
     throw new Error('Case must be FOL Signed before marking disbursed');
 
-  this.currentStatus                      = 'Disbursed';
-  this.timeline.disbursedAt               = new Date();
-  this.disbursementInfo.disbursedAmount   = disbursedAmount;
-  this.disbursementInfo.disbursementDate  = new Date();
-  this.disbursementInfo.disbursementRef   = disbursementRef || null;
-  this.disbursementInfo.disbursedTo       = disbursedTo     || null;
-  this.disbursementInfo.confirmedByOps    = true;
-  this.disbursementInfo.confirmedByOpsAt  = new Date();
-  this.amountTracking.disbursedAmount     = disbursedAmount;
-  this.amountTracking.amountStatus        = 'Disbursed';
+  this.currentStatus = 'Disbursed';
+  this.timeline.disbursedAt = new Date();
+  this.disbursementInfo.disbursedAmount = disbursedAmount;
+  this.disbursementInfo.disbursementDate = new Date();
+  this.disbursementInfo.disbursementRef = disbursementRef || null;
+  this.disbursementInfo.disbursedTo = disbursedTo || null;
+  this.disbursementInfo.confirmedByOps = true;
+  this.disbursementInfo.confirmedByOpsAt = new Date();
+  this.amountTracking.disbursedAmount = disbursedAmount;
+  this.amountTracking.amountStatus = 'Disbursed';
 
   return this.save();
 };

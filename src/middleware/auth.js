@@ -85,14 +85,17 @@ exports.createToken = (user, type) => {
   };
 
   // ⭐ ADDED: Agar user Agent, Agency ya Freelancer hai, toh uska detail bhi token mein daal do
-  if (["agent", "agency", "freelancer", "vendorb2c", "vendorb2b", "developer", "gridadvisor"  ].includes(detectedType)) {
+  if (["agent",  "vaultagent",
+ "agency", "freelancer", "vendorb2c", "vendorb2b", "developer", "gridadvisor"  ].includes(detectedType)) {
     if (user.first_name) payload.first_name = user.first_name;
     if (user.last_name) payload.last_name = user.last_name;
     if (user.phone_number) payload.phone_number = user.phone_number;
     if (user.country_code) payload.country_code = user.country_code;
     if (user.profile_photo) payload.profile_photo = user.profile_photo;
     // Agar company logo ho (Developer/Agency ke liye)
-    if (user.logo) payload.logo = user.logo; 
+    if (user.logo) payload.logo = user.logo;
+     if (user.agentType)
+  payload.agentType = user.agentType; 
     // For Agency, add companyName
     if (detectedType === "agency" && user.companyName) {
       payload.companyName = user.companyName;
