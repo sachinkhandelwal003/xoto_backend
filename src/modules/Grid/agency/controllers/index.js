@@ -39,6 +39,42 @@ const agencyWelcomeEmail = ({ companyName, primaryContactEmail, tempPassword }) 
   </div>
 `;
 
+const agentApprovalEmail = ({ agentName, agentEmail, agencyName }) => `
+  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <h2>Welcome to Xoto, ${agentName}!</h2>
+    <p>Your agent account has been approved by ${agencyName}. You can now log in to Xoto!</p>
+    <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+      <p><strong>Email:</strong> ${agentEmail}</p>
+    </div>
+    <p>— Xoto Team</p>
+  </div>
+`;
+
+const agentDeclineEmail = ({ agentName, agencyName, reason }) => `
+  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <h2>Your Xoto Agent Application Update</h2>
+    <p>Hi ${agentName}, your agent application with ${agencyName} has been declined.</p>
+    ${reason ? `<div style="background: #fef2f2; padding: 20px; border-radius: 8px; margin: 20px 0;"><p><strong>Reason:</strong> ${reason}</p></div>` : ''}
+    <p>— Xoto Team</p>
+  </div>
+`;
+
+const agentSuspendEmail = ({ agentName, agencyName }) => `
+  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <h2>Your Xoto Agent Account Suspended</h2>
+    <p>Hi ${agentName}, your agent account with ${agencyName} has been suspended.</p>
+    <p>— Xoto Team</p>
+  </div>
+`;
+
+const agentUnsuspendEmail = ({ agentName, agencyName }) => `
+  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <h2>Your Xoto Agent Account Reactivated</h2>
+    <p>Hi ${agentName}, your agent account with ${agencyName} has been reactivated! You can now log in to Xoto again.</p>
+    <p>— Xoto Team</p>
+  </div>
+`;
+
 // ── AUTH ────────────────────────────────────────────────────────────────────
 
 const getPagination = (query, defaults = {}) => {
@@ -729,7 +765,7 @@ exports.registerAgent = asyncHandler(async (req, res) => {
     profile_photo: profile_photo || profilePhotoUrl || "",
 
     agencyApprovalStatus: "pending",
-    adminApprovalStatus: "pending",
+    adminApprovalStatus: "approved",
     onboarding_status: "pending",
   });
 
@@ -742,7 +778,7 @@ exports.registerAgent = asyncHandler(async (req, res) => {
   res.status(201).json({
     status: "success",
     message:
-      "Registration submitted. Awaiting agency and admin approval.",
+      "Registration submitted. Awaiting agency approval.",
     data: agent,
   });
 });
@@ -1008,7 +1044,24 @@ exports.approveAgent = asyncHandler(async (req, res) => {
   agent.agencyApprovedAt = new Date();
   agent.adminApprovalStatus = 'approved';
   agent.adminApprovedAt = new Date();
+  agent.onboarding_status = 'approved';
+  agent.isActive = true;
   await agent.save();
+
+  try {
+    const agentName = agent.fullName || `${agent.first_name || ''} ${agent.last_name || ''}`.trim();
+    await sendEmail({
+      to: agent.email,
+      subject: 'Your Xoto Agent Account Approved!',
+      html: agentApprovalEmail({
+        agentName,
+        agentEmail: agent.email,
+        agencyName: req.agency.companyName
+      })
+    });
+  } catch (emailErr) {
+    console.error('[Agent Approval Email Error]', emailErr.message);
+  }
 
   res.status(200).json({
     status: 'success',
@@ -1037,6 +1090,21 @@ exports.declineAgent = asyncHandler(async (req, res) => {
   agent.agencyDeclinedAt = new Date();
   agent.agencyDeclineNote = reason || 'No reason provided';
   await agent.save();
+
+  try {
+    const agentName = agent.fullName || `${agent.first_name || ''} ${agent.last_name || ''}`.trim();
+    await sendEmail({
+      to: agent.email,
+      subject: 'Your Xoto Agent Application Update',
+      html: agentDeclineEmail({
+        agentName,
+        agencyName: req.agency.companyName,
+        reason: agent.agencyDeclineNote
+      })
+    });
+  } catch (emailErr) {
+    console.error('[Agent Decline Email Error]', emailErr.message);
+  }
 
   res.status(200).json({
     status: 'success',
@@ -1072,6 +1140,95 @@ exports.flagAgent = asyncHandler(async (req, res) => {
   res.status(200).json({
     status: 'success',
     message: 'Agent flagged for Xoto admin review',
+    data: agent,
+  });
+});
+
+/**
+ * PATCH /agency/agents/:agentId/suspend
+ */
+exports.suspendAgent = asyncHandler(async (req, res) => {
+  const { reason } = req.body;
+
+  const agent = await Agent.findOne({
+    _id: req.params.agentId,
+    agency: req.agency._id,
+  });
+
+  if (!agent) {
+    throw new APIError('Agent not found', StatusCodes.NOT_FOUND);
+  }
+
+  if (!agent.isActive) {
+    throw new APIError('Agent is already suspended', StatusCodes.BAD_REQUEST);
+  }
+
+  agent.isActive = false;
+  agent.suspendedAt = new Date();
+  agent.suspendedByAgency = req.agency._id;
+  agent.suspendReason = reason || 'No reason provided';
+  await agent.save();
+
+  try {
+    const agentName = agent.fullName || `${agent.first_name || ''} ${agent.last_name || ''}`.trim();
+    await sendEmail({
+      to: agent.email,
+      subject: 'Your Xoto Agent Account Suspended',
+      html: agentSuspendEmail({
+        agentName,
+        agencyName: req.agency.companyName
+      })
+    });
+  } catch (emailErr) {
+    console.error('[Agent Suspend Email Error]', emailErr.message);
+  }
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Agent suspended successfully',
+    data: agent,
+  });
+});
+
+/**
+ * PATCH /agency/agents/:agentId/unsuspend
+ */
+exports.unsuspendAgent = asyncHandler(async (req, res) => {
+  const agent = await Agent.findOne({
+    _id: req.params.agentId,
+    agency: req.agency._id,
+  });
+
+  if (!agent) {
+    throw new APIError('Agent not found', StatusCodes.NOT_FOUND);
+  }
+
+  if (agent.isActive) {
+    throw new APIError('Agent is not suspended', StatusCodes.BAD_REQUEST);
+  }
+
+  agent.isActive = true;
+  agent.unsuspendedAt = new Date();
+  agent.unsuspendedByAgency = req.agency._id;
+  await agent.save();
+
+  try {
+    const agentName = agent.fullName || `${agent.first_name || ''} ${agent.last_name || ''}`.trim();
+    await sendEmail({
+      to: agent.email,
+      subject: 'Your Xoto Agent Account Reactivated',
+      html: agentUnsuspendEmail({
+        agentName,
+        agencyName: req.agency.companyName
+      })
+    });
+  } catch (emailErr) {
+    console.error('[Agent Unsuspend Email Error]', emailErr.message);
+  }
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Agent unsuspended successfully',
     data: agent,
   });
 });

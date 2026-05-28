@@ -1090,7 +1090,10 @@ const getAgencyAgentIds = async (agencyId, includePending = true) => {
 exports.getAgentOwnLeads = asyncHandler(async (req, res) => {
   let agentIds;
   
-  if (req.user.constructor.modelName === 'Agency') {
+  // Check if user is Agency (either via model name or by checking if it has companyName field)
+  const isAgency = req.user.constructor.modelName === 'Agency' || (req.user.companyName && !req.user.agency);
+  
+  if (isAgency) {
     agentIds = await getAgencyAgentIds(req.user._id);
   } else {
     agentIds = [req.user._id];
