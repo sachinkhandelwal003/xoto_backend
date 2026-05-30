@@ -6,15 +6,29 @@ import mongoose from 'mongoose';
 
 const clientPersonalSchema = new mongoose.Schema(
   {
-    fullName:         { type: String, default: null },
-    email:            { type: String, default: null, lowercase: true },
-    mobile:           { type: String, default: null },
-    nationality:      { type: String, default: null },
-    residencyStatus:  { type: String, default: null },
-    employmentStatus: { type: String, default: null },
-    dateOfBirth:      { type: Date,   default: null },
-    employer:         { type: String, default: null },
-    monthlySalary:    { type: Number, default: null },
+    // Name — stored both split and combined for display flexibility
+    firstName:          { type: String, default: null },
+    lastName:           { type: String, default: null },
+    fullName:           { type: String, default: null },
+
+    email:              { type: String, default: null, lowercase: true },
+    phone:              { type: String, default: null }, // primary mobile
+    mobile:             { type: String, default: null }, // alias
+    nationality:        { type: String, default: null },
+    residencyStatus:    { type: String, enum: ['UAE National', 'UAE Resident', 'Non-Resident', null], default: null },
+    employmentStatus:   { type: String, enum: ['Salaried', 'Self-Employed', null], default: null },
+    dateOfBirth:        { type: Date,   default: null },
+    employer:           { type: String, default: null },
+
+    // Financial profile (PRD 5.3 Step 1)
+    monthlySalary:         { type: Number, default: null },
+    fixedMonthlySalary:    { type: Number, default: null }, // alias used in PRD
+    salaryBankName:        { type: String, default: null }, // bank where salary is received
+    existingLiabilities:   { type: Number, default: null }, // total existing monthly debt obligations AED
+
+    // Mortgage preferences (PRD 5.3 Step 1)
+    mortgageTerm:          { type: Number, default: 25 },  // years 5–25
+    feeFinancingRequired:  { type: Boolean, default: false },
   },
   { _id: false }
 );
@@ -237,9 +251,40 @@ const caseSchema = new mongoose.Schema(
     internalNotes: [{ type: String }],
     customerNotes: [{ type: String }],
 
+    // PRD 5.3 — notes at submit time (visible to advisor/partner)
+    submissionNotes: { type: String, default: null },
+
+    // Ops-only internal notes — NOT visible to Advisor/Partner
+    opsNotes: { type: String, default: null },
+
+    // Mandatory correction notes sent back to Advisor/Partner when case is returned
+    returnedToSubmitterNotes: { type: String, default: null },
+
     advisorSubmittedAt: { type: Date, default: null },
     resubmissionCount: { type: Number, default: 0 },
     notesToOps: { type: String, default: null },
+
+    // Full status audit trail — auto-appended on every status change
+    statusHistory: [
+      {
+        status:      { type: String },
+        changedAt:   { type: Date,   default: Date.now },
+        changedBy:   { type: mongoose.Schema.Types.ObjectId },
+        changedByName: { type: String, default: null },
+        changedByRole: { type: String, default: null },
+        notes:       { type: String, default: null },
+      },
+    ],
+
+    // PRD tracks bank form download events
+    bankFormsDownloadLog: [
+      {
+        formId:         { type: String },
+        downloadedBy:   { type: mongoose.Schema.Types.ObjectId },
+        downloadedByName: { type: String, default: null },
+        downloadedAt:   { type: Date, default: Date.now },
+      },
+    ],
 
     bankSubmission: {
       submittedToBankAt: { type: Date, default: null },

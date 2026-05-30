@@ -12,6 +12,8 @@ const {
 
   // Verification
   verifyAgent,
+  verifyAgentDocument,
+  setCommissionEligible,
 
   // Management
   suspendAgent,
@@ -24,10 +26,6 @@ const {
   getAgentProfile,
   updateAgentProfile,
   changePassword,
-
-  // Commission
-  setAgentInternalCommission,
-  setPartnerDefaultAgentCommission,
 
 } = require('../controllers/agent.controller');
 const { protect, protectPartner, protectVaultAgent, protectMulti } = require('../../../middleware/auth');
@@ -44,13 +42,15 @@ router.post('/reset-password/:token', resetPassword);
 router.post('/admin/onboard-freelance', protect, adminOnboardFreelanceAgent);
 router.post('/admin/verify/:id', protect, verifyAgent);
 router.get('/admin/all-agents', protect, getAllAgents);
+router.patch('/admin/verify-document/:id',    protect, verifyAgentDocument);
+router.patch('/admin/confirm-commission/:id',  protect, setCommissionEligible);
 
 // ==================== PARTNER ONLY (Role code 21) ====================
 router.post('/partner/onboard-affiliate', protectPartner, partnerOnboardAffiliatedAgent);
 router.post('/partner/verify/:id', protectPartner, verifyAgent);
 router.get('/partner/agents', protectPartner, getAgentsByPartner);
-router.put('/partner/agents/:id/commission', protectPartner, setAgentInternalCommission);
-router.put('/partner/default-commission', protectPartner, setPartnerDefaultAgentCommission);
+router.patch('/partner/verify-document/:id',   protectPartner, verifyAgentDocument);
+router.patch('/partner/confirm-commission/:id', protectPartner, setCommissionEligible);
 
 // ==================== COMMON (Admin, Partner, or Self) ====================
 router.post('/suspend/:id', protectMulti, suspendAgent);

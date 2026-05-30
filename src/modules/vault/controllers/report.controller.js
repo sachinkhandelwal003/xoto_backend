@@ -369,28 +369,98 @@ const getPartnerPerformanceReport = async (caseFilter) => {
 
 // ── 8. COMMISSION REPORT ──────────────────────────────────────────
 const getCommissionReport = async (commissionFilter) => {
-  const list = await Commission.find(commissionFilter).lean();
+  const list = await Commission.find(commissionFilter).sort({ createdAt: -1 }).lean();
 
-  let received = 0;
-  let paidOut = 0;
-  let outstanding = 0;
+  // ── Aggregated totals ──────────────────────────────────────────
+  let totalBankToXoto  = 0;  // sum of bankCommissionToXoto (what Xoto gets from bank)
+  let totalPaidOut     = 0;  // sum of commissionAmount where status=Paid
+  let totalOutstanding = 0;  // sum of commissionAmount where status=Pending/Confirmed
+  let xotoInternalProfit = 0; // admin/website leads — Xoto keeps all
+
+  // ── Breakdown by source type ───────────────────────────────────
+  const bySource   = {};  // referral_partner | partner | partner_affiliated_agent | admin | website
+  const byRecipient = {}; // recipientName → total
 
   list.forEach(c => {
-    // Bank commission
-    received += (c.xotoCommissionReceived || 0);
+    const bank       = c.bankCommissionToXoto || 0;
+    const payout     = c.commissionAmount     || 0;
+    const src        = c.leadSource           || 'admin';
+    const recipName  = c.recipientName        || 'Unknown';
 
-    if (c.status === 'Paid') {
-      paidOut += (c.commissionAmount || 0);
-    } else if (['Pending', 'Confirmed'].includes(c.status)) {
-      outstanding += (c.commissionAmount || 0);
+    totalBankToXoto += bank;
+
+    if (c.isInternal) {
+      xotoInternalProfit += bank; // Xoto keeps all
+    } else if (['Paid', 'Completed'].includes(c.status)) {
+      totalPaidOut += payout;
+    } else if (['Pending', 'Confirmed', 'Processing'].includes(c.status)) {
+      totalOutstanding += payout;
     }
+
+    // Group by source
+    if (!bySource[src]) bySource[src] = { count: 0, bank: 0, payout: 0, xotoProfit: 0 };
+    bySource[src].count++;
+    bySource[src].bank    += bank;
+    bySource[src].payout  += payout;
+    bySource[src].xotoProfit += (bank - payout);
+
+    // Group by recipient
+    if (!byRecipient[recipName]) byRecipient[recipName] = { count: 0, total: 0, role: c.recipientRole };
+    byRecipient[recipName].count++;
+    byRecipient[recipName].total += payout;
   });
 
+  const xotoNetProfit = totalBankToXoto - totalPaidOut;
+
+  // ── Build records table ────────────────────────────────────────
+  const records = list.map(c => ({
+    commissionId:      c.commissionId,
+    caseReference:     c.caseReference,
+    customerName:      c.customerName,
+    leadSource:        c.leadSource,
+    sourceAgentName:   c.sourceAgentName,
+    recipientRole:     c.recipientRole,
+    recipientName:     c.recipientName,
+    loanAmount:        c.loanAmount,
+    loanTier:          c.loanTier,
+    bankCommissionToXoto: c.bankCommissionToXoto,
+    recipientPercentage: c.recipientPercentage,
+    commissionAmount:  c.commissionAmount,
+    xotoEarnings:      c.xotoEarnings?.amount ?? (c.bankCommissionToXoto - c.commissionAmount),
+    calculationFormula: c.calculationFormula,
+    status:            c.status,
+    isInternal:        c.isInternal,
+    disbursedAt:       c.disbursedAt,
+    createdAt:         c.createdAt,
+  }));
+
+  // ── Source breakdown array for chart ──────────────────────────
+  const sourceBreakdown = Object.entries(bySource).map(([source, d]) => ({
+    source: source.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+    rawSource: source,
+    count:      d.count,
+    bank:       Math.round(d.bank),
+    payout:     Math.round(d.payout),
+    xotoProfit: Math.round(d.xotoProfit),
+  }));
+
+  const recipientBreakdown = Object.entries(byRecipient).map(([name, d]) => ({
+    name, role: d.role, count: d.count, total: Math.round(d.total),
+  }));
+
   return {
-    received,
-    paidOut,
-    outstanding,
-    totalRecords: list.length
+    // ── Totals ──
+    totalBankToXoto:    Math.round(totalBankToXoto),
+    totalPaidOut:       Math.round(totalPaidOut),
+    totalOutstanding:   Math.round(totalOutstanding),
+    xotoInternalProfit: Math.round(xotoInternalProfit),
+    xotoNetProfit:      Math.round(xotoNetProfit),
+    totalRecords:       list.length,
+    // ── Breakdowns ──
+    sourceBreakdown,
+    recipientBreakdown,
+    // ── Records table ──
+    records,
   };
 };
 

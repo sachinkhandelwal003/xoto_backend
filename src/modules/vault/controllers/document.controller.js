@@ -488,11 +488,21 @@ export const toggleDocumentHandler = async (req, res) => {
     await docRequirement.save();
 
     // Log the action
-    await HistoryService.logDocumentActivity(null, 'DOCUMENT_HANDLER_TOGGLED', await getUserInfo(req), {
-      description: `${docRequirement.documentName} reassigned from ${docRequirement.handledBy === 'Advisor' ? 'Ops' : 'Advisor'} to ${newHandledBy}`,
-      caseId: caseId,
-      documentKey: documentKey
-    });
+    await HistoryService.logDocumentActivity(
+      {
+        documentId:   docRequirement._id,
+        fileName:     docRequirement.documentName || documentKey,
+        documentType: documentKey,
+        entityType:   'Case',
+      },
+      'DOCUMENT_HANDLER_TOGGLED',
+      await getUserInfo(req),
+      {
+        description: `${docRequirement.documentName || documentKey} reassigned to ${newHandledBy}`,
+        caseId:      caseId,
+        documentKey: documentKey,
+      }
+    );
 
     return res.status(200).json({
       success: true,
@@ -509,6 +519,114 @@ export const toggleDocumentHandler = async (req, res) => {
 
   } catch (error) {
     console.error("Toggle document handler error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/* =====================================
+   TOGGLE SKIP BANK FORMS (Advisor bulk)
+   POST /:caseId/toggle-skip-bank-forms
+
+   Bulk reassigns ALL source='Bank' documents between Advisor and Ops.
+   Also flips advisorSkipBankForm on the Case and recalculates documentSummary.
+===================================== */
+export const toggleSkipBankForms = async (req, res) => {
+  try {
+    const { caseId } = req.params;
+
+    const caseData = await Case.findById(caseId);
+    if (!caseData)
+      return res.status(404).json({ success: false, message: 'Case not found' });
+
+    // Only advisors who created the case can skip bank forms
+    const roleDoc = await Role.findById(req.user.role);
+    if (roleDoc?.code !== '26')
+      return res.status(403).json({ success: false, message: 'Only XOTO Advisors can skip bank forms' });
+
+    if (caseData.createdBy?.role !== 'advisor' || caseData.createdBy?.userId?.toString() !== req.user._id.toString())
+      return res.status(403).json({ success: false, message: 'You can only modify cases you created' });
+
+    if (caseData.currentStatus !== 'Draft')
+      return res.status(400).json({ success: false, message: 'Cannot change bank form assignment after case is submitted' });
+
+    // Determine new state — toggle from current
+    const currentlySkipped = caseData.advisorSkipBankForm === true;
+    const newSkip          = !currentlySkipped;
+    const newHandledBy     = newSkip ? 'Ops' : 'Advisor';
+
+    // Find all bank form document requirements for this case
+    const bankDocs = await CaseDocumentRequirement.find({
+      caseId, source: 'Bank', isDeleted: false,
+    });
+
+    if (bankDocs.length === 0)
+      return res.status(404).json({ success: false, message: 'No bank form documents found for this case' });
+
+    // Check none are already uploaded (can't reassign uploaded docs)
+    const alreadyUploaded = bankDocs.filter(d => d.isUploaded);
+    if (alreadyUploaded.length > 0)
+      return res.status(400).json({
+        success: false,
+        message: `${alreadyUploaded.length} bank form(s) already uploaded — cannot reassign`,
+      });
+
+    // Bulk update handledBy on all bank documents
+    await CaseDocumentRequirement.updateMany(
+      { caseId, source: 'Bank', isDeleted: false },
+      {
+        $set: {
+          handledBy: newHandledBy,
+          'toggleState.handledByAdvisor': !newSkip,
+          'toggleState.assignedToOps':    newSkip,
+          'toggleState.toggledAt':        new Date(),
+          'toggleState.toggledBy':        req.user._id,
+          'toggleState.toggledByName':    req.user?.fullName || req.user?.email,
+        },
+      }
+    );
+
+    // Update advisorSkipBankForm flag on Case
+    caseData.advisorSkipBankForm = newSkip;
+
+    // Recalculate documentSummary
+    const allDocs = await CaseDocumentRequirement.find({ caseId, isDeleted: false });
+    const advisorDocs = allDocs.filter(d => d.handledBy === 'Advisor');
+    const opsDocs     = allDocs.filter(d => d.handledBy === 'Ops');
+    const uploaded    = allDocs.filter(d => d.isUploaded).length;
+    const verified    = allDocs.filter(d => d.isVerified).length;
+    const pct         = allDocs.length > 0 ? Math.round((uploaded / allDocs.length) * 100) : 0;
+
+    caseData.documentSummary = {
+      totalRequired:        allDocs.length,
+      uploadedCount:        uploaded,
+      verifiedCount:        verified,
+      completionPercentage: pct,
+      allUploaded:          uploaded >= allDocs.length,
+      allVerified:          verified >= allDocs.length,
+      advisorRequired:      advisorDocs.length,
+      advisorUploaded:      advisorDocs.filter(d => d.isUploaded).length,
+      opsRequired:          opsDocs.length,
+      opsUploaded:          opsDocs.filter(d => d.isUploaded).length,
+      otherRequired:        allDocs.filter(d => d.handledBy === 'Other').length,
+      otherUploaded:        allDocs.filter(d => d.handledBy === 'Other' && d.isUploaded).length,
+    };
+
+    await caseData.save();
+
+    return res.status(200).json({
+      success: true,
+      message: newSkip
+        ? `✅ ${bankDocs.length} bank form(s) assigned to Ops — you can skip uploading them`
+        : `✅ ${bankDocs.length} bank form(s) assigned back to you — upload before submission`,
+      data: {
+        advisorSkipBankForm: newSkip,
+        bankFormsCount:      bankDocs.length,
+        bankFormsHandledBy:  newHandledBy,
+        documentSummary:     caseData.documentSummary,
+      },
+    });
+  } catch (error) {
+    console.error('toggleSkipBankForms error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

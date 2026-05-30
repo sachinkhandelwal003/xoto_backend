@@ -280,17 +280,25 @@ export const createCase = async (req, res) => {
       createdBy,
       advisorSkipBankForm,
 
-      // Client info — prefer caller payload, fall back to lead
+      // Client info — prefer caller payload, fall back to lead enrichment (PRD 5.3 Step 1)
       clientInfo: {
-        fullName:         clientInfo?.fullName         || `${leadCI.firstName || ''} ${leadCI.lastName || ''}`.trim(),
-        email:            clientInfo?.email            || leadCI.email            || null,
-        mobile:           clientInfo?.mobile           || leadCI.mobileNumber     || null,
-        nationality:      clientInfo?.nationality      || leadCI.nationality      || null,
-        residencyStatus:  clientInfo?.residencyStatus  || leadCI.residencyStatus  || null,
-        employmentStatus: clientInfo?.employmentStatus || leadCI.employmentStatus || null,
-        dateOfBirth:      clientInfo?.dateOfBirth      || leadCI.dateOfBirth      || null,
-        employer:         clientInfo?.employer         || leadCI.employer         || null,
-        monthlySalary:    clientInfo?.monthlySalary    || leadCI.monthlySalary    || null,
+        firstName:           clientInfo?.firstName           || leadCI.firstName           || null,
+        lastName:            clientInfo?.lastName            || leadCI.lastName            || null,
+        fullName:            clientInfo?.fullName            || `${leadCI.firstName || ''} ${leadCI.lastName || ''}`.trim(),
+        email:               clientInfo?.email               || leadCI.email               || null,
+        phone:               clientInfo?.phone               || clientInfo?.mobile         || leadCI.mobileNumber || null,
+        mobile:              clientInfo?.mobile              || leadCI.mobileNumber        || null,
+        nationality:         clientInfo?.nationality         || leadCI.nationality         || null,
+        residencyStatus:     clientInfo?.residencyStatus     || leadCI.residencyStatus     || null,
+        employmentStatus:    clientInfo?.employmentStatus    || leadCI.employmentStatus    || null,
+        dateOfBirth:         clientInfo?.dateOfBirth         || leadCI.dateOfBirth         || null,
+        employer:            clientInfo?.employer            || leadCI.employer            || null,
+        monthlySalary:       clientInfo?.monthlySalary       || clientInfo?.fixedMonthlySalary || leadCI.monthlySalary    || null,
+        fixedMonthlySalary:  clientInfo?.fixedMonthlySalary  || clientInfo?.monthlySalary      || leadCI.monthlySalary    || null,
+        salaryBankName:      clientInfo?.salaryBankName      || leadCI.salaryBankName      || null,
+        existingLiabilities: clientInfo?.existingLiabilities || leadCI.existingLiabilities || null,
+        mortgageTerm:        clientInfo?.mortgageTerm        || loanInfo?.tenureYears       || 25,
+        feeFinancingRequired: clientInfo?.feeFinancingRequired ?? leadLR?.feeFinancingPreference ?? false,
       },
 
       // Property info — optional, fall back to lead's property details
@@ -321,6 +329,14 @@ export const createCase = async (req, res) => {
       } : {}),
 
       currentStatus: 'Draft',
+      submissionNotes: req.body.submissionNotes || null,
+      statusHistory: [{
+        status: 'Draft',
+        changedAt: new Date(),
+        changedByName: createdBy.userName,
+        changedByRole: createdBy.role,
+        notes: 'Case created',
+      }],
       internalNotes: formattedInternalNotes,
       customerNotes: formattedCustomerNotes,
 
@@ -1209,9 +1225,32 @@ export const updateCaseStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: `Invalid status: ${status}` });
     }
 
+    // Append to statusHistory (PRD audit trail)
+    if (!caseData.statusHistory) caseData.statusHistory = [];
+    caseData.statusHistory.push({
+      status,
+      changedAt:     new Date(),
+      changedBy:     req.user._id,
+      changedByName: req.user.name?.first_name ? `${req.user.name.first_name} ${req.user.name.last_name || ''}`.trim() : req.user.email,
+      changedByRole: isAdmin ? 'admin' : 'ops',
+      notes:         notes || null,
+    });
+    await caseData.save();
+
+    // Store Ops notes separately (not visible to Advisor/Partner)
+    if (req.body.opsNotes) {
+      caseData.opsNotes = req.body.opsNotes;
+      await caseData.save();
+    }
+    // Store correction notes sent back to submitter
+    if (status === 'Returned - Pending Correction' && notes) {
+      caseData.returnedToSubmitterNotes = notes;
+      await caseData.save();
+    }
+
     // Update lead status
     await updateLeadStatusFromCase(caseData.sourceLeadId, status, { reason: notes });
-    
+
     await HistoryService.logCaseActivity(caseData, 'CASE_STATUS_UPDATED', await getUserInfo(req), {
       description: `Status: ${previousStatus} → ${status}`,
       notes,
