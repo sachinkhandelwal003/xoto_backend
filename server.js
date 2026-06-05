@@ -24,6 +24,10 @@ const io = new Server(server, {
 const { setIO } = require('./src/utils/socketInstance');
 setIO(io);
 
+// Xobia V2 voice namespace (OpenAI Realtime WebSocket bridge)
+const { registerXobiaVoice } = require('./src/modules/ai/v2/services/xobiaSocket.service');
+registerXobiaVoice(io);
+
 
 // Online users store — { userId: socketId }
 
