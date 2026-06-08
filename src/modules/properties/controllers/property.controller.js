@@ -229,7 +229,8 @@ console.log("Final listingStatus:", listingStatus);
       commission, shareCommission, shareCommissionPercentage,
       minimumContract, isImmediate, cheques, isShortTerm,
       dldRegistrationNumber,
-
+ trakheesi_permit_id,   
+  qr_code,
       // New PRD fields (already destructured earlier: projectName, overview, locality, price, price_min, description, rentalFrequency, reraPermitNumber)
       priceRange,
       location,
@@ -362,6 +363,8 @@ console.log("isDraft:", isDraft);
 
       reraPermitNumber:      reraPermitNumber      || null,
       dldRegistrationNumber: dldRegistrationNumber || null,
+      trakheesi_permit_id: trakheesi_permit_id || null,
+qr_code:             qr_code             || null,
 
       saleStatus: saleStatus || "Available",
       developerDetails: developerDetails || {},
@@ -846,6 +849,12 @@ exports.updateProperty = async (req, res) => {
     if (req.body.unitTypes !== undefined) {
       updateData.unitTypes = req.body.unitTypes;
     }
+    if (req.body.trakheesi_permit_id !== undefined) {
+  updateData.trakheesi_permit_id = req.body.trakheesi_permit_id;
+}
+if (req.body.qr_code !== undefined) {
+  updateData.qr_code = req.body.qr_code;
+}
     if (req.body.inventoryCategory !== undefined) {
       updateData.inventoryCategory = req.body.inventoryCategory;
     } else if (req.body.unitType || req.body.unitTypes) {
@@ -1550,7 +1559,6 @@ exports.toggleFavourite = async (req, res) => {
   try {
     const customerId = req.user._id;
     const { property_id } = req.body;
-
     if (!property_id) {
       return res.status(400).json({ success: false, message: "property_id is required" });
     }
@@ -1564,14 +1572,20 @@ exports.toggleFavourite = async (req, res) => {
       (id) => id.toString() === property_id.toString()
     );
 
-    if (alreadyLiked) {
-      // Unlike — remove karo
+      if (alreadyLiked) {
       customer.favourites = customer.favourites.filter(
         (id) => id.toString() !== property_id.toString()
       );
+      // ✅ FIX: wishlistCount kam karo (0 se neeche nahi jaayega)
+      await Property.findByIdAndUpdate(property_id, {
+        $inc: { wishlistCount: -1 },
+      });
     } else {
-      // Like — add karo
       customer.favourites.push(property_id);
+      // ✅ FIX: wishlistCount badhao
+      await Property.findByIdAndUpdate(property_id, {
+        $inc: { wishlistCount: 1 },
+      });
     }
 
     await customer.save();

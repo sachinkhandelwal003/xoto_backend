@@ -55,6 +55,10 @@ const PropertySchema = new mongoose.Schema(
       type:    String,
       default: "",
     },
+    favouritedBy: [{
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Customer"
+}],
     locality: { type: String, default: "" },
     propertyType: {
       type: String,
@@ -268,6 +272,16 @@ const PropertySchema = new mongoose.Schema(
     dldRegistrationNumber: {
       type:    String,
       trim:    true,
+      default: null,
+    },
+    trakheesi_permit_id: {
+      type:    String,
+      trim:    true,
+      default: null,
+      // required: true,  // uncomment after all properties have it
+    },
+    qr_code: {
+      type:    String,
       default: null,
     },
 
