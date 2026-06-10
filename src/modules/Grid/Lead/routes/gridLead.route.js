@@ -49,6 +49,7 @@ router.get('/',                      controller.getLeads);                // all
 router.get('/website-only',          controller.getWebsitePlatformLeads); // website platform leads
 router.get('/agent-only',            controller.getAgentLeads);           // all agent leads (admin view)
 router.get('/submitted-queue',       controller.getSubmittedQueue);       // unassigned submitted leads
+router.get('/routing-queue',         controller.getRoutingQueue);         // pending admin assignment, grouped by tier
 router.get('/:id/suggest-advisors',  controller.suggestAdvisorsForLead);  // advisor suggestions
 router.put('/:id/assign',            controller.assignAdvisorToLead);     // assign advisor
 

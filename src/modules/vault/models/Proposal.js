@@ -206,7 +206,7 @@ const proposalSchema = new mongoose.Schema({
 // ══════════════════════════════════════════════════════════════════
 // INDEXES
 // ══════════════════════════════════════════════════════════════════
-proposalSchema.index({ proposalReference: 1 }, { unique: true });
+// proposalReference unique index is declared inline in the schema field definition
 proposalSchema.index({ leadId: 1 });
 proposalSchema.index({ 'createdBy.userId': 1 });
 proposalSchema.index({ status: 1 });

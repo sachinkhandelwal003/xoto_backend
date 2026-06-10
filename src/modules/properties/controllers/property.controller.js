@@ -155,6 +155,41 @@ exports.createProperty = async (req, res) => {
       return res.status(400).json({ status: "fail", message: "price is required" });
     }
 
+    // ── Unit type rules per listing type ──────────────────────────────────
+    const RESIDENTIAL_UNIT_TYPES = ["apartment", "villa", "townhouse", "duplex", "penthouse", "plot", "hotel_apartment"];
+    const COMMERCIAL_UNIT_TYPES  = ["office", "retail", "warehouse"];
+    const incomingUnitType  = req.body.unitType;
+    const incomingUnitTypes = req.body.unitTypes || [];
+
+    if (!isDraft && propertySubType === "rental") {
+      const badTypes = [incomingUnitType, ...incomingUnitTypes].filter(
+        t => t && COMMERCIAL_UNIT_TYPES.includes(t)
+      );
+      if (badTypes.length > 0) {
+        return res.status(400).json({
+          status: "fail",
+          message: `Rental listings only allow residential unit types. Remove: ${[...new Set(badTypes)].join(", ")}`,
+        });
+      }
+    }
+
+    if (!isDraft && propertySubType === "commercial") {
+      const allTypes = [incomingUnitType, ...incomingUnitTypes].filter(Boolean);
+      const badTypes = allTypes.filter(t => !COMMERCIAL_UNIT_TYPES.includes(t));
+      if (badTypes.length > 0) {
+        return res.status(400).json({
+          status: "fail",
+          message: `Commercial listings only allow: ${COMMERCIAL_UNIT_TYPES.join(", ")}. Remove: ${[...new Set(badTypes)].join(", ")}`,
+        });
+      }
+      if (!req.body.transactionType) {
+        return res.status(400).json({
+          status: "fail",
+          message: "transactionType is required for commercial listings (sell = sale, rent = lease)",
+        });
+      }
+    }
+
     if (propertySubType === "rental") {
       if (!rentalFrequency) {
         return res.status(400).json({ status: "fail", message: "rentalFrequency is required for rental listings" });
@@ -162,6 +197,20 @@ exports.createProperty = async (req, res) => {
       if (!reraPermitNumber) {
         return res.status(400).json({ status: "fail", message: "reraPermitNumber is required for rental listings (PRD §14.4)" });
       }
+    }
+
+    // Photo count validation (only for non-draft submissions)
+    if (!isDraft) {
+      const arch  = req.body.photos?.architecture || req.body.media?.architectureImages || [];
+      const inter = req.body.photos?.interior     || req.body.media?.interiorImages     || [];
+      const lobby = req.body.photos?.lobby        || req.body.media?.lobbyImages        || [];
+
+      if (arch.length < 3)  return res.status(400).json({ status: "fail", message: "Architecture photos: minimum 3 required" });
+      if (arch.length > 20) return res.status(400).json({ status: "fail", message: "Architecture photos: maximum 20 allowed" });
+      if (inter.length < 3) return res.status(400).json({ status: "fail", message: "Interior photos: minimum 3 required" });
+      if (inter.length > 20)return res.status(400).json({ status: "fail", message: "Interior photos: maximum 20 allowed" });
+      if (lobby.length < 1) return res.status(400).json({ status: "fail", message: "Lobby photos: minimum 1 required" });
+      if (lobby.length > 10)return res.status(400).json({ status: "fail", message: "Lobby photos: maximum 10 allowed" });
     }
 
     const devId = isDevRole(role) ? userId : developerId;
@@ -235,6 +284,7 @@ console.log("Final listingStatus:", listingStatus);
       location,
       media,
       youtubeVideos,
+      projectPlan,
       buildings,
       floorPlans,
       inventory,
@@ -314,6 +364,7 @@ console.log("isDraft:", isDraft);
       },
       videoUrl: videoUrl || "",
       brochure: brochure || "",
+      projectPlan: projectPlan || "",
       youtubeVideos: youtubeVideos || media?.youtubeVideos || [],
 
       description: description || overview || "",
@@ -782,6 +833,15 @@ exports.updateProperty = async (req, res) => {
     if (req.body.brochure !== undefined) {
       updateData.brochure = req.body.brochure;
     }
+    if (req.body.projectPlan !== undefined) {
+      updateData.projectPlan = req.body.projectPlan;
+    }
+    if (req.body.trakheesiPermitId !== undefined) {
+      updateData.trakheesiPermitId = req.body.trakheesiPermitId;
+    }
+    if (req.body.qrCode !== undefined) {
+      updateData.qrCode = req.body.qrCode;
+    }
     if (req.body.buildings !== undefined) {
       updateData.buildings = req.body.buildings;
     }
@@ -889,25 +949,78 @@ exports.updateProperty = async (req, res) => {
       ];
     }
 
+    // Unit type validation on update (when unit types or subType are being changed)
+    const updatingUnitTypes = req.body.unitType !== undefined || req.body.unitTypes !== undefined;
+    if (updatingUnitTypes) {
+      const RESIDENTIAL_UNIT_TYPES = ["apartment", "villa", "townhouse", "duplex", "penthouse", "plot", "hotel_apartment"];
+      const COMMERCIAL_UNIT_TYPES  = ["office", "retail", "warehouse"];
+      const effectiveSubType   = property.propertySubType;
+      const newUnitType        = req.body.unitType;
+      const newUnitTypes       = req.body.unitTypes || [];
+      const allTypes           = [newUnitType, ...newUnitTypes].filter(Boolean);
+
+      if (effectiveSubType === "rental") {
+        const bad = allTypes.filter(t => COMMERCIAL_UNIT_TYPES.includes(t));
+        if (bad.length) {
+          return res.status(400).json({
+            status: "fail",
+            message: `Rental listings only allow residential unit types. Remove: ${[...new Set(bad)].join(", ")}`,
+          });
+        }
+      }
+
+      if (effectiveSubType === "commercial") {
+        const bad = allTypes.filter(t => !COMMERCIAL_UNIT_TYPES.includes(t));
+        if (bad.length) {
+          return res.status(400).json({
+            status: "fail",
+            message: `Commercial listings only allow: ${COMMERCIAL_UNIT_TYPES.join(", ")}. Remove: ${[...new Set(bad)].join(", ")}`,
+          });
+        }
+      }
+    }
+
+    // Photo count validation when submitting for approval
+    if (updateData.approvalStatus === "pending" || req.body.status === "pending") {
+      const arch  = req.body.media?.architectureImages || property.media?.architectureImages || property.photos?.architecture || [];
+      const inter = req.body.media?.interiorImages     || property.media?.interiorImages     || property.photos?.interior     || [];
+      const lobby = req.body.media?.lobbyImages        || property.media?.lobbyImages        || property.photos?.lobby        || [];
+
+      if (arch.length < 3)  return res.status(400).json({ status: "fail", message: "Architecture photos: minimum 3 required" });
+      if (arch.length > 20) return res.status(400).json({ status: "fail", message: "Architecture photos: maximum 20 allowed" });
+      if (inter.length < 3) return res.status(400).json({ status: "fail", message: "Interior photos: minimum 3 required" });
+      if (inter.length > 20)return res.status(400).json({ status: "fail", message: "Interior photos: maximum 20 allowed" });
+      if (lobby.length < 1) return res.status(400).json({ status: "fail", message: "Lobby photos: minimum 1 required" });
+      if (lobby.length > 10)return res.status(400).json({ status: "fail", message: "Lobby photos: maximum 10 allowed" });
+    }
+
     // Handle listingStatus based on approvalStatus
+    let incData = {};
     if (updateData.approvalStatus === "draft") {
       updateData.listingStatus = "pending";
     } else if (updateData.approvalStatus === "pending") {
       updateData.listingStatus = "pending";
       updateData.approvedBy = null;
       updateData.approvedAt = null;
+      // Track resubmission: only increment if previous status was changes_requested
+      if (property.approvalStatus === "changes_requested") {
+        incData.resubmissionCount = 1;
+      }
     } else if (updateData.approvalStatus === "approved") {
       updateData.listingStatus = "active";
     }
 
     console.log("📝 Final updateData:", JSON.stringify(updateData, null, 2));
 
+    const mongoUpdate = { $set: updateData };
+    if (Object.keys(incData).length > 0) mongoUpdate.$inc = incData;
+
     // ✅ Use findByIdAndUpdate with runValidators: false to bypass validation
     const updated = await Property.findByIdAndUpdate(
       req.params.id,
-      { $set: updateData },  // Use $set to only update provided fields
-      { 
-        new: true, 
+      mongoUpdate,
+      {
+        new: true,
         runValidators: false,  // ← CRITICAL: Skip validation for updates
         context: 'query'
       }
@@ -987,6 +1100,13 @@ exports.approveProperty = async (req, res) => {
     if (!property) return res.status(404).json({ status: "fail", message: "Property not found" });
     if (property.approvalStatus === "approved") {
       return res.status(400).json({ status: "fail", message: "Already approved" });
+    }
+
+    if (!property.trakheesiPermitId) {
+      return res.status(400).json({ status: "fail", message: "Trakheesi Permit ID is required before approving." });
+    }
+    if (!property.qrCode) {
+      return res.status(400).json({ status: "fail", message: "QR code is required before approving." });
     }
 
     property.approvalStatus  = "approved";

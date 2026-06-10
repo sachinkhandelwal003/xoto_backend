@@ -23,6 +23,35 @@ const isGridAdmin = (role) => {
   return ['admin', 'super_admin', 'xoto_super_admin', 'xoto_staff_admin'].includes(role);
 };
 
+// Determine listing tier from property subtype
+const resolveListingTier = (propertySubType) => {
+  if (!propertySubType) return 'general';
+  if (propertySubType === 'off_plan') return 'tier_3';
+  if (['secondary', 'rental', 'commercial'].includes(propertySubType)) return 'tier_1';
+  return 'general';
+};
+
+// Resolve listing tier + suggested advisor for a new lead
+const resolveRoutingMeta = async ({ property_id, area, propertyType }) => {
+  let listing_tier = 'general';
+  let suggested_advisor_id = null;
+
+  if (property_id) {
+    const property = await Property.findById(property_id).select('propertySubType locality area').lean();
+    if (property) {
+      listing_tier = resolveListingTier(property.propertySubType);
+      // Use property location for advisor suggestion
+      area = area || property.locality || property.area;
+      propertyType = propertyType || property.propertySubType;
+    }
+  }
+
+  const suggestion = await suggestAdvisor({ area, type: propertyType });
+  if (suggestion) suggested_advisor_id = suggestion._id;
+
+  return { listing_tier, suggested_advisor_id };
+};
+
 
 // ════════════════════════════════════════════════════════════════════════════
 // WEBSITE LEADS
@@ -105,12 +134,21 @@ exports.createWebsiteLead = asyncHandler(async (req, res) => {
     classification_reason = 'Hot property enquiry submitted';
   }
 
+  const { listing_tier, suggested_advisor_id } = await resolveRoutingMeta({
+    property_id,
+    area: requirements?.location_preferences?.[0]?.area,
+    propertyType: requirements?.property_type,
+  });
+
   const lead = await GridLead.create({
     lead_type: 'platform',
     enquiry_type,
     customerId: customer._id,
     classification,
     classification_reason,
+    listing_tier,
+    routing_status: 'pending_admin_review',
+    suggested_advisor: suggested_advisor_id,
     source: {
       channel: 'website_form',
       listing_id: property_id || null,
@@ -197,12 +235,17 @@ exports.createSimpleWebsiteLead = asyncHandler(async (req, res) => {
     }
   }
 
+  const { listing_tier, suggested_advisor_id } = await resolveRoutingMeta({ property_id });
+
   const lead = await GridLead.create({
     lead_type: 'platform',
     enquiry_type,
     customerId: customer._id,
     classification: 'warm',
     classification_reason: 'Simple web form submission',
+    listing_tier,
+    routing_status: 'pending_admin_review',
+    suggested_advisor: suggested_advisor_id,
     source: {
       channel: 'website_form',
       listing_id: property_id || null,
@@ -589,8 +632,9 @@ exports.assignAdvisorToLead = asyncHandler(async (req, res) => {
   const previousAdvisorId = lead.assigned_to ? lead.assigned_to.toString() : null;
   const isReassignment    = !!previousAdvisorId;
 
-  lead.assigned_to = advisorId;
-  lead.assigned_at = new Date();
+  lead.assigned_to     = advisorId;
+  lead.assigned_at     = new Date();
+  lead.routing_status  = isReassignment ? 'reassigned' : 'assigned';
 
   const oldStatus = lead.status;
   if (oldStatus !== 'new') {
@@ -1780,6 +1824,77 @@ exports.bulkCreateGeneralLeads = asyncHandler(async (req, res) => {
       errors:          results.errors.length,
     },
     data: results,
+  });
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// ADMIN — ROUTING QUEUE
+// GET /gridlead/routing-queue
+// Returns unassigned leads grouped by listing tier with suggested advisor
+// Query: listing_tier (tier_1|tier_3|general), classification, page, limit
+// ════════════════════════════════════════════════════════════════════════════
+exports.getRoutingQueue = asyncHandler(async (req, res) => {
+  if (!isGridAdmin(req.user?.role)) {
+    return res.status(403).json({ success: false, message: 'Admin only' });
+  }
+
+  const page  = parseInt(req.query.page,  10) || 1;
+  const limit = parseInt(req.query.limit, 10) || 20;
+  const skip  = (page - 1) * limit;
+
+  const { listing_tier, classification } = req.query;
+
+  const filter = {
+    routing_status: 'pending_admin_review',
+    is_deleted: false,
+  };
+
+  if (listing_tier)    filter.listing_tier    = listing_tier;
+  if (classification)  filter.classification  = classification;
+
+  const [leads, total] = await Promise.all([
+    GridLead.find(filter)
+      .populate('source.listing_id',  'projectName propertyName propertySubType locality')
+      .populate('suggested_advisor',  'firstName lastName email specialisation workload')
+      .sort({ classification: 1, createdAt: 1 })  // hot first, oldest first
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    GridLead.countDocuments(filter),
+  ]);
+
+  // Tier summary counts
+  const [tier1Count, tier3Count, generalCount] = await Promise.all([
+    GridLead.countDocuments({ routing_status: 'pending_admin_review', listing_tier: 'tier_1', is_deleted: false }),
+    GridLead.countDocuments({ routing_status: 'pending_admin_review', listing_tier: 'tier_3', is_deleted: false }),
+    GridLead.countDocuments({ routing_status: 'pending_admin_review', listing_tier: 'general', is_deleted: false }),
+  ]);
+
+  return res.json({
+    success: true,
+    summary: {
+      pending_total: tier1Count + tier3Count + generalCount,
+      tier_1:   tier1Count,
+      tier_3:   tier3Count,
+      general:  generalCount,
+    },
+    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    data: leads.map(l => ({
+      lead_id:           l._id,
+      listing_tier:      l.listing_tier,
+      routing_status:    l.routing_status,
+      classification:    l.classification,
+      enquiry_type:      l.enquiry_type,
+      lead_type:         l.lead_type,
+      listing:           l.source?.listing_id || null,
+      suggested_advisor: l.suggested_advisor  || null,
+      contact: {
+        name:  `${l.contact_info?.name?.first_name || ''} ${l.contact_info?.name?.last_name || ''}`.trim(),
+        phone: l.contact_info?.mobile?.number || null,
+      },
+      createdAt: l.createdAt,
+    })),
   });
 });
 

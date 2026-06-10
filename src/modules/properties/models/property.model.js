@@ -26,9 +26,11 @@ const PropertySchema = new mongoose.Schema(
       default:  "off_plan",
     },
     transactionType: {
-      type:    String,
-      enum:    ["rent", "sell"],
+      type: String,
+      // "sell" = sale/resale, "rent" = rental (residential) or lease (commercial)
+      enum: ["rent", "sell"],
       default: "sell",
+      required: function () { return this.propertySubType === "commercial"; },
     },
     isFeatured: { type: Boolean, default: false },
     isHot:      { type: Boolean, default: false },
@@ -157,6 +159,11 @@ const PropertySchema = new mongoose.Schema(
     youtubeVideos: [{ type: String }],
 
     // ══════════════════════════════════════════════════════════════
+    // PROJECT PLAN (master site plan — PDF or image)
+    // ══════════════════════════════════════════════════════════════
+    projectPlan: { type: String, default: "" },
+
+    // ══════════════════════════════════════════════════════════════
     // DESCRIPTION
     // ══════════════════════════════════════════════════════════════
     description: { type: String, default: "" },
@@ -270,6 +277,16 @@ const PropertySchema = new mongoose.Schema(
       trim:    true,
       default: null,
     },
+    trakheesiPermitId: {
+      type:    String,
+      trim:    true,
+      default: null,
+    },
+    qrCode: {
+      type:    String,   // S3 URL of the uploaded QR code image
+      trim:    true,
+      default: null,
+    },
 
     // ══════════════════════════════════════════════════════════════
     // OFF-PLAN SPECIFIC (PRD §9.3)
@@ -300,12 +317,9 @@ const PropertySchema = new mongoose.Schema(
     paymentPlan: [{
       title: { type: String },
       stages: [{
-        stage: {
-          type: String,
-          enum: ["on_booking", "during_construction", "upon_handover", "other"],
-        },
-        percentage:  { type: Number },
-        description: { type: String },
+        milestoneTitle: { type: String },  // free-text (e.g. "30% on slab completion")
+        percentage:     { type: Number },
+        description:    { type: String },
       }],
     }],
 
@@ -357,9 +371,10 @@ const PropertySchema = new mongoose.Schema(
       enum:    ["pending", "active", "rejected", "inactive", "changes_requested"],
       default: "pending",
     },
-    rejectionReason: { type: String, default: "" },
-    adminComments:   { type: String, default: "" },
-    adminNotes:      { type: String, default: "" },
+    rejectionReason:    { type: String, default: "" },
+    adminComments:      { type: String, default: "" },
+    adminNotes:         { type: String, default: "" },
+    resubmissionCount:  { type: Number, default: 0 }, // times sent back for re-approval
     approvedBy: {
       type:    mongoose.Schema.Types.ObjectId,
       ref:     "User",
@@ -458,7 +473,8 @@ PropertySchema.index({ city:            1 });
 PropertySchema.index({ price:           1 });
 PropertySchema.index({ isFeatured:      1 });
 PropertySchema.index({ rentalFrequency: 1 });
-PropertySchema.index({ reraPermitNumber: 1 }, { sparse: true });
+PropertySchema.index({ reraPermitNumber:    1 }, { sparse: true });
+PropertySchema.index({ trakheesiPermitId:  1 }, { sparse: true });
 
 // Most common catalogue query
 PropertySchema.index({ approvalStatus: 1, listingStatus: 1, propertySubType: 1 });
