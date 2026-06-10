@@ -203,11 +203,14 @@ app.use(cors({
     'https://xoto.ae',
     'https://www.xoto.ae',
     'http://localhost:5173',
+        'http://localhost:5174',
     'http://kotiboxglobaltech.site',
     'http://www.kotiboxglobaltech.site',
     'https://kotiboxglobaltech.site',     // For future HTTPS
     'https://www.kotiboxglobaltech.site',  // For future HTTPS
         'https://xotovault.kotiboxglobaltech.site' , // For future HTTPS
+        'http://xoto.kotiboxglobaltech.site',
+        'https://xoto.kotiboxglobaltech.site'
 
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
