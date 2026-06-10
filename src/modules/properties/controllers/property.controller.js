@@ -127,6 +127,7 @@ exports.createProperty = async (req, res) => {
     }
 
     const isDraft = (req.body.status === "draft" || req.body.approvalStatus === "draft");
+    const permitAvailable = req.body.permitAvailable === true || req.body.permitAvailable === "true";
 
     console.log("projectName:", projectName);
     console.log("propertyName:", propertyName);
@@ -190,7 +191,7 @@ exports.createProperty = async (req, res) => {
       }
     }
 
-    if (propertySubType === "rental") {
+    if (propertySubType === "rental" && !permitAvailable) {
       if (!rentalFrequency) {
         return res.status(400).json({ status: "fail", message: "rentalFrequency is required for rental listings" });
       }
@@ -411,8 +412,11 @@ console.log("isDraft:", isDraft);
       cheques:         cheques         || null,
       isShortTerm:     isShortTerm     || false,
 
-      reraPermitNumber:      reraPermitNumber      || null,
+      reraPermitNumber:      permitAvailable ? null : (reraPermitNumber || null),
       dldRegistrationNumber: dldRegistrationNumber || null,
+      trakheesiPermitId:     permitAvailable ? null : (req.body.trakheesiPermitId || null),
+      qrCode:                permitAvailable ? null : (req.body.qrCode || null),
+      permitAvailable,
 
       saleStatus: saleStatus || "Available",
       developerDetails: developerDetails || {},
@@ -515,6 +519,7 @@ exports.getProperties = async (req, res) => {
     } else if (!isAdmin(role)) {
       query.approvalStatus = "approved";
       query.listingStatus = "active";
+      if (!isCatalogue(role)) query.permitAvailable = { $ne: true };
     }
     console.log("Final query in getProperties:", query);
     console.log("isDevRole:", isDevRole(role));
@@ -688,6 +693,7 @@ exports.getPropertyById = async (req, res) => {
     if (!isAdmin(role) && !isDevRole(role)) {
       query.approvalStatus = "approved";
       query.listingStatus = "active";
+      if (!isCatalogue(role)) query.permitAvailable = { $ne: true };
     }
     if (isDevRole(role)) query.developer = userId;
 
@@ -841,6 +847,17 @@ exports.updateProperty = async (req, res) => {
     }
     if (req.body.qrCode !== undefined) {
       updateData.qrCode = req.body.qrCode;
+    }
+    if (req.body.reraPermitNumber !== undefined) {
+      updateData.reraPermitNumber = req.body.reraPermitNumber;
+    }
+    if (req.body.permitAvailable !== undefined) {
+      updateData.permitAvailable = req.body.permitAvailable === true || req.body.permitAvailable === "true";
+      if (updateData.permitAvailable) {
+        updateData.trakheesiPermitId = null;
+        updateData.qrCode = null;
+        updateData.reraPermitNumber = null;
+      }
     }
     if (req.body.buildings !== undefined) {
       updateData.buildings = req.body.buildings;
@@ -1102,10 +1119,10 @@ exports.approveProperty = async (req, res) => {
       return res.status(400).json({ status: "fail", message: "Already approved" });
     }
 
-    if (!property.trakheesiPermitId) {
+    if (!property.permitAvailable && !property.trakheesiPermitId) {
       return res.status(400).json({ status: "fail", message: "Trakheesi Permit ID is required before approving." });
     }
-    if (!property.qrCode) {
+    if (!property.permitAvailable && !property.qrCode) {
       return res.status(400).json({ status: "fail", message: "QR code is required before approving." });
     }
 
@@ -1114,6 +1131,11 @@ exports.approveProperty = async (req, res) => {
     property.approvedBy      = userId;
     property.approvedAt      = new Date();
     property.rejectionReason = "";
+    if (property.permitAvailable) {
+      property.trakheesiPermitId = null;
+      property.qrCode = null;
+      property.reraPermitNumber = null;
+    }
     await property.save();
 
     return res.status(200).json({ status: "success", message: "Property approved and now live", data: property });

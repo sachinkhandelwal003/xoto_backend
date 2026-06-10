@@ -270,7 +270,7 @@ const PropertySchema = new mongoose.Schema(
       type:    String,
       trim:    true,
       default: null,
-      required: function () { return this.propertySubType === "rental"; },
+      required: function () { return this.propertySubType === "rental" && !this.permitAvailable; },
     },
     dldRegistrationNumber: {
       type:    String,
@@ -286,6 +286,10 @@ const PropertySchema = new mongoose.Schema(
       type:    String,   // S3 URL of the uploaded QR code image
       trim:    true,
       default: null,
+    },
+    permitAvailable: {
+      type: Boolean,
+      default: false,
     },
 
     // ══════════════════════════════════════════════════════════════
