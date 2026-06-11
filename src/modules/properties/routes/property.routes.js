@@ -96,7 +96,7 @@ router.get("/", protectMulti, getProperties);
 //                                    Advisor    → approved + active catalogue (PRD §7.3)
 //                                    Agent      → approved + active catalogue (PRD §8.3)
 //
-// GET    /property/:id               Get single listing
+// GET    /property/:id               Get single listing  
 //
 // PATCH  /property/:id               Update listing
 //                                    Developer  → own pending/rejected off-plan only

@@ -435,14 +435,15 @@ const isCatalogue = (role) => {
 exports.createInventory = async (req, res) => {
     try {
         const developerId = req.user._id;
+        const userRole = req.user.role; // ✅ FIX 1: Get user role
         const { propertyId, units } = req.body;
 
         console.log("=== CREATE INVENTORY ===");
         console.log("developerId:", developerId);
+        console.log("userRole:", userRole); // ✅ FIX 1: Log role
         console.log("propertyId:", propertyId);
         console.log("units:", JSON.stringify(units, null, 2));
 
-        // Validate required fields
         if (!propertyId || !units || !Array.isArray(units) || units.length === 0) {
             return res.status(400).json({
                 success: false,
@@ -450,25 +451,28 @@ exports.createInventory = async (req, res) => {
             });
         }
 
-        // Check if property exists and belongs to developer
-        const property = await Property.findOne({ 
-            _id: propertyId,
-            $or: [
+        // ✅ FIX 2: Admin bypasses ownership check
+        let propertyQuery = { _id: propertyId };
+        if (!isAdmin(userRole)) {
+            propertyQuery.$or = [
                 { developer: developerId },
                 { developerId: developerId },
                 { createdBy: developerId }
-            ]
-        });
+            ];
+        }
+
+        const property = await Property.findOne(propertyQuery);
 
         if (!property) {
-            console.log("Property not found. propertyId:", propertyId, "developerId:", developerId);
+            console.log("Property not found. propertyId:", propertyId, "developerId:", developerId, "role:", userRole);
             return res.status(404).json({
                 success: false,
                 message: "Property not found or you don't have permission"
             });
         }
 
-        if (property.propertySubType !== "off_plan") {
+        // ✅ FIX 3: Guard off_plan check — don't block if propertySubType is not set
+        if (property.propertySubType && property.propertySubType !== "off_plan") {
             return res.status(400).json({
                 success: false,
                 message: "Inventory can only be added for off-plan properties"
@@ -479,13 +483,11 @@ exports.createInventory = async (req, res) => {
         const skippedUnits = [];
 
         for (const unit of units) {
-            // Validate unit has required fields
             if (!unit.unitNumber) {
                 skippedUnits.push({ unit, reason: "Missing unitNumber" });
                 continue;
             }
 
-            // Check for duplicate unit number in same property
             const existingUnit = await Inventory.findOne({
                 propertyId,
                 unitNumber: unit.unitNumber
@@ -529,7 +531,6 @@ exports.createInventory = async (req, res) => {
             });
         }
 
-        // Update property total units
         const totalInventory = await Inventory.countDocuments({ propertyId });
         await Property.findByIdAndUpdate(propertyId, { totalInventory });
 
@@ -543,7 +544,6 @@ exports.createInventory = async (req, res) => {
     } catch (error) {
         console.error("Create inventory error:", error);
         
-        // Handle duplicate key error
         if (error.code === 11000) {
             return res.status(400).json({
                 success: false,

@@ -75,7 +75,7 @@ router.get("/agreement", getAgreement);
 // Developer Management
 router.get("/get-all-developers", getAllDevelopers);
 router.get("/get-developer-by-id", getDeveloperrById);
-router.post("/edit-developer", editDeveloper);
+router.post("/edit-developer/:id", editDeveloper);
 router.post("/delete-developer-by-id", deleteDeveloper);
 router.put("/admin/suspend/:id", toggleAccountStatus);
 

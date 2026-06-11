@@ -57,6 +57,10 @@ const PropertySchema = new mongoose.Schema(
       type:    String,
       default: "",
     },
+    favouritedBy: [{
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Customer"
+}],
     locality: { type: String, default: "" },
     propertyType: {
       type: String,
