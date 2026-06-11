@@ -106,10 +106,12 @@ export const getEligibleBanksForLead = async (req, res) => {
     const lr = lead.loanRequirements;
 
     const salary = ci.monthlySalary || 0;
-    const existingDebt = 0;
+    const existingDebt = ci.existingMonthlyLiabilities || 0;
     const propValue = pd.propertyValue || 0;
     const downPayment = pd.downPaymentAmount || 0;
-    const loanAmount = pd.loanAmountRequired || (propValue - downPayment);
+    const loanAmount = pd.loanAmountRequired
+      || lead.eligibility?.recommendedLoanAmount
+      || (propValue ? propValue - downPayment : 0);
     const tenureYears = lr.preferredTenureYears || 25;
     const ltv = calcLTV(loanAmount, propValue);
     const isUAENat = ci.nationality === 'UAE' || ci.residencyStatus === 'UAE National';
@@ -227,10 +229,12 @@ export const createProposal = async (req, res) => {
     const lr = lead.loanRequirements;
 
     const salary = ci.monthlySalary || 0;
-    const existingDebt = 0;
+    const existingDebt = ci.existingMonthlyLiabilities || 0;
     const propValue = pd.propertyValue || 0;
     const downPayment = pd.downPaymentAmount || 0;
-    const loanAmount = pd.loanAmountRequired || (propValue - downPayment);
+    const loanAmount = pd.loanAmountRequired
+      || lead.eligibility?.recommendedLoanAmount
+      || (propValue ? propValue - downPayment : 0);
     const tenureYears = lr.preferredTenureYears || 25;
     const ltv = calcLTV(loanAmount, propValue);
     const isUAENat = ci.nationality === 'UAE' || ci.residencyStatus === 'UAE National';

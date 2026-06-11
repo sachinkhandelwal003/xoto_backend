@@ -4,6 +4,7 @@ import {
   uploadCaseDocument,
   getCaseDocuments,
   toggleDocumentHandler,
+  toggleSkipBankForms,
   verifyDocument,
   rejectDocument,
   deleteDocument
@@ -20,8 +21,11 @@ router.post('/:caseId', protectMulti, uploadCaseDocument);
 // Get case documents (from CaseDocumentRequirement)
 router.get('/:caseId', protectMulti, getCaseDocuments);
 
-// Toggle document handler (Advisor can take bank forms)
+// Toggle single document handler (Advisor ↔ Ops)
 router.post('/:caseId/toggle-handler', protectMulti, toggleDocumentHandler);
+
+// Bulk toggle — skip ALL bank forms to Ops (or pull back to Advisor)
+router.post('/:caseId/toggle-skip-bank-forms', protectMulti, toggleSkipBankForms);
 
 // ==================== VERIFICATION ROUTES ====================
 

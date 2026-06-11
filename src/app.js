@@ -78,12 +78,14 @@ app.use('/estimate/master/category', require('./modules/auth/routes/estimateCate
 app.use('/dashboard', require('./modules/auth/routes/dashboardview/dashboard.routes.js'));
 
 app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/projectfreelancer.route'));
-app.use('/property', require('../src/modules/properties/routes/index.js'));
+// app.use('/property', require('../src/modules/properties/routes/index.js'));
 // app.use('/developer', require('../src/modules'));  //for testing route
 app.use('/developer', developer);  
 app.use('/properties', require('../src/modules/properties/routes/property.routes.js'));  //for testing route
 app.use('/property-documents', require('../src/modules/properties/routes/document.routes.js'));
 app.use('/developer/analytics', require('../src/modules/properties/routes/developer.analytics.routes.js'));
+app.use('/properties', require('../src/modules/properties/routes/property.routes.js'));  //// grid
+
 
 app.use('/products', require('../src/modules/products/routes/index.js'));
 app.use('/profile', ProfileData);
@@ -126,6 +128,9 @@ app.use('/vault/commissions', require('./modules/vault/routes/commission.routes.
 app.use('/vault/cases/documents', require('./modules/vault/routes/document.routes.js'));
 app.use('/vault/notifications',   require('./modules/vault/routes/vaultNotification.routes.js'));
 app.use('/vault/audit',           require('./modules/vault/routes/auditLog.routes.js'));
+app.use('/vault/platform-config',  require('./modules/vault/routes/platformConfig.routes.js'));
+app.use('/vault/reports',          require('./modules/vault/routes/report.routes.js'));
+app.use('/vault/customers',        require('./modules/vault/routes/customer.vault.routes.js'));
 // Grid Referral Partner 
 app.use("/referral", referralPartnerRoutes);
 
@@ -144,7 +149,8 @@ app.use('/vendor', require('../src/modules/auth/routes/vendor/vendorb2c.routes')
 app.use('/vendor/b2b', require('../src/modules/auth/routes/vendor/vendorb2b.routes'));
 app.use('/business', require('../src/modules/auth/routes/freelancer/freelancerbusiness.routes'));
 
-app.use('/gridadvisor', GridAdvisor);
+app.use('/gridadvisor', GridAdvisor);   // grid
+
 app.use('/referral', referralPartnerRoutes);
 // RentalProperty
 app.use('/rental/property', rentalProperrty)
@@ -177,14 +183,19 @@ app.use('/vendor/warehouses', require('../src/modules/ecommerce/B2C/routes/wareh
 app.use('/gridlead', (req, res, next) => {
   console.log("GRID LEAD HIT");
   next();
-}, gridLead);
-app.use('/commissions', require('./modules/Grid/Commission/Commission.routes.js'));
+}, gridLead);   // grid
+
+app.use('/commissions', require('./modules/Grid/Commission/Commission.routes.js'));  // grid
+
 
 app.use('/feedback', feedback);
+
+// ── XOBIA V2 — OpenAI Realtime voice assistant (new, does not touch old AI routes) ──
+app.use('/ai/v2', require('./modules/ai/v2/routes/xobiaV2.routes.js'));
 app.use('/presentation', presentationRoutes);  
-app.use('/deal-record', require('./modules/Grid/dealrecord/routes/Dealrecord.routes.js'))
-app.use('/deal-records', require('./modules/Grid/dealrecord/routes/Dealrecord.routes.js'))
-app.use('/agreements', require('./modules/Grid/Agreements/routes/adminAgreement.routes.js'))
+app.use('/deal-record', require('./modules/Grid/dealrecord/routes/Dealrecord.routes.js')) // grid
+app.use('/deal-records', require('./modules/Grid/dealrecord/routes/Dealrecord.routes.js'))  // grid
+app.use('/agreements', require('./modules/Grid/Agreements/routes/adminAgreement.routes.js'))   // grid
 
 // History
 app.use('/customer-history', customerHistoryRoutes);

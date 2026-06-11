@@ -2,6 +2,7 @@
 import Document from '../models/Document.js';
 import Case from '../models/Case.js';
 import CaseDocumentRequirement from '../models/CaseDocumentRequirement.js';
+import VaultAgent from '../models/Agent.js';
 import HistoryService from '../services/history.service.js';
 import crypto from 'crypto';
 import { Role } from '../../../modules/auth/models/role/role.model.js';
@@ -95,39 +96,40 @@ export const uploadCaseDocument = async (req, res) => {
     // ==================== OTHER VALIDATION ====================
 
     if (isOther) {
-
-      if (
-        ![
-          'partner',
-          'partner_affiliated_agent'
-        ].includes(caseData.createdBy?.role)
-      ) {
+      const isPartnerCase = ['partner', 'partner_affiliated_agent'].includes(caseData.createdBy?.role) || caseData.partnerId;
+      if (!isPartnerCase) {
         return res.status(403).json({
           success: false,
-          message:
-            'You can only upload documents for your own cases'
+          message: 'You can only upload documents for partner cases'
         });
       }
 
-      if (
-        caseData.createdBy?.userId?.toString() !==
-        req.user._id.toString()
-      ) {
+      const isPartner = roleCode === '21';
+      const isPartnerAffiliatedAgent = roleCode === '22' && req.user?.agentType === 'PartnerAffiliatedAgent';
+
+      let isOwner = false;
+      if (isPartner) {
+        isOwner = (caseData.partnerId?.toString() === req.user._id.toString()) || 
+                  (caseData.createdBy?.role === 'partner' && caseData.createdBy?.userId?.toString() === req.user._id.toString());
+      } else if (isPartnerAffiliatedAgent) {
+        const agent = await VaultAgent.findById(req.user._id);
+        isOwner = (caseData.createdBy?.userId?.toString() === req.user._id.toString()) || 
+                  (caseData.partnerId && agent?.partnerId && caseData.partnerId.toString() === agent.partnerId.toString());
+      }
+
+      if (!isOwner) {
         return res.status(403).json({
           success: false,
-          message:
-            'You can only upload documents for cases you created'
+          message: 'You can only upload documents for cases belonging to your organization'
         });
       }
 
       if (caseData.currentStatus !== 'Draft') {
         return res.status(400).json({
           success: false,
-          message:
-            'Cannot upload documents after case is submitted'
+          message: 'Cannot upload documents after case is submitted'
         });
       }
-
     }
 
     // For Advisors: Check if case belongs to them
@@ -163,7 +165,7 @@ export const uploadCaseDocument = async (req, res) => {
     }
 
     // ==================== PERMISSION CHECK BASED ON HANDLER ====================
-    if (docRequirement.handledBy === 'Advisor' && !isXotoAdvisor && !isAdmin) {
+    if (docRequirement.handledBy === 'Advisor' && !isXotoAdvisor && !isAdmin && !isOther) {
       return res.status(403).json({
         success: false,
         message: `This document must be uploaded by Advisor`
@@ -177,32 +179,17 @@ export const uploadCaseDocument = async (req, res) => {
       });
     }
 
-
-    if (
-      docRequirement.handledBy === 'Other' &&
-      !isOther &&
-      !isAdmin
-    ) {
+    if (['Partner', 'Other'].includes(docRequirement.handledBy) && !isOther && !isAdmin) {
       return res.status(403).json({
         success: false,
-        message:
-          'This document must be uploaded by External Creator'
+        message: `This document must be uploaded by Partner`
       });
     }
-    // ==================== SPECIAL PARTNER RULE ====================
-    // Partners must upload ALL documents regardless of handler
-    // They cannot rely on Ops to upload any documents
-    // ==================== OTHER FLOW ====================
-    // Other creator handles ALL documents
 
-    if (
-      isOther &&
-      docRequirement.handledBy !== 'Other'
-    ) {
+    if (isOther && !['Partner', 'Other', 'Advisor'].includes(docRequirement.handledBy)) {
       return res.status(403).json({
         success: false,
-        message:
-          'You can only upload documents assigned to Other'
+        message: 'As a Partner or Agent, you can only upload partner-assigned documents'
       });
     }
 
@@ -392,10 +379,8 @@ export const getCaseDocuments = async (req, res) => {
     const bank = requirements.filter(r => r.source === 'Bank').length;
     const advisorHandled = requirements.filter(r => r.handledBy === 'Advisor').length;
     const opsHandled = requirements.filter(r => r.handledBy === 'Ops').length;
-    const otherHandled =
-      requirements.filter(
-        r => r.handledBy === 'Other'
-      ).length;
+    const partnerHandled = requirements.filter(r => r.handledBy === 'Partner').length;
+    const otherHandled = requirements.filter(r => r.handledBy === 'Other').length;
 
     return res.status(200).json({
       success: true,
@@ -408,7 +393,9 @@ export const getCaseDocuments = async (req, res) => {
         global,
         bank,
         advisorHandled,
-        opsHandled, otherHandled
+        opsHandled,
+        partnerHandled,
+        otherHandled
       }
     });
 
@@ -501,11 +488,21 @@ export const toggleDocumentHandler = async (req, res) => {
     await docRequirement.save();
 
     // Log the action
-    await HistoryService.logDocumentActivity(null, 'DOCUMENT_HANDLER_TOGGLED', await getUserInfo(req), {
-      description: `${docRequirement.documentName} reassigned from ${docRequirement.handledBy === 'Advisor' ? 'Ops' : 'Advisor'} to ${newHandledBy}`,
-      caseId: caseId,
-      documentKey: documentKey
-    });
+    await HistoryService.logDocumentActivity(
+      {
+        documentId:   docRequirement._id,
+        fileName:     docRequirement.documentName || documentKey,
+        documentType: documentKey,
+        entityType:   'Case',
+      },
+      'DOCUMENT_HANDLER_TOGGLED',
+      await getUserInfo(req),
+      {
+        description: `${docRequirement.documentName || documentKey} reassigned to ${newHandledBy}`,
+        caseId:      caseId,
+        documentKey: documentKey,
+      }
+    );
 
     return res.status(200).json({
       success: true,
@@ -522,6 +519,114 @@ export const toggleDocumentHandler = async (req, res) => {
 
   } catch (error) {
     console.error("Toggle document handler error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/* =====================================
+   TOGGLE SKIP BANK FORMS (Advisor bulk)
+   POST /:caseId/toggle-skip-bank-forms
+
+   Bulk reassigns ALL source='Bank' documents between Advisor and Ops.
+   Also flips advisorSkipBankForm on the Case and recalculates documentSummary.
+===================================== */
+export const toggleSkipBankForms = async (req, res) => {
+  try {
+    const { caseId } = req.params;
+
+    const caseData = await Case.findById(caseId);
+    if (!caseData)
+      return res.status(404).json({ success: false, message: 'Case not found' });
+
+    // Only advisors who created the case can skip bank forms
+    const roleDoc = await Role.findById(req.user.role);
+    if (roleDoc?.code !== '26')
+      return res.status(403).json({ success: false, message: 'Only XOTO Advisors can skip bank forms' });
+
+    if (caseData.createdBy?.role !== 'advisor' || caseData.createdBy?.userId?.toString() !== req.user._id.toString())
+      return res.status(403).json({ success: false, message: 'You can only modify cases you created' });
+
+    if (caseData.currentStatus !== 'Draft')
+      return res.status(400).json({ success: false, message: 'Cannot change bank form assignment after case is submitted' });
+
+    // Determine new state — toggle from current
+    const currentlySkipped = caseData.advisorSkipBankForm === true;
+    const newSkip          = !currentlySkipped;
+    const newHandledBy     = newSkip ? 'Ops' : 'Advisor';
+
+    // Find all bank form document requirements for this case
+    const bankDocs = await CaseDocumentRequirement.find({
+      caseId, source: 'Bank', isDeleted: false,
+    });
+
+    if (bankDocs.length === 0)
+      return res.status(404).json({ success: false, message: 'No bank form documents found for this case' });
+
+    // Check none are already uploaded (can't reassign uploaded docs)
+    const alreadyUploaded = bankDocs.filter(d => d.isUploaded);
+    if (alreadyUploaded.length > 0)
+      return res.status(400).json({
+        success: false,
+        message: `${alreadyUploaded.length} bank form(s) already uploaded — cannot reassign`,
+      });
+
+    // Bulk update handledBy on all bank documents
+    await CaseDocumentRequirement.updateMany(
+      { caseId, source: 'Bank', isDeleted: false },
+      {
+        $set: {
+          handledBy: newHandledBy,
+          'toggleState.handledByAdvisor': !newSkip,
+          'toggleState.assignedToOps':    newSkip,
+          'toggleState.toggledAt':        new Date(),
+          'toggleState.toggledBy':        req.user._id,
+          'toggleState.toggledByName':    req.user?.fullName || req.user?.email,
+        },
+      }
+    );
+
+    // Update advisorSkipBankForm flag on Case
+    caseData.advisorSkipBankForm = newSkip;
+
+    // Recalculate documentSummary
+    const allDocs = await CaseDocumentRequirement.find({ caseId, isDeleted: false });
+    const advisorDocs = allDocs.filter(d => d.handledBy === 'Advisor');
+    const opsDocs     = allDocs.filter(d => d.handledBy === 'Ops');
+    const uploaded    = allDocs.filter(d => d.isUploaded).length;
+    const verified    = allDocs.filter(d => d.isVerified).length;
+    const pct         = allDocs.length > 0 ? Math.round((uploaded / allDocs.length) * 100) : 0;
+
+    caseData.documentSummary = {
+      totalRequired:        allDocs.length,
+      uploadedCount:        uploaded,
+      verifiedCount:        verified,
+      completionPercentage: pct,
+      allUploaded:          uploaded >= allDocs.length,
+      allVerified:          verified >= allDocs.length,
+      advisorRequired:      advisorDocs.length,
+      advisorUploaded:      advisorDocs.filter(d => d.isUploaded).length,
+      opsRequired:          opsDocs.length,
+      opsUploaded:          opsDocs.filter(d => d.isUploaded).length,
+      otherRequired:        allDocs.filter(d => d.handledBy === 'Other').length,
+      otherUploaded:        allDocs.filter(d => d.handledBy === 'Other' && d.isUploaded).length,
+    };
+
+    await caseData.save();
+
+    return res.status(200).json({
+      success: true,
+      message: newSkip
+        ? `✅ ${bankDocs.length} bank form(s) assigned to Ops — you can skip uploading them`
+        : `✅ ${bankDocs.length} bank form(s) assigned back to you — upload before submission`,
+      data: {
+        advisorSkipBankForm: newSkip,
+        bankFormsCount:      bankDocs.length,
+        bankFormsHandledBy:  newHandledBy,
+        documentSummary:     caseData.documentSummary,
+      },
+    });
+  } catch (error) {
+    console.error('toggleSkipBankForms error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

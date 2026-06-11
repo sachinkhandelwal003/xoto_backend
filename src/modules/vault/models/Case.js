@@ -6,22 +6,43 @@ import mongoose from 'mongoose';
 
 const clientPersonalSchema = new mongoose.Schema(
   {
-    fullName: { type: String, required: true },
-    email: { type: String, required: true, lowercase: true },
-    mobile: { type: String, required: true },
-    nationality: { type: String, required: true },
-    residencyStatus: { type: String, enum: ['UAE National', 'UAE Resident', 'Non-Resident'], required: true },
-    employmentStatus: { type: String, enum: ['Salaried', 'Self-Employed'], required: true },
+    // Name — stored both split and combined for display flexibility
+    firstName:          { type: String, default: null },
+    lastName:           { type: String, default: null },
+    fullName:           { type: String, default: null },
+
+    email:              { type: String, default: null, lowercase: true },
+    phone:              { type: String, default: null }, // primary mobile
+    mobile:             { type: String, default: null }, // alias
+    nationality:        { type: String, default: null },
+    residencyStatus:    { type: String, enum: ['UAE National', 'UAE Resident', 'Non-Resident', null], default: null },
+    employmentStatus:   { type: String, enum: ['Salaried', 'Self-Employed', null], default: null },
+    dateOfBirth:        { type: Date,   default: null },
+    employer:           { type: String, default: null },
+
+    // Financial profile (PRD 5.3 Step 1)
+    monthlySalary:         { type: Number, default: null },
+    fixedMonthlySalary:    { type: Number, default: null }, // alias used in PRD
+    salaryBankName:        { type: String, default: null }, // bank where salary is received
+    existingLiabilities:   { type: Number, default: null }, // total existing monthly debt obligations AED
+
+    // Mortgage preferences (PRD 5.3 Step 1)
+    mortgageTerm:          { type: Number, default: 25 },  // years 5–25
+    feeFinancingRequired:  { type: Boolean, default: false },
   },
   { _id: false }
 );
 
 const propertySchema = new mongoose.Schema(
   {
-    propertyValue: { type: Number, required: true },
-    loanAmount: { type: Number, required: true },
+    propertyValue:   { type: Number, default: null },
+    loanAmount:      { type: Number, default: null },
+    downPayment:     { type: Number, default: null },
+    tenureYears:     { type: Number, default: 25 },
+    propertyType:    { type: String, default: null },
+    transactionType: { type: String, default: null },
     propertyAddress: {
-      area: { type: String, required: true },
+      area: { type: String, default: null },
       city: { type: String, default: 'Dubai' },
     },
   },
@@ -30,28 +51,30 @@ const propertySchema = new mongoose.Schema(
 
 const bankSelectionSchema = new mongoose.Schema(
   {
-    bankId: { type: mongoose.Schema.Types.ObjectId, ref: 'Bank', required: true },
-    bankName: { type: String, required: true },
-    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'BankMortgageProducts', required: true },
-    productName: { type: String, required: true },
-    interestRate: { type: Number, required: true },
-    tenureYears: { type: Number, required: true, default: 25 },
-    monthlyEMI: { type: Number, required: true },
+    bankId:       { type: mongoose.Schema.Types.ObjectId, ref: 'Bank', default: null },
+    bankName:     { type: String, default: null },
+    productId:    { type: mongoose.Schema.Types.ObjectId, ref: 'BankMortgageProducts', default: null },
+    productName:  { type: String, default: null },
+    interestRate: { type: Number, default: null },
+    tenureYears:  { type: Number, default: 25 },
+    monthlyEMI:   { type: Number, default: null },
   },
   { _id: false }
 );
 
 const eligibilitySnapshotSchema = new mongoose.Schema(
   {
-    checkedAt: { type: Date, default: null },
-    isEligible: { type: Boolean, default: false },
-    dbrPercentage: { type: Number, default: 0 },
-    dbrStatus: { type: String, enum: ['Eligible', 'Borderline', 'Ineligible', 'Not Checked'], default: 'Not Checked' },
-    estimatedLTV: { type: Number, default: 0 },
-    eligibilityScore: { type: Number, default: 0 },
-    riskGrade: { type: String, default: null },
-    recommendedLoanAmount: { type: Number, default: 0 },
-    eligibilityNotes: { type: String, default: null },
+    checkedAt:             { type: Date,    default: null },
+    isEligible:            { type: Boolean, default: false },
+    dbrPercentage:         { type: Number,  default: 0 },
+    dbrStatus:             { type: String,  default: 'Not Checked' },
+    estimatedLTV:          { type: Number,  default: 0 },
+    eligibilityScore:      { type: Number,  default: 0 },
+    riskGrade:             { type: String,  default: null },
+    recommendedLoanAmount: { type: Number,  default: 0 },
+    eligibilityNotes:      { type: String,  default: null },
+    monthlySalary:         { type: Number,  default: null },
+    existingMonthlyDebt:   { type: Number,  default: null },
   },
   { _id: false }
 );
@@ -136,6 +159,28 @@ const disbursementInfoSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// ── Pre-Approval Info ─────────────────────────────────────────────
+// Populated when status reaches 'Pre-Approved' (pre_approval_only flow)
+const preApprovalInfoSchema = new mongoose.Schema(
+  {
+    preApprovedAmount:          { type: Number, default: null },
+    preApprovedAt:              { type: Date,   default: null },
+    maxLTV:                     { type: Number, default: null }, // e.g. 0.80
+    maxAffordablePropertyValue: { type: Number, default: null }, // preApprovedAmount / maxLTV
+    confirmedLoanAmount:    { type: Number, default: null },
+    confirmedPropertyValue: { type: Number, default: null },
+    confirmedDownPayment:   { type: Number, default: null },
+    confirmedLTV:           { type: Number, default: null },
+    propertyAddedAt: { type: Date, default: null },
+    propertyAddedBy: {
+      userId:   { type: mongoose.Schema.Types.ObjectId, default: null },
+      userName: { type: String, default: null },
+      userRole: { type: String, default: null },
+    },
+  },
+  { _id: false }
+);
+
 // ── Timeline ──────────────────────────────────────────────────────
 const timelineSchema = new mongoose.Schema(
   {
@@ -169,6 +214,19 @@ const caseSchema = new mongoose.Schema(
     // Parent partner organization (if created by a partner or partner agent)
     partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Partner', default: null },
 
+    // Pre-approval flow
+    // standard         = property known at creation, normal full-application flow
+    // pre_approval_only = no property yet; bank pre-approves first, Ops adds property later
+    applicationSubType: {
+      type: String,
+      enum: ['standard', 'pre_approval_only'],
+      default: 'standard',
+    },
+    // true  = property details are known (propertyInfo is complete)
+    // false = pre-approval only; property to be added by Ops after pre-approval
+    propertyFound: { type: Boolean, default: true },
+    preApprovalInfo: { type: preApprovalInfoSchema, default: () => ({}) },
+
     // Who created this case
     // ALL cases go through Ops queue before bank submission
     // role: 'advisor'                  → Draft → Xoto → Ops Queue → Ops Review → Bank
@@ -185,9 +243,9 @@ const caseSchema = new mongoose.Schema(
     // Advisor-only: if true, bank form docs stay with Ops; advisor only uploads global docs
     advisorSkipBankForm: { type: Boolean, default: false },
 
-    clientInfo: { type: clientPersonalSchema, required: true },
-    propertyInfo: { type: propertySchema, required: true },
-    bankSelection: { type: bankSelectionSchema, required: true },
+    clientInfo:    { type: clientPersonalSchema,   default: () => ({}) },
+    propertyInfo:  { type: propertySchema,         default: () => ({}) },
+    bankSelection: { type: bankSelectionSchema,    default: () => ({}) },
     eligibilitySnapshot: { type: eligibilitySnapshotSchema, default: () => ({}) },
     documentSummary: { type: documentSummarySchema, default: () => ({}) },
     opsQueue: { type: opsQueueSchema, default: () => ({}) },
@@ -228,9 +286,40 @@ const caseSchema = new mongoose.Schema(
     internalNotes: [{ type: String }],
     customerNotes: [{ type: String }],
 
+    // PRD 5.3 — notes at submit time (visible to advisor/partner)
+    submissionNotes: { type: String, default: null },
+
+    // Ops-only internal notes — NOT visible to Advisor/Partner
+    opsNotes: { type: String, default: null },
+
+    // Mandatory correction notes sent back to Advisor/Partner when case is returned
+    returnedToSubmitterNotes: { type: String, default: null },
+
     advisorSubmittedAt: { type: Date, default: null },
     resubmissionCount: { type: Number, default: 0 },
     notesToOps: { type: String, default: null },
+
+    // Full status audit trail — auto-appended on every status change
+    statusHistory: [
+      {
+        status:      { type: String },
+        changedAt:   { type: Date,   default: Date.now },
+        changedBy:   { type: mongoose.Schema.Types.ObjectId },
+        changedByName: { type: String, default: null },
+        changedByRole: { type: String, default: null },
+        notes:       { type: String, default: null },
+      },
+    ],
+
+    // PRD tracks bank form download events
+    bankFormsDownloadLog: [
+      {
+        formId:         { type: String },
+        downloadedBy:   { type: mongoose.Schema.Types.ObjectId },
+        downloadedByName: { type: String, default: null },
+        downloadedAt:   { type: Date, default: Date.now },
+      },
+    ],
 
     bankSubmission: {
       submittedToBankAt: { type: Date, default: null },

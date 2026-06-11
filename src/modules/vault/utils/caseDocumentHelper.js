@@ -46,8 +46,12 @@ export const initializeCaseDocuments = async ({
 
     // Separate documents by source
     const globalDocuments = requiredDocuments.filter(doc => doc.isGlobal === true);
-    const bankSpecificDocuments = requiredDocuments.filter(doc => 
-      doc.isGlobal === false && doc.applicableBanks?.includes(bankId)
+    // ObjectId equality requires .toString() — Array.includes() uses reference equality
+    const bankIdStr = bankId ? bankId.toString() : null;
+    const bankSpecificDocuments = requiredDocuments.filter(doc =>
+      doc.isGlobal === false &&
+      bankIdStr &&
+      doc.applicableBanks?.some(id => id.toString() === bankIdStr)
     );
 
     let advisorHandledCount = 0;
@@ -240,8 +244,8 @@ export const getCaseDocumentsByFilter = async (caseId, filters = {}) => {
         bank: documents.filter(d => d.source === 'Bank').length,
         advisorHandled: documents.filter(d => d.handledBy === 'Advisor').length,
         opsHandled: documents.filter(d => d.handledBy === 'Ops').length,
-        otherHandled:
- documents.filter(d => d.handledBy === 'Other').length
+        partnerHandled: documents.filter(d => d.handledBy === 'Partner').length,
+        otherHandled: documents.filter(d => d.handledBy === 'Other').length
       }
     };
     

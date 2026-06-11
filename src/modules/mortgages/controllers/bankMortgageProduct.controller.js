@@ -685,7 +685,8 @@ exports.getProductsByBankId = async (req, res) => {
             minLoanAmount,
             maxLoanAmount,
             page = 1,
-            limit = 10
+            limit = 10,
+            search
         } = req.query;
 
         // Check if bank exists
@@ -708,6 +709,15 @@ exports.getProductsByBankId = async (req, res) => {
         if (isFeatured === 'true') query.isFeatured = true;
         if (isPopular === 'true') query.isPopular = true;
         
+        // Apply search filter
+        if (search) {
+            query.$or = [
+                { productName: { $regex: search, $options: "i" } },
+                { description: { $regex: search, $options: "i" } },
+                { keyFeatures: { $regex: search, $options: "i" } }
+            ];
+        }
+
         // Loan amount filter
         if (minLoanAmount || maxLoanAmount) {
             query.$and = [];

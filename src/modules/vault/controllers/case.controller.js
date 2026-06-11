@@ -57,6 +57,62 @@ const getUserInfo = async (req) => {
 
 
 // ══════════════════════════════════════════════════════════════════
+
+// =====================================================================
+// HELPERS: LTV limits + DBR-based max loan amount
+// =====================================================================
+
+// LTV limits per CBUAE rules:
+//   UAE National  : 85% (<=5M AED), 80% (>5M)
+//   UAE Resident  : 80% (<=5M AED), 75% (>5M)
+//   Non-Resident  : 75% (<=5M AED), 65% (>5M)
+//   Off-plan (all): 50%
+const getLTVLimits = (residencyStatus, transactionType, propertyValue = 0) => {
+  const isOffPlan = transactionType === 'Off-plan';
+  if (isOffPlan) return { maxLTV: 0.50, label: '50% (Off-plan)' };
+  const over5M = propertyValue > 5000000;
+  if (residencyStatus === 'UAE National') {
+    return over5M
+      ? { maxLTV: 0.80, label: '80% (UAE National >5M)' }
+      : { maxLTV: 0.85, label: '85% (UAE National <=5M)' };
+  }
+  if (residencyStatus === 'UAE Resident') {
+    return over5M
+      ? { maxLTV: 0.75, label: '75% (UAE Resident >5M)' }
+      : { maxLTV: 0.80, label: '80% (UAE Resident <=5M)' };
+  }
+  if (residencyStatus === 'Non-Resident') {
+    return over5M
+      ? { maxLTV: 0.65, label: '65% (Non-Resident >5M)' }
+      : { maxLTV: 0.75, label: '75% (Non-Resident <=5M)' };
+  }
+  return { maxLTV: 0.80, label: '80% (default)' };
+};
+
+const MAX_DBR = 0.50;
+
+// Returns max loan amount based on 50% DBR ceiling
+const calculateMaxLoanByDBR = (monthlySalary, existingLiabilities = 0, annualRate = 4.5, tenureYears = 25) => {
+  if (!monthlySalary || monthlySalary <= 0) return { maxLoanByDBR: null, error: 'Monthly salary required' };
+  const availableEMI = MAX_DBR * monthlySalary - (existingLiabilities || 0);
+  const currentDBR   = (existingLiabilities || 0) / monthlySalary;
+  if (availableEMI <= 0) {
+    return { maxLoanByDBR: 0, availableEMI: 0, currentDBR, maxDBR: MAX_DBR,
+      message: 'DBR already at or above 50% -- no additional loan capacity' };
+  }
+  const r = annualRate / 100 / 12;
+  const n = tenureYears * 12;
+  const maxLoan = r > 0
+    ? availableEMI * (Math.pow(1 + r, n) - 1) / (r * Math.pow(1 + r, n))
+    : availableEMI * n;
+  return {
+    maxLoanByDBR: Math.round(maxLoan),
+    availableEMI: Math.round(availableEMI),
+    currentDBR:   Math.round(currentDBR * 100) / 100,
+    maxDBR:       MAX_DBR,
+  };
+};
+
 // HELPER: Update Lead Status from Case Status (PRD Section 5.3 & 6.1)
 // ══════════════════════════════════════════════════════════════════
 const updateLeadStatusFromCase = async (sourceLeadId, caseStatus, additionalData = {}) => {
@@ -64,15 +120,15 @@ const updateLeadStatusFromCase = async (sourceLeadId, caseStatus, additionalData
   
   // Maps Case status → Lead status per PRD workflow
  const leadStatusMap = {
-    // ==================== Lead: Collecting Documents ====================
-    'Draft': 'Collecting Documents',
-    'Submitted to Xoto': 'Collecting Documents',
-    'In Ops Queue - Pending Pick-up': 'Collecting Documents',
-    'Assigned - Pending Review': 'Collecting Documents',
-    'Under Review': 'Collecting Documents',
-    'Resubmitted-After Correction': 'Collecting Documents',
-    'Returned - Pending Correction': 'Collecting Documents',
-    
+    // ==================== Lead: Application Opened (case exists, pre-bank stages) ====================
+    'Draft':                        'Application Opened',
+    'Submitted to Xoto':            'Application Opened',
+    'In Ops Queue - Pending Pick-up': 'Application Opened',
+    'Assigned - Pending Review':    'Application Opened',
+    'Under Review':                 'Application Opened',
+    'Resubmitted-After Correction': 'Application Opened',
+    'Returned - Pending Correction':'Application Opened',
+
     // ==================== Lead: Bank Application ====================
     'Submitted to Bank': 'Bank Application',      // PRD Section 4.3
     'Pre-Approved': 'Pre-Approved',               // PRD Section 4.3
@@ -84,10 +140,11 @@ const updateLeadStatusFromCase = async (sourceLeadId, caseStatus, additionalData
     // ==================== Lead: Disbursed ====================
     'Disbursed': 'Disbursed',                     // PRD Section 4.3
     
-    // ==================== Lead: Lost ====================
-    'Rejected':  'Lost',   // PRD Section 4.3
-    'Declined':  'Lost',   // PRD Section 4.3
-    'Lost':      'Lost',   // PRD Section 4.3
+    // ==================== Lead: Lost / Not Proceeding ====================
+    'Rejected':       'Lost',            // PRD Section 4.3
+    'Declined':       'Lost',            // PRD Section 4.3
+    'Lost':           'Lost',            // PRD Section 4.3
+    'Not Proceeding': 'Not Proceeding',  // PRD Section 4.3
 };
   
   const leadStatus = leadStatusMap[caseStatus];
@@ -123,20 +180,23 @@ export const createCase = async (req, res) => {
     const {
       sourceLeadId, proposalId, caseReference, clientInfo, propertyInfo,
       loanInfo, currentStatus, internalNotes, customerNotes,
-      skipBankForm   // advisor-only: true = delegate bank forms to Ops
+      skipBankForm,        // advisor-only: true = delegate bank forms to Ops
+      applicationSubType,  // 'standard' (default) | 'pre_approval_only'
     } = req.body;
 
-    // Validation
+    // Validation — only sourceLeadId and caseReference are hard required
     if (!sourceLeadId) return res.status(400).json({ success: false, message: "sourceLeadId is required" });
     if (!caseReference) return res.status(400).json({ success: false, message: "caseReference is required" });
-    if (!clientInfo?.fullName) return res.status(400).json({ success: false, message: "clientInfo with fullName is required" });
-    if (!propertyInfo?.propertyValue) return res.status(400).json({ success: false, message: "propertyInfo with propertyValue is required" });
-    if (!loanInfo?.selectedBankProduct) return res.status(400).json({ success: false, message: "loanInfo with selectedBankProduct is required" });
 
-    // Check duplicate case
+    // Duplicate check — allow re-application if previous case is in a terminal state
+    const TERMINAL_STATUSES = ['Disbursed', 'Rejected', 'Declined', 'Lost', 'Not Proceeding'];
     const existingCase = await Case.findOne({ sourceLeadId, isDeleted: false });
-    if (existingCase) {
-      return res.status(400).json({ success: false, message: "Case already exists for this lead", existingCaseId: existingCase._id });
+    if (existingCase && !TERMINAL_STATUSES.includes(existingCase.currentStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `An active case already exists for this lead (${existingCase.currentStatus}). A new case can only be created after the existing one is closed.`,
+        existingCaseId: existingCase._id,
+      });
     }
 
     // Check unique case reference
@@ -173,16 +233,16 @@ export const createCase = async (req, res) => {
       return res.status(403).json({ success: false, message: 'You can only create cases for your own leads' });
     }
 
-    // Get Bank Product Details
+    // Get Bank Product Details (optional — can be selected later by Ops)
     const BankProduct = mongoose.model('BankMortgageProducts');
-    const product = await BankProduct.findById(loanInfo.selectedBankProduct).populate('bank');
-    
-    if (!product) {
-      return res.status(404).json({ success: false, message: "Bank product not found" });
+    let product = null;
+    if (loanInfo?.selectedBankProduct) {
+      product = await BankProduct.findById(loanInfo.selectedBankProduct).populate('bank');
     }
 
     // ==================== FIX: Set createdBy based on role with proper userName ====================
     let createdBy = {};
+    let partnerIdVal = null;
     const now = new Date();
 
     if (isAdmin) {
@@ -231,14 +291,17 @@ export const createCase = async (req, res) => {
         userName: userName,
         createdAt: now
       };
+      partnerIdVal = partner._id;
     }
     else if (isPartnerAffiliatedAgent) {
+      const agent = await VaultAgent.findById(req.user._id);
       createdBy = {
         role: 'partner_affiliated_agent',
         userId: req.user._id,
         userName: req.user?.fullName || req.user?.email || 'Partner Affiliated Agent',
         createdAt: now,
       };
+      partnerIdVal = agent?.partnerId || null;
     }
 
     // Format notes
@@ -256,75 +319,121 @@ export const createCase = async (req, res) => {
     const advisorSkipBankForm = isAdvisor ? (skipBankForm === true || skipBankForm === 'true') : false;
 
     // Create case
+    // Auto-populate from lead where caller didn't provide values
+    const leadCI = lead.customerInfo || {};
+    const leadPD = lead.propertyDetails || {};
+    const leadLR = lead.loanRequirements || {};
+
+    const resolvedLoanAmount =
+      propertyInfo?.loanAmount ||
+      lead.eligibility?.recommendedLoanAmount ||
+      (leadPD.propertyValue ? leadPD.propertyValue * 0.8 : null);   // 80% LTV fallback
+
     const caseData = await Case.create({
       caseReference,
       sourceLeadId,
       proposalId: proposalId || null,
+      partnerId: partnerIdVal,
       createdBy,
       advisorSkipBankForm,
-      
+
+      // Pre-approval flow
+      applicationSubType: applicationSubType === 'pre_approval_only' ? 'pre_approval_only' : 'standard',
+      propertyFound: applicationSubType === 'pre_approval_only' ? false : true,
+
+      // Client info — prefer caller payload, fall back to lead enrichment (PRD 5.3 Step 1)
       clientInfo: {
-        fullName: clientInfo.fullName,
-        email: clientInfo.email || lead.customerInfo.email,
-        mobile: clientInfo.mobile || lead.customerInfo.mobileNumber,
-        nationality: clientInfo.nationality || lead.customerInfo.nationality,
-        residencyStatus: clientInfo.residencyStatus || lead.customerInfo.residencyStatus,
-        employmentStatus: clientInfo.employmentStatus || lead.customerInfo.employmentStatus
+        firstName:           clientInfo?.firstName           || leadCI.firstName           || null,
+        lastName:            clientInfo?.lastName            || leadCI.lastName            || null,
+        fullName:            clientInfo?.fullName            || `${leadCI.firstName || ''} ${leadCI.lastName || ''}`.trim(),
+        email:               clientInfo?.email               || leadCI.email               || null,
+        phone:               clientInfo?.phone               || clientInfo?.mobile         || leadCI.mobileNumber || null,
+        mobile:              clientInfo?.mobile              || leadCI.mobileNumber        || null,
+        nationality:         clientInfo?.nationality         || leadCI.nationality         || null,
+        residencyStatus:     clientInfo?.residencyStatus     || leadCI.residencyStatus     || null,
+        employmentStatus:    clientInfo?.employmentStatus    || leadCI.employmentStatus    || null,
+        dateOfBirth:         clientInfo?.dateOfBirth         || leadCI.dateOfBirth         || null,
+        employer:            clientInfo?.employer            || leadCI.employer            || null,
+        monthlySalary:       clientInfo?.monthlySalary       || clientInfo?.fixedMonthlySalary || leadCI.monthlySalary    || null,
+        fixedMonthlySalary:  clientInfo?.fixedMonthlySalary  || clientInfo?.monthlySalary      || leadCI.monthlySalary    || null,
+        salaryBankName:      clientInfo?.salaryBankName      || leadCI.salaryBankName      || null,
+        existingLiabilities: clientInfo?.existingLiabilities || leadCI.existingLiabilities || null,
+        mortgageTerm:        clientInfo?.mortgageTerm        || loanInfo?.tenureYears       || 25,
+        feeFinancingRequired: clientInfo?.feeFinancingRequired ?? leadLR?.feeFinancingPreference ?? false,
       },
-      
+
+      // Property info — optional, fall back to lead's property details
       propertyInfo: {
-        propertyValue: propertyInfo.propertyValue,
-        loanAmount: propertyInfo.loanAmount || (propertyInfo.propertyValue - (propertyInfo.downPayment || 0)),
+        propertyValue:   propertyInfo?.propertyValue  || leadPD.propertyValue  || null,
+        loanAmount:      resolvedLoanAmount            || null,
+        downPayment:     propertyInfo?.downPayment     || leadPD.downPaymentAmount || null,
+        tenureYears:     loanInfo?.tenureYears         || leadLR.preferredTenureYears || 25,
+        propertyType:    propertyInfo?.propertyType    || leadPD.propertyType   || null,
+        transactionType: propertyInfo?.transactionType || leadPD.transactionType || null,
         propertyAddress: {
-          area: propertyInfo.propertyAddress?.area || lead.propertyDetails.propertyAddress?.area || '',
-          city: propertyInfo.propertyAddress?.city || lead.propertyDetails.propertyAddress?.city || 'Dubai'
-        }
+          area: propertyInfo?.propertyAddress?.area || leadPD.propertyAddress?.area || '',
+          city: propertyInfo?.propertyAddress?.city || leadPD.propertyAddress?.city || 'Dubai',
+        },
       },
-      
-      bankSelection: {
-        bankId: product.bank._id,
-        bankName: product.bank.bankName,
-        productId: product._id,
-        productName: product.productName,
-        interestRate: parseFloat(product.interestRate),
-        tenureYears: loanInfo.tenureYears || 25,
-        monthlyEMI: loanInfo.monthlyEMI || 0
-      },
-      
+
+      // Bank selection — optional (Ops can fill later)
+      ...(product ? {
+        bankSelection: {
+          bankId:       product.bank._id,
+          bankName:     product.bank.bankName,
+          productId:    product._id,
+          productName:  product.productName,
+          interestRate: parseFloat(product.interestRate),
+          tenureYears:  loanInfo?.tenureYears || 25,
+          monthlyEMI:   loanInfo?.monthlyEMI  || 0,
+        },
+      } : {}),
+
       currentStatus: 'Draft',
+      submissionNotes: req.body.submissionNotes || null,
+      statusHistory: [{
+        status: 'Draft',
+        changedAt: new Date(),
+        changedByName: createdBy.userName,
+        changedByRole: createdBy.role,
+        notes: 'Case created',
+      }],
       internalNotes: formattedInternalNotes,
       customerNotes: formattedCustomerNotes,
-      
+
       amountTracking: {
-        requestedAmount: propertyInfo.loanAmount || (propertyInfo.propertyValue - (propertyInfo.downPayment || 0)),
-        amountStatus: 'Pending'
+        requestedAmount: resolvedLoanAmount || null,
+        amountStatus: 'Pending',
       },
-      
+
+      // Snapshot lead eligibility at case creation time
       eligibilitySnapshot: {
-        checkedAt: lead.eligibility?.checkedAt || null,
-        isEligible: lead.eligibility?.isEligible || false,
-        dbrPercentage: lead.eligibility?.dbrPercentage || 0,
-        dbrStatus: lead.eligibility?.dbrStatus || 'Not Checked',
-        estimatedLTV: lead.eligibility?.estimatedLTV || 0,
-        eligibilityScore: lead.eligibility?.eligibilityScore || 0,
-        riskGrade: lead.eligibility?.riskGrade || null,
+        checkedAt:             lead.eligibility?.checkedAt             || null,
+        isEligible:            lead.eligibility?.isEligible            ?? false,
+        dbrPercentage:         lead.eligibility?.dbrPercentage         || 0,
+        dbrStatus:             lead.eligibility?.dbrStatus             || 'Not Checked',
+        estimatedLTV:          lead.eligibility?.estimatedLTV          || 0,
+        eligibilityScore:      lead.eligibility?.eligibilityScore      || 0,
+        riskGrade:             lead.eligibility?.riskGrade             || null,
         recommendedLoanAmount: lead.eligibility?.recommendedLoanAmount || 0,
-        eligibilityNotes: lead.eligibility?.eligibilityNotes || null
-      }
+        eligibilityNotes:      lead.eligibility?.eligibilityNotes      || null,
+        monthlySalary:         leadCI.monthlySalary                    || null,
+        existingMonthlyDebt:   lead.eligibility?.existingMonthlyDebt   || null,
+      },
     });
 
-    // Initialize documents using customer's employment and residency
-    const employmentStatus = lead.customerInfo.employmentStatus;
-    const residencyStatus = lead.customerInfo.residencyStatus;
-    
+    // Initialize documents — use lead employment/residency; bank docs only when product is known
+    const employmentStatus = lead.customerInfo.employmentStatus || 'Salaried';
+    const residencyStatus  = lead.customerInfo.residencyStatus  || 'UAE Resident';
+
     const documentResult = await initializeCaseDocuments({
-      caseId: caseData._id,
-      bankId: product.bank._id,
-      employmentStatus: employmentStatus,
-      residencyStatus: residencyStatus,
-      mortgageType: product.mortgageType || 'Both',
-      creatorRole: createdBy.role,
-      skipBankForm: advisorSkipBankForm,
+      caseId:           caseData._id,
+      bankId:           product?.bank?._id || null,
+      employmentStatus,
+      residencyStatus,
+      mortgageType:     product?.mortgageType || 'Both',
+      creatorRole:      createdBy.role,
+      skipBankForm:     advisorSkipBankForm,
     });
 
     // Update case document summary
@@ -337,7 +446,7 @@ export const createCase = async (req, res) => {
       'conversionInfo.convertedAt': new Date(),
       'conversionInfo.convertedById': req.user._id,
       'conversionInfo.convertedByName': createdBy.userName,
-      currentStatus: 'Collecting Documents'
+      currentStatus: 'Application Opened'
     });
 
     // Update proposal if provided
@@ -355,10 +464,12 @@ export const createCase = async (req, res) => {
       description: `Case ${caseReference} created with ${documentResult.summary.total} document requirements`
     });
 
+    const resolvedClientName = caseData.clientInfo?.fullName || 'Unknown';
+
     await dispatchVaultNotification(req, {
       eventType:     'CASE_CREATED',
       title:         'New Case Created',
-      message:       `Case ${caseReference} created for ${clientInfo.fullName} — by ${createdBy.role} ${createdBy.userName}`,
+      message:       `Case ${caseReference} created for ${resolvedClientName} — by ${createdBy.role} ${createdBy.userName}`,
       entityId:      caseData._id,
       entityModel:   'Case',
       caseId:        caseData._id,
@@ -369,7 +480,7 @@ export const createCase = async (req, res) => {
       entityId:   caseData._id,
       entityRef:  caseData.caseReference,
       action:     AUDIT_ACTIONS.CASE_CREATED,
-      newValue:   { caseReference, clientName: clientInfo.fullName, advisorSkipBankForm },
+      newValue:   { caseReference, clientName: resolvedClientName, advisorSkipBankForm },
       ...actorFromReq(req, createdBy.role),
       metadata:   { sourceLeadId },
     });
@@ -383,11 +494,11 @@ export const createCase = async (req, res) => {
         documentRequirements: documentResult.documents,
         documentStats: documentResult.summary,
         filtersUsed: {
-          employmentStatus: employmentStatus,
-          residencyStatus: residencyStatus,
-          bankId: product.bank._id,
-          bankName: product.bank.bankName,
-          productName: product.productName
+          employmentStatus,
+          residencyStatus,
+          bankId:      product?.bank?._id  || null,
+          bankName:    product?.bank?.bankName || null,
+          productName: product?.productName    || null,
         }
       }
     });
@@ -446,13 +557,16 @@ export const submitCaseToXoto = async (req, res) => {
       return res.status(403).json({ success: false, message: "You can only submit cases you created" });
     }
 
-    if (isPartner && caseData.createdBy?.role !== 'partner') {
-      return res.status(403).json({ success: false, message: "You can only submit cases you created" });
+    if (isPartner) {
+      const isOwner = (caseData.partnerId?.toString() === req.user._id.toString()) || 
+                      (caseData.createdBy?.role === 'partner' && caseData.createdBy?.userId?.toString() === req.user._id.toString());
+      if (!isOwner) {
+        return res.status(403).json({ success: false, message: "You can only submit cases belonging to your organization" });
+      }
     }
 
     if (isPartnerAffiliatedAgent) {
-      if (caseData.createdBy?.role !== 'partner_affiliated_agent' ||
-          caseData.createdBy?.userId?.toString() !== req.user._id.toString()) {
+      if (caseData.createdBy?.userId?.toString() !== req.user._id.toString()) {
         return res.status(403).json({ success: false, message: "You can only submit your own cases" });
       }
     } else if (!isAdvisor && !isPartner) {
@@ -790,12 +904,271 @@ export const getMyAssignedCases = async (req, res) => {
   }
 };
 
+// ==================== HELPER: AUTO-CREATE COMMISSION ON DISBURSEMENT ====================
+const autoCreateCommission = async (caseData, approvedAmount, bankReference, disbursedTo) => {
+  try {
+    const loanAmount = parseFloat(approvedAmount);
+    if (!loanAmount || loanAmount <= 0) {
+      console.warn(`[autoCreateCommission] Invalid loan amount: ${loanAmount}`);
+      return { success: false, reason: "Invalid loan amount" };
+    }
+
+    // Prevent duplicate commission for same case
+    const existingCommission = await Commission.findOne({ caseId: caseData._id, isDeleted: false });
+    if (existingCommission) {
+      console.warn(`[autoCreateCommission] Commission already exists for case ${caseData.caseReference}`);
+      return { success: false, alreadyExists: true, data: existingCommission };
+    }
+
+    // Calculate bank commission to Xoto (1% fixed)
+    const xotoCommissionFromBank = Math.round(loanAmount * 0.01);
+
+    // Get lead to determine recipient
+    const lead = await Lead.findById(caseData.sourceLeadId);
+    let leadSourceRole = null;
+    let leadSourceId = null;
+
+    if (lead && lead.sourceInfo) {
+      leadSourceRole = lead.sourceInfo.createdByRole;
+      leadSourceId = lead.sourceInfo.createdById;
+    }
+
+    let recipientInfo = null;
+
+    // CASE 1: Freelance Agent (40% / 50%)
+    if (leadSourceRole === 'referral_partner') {
+      const agent = await VaultAgent.findById(leadSourceId);
+      if (agent && agent.agentType === 'ReferralPartner') {
+        const percentage = loanAmount <= 5000000 ? 40 : 50;
+        const commissionAmount = Math.round((xotoCommissionFromBank * percentage) / 100);
+
+        recipientInfo = {
+          recipientRole: 'referral_partner',
+          recipientId: agent._id,
+          recipientModel: 'VaultAgent',
+          recipientName: agent.fullName,
+          recipientPercentage: percentage,
+          commissionAmount: commissionAmount,
+          calculationFormula: `${xotoCommissionFromBank.toLocaleString()} × ${percentage}% = ${commissionAmount.toLocaleString()} AED`,
+          percentageSource: 'freelance_commission.referralOnly',
+          sourceAgentId: agent._id,
+          sourceAgentName: agent.fullName,
+          payoutBankDetails: agent.bankDetails?.iban ? {
+            beneficiaryName: agent.bankDetails.beneficiaryName || agent.fullName,
+            bankName: agent.bankDetails.bankName,
+            iban: agent.bankDetails.iban,
+            swiftCode: agent.bankDetails.swiftCode
+          } : {}
+        };
+      }
+    }
+
+    // CASE 2: Partner-Affiliated Agent (Commission to Partner: 80% / 85%)
+    else if (leadSourceRole === 'partner_affiliated_agent') {
+      const agent = await VaultAgent.findById(leadSourceId);
+      if (agent && agent.partnerId) {
+        const partner = await Partner.findById(agent.partnerId);
+        if (partner) {
+          const percentage = loanAmount <= 5000000 ? 80 : 85;
+          const commissionAmount = Math.round((xotoCommissionFromBank * percentage) / 100);
+
+          recipientInfo = {
+            recipientRole: 'partner',
+            recipientId: partner._id,
+            recipientModel: 'Partner',
+            recipientName: partner.displayName || partner.companyName || 'Partner',
+            recipientPercentage: percentage,
+            commissionAmount: commissionAmount,
+            calculationFormula: `${xotoCommissionFromBank.toLocaleString()} × ${percentage}% = ${commissionAmount.toLocaleString()} AED`,
+            percentageSource: 'partner.commissionConfiguration',
+            sourceAgentId: agent._id,
+            sourceAgentName: agent.fullName,
+            payoutBankDetails: partner.bankDetails?.iban ? {
+              beneficiaryName: partner.bankDetails.beneficiaryName || partner.displayName || partner.companyName,
+              bankName: partner.bankDetails.bankName,
+              iban: partner.bankDetails.iban,
+              swiftCode: partner.bankDetails.swiftCode
+            } : {}
+          };
+        }
+      }
+    }
+
+    // CASE 3: Partner (company or individual) (80% / 85%)
+    else if (leadSourceRole === 'partner' || leadSourceRole === 'individual_partner') {
+      const partner = await Partner.findById(leadSourceId);
+      if (partner) {
+        const percentage = loanAmount <= 5000000 ? 80 : 85;
+        const commissionAmount = Math.round((xotoCommissionFromBank * percentage) / 100);
+
+        recipientInfo = {
+          recipientRole: 'partner',
+          recipientId: partner._id,
+          recipientModel: 'Partner',
+          recipientName: partner.displayName || partner.companyName || 'Partner',
+          recipientPercentage: percentage,
+          commissionAmount: commissionAmount,
+          calculationFormula: `${xotoCommissionFromBank.toLocaleString()} × ${percentage}% = ${commissionAmount.toLocaleString()} AED`,
+          percentageSource: 'partner.commissionConfiguration',
+          payoutBankDetails: partner.bankDetails?.iban ? {
+            beneficiaryName: partner.bankDetails.beneficiaryName || partner.displayName || partner.companyName,
+            bankName: partner.bankDetails.bankName,
+            iban: partner.bankDetails.iban,
+            swiftCode: partner.bankDetails.swiftCode
+          } : {}
+        };
+      }
+    }
+
+    let commission = null;
+    const commissionId = `COM-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+
+    // If external recipient found, create a Pending commission record
+    if (recipientInfo) {
+      commission = await Commission.create({
+        commissionId,
+        caseId: caseData._id,
+        caseReference: caseData.caseReference,
+        leadId: caseData.sourceLeadId,
+        proposalId: caseData.proposalId,
+        customerId: caseData.customerId,
+        customerName: caseData.clientInfo?.fullName,
+        leadSource: leadSourceRole,
+        isInternal: false,
+        recipientRole: recipientInfo.recipientRole,
+        recipientId: recipientInfo.recipientId,
+        recipientModel: recipientInfo.recipientModel,
+        recipientName: recipientInfo.recipientName,
+        sourceAgentId: recipientInfo.sourceAgentId || null,
+        sourceAgentName: recipientInfo.sourceAgentName || null,
+        loanAmount,
+        loanTier: loanAmount <= 5000000 ? '≤5M AED' : '>5M AED',
+        bankCommissionToXoto: xotoCommissionFromBank,
+        bankCommissionRate: 0.01,
+        recipientPercentage: recipientInfo.recipientPercentage,
+        commissionAmount: recipientInfo.commissionAmount,
+        calculationFormula: recipientInfo.calculationFormula,
+        referralType: recipientInfo.recipientRole === 'referral_partner' ? 'Referral Only' : null,
+        percentageSource: recipientInfo.percentageSource,
+        disbursedAt: new Date(),
+        status: 'Pending',
+        payoutBankDetails: recipientInfo.payoutBankDetails || {},
+        xotoEarnings: {
+          amount: xotoCommissionFromBank - recipientInfo.commissionAmount,
+          rate: '1%',
+          calculation: `${xotoCommissionFromBank.toLocaleString()} - ${recipientInfo.commissionAmount.toLocaleString()} = ${(xotoCommissionFromBank - recipientInfo.commissionAmount).toLocaleString()} AED`,
+          note: `Paid ${recipientInfo.commissionAmount.toLocaleString()} AED to ${recipientInfo.recipientName}.`
+        },
+        createdBy: { role: 'system' },
+        notes: `Commission auto-created from disbursed case.`
+      });
+
+      // Update case with commission info
+      caseData.commissionInfo = {
+        commissionId: commission.commissionId,
+        loanAmount,
+        loanTier: commission.loanTier,
+        recipientPercentage: recipientInfo.recipientPercentage,
+        xotoCommissionFromBank,
+        recipientCommissionAmount: recipientInfo.commissionAmount,
+        calculation: recipientInfo.calculationFormula,
+        status: 'Pending',
+        bankCommissionRate: 0.01,
+        createdAt: new Date()
+      };
+      await caseData.save();
+
+      return {
+        success: true,
+        commissionCreated: true,
+        data: {
+          id: commission.commissionId,
+          amount: recipientInfo.commissionAmount,
+          recipient: commission.recipientName,
+          status: 'Pending',
+          xotoEarning: xotoCommissionFromBank
+        }
+      };
+    }
+
+    // CASE 4: Internal Commission (Website, Admin, or no sourceInfo)
+    const intCommissionId = `INT-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    const xotoEarning1Percent = Math.round(loanAmount * 0.01); // Internal leads still get 1% fixed calculated since no payout is needed
+
+    commission = await Commission.create({
+      commissionId: intCommissionId,
+      caseId: caseData._id,
+      caseReference: caseData.caseReference,
+      leadId: caseData.sourceLeadId,
+      proposalId: caseData.proposalId,
+      customerId: caseData.customerId,
+      customerName: caseData.clientInfo?.fullName,
+      recipientRole: 'internal',
+      recipientId: null,
+      recipientModel: null,
+      recipientName: 'Xoto (Internal)',
+      leadSource: leadSourceRole || 'admin',
+      isInternal: true,
+      loanAmount,
+      loanTier: loanAmount <= 5000000 ? '≤5M AED' : '>5M AED',
+      bankCommissionToXoto: xotoEarning1Percent,
+      bankCommissionRate: 0.01,
+      recipientPercentage: 0,
+      commissionAmount: 0,
+      calculationFormula: `${xotoEarning1Percent.toLocaleString()} × 0% = 0 AED`,
+      percentageSource: 'internal',
+      disbursedAt: new Date(),
+      status: 'Completed', // internal leads are instantly marked Completed
+      isDeleted: false,
+      xotoEarnings: {
+        amount: xotoEarning1Percent,
+        rate: '1%',
+        calculation: `${loanAmount.toLocaleString()} × 1% = ${xotoEarning1Percent.toLocaleString()} AED`,
+        note: `Lead from ${leadSourceRole || 'admin/website'}. No commission paid. Xoto keeps full amount.`
+      },
+      createdBy: { role: 'system' },
+      notes: `Internal record. Xoto earned AED ${xotoEarning1Percent.toLocaleString()} (1% of AED ${loanAmount.toLocaleString()}). No payout.`
+    });
+
+    // Update case with commission info (for internal)
+    caseData.commissionInfo = {
+      commissionId: commission.commissionId,
+      loanAmount,
+      loanTier: commission.loanTier,
+      recipientPercentage: 0,
+      xotoCommissionFromBank: xotoEarning1Percent,
+      recipientCommissionAmount: 0,
+      calculation: `${xotoEarning1Percent.toLocaleString()} × 0% = 0 AED`,
+      status: 'Completed',
+      bankCommissionRate: 0.01,
+      createdAt: new Date()
+    };
+    await caseData.save();
+
+    return {
+      success: true,
+      commissionCreated: true,
+      data: {
+        id: commission.commissionId,
+        amount: 0,
+        recipient: 'Xoto (Internal)',
+        status: 'Completed',
+        xotoEarning: xotoEarning1Percent
+      }
+    };
+
+  } catch (error) {
+    console.error("Error in autoCreateCommission helper:", error);
+    return { success: false, reason: error.message };
+  }
+};
+
 // ==================== UPDATE CASE STATUS (WITH AUTO-COMMISSION) ====================
 // ==================== UPDATE CASE STATUS (WITH AUTO-COMMISSION) ====================
 export const updateCaseStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, notes, approvedAmount, bankReference, disbursedTo } = req.body;
+    const { status, notes, approvedAmount, approvedRate, bankReference, disbursedTo } = req.body;
 
     if (!status)
       return res.status(400).json({ success: false, message: 'status is required' });
@@ -840,13 +1213,18 @@ export const updateCaseStatus = async (req, res) => {
     else if (status === 'Pre-Approved') {
       await caseData.updateBankStatus('Pre-Approved', {
         approvedAmount: approvedAmount ? parseFloat(approvedAmount) : null,
+        approvedRate: approvedRate ? parseFloat(approvedRate) : null,
         notes,
       });
     }
 
     // ── Other bank stages ─────────────────────────────────────────
     else if (['Bank Application', 'Valuation', 'FOL Processed', 'FOL Issued', 'FOL Signed'].includes(status)) {
-      await caseData.updateBankStatus(status, { notes });
+      await caseData.updateBankStatus(status, { 
+        notes,
+        approvedAmount: approvedAmount ? parseFloat(approvedAmount) : null,
+        approvedRate: approvedRate ? parseFloat(approvedRate) : null
+      });
     }
 
     // ── Terminal — Lost / Declined / Rejected (PRD 7.1) ──────────
@@ -866,201 +1244,24 @@ export const updateCaseStatus = async (req, res) => {
       // Mark case as disbursed
       await caseData.markDisbursed(parseFloat(approvedAmount), bankReference, disbursedTo);
       
-      // ✅ AUTO-CREATE COMMISSION AFTER DISBURSEMENT (using already imported models)
-      const loanAmount = parseFloat(approvedAmount);
-      const xotoCommissionFromBank = Math.round(loanAmount * 0.01); // 1% fixed
+      if (approvedRate) {
+        caseData.bankDecision.approvedRate = parseFloat(approvedRate);
+        await caseData.save();
+      }
       
-      // Get lead to determine recipient
-      const lead = await Lead.findById(caseData.sourceLeadId);
-      
-      if (lead && lead.sourceInfo) {
-        const leadSourceRole = lead.sourceInfo.createdByRole;
-        const leadSourceId = lead.sourceInfo.createdById;
-        
-        let recipientInfo = null;
-        
-        // CASE 1: Freelance Agent (40% / 50%)
-        if (leadSourceRole === 'referral_partner') {
-          const agent = await VaultAgent.findById(leadSourceId);
-          if (agent && agent.agentType === 'ReferralPartner') {
-            const percentage = loanAmount <= 5000000 ? 40 : 50;
-            const commissionAmount = Math.round((xotoCommissionFromBank * percentage) / 100);
-            
-            recipientInfo = {
-              recipientType: 'referral_partner',
-              recipientId: agent._id,
-              recipientModel: 'VaultAgent',
-              recipientName: agent.fullName,
-              recipientPercentage: percentage,
-              commissionAmount: commissionAmount,
-              calculationFormula: `${xotoCommissionFromBank.toLocaleString()} × ${percentage}% = ${commissionAmount.toLocaleString()} AED`,
-              percentageSource: 'freelance_commission.referralOnly'
-            };
-            
-            if (agent.bankDetails && agent.bankDetails.iban) {
-              recipientInfo.payoutBankDetails = {
-                beneficiaryName: agent.bankDetails.beneficiaryName || agent.fullName,
-                bankName: agent.bankDetails.bankName,
-                iban: agent.bankDetails.iban,
-                swiftCode: agent.bankDetails.swiftCode
-              };
-            }
-          }
-        }
-        
-        // CASE 2: Partner-Affiliated Agent (Commission to Partner: 80% / 85%)
-        else if (leadSourceRole === 'partner_affiliated_agent') {
-          const agent = await VaultAgent.findById(leadSourceId);
-          if (agent && agent.partnerId) {
-            const partner = await Partner.findById(agent.partnerId);
-            if (partner) {
-              const percentage = loanAmount <= 5000000 ? 80 : 85;
-              const commissionAmount = Math.round((xotoCommissionFromBank * percentage) / 100);
-              
-              recipientInfo = {
-                recipientType: 'partner',
-                recipientId: partner._id,
-                recipientModel: 'Partner',
-                recipientName: partner.displayName || partner.companyName,
-                recipientPercentage: percentage,
-                commissionAmount: commissionAmount,
-                calculationFormula: `${xotoCommissionFromBank.toLocaleString()} × ${percentage}% = ${commissionAmount.toLocaleString()} AED`,
-                percentageSource: 'partner.commissionConfiguration',
-                sourceAgentId: agent._id,
-                sourceAgentName: agent.fullName
-              };
-              
-              if (partner.bankDetails && partner.bankDetails.iban) {
-                recipientInfo.payoutBankDetails = {
-                  beneficiaryName: partner.bankDetails.beneficiaryName || partner.displayName,
-                  bankName: partner.bankDetails.bankName,
-                  iban: partner.bankDetails.iban,
-                  swiftCode: partner.bankDetails.swiftCode
-                };
-              }
-            }
-          }
-        }
-        
-        // CASE 3: Individual Partner (80% / 85%)
-        else if (leadSourceRole === 'individual_partner') {
-          const partner = await Partner.findById(leadSourceId);
-          if (partner) {
-            const percentage = loanAmount <= 5000000 ? 80 : 85;
-            const commissionAmount = Math.round((xotoCommissionFromBank * percentage) / 100);
-            
-            recipientInfo = {
-              recipientType: 'partner',
-              recipientId: partner._id,
-              recipientModel: 'Partner',
-              recipientName: partner.displayName,
-              recipientPercentage: percentage,
-              commissionAmount: commissionAmount,
-              calculationFormula: `${xotoCommissionFromBank.toLocaleString()} × ${percentage}% = ${commissionAmount.toLocaleString()} AED`,
-              percentageSource: 'partner.commissionConfiguration'
-            };
-            
-            if (partner.bankDetails && partner.bankDetails.iban) {
-              recipientInfo.payoutBankDetails = {
-                beneficiaryName: partner.bankDetails.beneficiaryName || partner.displayName,
-                bankName: partner.bankDetails.bankName,
-                iban: partner.bankDetails.iban,
-                swiftCode: partner.bankDetails.swiftCode
-              };
-            }
-          }
-        }
-        
-        // Create commission if recipient exists and commission amount > 0
-       // ✅ Internal commission for website/admin leads — always create a record
-if (!recipientInfo) {
-  const existingCommission = await Commission.findOne({ caseId: caseData._id, isDeleted: false });
-  if (!existingCommission) {
-    const commissionId = `INT-${Date.now()}-${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
-
-    const commission = await Commission.create({
-      commissionId,
-      caseId:        caseData._id,
-      caseReference: caseData.caseReference,
-      leadId:        caseData.sourceLeadId,
-      customerName:  caseData.clientInfo?.fullName,
-      recipientRole: 'internal',
-      recipientId:   null,
-      recipientModel:null,
-      recipientName: 'Xoto (Internal)',
-      leadSource:    leadSourceRole || 'admin',
-      isInternal:    true,
-      loanAmount,
-      loanTier:      loanAmount <= 5000000 ? '≤5M AED' : '>5M AED',
-      bankCommissionToXoto: xotoCommissionFromBank,
-      bankCommissionRate:   0.01,
-      recipientPercentage:  0,
-      commissionAmount:     0,
-      calculationFormula:   `${xotoCommissionFromBank.toLocaleString()} × 0% = 0 AED`,
-      percentageSource:     'internal',
-      disbursedAt:          new Date(),
-      status:               'Completed',  // internal — no payout needed
-      isDeleted:            false,
-      xotoEarnings: {
-        amount:      xotoCommissionFromBank,
-        rate:        '1%',
-        calculation: `${loanAmount.toLocaleString()} × 1% = ${xotoCommissionFromBank.toLocaleString()} AED`,
-        note:        `Lead from ${leadSourceRole || 'admin/website'}. No commission paid. Xoto keeps full amount.`,
-      },
-      createdBy: { role: 'system' },
-      notes: `Internal record. Xoto earned AED ${xotoCommissionFromBank.toLocaleString()} (1% of AED ${loanAmount.toLocaleString()}). No payout.`,
-    });
-
-    commissionCreated = true;
-    commissionData = {
-      id:        commission.commissionId,
-      amount:    0,
-      recipient: 'Xoto (Internal)',
-      status:    'Completed',
-      xotoEarning: xotoCommissionFromBank,
-    };
-  }
-}
-
-
-
-// ✅ If lead has no sourceInfo at all — still create internal record
-if (!lead || !lead.sourceInfo) {
-  const existingCommission = await Commission.findOne({ caseId: caseData._id, isDeleted: false });
-  if (!existingCommission) {
-    const commissionId = `INT-${Date.now()}-${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
-    await Commission.create({
-      commissionId,
-      caseId:         caseData._id,
-      caseReference:  caseData.caseReference,
-      leadId:         caseData.sourceLeadId,
-      customerName:   caseData.clientInfo?.fullName,
-      recipientRole:  'internal',
-      recipientId:    null,
-      recipientModel: null,
-      recipientName:  'Xoto (Internal)',
-      isInternal:     true,
-      loanAmount,
-      loanTier:       loanAmount <= 5000000 ? '≤5M AED' : '>5M AED',
-      bankCommissionToXoto: xotoCommissionFromBank,
-      bankCommissionRate:   0.01,
-      recipientPercentage:  0,
-      commissionAmount:     0,
-      calculationFormula:   `${xotoCommissionFromBank.toLocaleString()} × 0% = 0 AED`,
-      percentageSource:     'internal',
-      disbursedAt:          new Date(),
-      status:               'Completed',
-      xotoEarnings: {
-        amount:      xotoCommissionFromBank,
-        rate:        '1%',
-        calculation: `${loanAmount.toLocaleString()} × 1% = ${xotoCommissionFromBank.toLocaleString()} AED`,
-        note:        'No lead source info found. Xoto keeps full commission.',
-      },
-      createdBy: { role: 'system' },
-      notes: `Internal record. No lead source. Xoto earned AED ${xotoCommissionFromBank.toLocaleString()}.`,
-    });
-  }
-}
+      // Auto-create commission record
+      const result = await autoCreateCommission(caseData, approvedAmount, bankReference, disbursedTo);
+      if (result.success && result.commissionCreated) {
+        commissionCreated = true;
+        commissionData = result.data;
+      } else if (result.alreadyExists) {
+        commissionData = {
+          alreadyExists: true,
+          id: result.data.commissionId,
+          amount: result.data.commissionAmount,
+          recipient: result.data.recipientName,
+          status: result.data.status
+        };
       }
     }
 
@@ -1085,9 +1286,32 @@ if (!lead || !lead.sourceInfo) {
       return res.status(400).json({ success: false, message: `Invalid status: ${status}` });
     }
 
+    // Append to statusHistory (PRD audit trail)
+    if (!caseData.statusHistory) caseData.statusHistory = [];
+    caseData.statusHistory.push({
+      status,
+      changedAt:     new Date(),
+      changedBy:     req.user._id,
+      changedByName: req.user.name?.first_name ? `${req.user.name.first_name} ${req.user.name.last_name || ''}`.trim() : req.user.email,
+      changedByRole: isAdmin ? 'admin' : 'ops',
+      notes:         notes || null,
+    });
+    await caseData.save();
+
+    // Store Ops notes separately (not visible to Advisor/Partner)
+    if (req.body.opsNotes) {
+      caseData.opsNotes = req.body.opsNotes;
+      await caseData.save();
+    }
+    // Store correction notes sent back to submitter
+    if (status === 'Returned - Pending Correction' && notes) {
+      caseData.returnedToSubmitterNotes = notes;
+      await caseData.save();
+    }
+
     // Update lead status
     await updateLeadStatusFromCase(caseData.sourceLeadId, status, { reason: notes });
-    
+
     await HistoryService.logCaseActivity(caseData, 'CASE_STATUS_UPDATED', await getUserInfo(req), {
       description: `Status: ${previousStatus} → ${status}`,
       notes,
@@ -1218,6 +1442,7 @@ export const getAllCases = async (req, res) => {
       );
       const agentIds = affiliatedAgents.map(a => a._id);
       query.$or = [
+        { partnerId: req.user._id },
         { 'createdBy.role': 'partner', 'createdBy.userId': req.user._id },
         { 'createdBy.role': 'partner_affiliated_agent', 'createdBy.userId': { $in: agentIds } },
       ];
@@ -1479,6 +1704,8 @@ export const updateBankDecision = async (req, res) => {
     if (!caseData) return res.status(404).json({ success: false, message: "Case not found" });
     
     let updatedStatus = status;
+    let commissionCreated = false;
+    let commissionData = null;
     
     if (status === 'Pre-Approved' && approvedAmount) {
       if (typeof caseData.updateBankApproval === 'function') {
@@ -1486,10 +1713,35 @@ export const updateBankDecision = async (req, res) => {
       }
       updatedStatus = 'Pre-Approved';
     } else if (status === 'Disbursed' && approvedAmount) {
-      if (typeof caseData.updateDisbursement === 'function') {
-        await caseData.updateDisbursement(approvedAmount, null);
-      }
+      // Mark case as disbursed
+      caseData.currentStatus = 'Disbursed';
+      caseData.timeline.disbursedAt = new Date();
+      caseData.disbursementInfo = caseData.disbursementInfo || {};
+      caseData.disbursementInfo.disbursedAmount = parseFloat(approvedAmount);
+      caseData.disbursementInfo.disbursementDate = new Date();
+      caseData.disbursementInfo.confirmedByOps = true;
+      caseData.disbursementInfo.confirmedByOpsAt = new Date();
+      caseData.amountTracking = caseData.amountTracking || {};
+      caseData.amountTracking.disbursedAmount = parseFloat(approvedAmount);
+      caseData.amountTracking.amountStatus = 'Disbursed';
+      await caseData.save();
+      
       updatedStatus = 'Disbursed';
+      
+      // Auto-create commission record
+      const result = await autoCreateCommission(caseData, approvedAmount, null, null);
+      if (result.success && result.commissionCreated) {
+        commissionCreated = true;
+        commissionData = result.data;
+      } else if (result.alreadyExists) {
+        commissionData = {
+          alreadyExists: true,
+          id: result.data.commissionId,
+          amount: result.data.commissionAmount,
+          recipient: result.data.recipientName,
+          status: result.data.status
+        };
+      }
     } else if (status === 'Rejected') {
       if (typeof caseData.rejectCase === 'function') {
         await caseData.rejectCase(notes || 'Rejected by bank');
@@ -1508,8 +1760,183 @@ export const updateBankDecision = async (req, res) => {
     // ✅ UPDATE LEAD STATUS
     await updateLeadStatusFromCase(caseData.sourceLeadId, updatedStatus, { reason: notes });
     
-    return res.status(200).json({ success: true, message: "Bank decision updated", data: caseData });
+    const responseData = {
+      success: true,
+      message: "Bank decision updated",
+      data: caseData
+    };
+
+    if (commissionCreated) {
+      responseData.message += ` ✅ Commission auto-created: ${commissionData.amount.toLocaleString()} AED for ${commissionData.recipient}`;
+      responseData.commission = commissionData;
+    } else if (commissionData?.alreadyExists) {
+      responseData.message += ` ℹ️ Commission already existed: ${commissionData.amount.toLocaleString()} AED for ${commissionData.recipient} (${commissionData.status})`;
+      responseData.commission = commissionData;
+    }
+
+    return res.status(200).json(responseData);
   } catch (error) {
+    console.error('updateBankDecision error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// =====================================================================
+// ADD PROPERTY TO PRE-APPROVAL-ONLY CASE
+// PATCH /vault/cases/:id/add-property
+// Called by Ops after bank pre-approval when the customer finds a
+// property. Validates LTV (by residency type) and DBR before updating.
+// =====================================================================
+export const addPropertyToCase = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { propertyValue, confirmedLoanAmount, transactionType, propertyType, propertyAddress } = req.body;
+
+    const roleDoc = await Role.findById(req.user.role);
+    const isAdmin = roleDoc?.code === '18';
+    const isOps   = roleDoc?.code === '23';
+    if (!isAdmin && !isOps) {
+      return res.status(403).json({ success: false, message: 'Only Admin or Ops can add property to a case' });
+    }
+
+    const caseData = await Case.findOne({ _id: id, isDeleted: false });
+    if (!caseData) return res.status(404).json({ success: false, message: 'Case not found' });
+
+    if (caseData.applicationSubType !== 'pre_approval_only') {
+      return res.status(400).json({ success: false, message: 'This case is not a pre-approval-only case' });
+    }
+    if (caseData.propertyFound === true) {
+      return res.status(400).json({ success: false, message: 'Property has already been added to this case' });
+    }
+    if (caseData.currentStatus !== 'Pre-Approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Property can only be added after bank pre-approval. Current status: ' + caseData.currentStatus,
+      });
+    }
+
+    if (!propertyValue || propertyValue <= 0) {
+      return res.status(400).json({ success: false, message: 'propertyValue is required and must be > 0' });
+    }
+    if (!confirmedLoanAmount || confirmedLoanAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'confirmedLoanAmount is required and must be > 0' });
+    }
+
+    // ── LTV validation ───────────────────────────────────────────
+    const residency  = caseData.clientInfo?.residencyStatus  || 'UAE Resident';
+    const txType     = transactionType || caseData.propertyInfo?.transactionType || null;
+    const { maxLTV, label: ltvLabel } = getLTVLimits(residency, txType, propertyValue);
+    const maxAllowedLoan = Math.floor(propertyValue * maxLTV);
+
+    if (confirmedLoanAmount > maxAllowedLoan) {
+      return res.status(400).json({
+        success: false,
+        message: 'Loan amount exceeds LTV limit. Max loan: AED ' + maxAllowedLoan.toLocaleString()
+          + ' (' + ltvLabel + ' of AED ' + propertyValue.toLocaleString() + ')',
+        details: { propertyValue, maxLTV, maxAllowedLoan, confirmedLoanAmount, ltvLabel },
+      });
+    }
+
+    // ── Cannot exceed pre-approved amount ────────────────────────
+    const preApprovedAmount = caseData.preApprovalInfo?.preApprovedAmount;
+    if (preApprovedAmount && confirmedLoanAmount > preApprovedAmount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Loan amount (' + confirmedLoanAmount.toLocaleString()
+          + ') exceeds pre-approved amount (' + preApprovedAmount.toLocaleString() + ')',
+        details: { confirmedLoanAmount, preApprovedAmount },
+      });
+    }
+
+    // ── DBR re-check ─────────────────────────────────────────────
+    const salary       = caseData.clientInfo?.monthlySalary      || 0;
+    const liabilities  = caseData.clientInfo?.existingLiabilities || 0;
+    const interestRate = caseData.bankSelection?.interestRate      || 4.5;
+    const tenureYears  = caseData.propertyInfo?.tenureYears        || 25;
+
+    if (salary > 0) {
+      const dbrCheck = calculateMaxLoanByDBR(salary, liabilities, interestRate, tenureYears);
+      if (dbrCheck.maxLoanByDBR !== null && confirmedLoanAmount > dbrCheck.maxLoanByDBR) {
+        return res.status(400).json({
+          success: false,
+          message: 'Loan amount exceeds DBR-based maximum (AED ' + dbrCheck.maxLoanByDBR.toLocaleString()
+            + ' at 50% DBR). Salary: AED ' + salary.toLocaleString()
+            + ', Existing liabilities: AED ' + liabilities.toLocaleString(),
+          details: dbrCheck,
+        });
+      }
+    }
+
+    // ── All validations passed — update case ─────────────────────
+    const confirmedLTV         = Math.round((confirmedLoanAmount / propertyValue) * 10000) / 100;
+    const confirmedDownPayment = propertyValue - confirmedLoanAmount;
+    const actorName = req.user?.fullName || req.user?.email || 'Ops';
+    const actorRole = isAdmin ? 'admin' : 'ops';
+
+    caseData.propertyFound = true;
+    caseData.propertyInfo.propertyValue = propertyValue;
+    caseData.propertyInfo.loanAmount    = confirmedLoanAmount;
+    caseData.propertyInfo.downPayment   = confirmedDownPayment;
+    if (transactionType) caseData.propertyInfo.transactionType = transactionType;
+    if (propertyType)    caseData.propertyInfo.propertyType    = propertyType;
+    if (propertyAddress?.area) caseData.propertyInfo.propertyAddress.area = propertyAddress.area;
+    if (propertyAddress?.city) caseData.propertyInfo.propertyAddress.city = propertyAddress.city;
+
+    if (!caseData.preApprovalInfo) caseData.preApprovalInfo = {};
+    caseData.preApprovalInfo.confirmedLoanAmount    = confirmedLoanAmount;
+    caseData.preApprovalInfo.confirmedPropertyValue = propertyValue;
+    caseData.preApprovalInfo.confirmedDownPayment   = confirmedDownPayment;
+    caseData.preApprovalInfo.confirmedLTV           = confirmedLTV;
+    caseData.preApprovalInfo.propertyAddedAt        = new Date();
+    caseData.preApprovalInfo.propertyAddedBy        = { userId: req.user._id, userName: actorName, userRole: actorRole };
+
+    caseData.amountTracking.requestedAmount = confirmedLoanAmount;
+    caseData.internalNotes.push(
+      'Property added by ' + actorRole + ' ' + actorName
+        + ': AED ' + propertyValue.toLocaleString()
+        + ', Loan: AED ' + confirmedLoanAmount.toLocaleString()
+        + ', LTV: ' + confirmedLTV + '%'
+    );
+
+    await caseData.save();
+
+    await HistoryService.logCaseActivity(caseData, 'PROPERTY_ADDED_TO_CASE', await getUserInfo(req), {
+      description: 'Property added: AED ' + propertyValue.toLocaleString()
+        + ', Loan: AED ' + confirmedLoanAmount.toLocaleString()
+        + ', LTV: ' + confirmedLTV + '%',
+    });
+
+    await dispatchVaultNotification(req, {
+      eventType:   'PROPERTY_ADDED_TO_CASE',
+      title:       'Property Added to Case',
+      message:     'Property added to case ' + caseData.caseReference
+        + ' -- value AED ' + propertyValue.toLocaleString()
+        + ', loan AED ' + confirmedLoanAmount.toLocaleString(),
+      entityId:    caseData._id,
+      entityModel: 'Case',
+      caseId:      caseData._id,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Property added successfully. LTV and loan amount validated.',
+      data: {
+        caseId:             caseData._id,
+        caseReference:      caseData.caseReference,
+        currentStatus:      caseData.currentStatus,
+        propertyFound:      caseData.propertyFound,
+        propertyValue,
+        confirmedLoanAmount,
+        confirmedDownPayment,
+        confirmedLTV:       confirmedLTV + '%',
+        maxLTV:             (maxLTV * 100) + '%',
+        ltvLabel,
+        preApprovedAmount,
+      },
+    });
+
+  } catch (error) {
+    console.error('addPropertyToCase error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

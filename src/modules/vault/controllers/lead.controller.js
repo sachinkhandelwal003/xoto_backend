@@ -82,17 +82,18 @@ const buildCustomerInfo = (c) => {
   let nationality = c.nationality || null;
   if (c.residencyStatus === 'UAE National' && !nationality) nationality = 'UAE';
   return {
-    firstName: c.firstName || '',
-    lastName: c.lastName || '',
-    countryCode: c.countryCode || '+971',
-    mobileNumber: c.mobileNumber,
-    email: c.email || null,
+    firstName:           c.firstName           || '',
+    lastName:            c.lastName            || '',
+    countryCode:         c.countryCode         || '+971',
+    mobileNumber:        c.mobileNumber,
+    email:               c.email               || null,
     nationality,
-    residencyStatus: c.residencyStatus || null,
-    employmentStatus: c.employmentStatus || null,
-    monthlySalary: c.monthlySalary || null,
-    existingMonthlyLiabilities: c.existingMonthlyLiabilities || 0,
-    dateOfBirth: c.dateOfBirth || null,
+    residencyStatus:     c.residencyStatus     || null,
+    employmentStatus:    c.employmentStatus    || null,
+    monthlySalary:       c.monthlySalary       || null,
+    salaryBankName:      c.salaryBankName      || null,
+    existingLiabilities: c.existingLiabilities ?? c.existingMonthlyLiabilities ?? 0,
+    dateOfBirth:         c.dateOfBirth         || null,
   };
 };
 
@@ -1161,18 +1162,39 @@ export const AdvisororPartnerUpdateLeadStatus = async (req, res) => {
         return res.status(403).json({ success: false, message: 'You can only update your own leads' });
     }
 
-    // PRD 6.1 — only these 4 statuses are manually settable by advisor/partner
-    // Lead status beyond Qualified is locked once a Case is created (auto-updated via case flow)
-    const allowed = ['Contacted', 'Qualified', 'Collecting Documents', 'Documents Complete'];
-    if (!allowed.includes(status))
-      return res.status(400).json({ success: false, message: `Only these statuses can be set manually: ${allowed.join(', ')}` });
+    // PRD 6.1 — manually settable statuses (pre-application flow)
+    const MANUAL_ALLOWED = [
+      'Contacted',
+      'Qualified',
+      'Collecting Documents',
+      'Documents Complete',
+      'Not Proceeding',
+    ];
+    if (!MANUAL_ALLOWED.includes(status))
+      return res.status(400).json({ success: false, message: `Allowed status transitions: ${MANUAL_ALLOWED.join(', ')}` });
 
-    // LOCK: once a case is created, manual advisor updates are blocked (case flow controls status)
-    if (lead.conversionInfo?.convertedToApplication) {
+    // LOCK: once Application is opened (case created), case workflow drives all further changes
+    const LOCKED_AFTER = [
+      'Application Opened', 'Bank Application', 'Pre-Approved',
+      'Valuation', 'FOL Processed', 'FOL Issued', 'FOL Signed',
+      'Disbursed', 'Lost',
+    ];
+    if (LOCKED_AFTER.includes(lead.currentStatus)) {
       return res.status(400).json({
         success: false,
-        message: 'Lead status is locked — a Case has been created. Status is auto-managed by the case workflow.',
+        message: lead.conversionInfo?.convertedToApplication
+          ? 'Lead is linked to a Case — status is managed by the case workflow.'
+          : `Lead is in "${lead.currentStatus}" state and cannot be updated manually.`,
       });
+    }
+
+    // Not Proceeding requires a reason (PRD 6.1)
+    if (status === 'Not Proceeding') {
+      const reason = req.body.notProceedingReason || notes;
+      if (!reason || !reason.trim())
+        return res.status(400).json({ success: false, message: 'notProceedingReason is required when closing a lead as Not Proceeding' });
+      lead.notProceedingReason = reason.trim();
+      lead.isActive = false;
     }
 
     const prevStatus = lead.currentStatus;
@@ -1180,17 +1202,18 @@ export const AdvisororPartnerUpdateLeadStatus = async (req, res) => {
     if (notes) lead.notesToXoto = notes;
 
     if (status === 'Contacted') {
-      lead.sla.firstContactAt = new Date();
-      const hrs = (lead.sla.firstContactAt - new Date(lead.assignedTo?.assignedAt || lead.createdAt)) / 3600000;
-      lead.sla.responseTimeHours = Math.round(hrs * 10) / 10;
+      if (!lead.sla.firstContactAt) {
+        lead.sla.firstContactAt = new Date();
+        const hrs = (lead.sla.firstContactAt - new Date(lead.assignedTo?.assignedAt || lead.createdAt)) / 3600000;
+        lead.sla.responseTimeHours = Math.round(hrs * 10) / 10;
+      }
     }
 
     if (status === 'Qualified') {
       if (!lead.eligibility?.checked)
-        return res.status(400).json({ success: false, message: 'Cannot qualify: Run eligibility check first.' });
+        return res.status(400).json({ success: false, message: 'Run eligibility check before marking Qualified.' });
       if (!lead.eligibility?.isEligible)
-        return res.status(400).json({ success: false, message: 'Cannot qualify: Customer is not eligible.' });
-      
+        return res.status(400).json({ success: false, message: 'Customer is not eligible — cannot mark Qualified.' });
       lead.sla.qualificationAt = new Date();
       const customer = await createOrGetCustomer(lead);
       if (customer) lead.customerId = customer._id;

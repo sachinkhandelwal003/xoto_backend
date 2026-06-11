@@ -26,10 +26,12 @@ const customerBasicSchema = new mongoose.Schema(
     residencyStatus:    { type: String, enum: ['UAE National', 'UAE Resident', 'Non-Resident'], default: null },
     maritalStatus:      { type: String, enum: ['Single', 'Married', 'Divorced', 'Widowed'], default: null },
     numberOfDependents: { type: Number, default: 0 },
-    occupation:         { type: String, default: null },
-    employer:           { type: String, default: null },
-    monthlySalary:      { type: Number, default: null },
-    employmentStatus:   { type: String, enum: ['Salaried', 'Self-Employed'], default: null },
+    occupation:                  { type: String, default: null },
+    employer:                    { type: String, default: null },
+    monthlySalary:               { type: Number, default: null },
+    salaryBankName:              { type: String, default: null },
+    existingLiabilities:         { type: Number, default: null },
+    employmentStatus:            { type: String, enum: ['Salaried', 'Self-Employed'], default: null },
   },
   { _id: false }
 );
@@ -223,7 +225,11 @@ const leadSchema = new mongoose.Schema(
       default: 'New',
     },
 
-    notesToXoto: { type: String, default: null },
+    notesToXoto:         { type: String, default: null },
+    notProceedingReason: { type: String, default: null },
+
+    // ── Active flag — false when Not Proceeding, Lost, or linked to closed case ──
+    isActive: { type: Boolean, default: true },
 
     // ── Assignment (Admin → Advisor) ─────────────────────────────
     assignedTo: {
@@ -260,6 +266,17 @@ const leadSchema = new mongoose.Schema(
       convertedByName: { type: String, default: null },
     },
 
+    // ── Reassignment history ─────────────────────────────────────
+    reassignmentHistory: [
+      {
+        advisorId:    { type: mongoose.Schema.Types.ObjectId, ref: 'VaultAdvisor' },
+        advisorName:  { type: String, default: null },
+        reassignedAt: { type: Date,   default: Date.now },
+        reason:       { type: String, default: null },
+        reassignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
+      },
+    ],
+
     isDeleted: { type: Boolean, default: false },
     deletedAt: { type: Date,    default: null },
   },
@@ -270,6 +287,7 @@ const leadSchema = new mongoose.Schema(
 // INDEXES
 // ══════════════════════════════════════════════════════════════════
 leadSchema.index({ 'customerInfo.mobileNumber': 1 });
+leadSchema.index({ isActive: 1 });
 leadSchema.index({ 'sourceInfo.createdById': 1 });
 leadSchema.index({ 'sourceInfo.source': 1 });
 leadSchema.index({ currentStatus: 1 });

@@ -30,9 +30,9 @@ const customerSnapshotSchema = new mongoose.Schema({
 
 // ── Property snapshot ─────────────────────────────────────────────
 const propertySnapshotSchema = new mongoose.Schema({
-  propertyValue:      { type: Number, required: true },
+  propertyValue:      { type: Number, default: null },
   downPaymentAmount:  { type: Number, default: null },
-  loanAmountRequired: { type: Number, required: true },
+  loanAmountRequired: { type: Number, default: null },
   ltvPercentage:      { type: Number, default: null },
   tenureYears:        { type: Number, default: 25 },
   propertyType:       { type: String, default: null },
@@ -157,7 +157,7 @@ const proposalSchema = new mongoose.Schema({
 
   // ── Snapshots — historical record ────────────────────────────
   customerSnapshot: { type: customerSnapshotSchema,  default: () => ({}) },
-  propertySnapshot: { type: propertySnapshotSchema,  required: true },
+  propertySnapshot: { type: propertySnapshotSchema,  default: () => ({}) },
 
   // ── Selected banks — max 3 per PRD ───────────────────────────
   selectedBanks: {
