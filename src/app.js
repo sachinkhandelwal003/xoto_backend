@@ -81,6 +81,7 @@ app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/p
 // app.use('/property', require('../src/modules/properties/routes/index.js'));
 // app.use('/developer', require('../src/modules'));  //for testing route
 app.use('/developer', developer);  
+app.use('/properties/analytics', require('../src/modules/properties/routes/admin.analytics.routes.js'));
 app.use('/properties', require('../src/modules/properties/routes/property.routes.js'));  //for testing route
 app.use('/property-documents', require('../src/modules/properties/routes/document.routes.js'));
 app.use('/developer/analytics', require('../src/modules/properties/routes/developer.analytics.routes.js'));
