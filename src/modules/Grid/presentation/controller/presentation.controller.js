@@ -185,7 +185,7 @@ const pdfDownloadHtml = `
 <style>
   #pdf-fab {
     position: fixed;
-    bottom: 30px;
+    bottom: 80px;
     left: 50%;
     transform: translateX(-50%);
     background: linear-gradient(135deg, #4A027C, #7C3AED);
