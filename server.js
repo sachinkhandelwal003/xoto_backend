@@ -210,7 +210,9 @@ app.use(cors({
     'https://www.kotiboxglobaltech.site',  // For future HTTPS
         'https://xotovault.kotiboxglobaltech.site' , // For future HTTPS
         'http://xoto.kotiboxglobaltech.site',
-        'https://xoto.kotiboxglobaltech.site'
+        'https://xoto.kotiboxglobaltech.site',
+        'https://xotogrid.kotiboxglobaltech.site',
+        'http://xotogrid.kotiboxglobaltech.site'
 
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
