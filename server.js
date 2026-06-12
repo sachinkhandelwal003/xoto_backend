@@ -76,6 +76,40 @@ io.on('connection', (socket) => {
     socket.emit('vault:joined', { room: 'vault:notifications', roleCode, userId, roleSlug });
   });
 
+  // Grid: role-based room join
+  // Allowed grid role codes: 1=Admin, 18=Admin, 21=Partner, 22=Agent, 23=Ops, 26=Advisor
+  socket.on('grid:join', ({ roleCode, userId, roleSlug } = {}) => {
+    // 1. Join global notifications room
+    socket.join('grid:notifications');
+    
+    // 2. Join user-specific room if provided
+    if (userId) {
+      socket.join(`grid:user:${userId}`);
+      console.log(`[GridSocket] ${socket.id} joined grid:user:${userId}`);
+    }
+    
+    // 3. Join role-specific room if provided or mapped
+    if (roleSlug) {
+      socket.join(`grid:role:${roleSlug}`);
+      console.log(`[GridSocket] ${socket.id} joined grid:role:${roleSlug}`);
+    } else if (roleCode) {
+      const mapping = {
+        '1': 'admin',
+        '18': 'admin',
+        '21': 'partner',
+        '23': 'ops',
+        '26': 'advisor',
+      };
+      const slug = mapping[String(roleCode)];
+      if (slug) {
+        socket.join(`grid:role:${slug}`);
+        console.log(`[GridSocket] ${socket.id} joined grid:role:${slug}`);
+      }
+    }
+    
+    socket.emit('grid:joined', { room: 'grid:notifications', roleCode, userId, roleSlug });
+  });
+
   // 2. Chat initiate
   socket.on('initiate_chat', ({ leadId, agentId, developerId, developerName }) => {
     const agentSocket = onlineUsers[agentId];
