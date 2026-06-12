@@ -1063,6 +1063,26 @@ exports.approveAgent = asyncHandler(async (req, res) => {
     console.error('[Agent Approval Email Error]', emailErr.message);
   }
 
+  // Emit grid notification to the agent about approval
+  try {
+    const { emitGridNotification } = await import('../../Notification/gridNotification.service.js');
+    const agencyName = req.agency?.companyName || 'Agency';
+    await emitGridNotification({
+      eventType: 'AGENT_APPROVED',
+      title: 'Agent account approved',
+      message: `Your agent account has been approved by ${agencyName}`,
+      entityId: agent._id,
+      entityModel: 'GridAgent',
+      recipientId: agent._id,
+      recipientModel: 'GridAgent',
+      recipientRole: 'agent',
+      createdByName: agencyName,
+      createdByRole: 'agency',
+    });
+  } catch (e) {
+    console.error('[GridNotification] agent approval notify error:', e?.message || e);
+  }
+
   res.status(200).json({
     status: 'success',
     message: 'Agent approved successfully',

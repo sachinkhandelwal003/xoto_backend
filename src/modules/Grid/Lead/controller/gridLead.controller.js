@@ -672,6 +672,46 @@ exports.assignAdvisorToLead = asyncHandler(async (req, res) => {
     });
   }
 
+  // Notify assigned advisor (and previous advisor on reassignment)
+  try {
+    const { emitGridNotification } = await import('../../Notification/gridNotification.service.js');
+    const actorName = req.user?.firstName || req.user?.first_name || 'Admin';
+    const title = isReassignment ? 'Lead Reassigned' : 'New Lead Assigned';
+    const message = isReassignment
+      ? `Lead ${lead._id} reassigned to ${advisor.firstName} ${advisor.lastName}`
+      : `Lead ${lead._id} assigned to ${advisor.firstName} ${advisor.lastName}`;
+
+    await emitGridNotification({
+      eventType: isReassignment ? 'LEAD_REASSIGNED' : 'LEAD_ASSIGNED',
+      title,
+      message,
+      entityId: lead._id,
+      entityModel: 'GridLead',
+      recipientId: advisorId,
+      recipientModel: 'GridAdvisor',
+      recipientRole: 'advisor',
+      createdByName: actorName,
+      createdByRole: 'admin',
+    });
+
+    if (isReassignment && previousAdvisorId && previousAdvisorId !== advisorId.toString()) {
+      await emitGridNotification({
+        eventType: 'LEAD_REASSIGNED_AWAY',
+        title: 'Lead Reassigned',
+        message: `Lead ${lead._id} has been reassigned away from you`,
+        entityId: lead._id,
+        entityModel: 'GridLead',
+        recipientId: previousAdvisorId,
+        recipientModel: 'GridAdvisor',
+        recipientRole: 'advisor',
+        createdByName: actorName,
+        createdByRole: 'admin',
+      });
+    }
+  } catch (e) {
+    console.error('[GridNotification] assignAdvisorToLead error:', e?.message || e);
+  }
+
   const updatedLead = await GridLead.findById(id)
     .populate('assigned_to',       'firstName lastName email phone')
     .populate('created_by_agent',  'first_name last_name email phone_number');
@@ -874,6 +914,57 @@ const FLOW = [
   });
 
   await lead.save();
+
+  // Notify on important status changes
+  try {
+    const { emitGridNotification } = await import('../../Notification/gridNotification.service.js');
+    const actorName = req.user?.firstName || req.user?.first_name || 'User';
+
+    if (status === 'completed') {
+      // notify admin
+      await emitGridNotification({
+        eventType: 'LEAD_COMPLETED',
+        title: 'Lead completed',
+        message: `Lead ${lead._id} marked completed by ${actorName}`,
+        entityId: lead._id,
+        entityModel: 'GridLead',
+        recipientRole: 'admin',
+        sendToAllOfRole: true,
+        createdByName: actorName,
+        createdByRole: actorIsAdmin ? 'admin' : 'advisor',
+      });
+
+      // notify creating agent if different
+      if (lead.created_by && lead.created_by.toString() !== actorId.toString()) {
+        await emitGridNotification({
+          eventType: 'LEAD_COMPLETED',
+          title: 'Lead completed',
+          message: `Your lead ${lead._id} was marked completed by ${actorName}`,
+          entityId: lead._id,
+          entityModel: 'GridLead',
+          recipientId: lead.created_by,
+          recipientModel: 'GridAgent',
+          recipientRole: 'agent',
+          createdByName: actorName,
+          createdByRole: actorIsAdmin ? 'admin' : 'advisor',
+        });
+      }
+    } else if (status === 'not_proceeding') {
+      await emitGridNotification({
+        eventType: 'LEAD_NOT_PROCEEDING',
+        title: 'Lead not proceeding',
+        message: `Lead ${lead._id} marked not proceeding by ${actorName}`,
+        entityId: lead._id,
+        entityModel: 'GridLead',
+        recipientRole: 'admin',
+        sendToAllOfRole: true,
+        createdByName: actorName,
+        createdByRole: actorIsAdmin ? 'admin' : 'advisor',
+      });
+    }
+  } catch (e) {
+    console.error('[GridNotification] updateMyLeadStatus error:', e?.message || e);
+  }
 
   return res.json({
     success: true,
@@ -1379,6 +1470,25 @@ exports.submitLeadToXoto = asyncHandler(async (req, res) => {
   });
 
   await lead.save();
+
+  // Notify admin that a lead was submitted to Xoto
+  try {
+    const { emitGridNotification } = await import('../../Notification/gridNotification.service.js');
+    const actorName = req.user?.first_name || req.user?.firstName || 'Agent';
+    await emitGridNotification({
+      eventType: 'CASE_SUBMITTED_TO_XOTO',
+      title: 'Lead submitted to Xoto',
+      message: `Lead ${lead._id} submitted by ${actorName}`,
+      entityId: lead._id,
+      entityModel: 'GridLead',
+      recipientRole: 'admin',
+      sendToAllOfRole: true,
+      createdByName: actorName,
+      createdByRole: 'agent',
+    });
+  } catch (e) {
+    console.error('[GridNotification] submitLeadToXoto error:', e?.message || e);
+  }
 
   return res.json({
     success: true,

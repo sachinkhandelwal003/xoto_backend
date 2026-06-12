@@ -144,6 +144,90 @@ exports.updateCommissionStatus = asyncHandler(async (req, res) => {
 
   await lead.save();
 
+  // Emit Grid notifications for commission updates
+  try {
+    const { emitGridNotification } = await import('../Notification/gridNotification.service.js');
+    const actorName = req.user?.firstName || req.user?.first_name || 'Admin';
+
+    if (status === 'confirmed') {
+      await emitGridNotification({
+        eventType: 'COMMISSION_CONFIRMED',
+        title: 'Commission confirmed',
+        message: `Commission for lead ${lead._id} has been confirmed`,
+        entityId: lead._id,
+        entityModel: 'GridLead',
+        // notify creating agent
+        recipientId: lead.created_by_agent || null,
+        recipientModel: 'GridAgent',
+        recipientRole: 'agent',
+        createdByName: actorName,
+        createdByRole: 'admin',
+      });
+
+      const refId = lead.referral_info?.referral_partner_id || lead.referred_by_partner || null;
+      if (refId) {
+        await emitGridNotification({
+          eventType: 'COMMISSION_CONFIRMED',
+          title: 'Commission confirmed',
+          message: `Referral commission for lead ${lead._id} is confirmed`,
+          entityId: lead._id,
+          entityModel: 'GridLead',
+          recipientId: refId,
+          recipientModel: 'GridReferralPartner',
+          recipientRole: 'referral_partner',
+          createdByName: actorName,
+          createdByRole: 'admin',
+        });
+      }
+    }
+
+    if (status === 'paid') {
+      await emitGridNotification({
+        eventType: 'COMMISSION_PAID',
+        title: 'Commission paid',
+        message: `Commission for lead ${lead._id} has been paid`,
+        entityId: lead._id,
+        entityModel: 'GridLead',
+        recipientId: lead.created_by_agent || null,
+        recipientModel: 'GridAgent',
+        recipientRole: 'agent',
+        createdByName: actorName,
+        createdByRole: 'admin',
+      });
+
+      const refId = lead.referral_info?.referral_partner_id || lead.referred_by_partner || null;
+      if (refId) {
+        await emitGridNotification({
+          eventType: 'COMMISSION_PAID',
+          title: 'Referral commission paid',
+          message: `Referral commission for lead ${lead._id} has been paid`,
+          entityId: lead._id,
+          entityModel: 'GridLead',
+          recipientId: refId,
+          recipientModel: 'GridReferralPartner',
+          recipientRole: 'referral_partner',
+          createdByName: actorName,
+          createdByRole: 'admin',
+        });
+      }
+
+      // Notify admins as well
+      await emitGridNotification({
+        eventType: 'COMMISSION_PAID_ADMIN',
+        title: 'Commission paid',
+        message: `Commission for lead ${lead._id} was paid`,
+        entityId: lead._id,
+        entityModel: 'GridLead',
+        recipientRole: 'admin',
+        sendToAllOfRole: true,
+        createdByName: actorName,
+        createdByRole: 'admin',
+      });
+    }
+  } catch (e) {
+    console.error('[GridNotification] updateCommissionStatus error:', e?.message || e);
+  }
+
   res.json({
     success: true,
     message: `Commission status updated to ${status}`,

@@ -3,7 +3,7 @@ import {
   getGridNotifications,
   markNotificationRead,
   markAllRead,
-} from '../Notification/GridNotificationcontroller';
+} from './gridnotificationcontroller';
 const { protectMulti } = require('../../../middleware/auth');
 
 const router = express.Router();

@@ -387,6 +387,69 @@ if (!leadId || !propertyId || !customerId || !dealType || !transactionValue || !
     session.endSession();
   }
 
+  // Notify relevant parties about new deal record
+  try {
+    const { emitGridNotification } = await import('../../Notification/gridNotification.service.js');
+    const actorName = req.user?.firstName || req.user?.fullName || 'Admin';
+
+    await emitGridNotification({
+      eventType: 'DEAL_CREATED',
+      title: 'Deal record created',
+      message: `Deal ${deal._id} created for lead ${deal.leadId}`,
+      entityId: deal._id,
+      entityModel: 'DealRecord',
+      createdByName: actorName,
+      createdByRole: 'admin',
+    });
+
+    if (deal.advisorId) {
+      await emitGridNotification({
+        eventType: 'DEAL_CREATED',
+        title: 'Deal completed',
+        message: `A deal was recorded for lead ${deal.leadId}`,
+        entityId: deal._id,
+        entityModel: 'DealRecord',
+        recipientId: deal.advisorId,
+        recipientModel: 'GridAdvisor',
+        recipientRole: 'advisor',
+        createdByName: actorName,
+        createdByRole: 'admin',
+      });
+    }
+
+    if (deal.agentId) {
+      await emitGridNotification({
+        eventType: 'DEAL_CREATED',
+        title: 'Deal recorded',
+        message: `A deal for lead ${deal.leadId} includes your agent record`,
+        entityId: deal._id,
+        entityModel: 'DealRecord',
+        recipientId: deal.agentId,
+        recipientModel: 'GridAgent',
+        recipientRole: 'agent',
+        createdByName: actorName,
+        createdByRole: 'admin',
+      });
+    }
+
+    if (deal.referralPartnerId) {
+      await emitGridNotification({
+        eventType: 'DEAL_CREATED',
+        title: 'Referral deal recorded',
+        message: `A deal for lead ${deal.leadId} credited to you as referral partner`,
+        entityId: deal._id,
+        entityModel: 'DealRecord',
+        recipientId: deal.referralPartnerId,
+        recipientModel: 'GridReferralPartner',
+        recipientRole: 'referral_partner',
+        createdByName: actorName,
+        createdByRole: 'admin',
+      });
+    }
+  } catch (e) {
+    console.error('[GridNotification] createDealRecord notification error:', e?.message || e);
+  }
+
   return res.status(StatusCodes.CREATED).json({
     success: true,
     message: 'Deal record created successfully',

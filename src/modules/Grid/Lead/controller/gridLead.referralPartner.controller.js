@@ -335,6 +335,25 @@ exports.saveReferralMatchedListings = asyncHandler(async (req, res) => {
 
   await lead.save();
 
+  // Notify admin that a referral lead was submitted
+  try {
+    const { emitGridNotification } = await import('../../Notification/gridNotification.service.js');
+    const actorName = req.user?.first_name || req.user?.firstName || 'Referral Partner';
+    await emitGridNotification({
+      eventType: 'CASE_SUBMITTED_TO_XOTO',
+      title: 'Referral lead submitted to Xoto',
+      message: `Referral lead ${lead._id} submitted by ${actorName}`,
+      entityId: lead._id,
+      entityModel: 'GridLead',
+      recipientRole: 'admin',
+      sendToAllOfRole: true,
+      createdByName: actorName,
+      createdByRole: 'referral_partner',
+    });
+  } catch (e) {
+    console.error('[GridNotification] submitReferralLeadToXoto error:', e?.message || e);
+  }
+
   return res.json({
     success: true,
     message: 'Client reactions saved',
