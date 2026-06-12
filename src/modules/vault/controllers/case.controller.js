@@ -57,6 +57,62 @@ const getUserInfo = async (req) => {
 
 
 // ══════════════════════════════════════════════════════════════════
+
+// =====================================================================
+// HELPERS: LTV limits + DBR-based max loan amount
+// =====================================================================
+
+// LTV limits per CBUAE rules:
+//   UAE National  : 85% (<=5M AED), 80% (>5M)
+//   UAE Resident  : 80% (<=5M AED), 75% (>5M)
+//   Non-Resident  : 75% (<=5M AED), 65% (>5M)
+//   Off-plan (all): 50%
+const getLTVLimits = (residencyStatus, transactionType, propertyValue = 0) => {
+  const isOffPlan = transactionType === 'Off-plan';
+  if (isOffPlan) return { maxLTV: 0.50, label: '50% (Off-plan)' };
+  const over5M = propertyValue > 5000000;
+  if (residencyStatus === 'UAE National') {
+    return over5M
+      ? { maxLTV: 0.80, label: '80% (UAE National >5M)' }
+      : { maxLTV: 0.85, label: '85% (UAE National <=5M)' };
+  }
+  if (residencyStatus === 'UAE Resident') {
+    return over5M
+      ? { maxLTV: 0.75, label: '75% (UAE Resident >5M)' }
+      : { maxLTV: 0.80, label: '80% (UAE Resident <=5M)' };
+  }
+  if (residencyStatus === 'Non-Resident') {
+    return over5M
+      ? { maxLTV: 0.65, label: '65% (Non-Resident >5M)' }
+      : { maxLTV: 0.75, label: '75% (Non-Resident <=5M)' };
+  }
+  return { maxLTV: 0.80, label: '80% (default)' };
+};
+
+const MAX_DBR = 0.50;
+
+// Returns max loan amount based on 50% DBR ceiling
+const calculateMaxLoanByDBR = (monthlySalary, existingLiabilities = 0, annualRate = 4.5, tenureYears = 25) => {
+  if (!monthlySalary || monthlySalary <= 0) return { maxLoanByDBR: null, error: 'Monthly salary required' };
+  const availableEMI = MAX_DBR * monthlySalary - (existingLiabilities || 0);
+  const currentDBR   = (existingLiabilities || 0) / monthlySalary;
+  if (availableEMI <= 0) {
+    return { maxLoanByDBR: 0, availableEMI: 0, currentDBR, maxDBR: MAX_DBR,
+      message: 'DBR already at or above 50% -- no additional loan capacity' };
+  }
+  const r = annualRate / 100 / 12;
+  const n = tenureYears * 12;
+  const maxLoan = r > 0
+    ? availableEMI * (Math.pow(1 + r, n) - 1) / (r * Math.pow(1 + r, n))
+    : availableEMI * n;
+  return {
+    maxLoanByDBR: Math.round(maxLoan),
+    availableEMI: Math.round(availableEMI),
+    currentDBR:   Math.round(currentDBR * 100) / 100,
+    maxDBR:       MAX_DBR,
+  };
+};
+
 // HELPER: Update Lead Status from Case Status (PRD Section 5.3 & 6.1)
 // ══════════════════════════════════════════════════════════════════
 const updateLeadStatusFromCase = async (sourceLeadId, caseStatus, additionalData = {}) => {
@@ -124,7 +180,8 @@ export const createCase = async (req, res) => {
     const {
       sourceLeadId, proposalId, caseReference, clientInfo, propertyInfo,
       loanInfo, currentStatus, internalNotes, customerNotes,
-      skipBankForm   // advisor-only: true = delegate bank forms to Ops
+      skipBankForm,        // advisor-only: true = delegate bank forms to Ops
+      applicationSubType,  // 'standard' (default) | 'pre_approval_only'
     } = req.body;
 
     // Validation — only sourceLeadId and caseReference are hard required
@@ -279,6 +336,10 @@ export const createCase = async (req, res) => {
       partnerId: partnerIdVal,
       createdBy,
       advisorSkipBankForm,
+
+      // Pre-approval flow
+      applicationSubType: applicationSubType === 'pre_approval_only' ? 'pre_approval_only' : 'standard',
+      propertyFound: applicationSubType === 'pre_approval_only' ? false : true,
 
       // Client info — prefer caller payload, fall back to lead enrichment (PRD 5.3 Step 1)
       clientInfo: {
@@ -1716,6 +1777,166 @@ export const updateBankDecision = async (req, res) => {
     return res.status(200).json(responseData);
   } catch (error) {
     console.error('updateBankDecision error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// =====================================================================
+// ADD PROPERTY TO PRE-APPROVAL-ONLY CASE
+// PATCH /vault/cases/:id/add-property
+// Called by Ops after bank pre-approval when the customer finds a
+// property. Validates LTV (by residency type) and DBR before updating.
+// =====================================================================
+export const addPropertyToCase = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { propertyValue, confirmedLoanAmount, transactionType, propertyType, propertyAddress } = req.body;
+
+    const roleDoc = await Role.findById(req.user.role);
+    const isAdmin = roleDoc?.code === '18';
+    const isOps   = roleDoc?.code === '23';
+    if (!isAdmin && !isOps) {
+      return res.status(403).json({ success: false, message: 'Only Admin or Ops can add property to a case' });
+    }
+
+    const caseData = await Case.findOne({ _id: id, isDeleted: false });
+    if (!caseData) return res.status(404).json({ success: false, message: 'Case not found' });
+
+    if (caseData.applicationSubType !== 'pre_approval_only') {
+      return res.status(400).json({ success: false, message: 'This case is not a pre-approval-only case' });
+    }
+    if (caseData.propertyFound === true) {
+      return res.status(400).json({ success: false, message: 'Property has already been added to this case' });
+    }
+    if (caseData.currentStatus !== 'Pre-Approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Property can only be added after bank pre-approval. Current status: ' + caseData.currentStatus,
+      });
+    }
+
+    if (!propertyValue || propertyValue <= 0) {
+      return res.status(400).json({ success: false, message: 'propertyValue is required and must be > 0' });
+    }
+    if (!confirmedLoanAmount || confirmedLoanAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'confirmedLoanAmount is required and must be > 0' });
+    }
+
+    // ── LTV validation ───────────────────────────────────────────
+    const residency  = caseData.clientInfo?.residencyStatus  || 'UAE Resident';
+    const txType     = transactionType || caseData.propertyInfo?.transactionType || null;
+    const { maxLTV, label: ltvLabel } = getLTVLimits(residency, txType, propertyValue);
+    const maxAllowedLoan = Math.floor(propertyValue * maxLTV);
+
+    if (confirmedLoanAmount > maxAllowedLoan) {
+      return res.status(400).json({
+        success: false,
+        message: 'Loan amount exceeds LTV limit. Max loan: AED ' + maxAllowedLoan.toLocaleString()
+          + ' (' + ltvLabel + ' of AED ' + propertyValue.toLocaleString() + ')',
+        details: { propertyValue, maxLTV, maxAllowedLoan, confirmedLoanAmount, ltvLabel },
+      });
+    }
+
+    // ── Cannot exceed pre-approved amount ────────────────────────
+    const preApprovedAmount = caseData.preApprovalInfo?.preApprovedAmount;
+    if (preApprovedAmount && confirmedLoanAmount > preApprovedAmount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Loan amount (' + confirmedLoanAmount.toLocaleString()
+          + ') exceeds pre-approved amount (' + preApprovedAmount.toLocaleString() + ')',
+        details: { confirmedLoanAmount, preApprovedAmount },
+      });
+    }
+
+    // ── DBR re-check ─────────────────────────────────────────────
+    const salary       = caseData.clientInfo?.monthlySalary      || 0;
+    const liabilities  = caseData.clientInfo?.existingLiabilities || 0;
+    const interestRate = caseData.bankSelection?.interestRate      || 4.5;
+    const tenureYears  = caseData.propertyInfo?.tenureYears        || 25;
+
+    if (salary > 0) {
+      const dbrCheck = calculateMaxLoanByDBR(salary, liabilities, interestRate, tenureYears);
+      if (dbrCheck.maxLoanByDBR !== null && confirmedLoanAmount > dbrCheck.maxLoanByDBR) {
+        return res.status(400).json({
+          success: false,
+          message: 'Loan amount exceeds DBR-based maximum (AED ' + dbrCheck.maxLoanByDBR.toLocaleString()
+            + ' at 50% DBR). Salary: AED ' + salary.toLocaleString()
+            + ', Existing liabilities: AED ' + liabilities.toLocaleString(),
+          details: dbrCheck,
+        });
+      }
+    }
+
+    // ── All validations passed — update case ─────────────────────
+    const confirmedLTV         = Math.round((confirmedLoanAmount / propertyValue) * 10000) / 100;
+    const confirmedDownPayment = propertyValue - confirmedLoanAmount;
+    const actorName = req.user?.fullName || req.user?.email || 'Ops';
+    const actorRole = isAdmin ? 'admin' : 'ops';
+
+    caseData.propertyFound = true;
+    caseData.propertyInfo.propertyValue = propertyValue;
+    caseData.propertyInfo.loanAmount    = confirmedLoanAmount;
+    caseData.propertyInfo.downPayment   = confirmedDownPayment;
+    if (transactionType) caseData.propertyInfo.transactionType = transactionType;
+    if (propertyType)    caseData.propertyInfo.propertyType    = propertyType;
+    if (propertyAddress?.area) caseData.propertyInfo.propertyAddress.area = propertyAddress.area;
+    if (propertyAddress?.city) caseData.propertyInfo.propertyAddress.city = propertyAddress.city;
+
+    if (!caseData.preApprovalInfo) caseData.preApprovalInfo = {};
+    caseData.preApprovalInfo.confirmedLoanAmount    = confirmedLoanAmount;
+    caseData.preApprovalInfo.confirmedPropertyValue = propertyValue;
+    caseData.preApprovalInfo.confirmedDownPayment   = confirmedDownPayment;
+    caseData.preApprovalInfo.confirmedLTV           = confirmedLTV;
+    caseData.preApprovalInfo.propertyAddedAt        = new Date();
+    caseData.preApprovalInfo.propertyAddedBy        = { userId: req.user._id, userName: actorName, userRole: actorRole };
+
+    caseData.amountTracking.requestedAmount = confirmedLoanAmount;
+    caseData.internalNotes.push(
+      'Property added by ' + actorRole + ' ' + actorName
+        + ': AED ' + propertyValue.toLocaleString()
+        + ', Loan: AED ' + confirmedLoanAmount.toLocaleString()
+        + ', LTV: ' + confirmedLTV + '%'
+    );
+
+    await caseData.save();
+
+    await HistoryService.logCaseActivity(caseData, 'PROPERTY_ADDED_TO_CASE', await getUserInfo(req), {
+      description: 'Property added: AED ' + propertyValue.toLocaleString()
+        + ', Loan: AED ' + confirmedLoanAmount.toLocaleString()
+        + ', LTV: ' + confirmedLTV + '%',
+    });
+
+    await dispatchVaultNotification(req, {
+      eventType:   'PROPERTY_ADDED_TO_CASE',
+      title:       'Property Added to Case',
+      message:     'Property added to case ' + caseData.caseReference
+        + ' -- value AED ' + propertyValue.toLocaleString()
+        + ', loan AED ' + confirmedLoanAmount.toLocaleString(),
+      entityId:    caseData._id,
+      entityModel: 'Case',
+      caseId:      caseData._id,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Property added successfully. LTV and loan amount validated.',
+      data: {
+        caseId:             caseData._id,
+        caseReference:      caseData.caseReference,
+        currentStatus:      caseData.currentStatus,
+        propertyFound:      caseData.propertyFound,
+        propertyValue,
+        confirmedLoanAmount,
+        confirmedDownPayment,
+        confirmedLTV:       confirmedLTV + '%',
+        maxLTV:             (maxLTV * 100) + '%',
+        ltvLabel,
+        preApprovedAmount,
+      },
+    });
+
+  } catch (error) {
+    console.error('addPropertyToCase error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

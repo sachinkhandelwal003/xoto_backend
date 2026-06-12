@@ -159,6 +159,28 @@ const disbursementInfoSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// ── Pre-Approval Info ─────────────────────────────────────────────
+// Populated when status reaches 'Pre-Approved' (pre_approval_only flow)
+const preApprovalInfoSchema = new mongoose.Schema(
+  {
+    preApprovedAmount:          { type: Number, default: null },
+    preApprovedAt:              { type: Date,   default: null },
+    maxLTV:                     { type: Number, default: null }, // e.g. 0.80
+    maxAffordablePropertyValue: { type: Number, default: null }, // preApprovedAmount / maxLTV
+    confirmedLoanAmount:    { type: Number, default: null },
+    confirmedPropertyValue: { type: Number, default: null },
+    confirmedDownPayment:   { type: Number, default: null },
+    confirmedLTV:           { type: Number, default: null },
+    propertyAddedAt: { type: Date, default: null },
+    propertyAddedBy: {
+      userId:   { type: mongoose.Schema.Types.ObjectId, default: null },
+      userName: { type: String, default: null },
+      userRole: { type: String, default: null },
+    },
+  },
+  { _id: false }
+);
+
 // ── Timeline ──────────────────────────────────────────────────────
 const timelineSchema = new mongoose.Schema(
   {
@@ -191,6 +213,19 @@ const caseSchema = new mongoose.Schema(
 
     // Parent partner organization (if created by a partner or partner agent)
     partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Partner', default: null },
+
+    // Pre-approval flow
+    // standard         = property known at creation, normal full-application flow
+    // pre_approval_only = no property yet; bank pre-approves first, Ops adds property later
+    applicationSubType: {
+      type: String,
+      enum: ['standard', 'pre_approval_only'],
+      default: 'standard',
+    },
+    // true  = property details are known (propertyInfo is complete)
+    // false = pre-approval only; property to be added by Ops after pre-approval
+    propertyFound: { type: Boolean, default: true },
+    preApprovalInfo: { type: preApprovalInfoSchema, default: () => ({}) },
 
     // Who created this case
     // ALL cases go through Ops queue before bank submission

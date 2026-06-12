@@ -24,6 +24,10 @@ const io = new Server(server, {
 const { setIO } = require('./src/utils/socketInstance');
 setIO(io);
 
+// Xobia V2 voice namespace (OpenAI Realtime WebSocket bridge)
+const { registerXobiaVoice } = require('./src/modules/ai/v2/services/xobiaSocket.service');
+registerXobiaVoice(io);
+
 
 // Online users store — { userId: socketId }
 
@@ -199,11 +203,16 @@ app.use(cors({
     'https://xoto.ae',
     'https://www.xoto.ae',
     'http://localhost:5173',
+        'http://localhost:5174',
     'http://kotiboxglobaltech.site',
     'http://www.kotiboxglobaltech.site',
     'https://kotiboxglobaltech.site',     // For future HTTPS
     'https://www.kotiboxglobaltech.site',  // For future HTTPS
         'https://xotovault.kotiboxglobaltech.site' , // For future HTTPS
+        'http://xoto.kotiboxglobaltech.site',
+        'https://xoto.kotiboxglobaltech.site',
+        'https://xotogrid.kotiboxglobaltech.site',
+        'http://xotogrid.kotiboxglobaltech.site'
 
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
