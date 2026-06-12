@@ -133,6 +133,7 @@ app.use('/vault/platform-config',  require('./modules/vault/routes/platformConfi
 app.use('/vault/reports',          require('./modules/vault/routes/report.routes.js'));
 app.use('/vault/customers',        require('./modules/vault/routes/customer.vault.routes.js'));
 // Grid Referral Partner 
+app.use('/grid/notifications', require('../src/modules/Grid/Notification/GridNotificationroutes.js'));
 app.use("/referral", referralPartnerRoutes);
 
 app.use('/platform', require('../src/modules/auth/routes/role/platform.routes'));
