@@ -50,7 +50,7 @@ const gridLeadSchema = new mongoose.Schema({
   },
   routing_status: {
     type: String,
-    enum: ['pending_admin_review', 'assigned', 'reassigned'],
+    enum: ['draft', 'pending_admin_review', 'assigned', 'reassigned'],
     default: 'pending_admin_review',
     index: true,
   },
