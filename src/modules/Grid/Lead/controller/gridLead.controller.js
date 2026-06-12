@@ -12,7 +12,7 @@ const { suggestAdvisor } = require('../../Advisor/controller/advisorAssignment.s
 const Property = require('../../../properties/models/property.model.js');
 const PropertyInventory = require('../../../properties/models/property.inventory.model.js');
 const { matchPropertiesForLead } = require('./gridLead.matchHelper');
-const GridNotification = require('../../Notification/gridnotificationmodal.js').default;
+const GridNotification = require('../../Notification/GridNotificationmodal.js').default;
 
 
 const isGridAdmin = (role) => {
