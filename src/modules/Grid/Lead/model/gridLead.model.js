@@ -39,6 +39,28 @@ const gridLeadSchema = new mongoose.Schema({
   },
 
   // ==============================================================
+  // LISTING TIER & ROUTING STATUS (PRD Listing Types)
+  // ==============================================================
+  listing_tier: {
+    type: String,
+    // tier_1 = Xoto secondary/rental, tier_3 = developer off-plan, general = no listing
+    enum: ['tier_1', 'tier_3', 'general'],
+    default: 'general',
+    index: true,
+  },
+  routing_status: {
+    type: String,
+    enum: ['draft', 'pending_admin_review', 'assigned', 'reassigned'],
+    default: 'pending_admin_review',
+    index: true,
+  },
+  suggested_advisor: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'GridAdvisor',
+    default: null,
+  },
+
+  // ==============================================================
   // LEAD CLASSIFICATION
   // ==============================================================
   classification: {
@@ -401,8 +423,9 @@ gridLeadSchema.index({ next_follow_up_date: 1, status: 1 });
 gridLeadSchema.index({ assigned_to: 1, next_follow_up_date: 1 });
 gridLeadSchema.index({ createdAt: 1, lead_type: 1 });
 gridLeadSchema.index({ 'source.channel': 1, createdAt: -1 });
-gridLeadSchema.index({ 'source.listing_id': 1 });                    // ✅ new index
+gridLeadSchema.index({ 'source.listing_id': 1 });
 gridLeadSchema.index({ status: 1, 'deal_record.commission_status': 1 });
+gridLeadSchema.index({ routing_status: 1, listing_tier: 1, createdAt: -1 });
 
 // ==============================================================
 // MIDDLEWARE

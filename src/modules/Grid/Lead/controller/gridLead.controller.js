@@ -12,6 +12,8 @@ const { suggestAdvisor } = require('../../Advisor/controller/advisorAssignment.s
 const Property = require('../../../properties/models/property.model.js');
 const PropertyInventory = require('../../../properties/models/property.inventory.model.js');
 const { matchPropertiesForLead } = require('./gridLead.matchHelper');
+const GridNotification = require('../../Notification/gridnotificationmodal.js').default;
+
 
 const isGridAdmin = (role) => {
   if (!role) return false;
@@ -21,6 +23,35 @@ const isGridAdmin = (role) => {
       Number(role?.code) === 1;
   }
   return ['admin', 'super_admin', 'xoto_super_admin', 'xoto_staff_admin'].includes(role);
+};
+
+// Determine listing tier from property subtype
+const resolveListingTier = (propertySubType) => {
+  if (!propertySubType) return 'general';
+  if (propertySubType === 'off_plan') return 'tier_3';
+  if (['secondary', 'rental', 'commercial'].includes(propertySubType)) return 'tier_1';
+  return 'general';
+};
+
+// Resolve listing tier + suggested advisor for a new lead
+const resolveRoutingMeta = async ({ property_id, area, propertyType }) => {
+  let listing_tier = 'general';
+  let suggested_advisor_id = null;
+
+  if (property_id) {
+    const property = await Property.findById(property_id).select('propertySubType locality area').lean();
+    if (property) {
+      listing_tier = resolveListingTier(property.propertySubType);
+      // Use property location for advisor suggestion
+      area = area || property.locality || property.area;
+      propertyType = propertyType || property.propertySubType;
+    }
+  }
+
+  const suggestion = await suggestAdvisor({ area, type: propertyType });
+  if (suggestion) suggested_advisor_id = suggestion._id;
+
+  return { listing_tier, suggested_advisor_id };
 };
 
 
@@ -105,12 +136,21 @@ exports.createWebsiteLead = asyncHandler(async (req, res) => {
     classification_reason = 'Hot property enquiry submitted';
   }
 
+  const { listing_tier, suggested_advisor_id } = await resolveRoutingMeta({
+    property_id,
+    area: requirements?.location_preferences?.[0]?.area,
+    propertyType: requirements?.property_type,
+  });
+
   const lead = await GridLead.create({
     lead_type: 'platform',
     enquiry_type,
     customerId: customer._id,
     classification,
     classification_reason,
+    listing_tier,
+    routing_status: 'pending_admin_review',
+    suggested_advisor: suggested_advisor_id,
     source: {
       channel: 'website_form',
       listing_id: property_id || null,
@@ -197,12 +237,17 @@ exports.createSimpleWebsiteLead = asyncHandler(async (req, res) => {
     }
   }
 
+  const { listing_tier, suggested_advisor_id } = await resolveRoutingMeta({ property_id });
+
   const lead = await GridLead.create({
     lead_type: 'platform',
     enquiry_type,
     customerId: customer._id,
     classification: 'warm',
     classification_reason: 'Simple web form submission',
+    listing_tier,
+    routing_status: 'pending_admin_review',
+    suggested_advisor: suggested_advisor_id,
     source: {
       channel: 'website_form',
       listing_id: property_id || null,
@@ -240,7 +285,18 @@ exports.getLeads = asyncHandler(async (req, res) => {
 
   const { status, classification, type, search, lead_type, source_channel } = req.query;
 
-  const filter = {};
+  const filter = {
+    // Exclude name-only agent leads (no phone, no email)
+    $nor: [{
+      lead_type: 'agent',
+      'contact_info.mobile.number': { $exists: false },
+      'contact_info.email.address': { $exists: false },
+    }, {
+      lead_type: 'agent',
+      'contact_info.mobile.number': null,
+      'contact_info.email.address': null,
+    }],
+  };
   if (status)         filter.status         = status;
   if (classification) filter.classification = classification;
   if (type)           filter.enquiry_type   = type;
@@ -336,17 +392,14 @@ exports.createLead = asyncHandler(async (req, res) => {
     listing_id, enquiry_type,
   } = req.body;
 
-  const hasRequirements =
-    property_type ||
-    (Array.isArray(location_preferences) && location_preferences.length > 0) ||
-    budget_min || budget_max || bedrooms || bathrooms || additional_notes;
-
-  if (!hasRequirements) {
+  if (!first_name || !first_name.trim()) {
     return res.status(StatusCodes.BAD_REQUEST).json({
       success: false,
-      message: 'At least one requirement detail is required (property type, location, budget, or bedrooms)',
+      message: 'First name is required',
     });
   }
+
+  const hasContactInfo = !!(phone_number || email);
 
   if (listing_id) {
     const property = await Property.findOne({
@@ -396,6 +449,7 @@ exports.createLead = asyncHandler(async (req, res) => {
     customerId:            customer?._id || agentId,
     classification:        'warm',
     classification_reason: 'Agent requirement lead created via CRM',
+    routing_status:        'draft',
     source: {
       channel:    'agent_added',
       listing_id: listing_id || null,
@@ -416,14 +470,12 @@ exports.createLead = asyncHandler(async (req, res) => {
       ready_by_date: ready_by_date || undefined,
       additional_notes,
     },
-    ...(cleanPhone || cleanEmail ? {
-      contact_info: {
-        name: { first_name: first_name || '', last_name: last_name || '', is_masked: false },
-        ...(cleanPhone && { mobile: { country_code, number: cleanPhone, is_masked: false, verified: false } }),
-        ...(cleanEmail && { email: { address: cleanEmail, is_masked: false, verified: false } }),
-        preferred_contact: 'whatsapp',
-      },
-    } : {}),
+    contact_info: {
+      name: { first_name: first_name.trim(), last_name: last_name?.trim() || '', is_masked: false },
+      ...(cleanPhone && { mobile: { country_code, number: cleanPhone, is_masked: false, verified: false } }),
+      ...(cleanEmail && { email: { address: cleanEmail, is_masked: false, verified: false } }),
+      preferred_contact: 'whatsapp',
+    },
     ...(listing_id ? {
       matched_listings: [{
         listing_id,
@@ -440,6 +492,18 @@ exports.createLead = asyncHandler(async (req, res) => {
     $inc: { totalLeads: 1, activeLeads: 1 },
   });
 
+// Lead create ke baad, Agent.findByIdAndUpdate ke neeche
+await GridNotification.create({
+  eventType:     'LEAD_CREATED',
+  title:         'New Agent Lead Created',
+  message:       `Agent created a new lead: ${first_name || ''} ${last_name || ''} (${phone_number || ''})`,
+  entityId:      lead._id,
+  entityModel:   'GridLead',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: req.user?.first_name || 'Agent',
+  createdByRole: 'agent',
+});
   if (customer?._id) {
     await Customer.findByIdAndUpdate(customer._id, {
       $inc: { 'statistics.total_leads': 1, 'statistics.total_enquiries': 1 },
@@ -459,6 +523,8 @@ exports.createLead = asyncHandler(async (req, res) => {
     },
   });
 });
+//Notifications
+
 
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -475,6 +541,11 @@ exports.getAgentLeads = asyncHandler(async (req, res) => {
   const filter = {
     lead_type:        'agent',
     'source.channel': 'agent_added',
+    // Only show agent leads that have contact info (phone or email)
+    $or: [
+      { 'contact_info.mobile.number': { $exists: true, $nin: [null, ''] } },
+      { 'contact_info.email.address': { $exists: true, $nin: [null, ''] } },
+    ],
   };
 
   if (status) {
@@ -589,8 +660,9 @@ exports.assignAdvisorToLead = asyncHandler(async (req, res) => {
   const previousAdvisorId = lead.assigned_to ? lead.assigned_to.toString() : null;
   const isReassignment    = !!previousAdvisorId;
 
-  lead.assigned_to = advisorId;
-  lead.assigned_at = new Date();
+  lead.assigned_to     = advisorId;
+  lead.assigned_at     = new Date();
+  lead.routing_status  = isReassignment ? 'reassigned' : 'assigned';
 
   const oldStatus = lead.status;
   if (oldStatus !== 'new') {
@@ -1323,6 +1395,7 @@ exports.submitLeadToXoto = asyncHandler(async (req, res) => {
   lead.submitted_to_xoto    = true;
   lead.submitted_to_xoto_at = new Date();
   lead.submitted_by_agent   = agentId;
+  lead.routing_status       = 'pending_admin_review';
 
   lead.notes.push({
     text: submission_note
@@ -1785,6 +1858,77 @@ exports.bulkCreateGeneralLeads = asyncHandler(async (req, res) => {
 
 
 // ════════════════════════════════════════════════════════════════════════════
+// ADMIN — ROUTING QUEUE
+// GET /gridlead/routing-queue
+// Returns unassigned leads grouped by listing tier with suggested advisor
+// Query: listing_tier (tier_1|tier_3|general), classification, page, limit
+// ════════════════════════════════════════════════════════════════════════════
+exports.getRoutingQueue = asyncHandler(async (req, res) => {
+  if (!isGridAdmin(req.user?.role)) {
+    return res.status(403).json({ success: false, message: 'Admin only' });
+  }
+
+  const page  = parseInt(req.query.page,  10) || 1;
+  const limit = parseInt(req.query.limit, 10) || 20;
+  const skip  = (page - 1) * limit;
+
+  const { listing_tier, classification } = req.query;
+
+  const filter = {
+    routing_status: 'pending_admin_review',
+    is_deleted: false,
+  };
+
+  if (listing_tier)    filter.listing_tier    = listing_tier;
+  if (classification)  filter.classification  = classification;
+
+  const [leads, total] = await Promise.all([
+    GridLead.find(filter)
+      .populate('source.listing_id',  'projectName propertyName propertySubType locality')
+      .populate('suggested_advisor',  'firstName lastName email specialisation workload')
+      .sort({ classification: 1, createdAt: 1 })  // hot first, oldest first
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    GridLead.countDocuments(filter),
+  ]);
+
+  // Tier summary counts
+  const [tier1Count, tier3Count, generalCount] = await Promise.all([
+    GridLead.countDocuments({ routing_status: 'pending_admin_review', listing_tier: 'tier_1', is_deleted: false }),
+    GridLead.countDocuments({ routing_status: 'pending_admin_review', listing_tier: 'tier_3', is_deleted: false }),
+    GridLead.countDocuments({ routing_status: 'pending_admin_review', listing_tier: 'general', is_deleted: false }),
+  ]);
+
+  return res.json({
+    success: true,
+    summary: {
+      pending_total: tier1Count + tier3Count + generalCount,
+      tier_1:   tier1Count,
+      tier_3:   tier3Count,
+      general:  generalCount,
+    },
+    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    data: leads.map(l => ({
+      lead_id:           l._id,
+      listing_tier:      l.listing_tier,
+      routing_status:    l.routing_status,
+      classification:    l.classification,
+      enquiry_type:      l.enquiry_type,
+      lead_type:         l.lead_type,
+      listing:           l.source?.listing_id || null,
+      suggested_advisor: l.suggested_advisor  || null,
+      contact: {
+        name:  `${l.contact_info?.name?.first_name || ''} ${l.contact_info?.name?.last_name || ''}`.trim(),
+        phone: l.contact_info?.mobile?.number || null,
+      },
+      createdAt: l.createdAt,
+    })),
+  });
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
 // ADMIN — GET ALL GENERAL LEADS
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -1858,4 +2002,116 @@ exports.getGeneralLeads = asyncHandler(async (req, res) => {
     })),
     pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
   });
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// AGENT — EDIT LEAD (client info + requirements)
+// Only the agent who created the lead can edit it, and only while draft/open
+// ════════════════════════════════════════════════════════════════════════════
+
+exports.editAgentLead = asyncHandler(async (req, res) => {
+  const agentId = req.user?._id;
+  const { id }  = req.params;
+
+  const lead = await GridLead.findById(id);
+  if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
+
+  if (lead.created_by_agent?.toString() !== agentId.toString()) {
+    return res.status(403).json({ success: false, message: 'You can only edit leads you created' });
+  }
+
+  if (lead.submitted_to_xoto) {
+    return res.status(400).json({ success: false, message: 'Lead has been submitted to Xoto and cannot be edited' });
+  }
+
+  const {
+    first_name, last_name, phone_number, country_code = '+971', email,
+    property_type, transaction_type,
+    location_preferences,
+    budget_min, budget_max,
+    bedrooms, bathrooms,
+    area_sqft_min, area_sqft_max,
+    furnished, ready_by_date, additional_notes,
+  } = req.body;
+
+  if (first_name !== undefined && !first_name.trim()) {
+    return res.status(400).json({ success: false, message: 'First name cannot be empty' });
+  }
+
+  // Update contact info
+  if (first_name || last_name || phone_number !== undefined || email !== undefined) {
+    if (!lead.contact_info) lead.contact_info = { name: {} };
+    if (first_name)  lead.contact_info.name.first_name = first_name.trim();
+    if (last_name !== undefined) lead.contact_info.name.last_name = last_name?.trim() || '';
+
+    const cleanPhone = phone_number ? phone_number.toString().replace(/\D/g, '').slice(-15) : null;
+    const cleanEmail = email ? email.toLowerCase().trim() : null;
+
+    if (cleanPhone) {
+      lead.contact_info.mobile = { country_code, number: cleanPhone, is_masked: false, verified: false };
+    } else if (phone_number === '') {
+      lead.contact_info.mobile = undefined;
+    }
+    if (cleanEmail) {
+      lead.contact_info.email = { address: cleanEmail, is_masked: false, verified: false };
+    } else if (email === '') {
+      lead.contact_info.email = undefined;
+    }
+  }
+
+  // Update requirements
+  if (!lead.requirements) lead.requirements = {};
+  if (property_type   !== undefined) lead.requirements.property_type   = property_type;
+  if (transaction_type !== undefined) lead.requirements.transaction_type = transaction_type;
+  if (location_preferences !== undefined) {
+    lead.requirements.location_preferences = Array.isArray(location_preferences)
+      ? location_preferences.map(loc => typeof loc === 'string' ? { area: loc } : loc)
+      : [];
+  }
+  if (budget_min    !== undefined) lead.requirements.budget_min    = budget_min    ? Number(budget_min)    : undefined;
+  if (budget_max    !== undefined) lead.requirements.budget_max    = budget_max    ? Number(budget_max)    : undefined;
+  if (bedrooms      !== undefined) lead.requirements.bedrooms      = bedrooms      ? Number(bedrooms)      : undefined;
+  if (bathrooms     !== undefined) lead.requirements.bathrooms     = bathrooms     ? Number(bathrooms)     : undefined;
+  if (area_sqft_min !== undefined) lead.requirements.area_sqft_min = area_sqft_min ? Number(area_sqft_min) : undefined;
+  if (area_sqft_max !== undefined) lead.requirements.area_sqft_max = area_sqft_max ? Number(area_sqft_max) : undefined;
+  if (furnished     !== undefined) lead.requirements.furnished     = furnished;
+  if (ready_by_date !== undefined) lead.requirements.ready_by_date = ready_by_date || undefined;
+  if (additional_notes !== undefined) lead.requirements.additional_notes = additional_notes;
+
+  lead.markModified('contact_info');
+  lead.markModified('requirements');
+  await lead.save();
+
+  return res.json({ success: true, message: 'Lead updated successfully', data: lead });
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// AGENT — DELETE LEAD
+// Only creator agent can delete; not allowed after submission to Xoto
+// ════════════════════════════════════════════════════════════════════════════
+
+exports.deleteAgentLead = asyncHandler(async (req, res) => {
+  const agentId = req.user?._id;
+  const { id }  = req.params;
+
+  const lead = await GridLead.findById(id);
+  if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
+
+  if (lead.created_by_agent?.toString() !== agentId.toString()) {
+    return res.status(403).json({ success: false, message: 'You can only delete leads you created' });
+  }
+
+  if (lead.submitted_to_xoto) {
+    return res.status(400).json({ success: false, message: 'Submitted leads cannot be deleted' });
+  }
+
+  await GridLead.findByIdAndDelete(id);
+
+  await Agent.findByIdAndUpdate(agentId, {
+    $inc: { totalLeads: -1, activeLeads: -1 },
+  });
+
+  return res.json({ success: true, message: 'Lead deleted successfully' });
 });

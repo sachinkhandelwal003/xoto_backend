@@ -49,6 +49,7 @@ router.get('/',                      controller.getLeads);                // all
 router.get('/website-only',          controller.getWebsitePlatformLeads); // website platform leads
 router.get('/agent-only',            controller.getAgentLeads);           // all agent leads (admin view)
 router.get('/submitted-queue',       controller.getSubmittedQueue);       // unassigned submitted leads
+router.get('/routing-queue',         controller.getRoutingQueue);         // pending admin assignment, grouped by tier
 router.get('/:id/suggest-advisors',  controller.suggestAdvisorsForLead);  // advisor suggestions
 router.put('/:id/assign',            controller.assignAdvisorToLead);     // assign advisor
 
@@ -66,13 +67,15 @@ router.put('/:id/commission', referral.updateCommissionStatus);
 // AGENT ROUTES  (prefix: /agent)
 // ────────────────────────────────────────────────────────────────────────────
 
-router.post('/agent/create-lead',              controller.createLead);
-router.get ('/agent/my-leads',                 controller.getAgentOwnLeads);
-router.get ('/agent/stats',                    controller.getAgentStats);
-router.post('/agent/:id/save-matches',         controller.saveMatchedListings);
-router.post('/agent/:id/submit-to-xoto',       controller.submitLeadToXoto);
-router.post('/agent/:id/update-requirements',  controller.agentUpdateRequirements);
-router.post('/agent/:id/note',                 controller.addAgentNote);
+router.post  ('/agent/create-lead',              controller.createLead);
+router.get   ('/agent/my-leads',                 controller.getAgentOwnLeads);
+router.get   ('/agent/stats',                    controller.getAgentStats);
+router.put   ('/agent/:id/edit',                 controller.editAgentLead);
+router.delete('/agent/:id/delete',               controller.deleteAgentLead);
+router.post  ('/agent/:id/save-matches',         controller.saveMatchedListings);
+router.post  ('/agent/:id/submit-to-xoto',       controller.submitLeadToXoto);
+router.post  ('/agent/:id/update-requirements',  controller.agentUpdateRequirements);
+router.post  ('/agent/:id/note',                 controller.addAgentNote);
 
 
 // ────────────────────────────────────────────────────────────────────────────

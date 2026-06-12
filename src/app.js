@@ -83,6 +83,10 @@ app.use('/freelancer/projects', require('../src/modules/auth/routes/freelancer/p
 // app.use('/property', require('../src/modules/properties/routes/index.js'));
 // app.use('/developer', require('../src/modules'));  //for testing route
 app.use('/developer', developer);  
+app.use('/properties/analytics', require('../src/modules/properties/routes/admin.analytics.routes.js'));
+app.use('/properties', require('../src/modules/properties/routes/property.routes.js'));  //for testing route
+app.use('/property-documents', require('../src/modules/properties/routes/document.routes.js'));
+app.use('/developer/analytics', require('../src/modules/properties/routes/developer.analytics.routes.js'));
 app.use('/properties', require('../src/modules/properties/routes/property.routes.js'));  //// grid
 
 
@@ -131,6 +135,7 @@ app.use('/vault/platform-config',  require('./modules/vault/routes/platformConfi
 app.use('/vault/reports',          require('./modules/vault/routes/report.routes.js'));
 app.use('/vault/customers',        require('./modules/vault/routes/customer.vault.routes.js'));
 // Grid Referral Partner 
+app.use('/grid/notifications', require('../src/modules/Grid/Notification/GridNotificationroutes.js'));
 app.use("/referral", referralPartnerRoutes);
 
 app.use('/platform', require('../src/modules/auth/routes/role/platform.routes'));

@@ -171,7 +171,7 @@ freelancer_schema.virtual('full_name').get(function () {
 });
 
 // Indexes
-freelancer_schema.index({ email: 1 }, { unique: true });
+// email unique index is declared inline in the schema field definition
 freelancer_schema.index({ 'mobile.country_code': 1, 'mobile.number': 1 }, { unique: true, sparse: true });
 freelancer_schema.index({ 'status_info.status': 1 });
 freelancer_schema.index({ onboarding_status: 1 });
