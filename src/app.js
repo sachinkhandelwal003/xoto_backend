@@ -19,6 +19,7 @@ const agencyRoutes = require('./modules/Grid/agency/routes/index.js');
 const stripeRoutes = require('./modules/auth/routes/ai/Striperoutes.js');
 const otpRoutes = require('../src/modules/otp/routes/index.js').default
 const customer = require('../src/modules/customer/routes/index.js').default
+const newsletterRoutes = require('./modules/newsletter/routes/newsletter.route.js');
 const app = express();
 const Notification = require("../src/modules/Notification/Routes/NotificationRoutes.js").default
 const PropertyLead = require("./modules/auth/routes/consult/propertyLead.route").default
@@ -70,6 +71,7 @@ app.get('/test-stripe', (req, res) => {
 app.use('/uploads', express.static('uploads'));
 app.use('/estimates', require('./modules/auth/routes/leads/estimate.routes'));
 app.use('/customer', customer);
+app.use('/newsletter', newsletterRoutes);
 app.use('/ai', require('./modules/auth/routes/ai/gardenAI.routes'));
 app.use('/property/lead', require('./modules/auth/routes/consult/propertyLead.route'));
 
