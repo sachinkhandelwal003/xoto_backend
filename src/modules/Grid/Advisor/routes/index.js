@@ -17,6 +17,7 @@ router.post("/reset-password", gridAdvisorController.resetPassword);
 // PROTECTED ROUTES  (advisor)
 // ════════════════════════════════════════════════════════════════════════════
 router.get("/me/dashboard", protectMulti, gridAdvisorController.getGridAdvisorDashboard);
+router.get("/me/leaderboard", protectMulti, gridAdvisorController.getMyAdvisorLeaderboard);
 router.get("/me", protectMulti, async (req, res) => {
   try {
     const advisor = await GridAdvisor.findById(req.user._id)
