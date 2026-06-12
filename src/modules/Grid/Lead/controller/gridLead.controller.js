@@ -12,6 +12,8 @@ const { suggestAdvisor } = require('../../Advisor/controller/advisorAssignment.s
 const Property = require('../../../properties/models/property.model.js');
 const PropertyInventory = require('../../../properties/models/property.inventory.model.js');
 const { matchPropertiesForLead } = require('./gridLead.matchHelper');
+const GridNotification = require('../../Notification/gridnotificationmodal.js').default;
+
 
 const isGridAdmin = (role) => {
   if (!role) return false;
@@ -483,6 +485,18 @@ exports.createLead = asyncHandler(async (req, res) => {
     $inc: { totalLeads: 1, activeLeads: 1 },
   });
 
+// Lead create ke baad, Agent.findByIdAndUpdate ke neeche
+await GridNotification.create({
+  eventType:     'LEAD_CREATED',
+  title:         'New Agent Lead Created',
+  message:       `Agent created a new lead: ${first_name || ''} ${last_name || ''} (${phone_number || ''})`,
+  entityId:      lead._id,
+  entityModel:   'GridLead',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: req.user?.first_name || 'Agent',
+  createdByRole: 'agent',
+});
   if (customer?._id) {
     await Customer.findByIdAndUpdate(customer._id, {
       $inc: { 'statistics.total_leads': 1, 'statistics.total_enquiries': 1 },
@@ -502,6 +516,8 @@ exports.createLead = asyncHandler(async (req, res) => {
     },
   });
 });
+//Notifications
+
 
 
 // ════════════════════════════════════════════════════════════════════════════

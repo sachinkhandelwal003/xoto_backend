@@ -1,4 +1,4 @@
-import GridNotification from '../Notification/GridNotificationmodal';
+import GridNotification from './GridNotificationmodal';
 
 // ── Role code → audit/notification role slug ───────────────────────
 const ROLE_CODE_MAP = {
