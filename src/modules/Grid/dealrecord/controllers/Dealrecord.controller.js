@@ -13,6 +13,7 @@ const asyncHandler    = require('../../../../utils/asyncHandler');
 const { APIError }    = require('../../../../utils/errorHandler');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const { Transform }   = require('stream');
+const GridNotification = require('../../Notification/gridnotificationmodal').default;
 
 // ─── Commission calculator ────────────────────────────────────────────────────
 const calcCommission = (transactionValue, grossPercent, partnerPercent, referralPercent) => {
@@ -386,7 +387,17 @@ if (!leadId || !propertyId || !customerId || !dealType || !transactionValue || !
   } finally {
     session.endSession();
   }
-
+await GridNotification.create({
+  eventType:     'DEAL_RECORD_CREATED',
+  title:         'New Deal Record Created 📋',
+  message:       `Deal record created for lead. Transaction value: AED ${finalTransactionValue.toLocaleString()}. Commission: AED ${commission.grossAmount.toLocaleString()}. Action required: Upload SPA/booking evidence and confirm.`,
+  entityId:      deal._id,
+  entityModel:   'DealRecord',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+}); 
   return res.status(StatusCodes.CREATED).json({
     success: true,
     message: 'Deal record created successfully',
@@ -680,7 +691,31 @@ exports.confirmDeal = asyncHandler(async (req, res) => {
       status: deal.dealType === 'sale' ? 'sold' : 'booked',
     });
   }
-
+await GridNotification.create({
+  eventType:     'DEAL_CONFIRMED',
+  title:         'Deal Confirmed — Commission Ready for Disbursement 💰',
+  message:       `Deal ${deal.dealReference} confirmed. Gross: AED ${deal.commission.grossAmount.toLocaleString()} | Partner share: AED ${deal.commission.partnerShare.toLocaleString()} | Xoto retained: AED ${deal.commission.xotoRetained.toLocaleString()}. Action required: Process payment and mark as Paid.`,
+  entityId:      deal._id,
+  entityModel:   'DealRecord',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+});
+if (deal.agentId) {
+  await GridNotification.create({
+    eventType:     'DEAL_COMPLETED',
+    title:         'Deal Marked as Completed 🎉',
+    message:       `Deal ${deal.dealReference} has been confirmed. Commission of AED ${deal.commission.partnerShare.toLocaleString()} is now pending disbursement.`,
+    entityId:      deal._id,
+    entityModel:   'DealRecord',
+    recipientId:   deal.agentId,
+    recipientModel:'GridAgent',
+    recipientRole: 'agent',
+    createdByName: 'Admin',
+    createdByRole: 'admin',
+  }).catch(err => console.error('Deal completed agent notification failed:', err.message));
+}
   res.json({
     success: true,
     message: 'Deal confirmed — record is now immutable',
@@ -717,7 +752,32 @@ exports.markAsPaid = asyncHandler(async (req, res) => {
   await GridLead.findByIdAndUpdate(deal.leadId, {
     'deal_record.commission_status': 'paid',
   });
+await GridNotification.create({
+  eventType:     'COMMISSION_PAID',
+  title:         'Commission Disbursed ✅',
+  message:       `Commission paid for deal ${deal.dealReference}. Partner share: AED ${deal.commission.partnerShare.toLocaleString()} | Referral share: AED ${deal.commission.referralShare.toLocaleString()} | Xoto retained: AED ${deal.commission.xotoRetained.toLocaleString()}.`,
+  entityId:      deal._id,
+  entityModel:   'DealRecord',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+});
 
+if (deal.agentId) {
+  await GridNotification.create({
+    eventType:     'COMMISSION_CONFIRMED',
+    title:         'Commission Confirmed 💰',
+    message:       `Your commission of AED ${deal.commission.partnerShare.toLocaleString()} for deal ${deal.dealReference} has been confirmed and will be disbursed shortly.`,
+    entityId:      deal._id,
+    entityModel:   'DealRecord',
+    recipientId:   deal.agentId,
+    recipientModel:'GridAgent',
+    recipientRole: 'agent',
+    createdByName: 'Admin',
+    createdByRole: 'admin',
+  }).catch(err => console.error('Commission confirmed agent notification failed:', err.message));
+}
   res.json({
     success: true,
     message: 'Commission marked as paid',
@@ -789,7 +849,17 @@ exports.confirmReferralCommission = asyncHandler(async (req, res) => {
   } catch (err) {
     console.warn('[DealRecord] confirmReferralCommission: lead sync failed:', err.message);
   }
-
+await GridNotification.create({
+  eventType:     'REFERRAL_COMMISSION_CONFIRMED',
+  title:         'Referral Commission Confirmed 🤝',
+  message:       `Referral commission confirmed for deal ${deal.dealReference}. Referral share: AED ${deal.commission.referralShare.toLocaleString()}. Action required: Process referral payout.`,
+  entityId:      deal._id,
+  entityModel:   'DealRecord',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+});
   return res.json({
     success: true,
     message: 'Referral commission confirmed — record is now eligible for payout',
@@ -838,7 +908,17 @@ exports.markReferralAsPaid = asyncHandler(async (req, res) => {
   } catch (err) {
     console.warn('[DealRecord] Referral sync failed:', err.message);
   }
-
+await GridNotification.create({
+  eventType:     'REFERRAL_COMMISSION_PAID',
+  title:         'Referral Commission Paid ✅',
+  message:       `Referral commission paid for deal ${deal.dealReference}. Amount: AED ${deal.commission.referralShare.toLocaleString()}.`,
+  entityId:      deal._id,
+  entityModel:   'DealRecord',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+});
   res.json({
     success: true,
     message: 'Referral commission marked as paid',
@@ -947,7 +1027,17 @@ exports.voidDeal = asyncHandler(async (req, res) => {
   } finally {
     session.endSession();
   }
-
+await GridNotification.create({
+  eventType:     'DEAL_VOIDED',
+  title:         'Deal Record Voided ⚠️',
+  message:       `Deal ${deal.dealReference} has been voided. Reason: ${reason}. Inventory released and lead reverted.`,
+  entityId:      deal._id,
+  entityModel:   'DealRecord',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+});
   res.json({
     success: true,
     message: 'Deal record voided',

@@ -2,6 +2,7 @@ const GridLead = require('../Lead/model/gridLead.model');          // adjust pat
 const GridAgent = require('../Agent/models/agent');        // adjust path – for agency filter
 const asyncHandler = require('../../../utils/asyncHandler');
 const { StatusCodes } = require('../../../utils/constants/statusCodes');
+const GridNotification = require('../../Grid/Notification/gridnotificationmodal').default;
 const isAdmin = (user) => {
   if (user.role?.isSuperAdmin) return true;
   if (user.role?.code === '1' || user.role?.code === 1) return true;
@@ -143,7 +144,17 @@ exports.updateCommissionStatus = asyncHandler(async (req, res) => {
   if (status === 'paid') lead.deal_record.commission_paid_at = new Date();
 
   await lead.save();
-
+await GridNotification.create({
+  eventType:     status === 'confirmed' ? 'COMMISSION_CONFIRMED' : 'COMMISSION_PAID',
+  title:         status === 'confirmed' ? 'Commission Confirmed 💰' : 'Commission Paid ✅',
+  message:       `Commission ${status} for lead ${id}. Amount: AED ${lead.deal_record.commission_amount?.toLocaleString() || 0}.`,
+  entityId:      lead._id,
+  entityModel:   'GridLead',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+});
   res.json({
     success: true,
     message: `Commission status updated to ${status}`,

@@ -3,11 +3,13 @@ import GridNotification from './GridNotificationmodal';
 // ── Role code → audit/notification role slug ───────────────────────
 const ROLE_CODE_MAP = {
   '1':'admin',
+  '16': 'agent',
   '18': 'admin',
   '21': 'partner',
   '22': null,     // resolved by agentType below
   '23': 'ops',
   '26': 'advisor',
+  
 };
 
 const resolveRoleSlug = (roleCode, user) => {
@@ -16,6 +18,14 @@ const resolveRoleSlug = (roleCode, user) => {
       ? 'partner_affiliated_agent'
       : 'referral_partner';
   }
+
+  // ── Agent types ──────────────────────────────
+  if (roleCode === '16') {
+    return user?.agentType === 'PartnerAffiliatedAgent'
+      ? 'partner_affiliated_agent'
+      : 'freelance_agent';
+  }
+
   return ROLE_CODE_MAP[roleCode] ?? null;
 };
 

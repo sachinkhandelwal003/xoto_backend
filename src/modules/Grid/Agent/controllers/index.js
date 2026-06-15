@@ -8,6 +8,7 @@ const PartnerAgreement = require('../../dealrecord/models/Partneragreement.model
 const bcrypt = require("bcryptjs");
 const { Role } = require('../../../../modules/auth/models/role/role.model.js');
 const { createToken } = require('../../../../middleware/auth.js');
+const GridNotification = require('../../Notification/gridnotificationmodal.js').default;
 
 const canManageAgentAgreement = (agreement, agentId) =>
   agreement &&
@@ -97,7 +98,17 @@ const agentRole = await Role.findOne({ code: 16 });
 
     // Optionally push agent to agency's agents array
     await Agency.findByIdAndUpdate(agency, { $addToSet: { agents: newAgent._id } });
-
+  await GridNotification.create({
+  eventType:     'AGENT_REGISTERED',
+  title:         'New Agent Registration',
+  message:       `New agent registered: ${resolvedFirstName} ${resolvedLastName} (${email}) — Pending agency & admin approval`,
+  entityId:      newAgent._id,
+  entityModel:   'Agent',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: `${resolvedFirstName} ${resolvedLastName}`,
+  createdByRole: 'agent',
+});
     res.status(201).json({
       success: true,
       message: 'Registration submitted. Awaiting agency and admin approval.',
@@ -460,7 +471,17 @@ exports.deleteAgent = async (req, res) => {
     }
 
     await Agent.findByIdAndDelete(id);
-
+   await GridNotification.create({
+  eventType:     'AGENT_OFFBOARDED',
+  title:         'Agent Removed — Lead Reassignment Required ⚠️',
+  message:       `Agent removed: ${agent.first_name} ${agent.last_name}. Active leads reverted to agency dashboard. Reassignment required.`,
+  entityId:      agent._id,
+  entityModel:   'Agent',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+});
     return res.status(200).json({
       success: true,
       message: "Agent deleted successfully"
@@ -492,7 +513,17 @@ exports.approveAgent = async (req, res) => {
     agent.isVerified = true;
     agent.onboarding_status = "approved";
     await agent.save();
-
+   await GridNotification.create({
+  eventType:     'AGENT_APPROVED',
+  title:         'Agent Approved ✅',
+  message:       `Agent approved: ${agent.first_name} ${agent.last_name} (${agent.email})`,
+  entityId:      agent._id,
+  entityModel:   'Agent',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+});
     return res.status(200).json({
       success: true,
       message: "Agent approved successfully",
@@ -526,7 +557,17 @@ exports.rejectAgent = async (req, res) => {
     agent.onboarding_status = "rejected";
     agent.rejection_reason = rejection_reason || "Not specified";
     await agent.save();
-
+   await GridNotification.create({
+  eventType:     'AGENT_REJECTED',
+  title:         'Agent Rejected ❌',
+  message:       `Agent rejected: ${agent.first_name} ${agent.last_name}. Reason: ${rejection_reason || 'Not specified'}`,
+  entityId:      agent._id,
+  entityModel:   'Agent',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+});
     return res.status(200).json({
       success: true,
       message: "Agent rejected",
