@@ -1,4 +1,4 @@
-import GridNotification from './gridnotificationmodal.js';
+import GridNotification from './GridNotificationmodal.js';
 import MortgageOps from '../../vault/models/MortgageOps.js';
 import Admin from '../../vault/models/Admin.js';
 import { getIO } from '../../../utils/socketInstance.js';

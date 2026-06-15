@@ -3,7 +3,7 @@ import {
   getGridNotifications,
   markNotificationRead,
   markAllRead,
-} from './gridnotificationcontroller';
+} from './GridNotificationcontroller';
 import { emitGridNotification } from './gridnotificationservice.js'; // ✅ ADD — apna actual filename daalo
 const { protectMulti } = require('../../../middleware/auth');
 
