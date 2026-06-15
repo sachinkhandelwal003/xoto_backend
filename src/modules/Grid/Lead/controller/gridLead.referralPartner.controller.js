@@ -43,57 +43,46 @@ exports.createReferralLead = asyncHandler(async (req, res) => {
   }
 
   const {
-    // Client Info
+    // Client info (PRD required fields)
     first_name,
     last_name,
     phone_number,
     country_code = '+971',
     email,
 
-    // Requirements (at least one required)
-    property_type,
+    // PRD optional fields
+    interest_area,          // single area string (PRD: "Interest area")
+    budget,                 // single budget number in AED (PRD: "Budget (AED)")
+    property_type,          // PRD: "Property type interest"
+
+    // Extended fields (kept for API flexibility)
     transaction_type = 'buy',
-    location_preferences = [],
+    location_preferences,
     budget_min,
     budget_max,
-    bedrooms,
-    bathrooms,
-    area_sqft_min,
-    area_sqft_max,
-    furnished = 'any',
-    ready_by_date,
-    additional_notes,
-
-    // Optional property selection
     listing_id,
-    enquiry_type,
-
-    // Referral-specific
     referral_code,
     referral_notes,
     commission_rate,
   } = req.body;
 
-  // ── Validation: at least one requirement ─────────────────────────────────
-  const hasRequirements =
-    property_type ||
-    (Array.isArray(location_preferences) && location_preferences.length > 0) ||
-    budget_min || budget_max || bedrooms || bathrooms || additional_notes;
-
-  if (!hasRequirements) {
+  // ── Validation ───────────────────────────────────────────────────────────
+  if (!first_name && !last_name) {
     return res.status(StatusCodes.BAD_REQUEST).json({
       success: false,
-      message: 'At least one requirement detail is required (property type, location, budget, or bedrooms)',
+      message: 'Customer name is required',
+    });
+  }
+  if (!phone_number) {
+    return res.status(StatusCodes.BAD_REQUEST).json({
+      success: false,
+      message: 'Customer phone is required',
     });
   }
 
   // ── Listing verify (optional) ─────────────────────────────────────────────
   if (listing_id) {
-    const property = await Property.findOne({
-      _id: listing_id,
-      approvalStatus: 'approved',
-      listingStatus: 'active',
-    });
+    const property = await Property.findOne({ _id: listing_id, approvalStatus: 'approved', listingStatus: 'active' });
     if (!property) {
       return res.status(StatusCodes.BAD_REQUEST).json({
         success: false,
@@ -102,85 +91,83 @@ exports.createReferralLead = asyncHandler(async (req, res) => {
     }
   }
 
+  // ── Resolve location preferences ─────────────────────────────────────────
+  // Support both PRD simple field (interest_area) and extended array
+  const resolvedLocations = [];
+  if (interest_area) resolvedLocations.push({ area: interest_area });
+  if (Array.isArray(location_preferences)) {
+    location_preferences.forEach(loc =>
+      resolvedLocations.push(typeof loc === 'string' ? { area: loc } : loc)
+    );
+  }
+
+  // ── Resolve budget ────────────────────────────────────────────────────────
+  // Support both PRD single budget and extended min/max
+  const resolvedBudgetMax = budget ? Number(budget) : (budget_max ? Number(budget_max) : undefined);
+  const resolvedBudgetMin = budget_min ? Number(budget_min) : undefined;
+
   // ── Customer resolve / create ─────────────────────────────────────────────
-  const cleanPhone = phone_number ? phone_number.toString().replace(/\D/g, '').slice(-15) : null;
+  const cleanPhone = phone_number.toString().replace(/\D/g, '').slice(-15);
   const cleanEmail = email ? email.toLowerCase().trim() : null;
 
   let customer = null;
-  if (cleanPhone || cleanEmail) {
-    const q = { $or: [] };
-    if (cleanPhone) q.$or.push({ 'mobile.number': cleanPhone });
-    if (cleanEmail) q.$or.push({ email: cleanEmail });
+  const q = { $or: [{ 'mobile.number': cleanPhone }] };
+  if (cleanEmail) q.$or.push({ email: cleanEmail });
+  customer = await Customer.findOne(q);
 
-    customer = await Customer.findOne(q);
-
-    if (!customer) {
-      customer = await Customer.create({
-        name: {
-          first_name: (first_name || 'Unknown').trim(),
-          last_name:  (last_name  || 'Customer').trim(),
-        },
-        ...(cleanPhone && { mobile: { country_code, number: cleanPhone, verified: false } }),
-        ...(cleanEmail && { email: cleanEmail }),
-        statistics: { first_enquiry_at: new Date(), total_leads: 0, total_enquiries: 0 },
-      });
-    }
+  if (!customer) {
+    customer = await Customer.create({
+      name: {
+        first_name: (first_name || 'Unknown').trim(),
+        last_name:  (last_name  || '').trim(),
+      },
+      mobile: { country_code, number: cleanPhone, verified: false },
+      ...(cleanEmail && { email: cleanEmail }),
+      statistics: { first_enquiry_at: new Date(), total_leads: 0, total_enquiries: 0 },
+    });
   }
 
-  // ── Enquiry type resolve ──────────────────────────────────────────────────
-  const resolvedEnquiryType = enquiry_type ||
-    (transaction_type === 'rent' ? 'rent' :
-     transaction_type === 'sell' ? 'sell' : 'buy');
-
-  // ── Create Lead ───────────────────────────────────────────────────────────
+  // ── Create + auto-submit lead (PRD: confirmation shown immediately) ───────
   const lead = await GridLead.create({
-    lead_type:             'referral_partner',                   // ← REFERRAL
-    enquiry_type:          resolvedEnquiryType,
-    customerId:            customer?._id || partnerId,
+    lead_type:             'referral_partner',
+    enquiry_type:          transaction_type === 'rent' ? 'rent' : transaction_type === 'sell' ? 'sell' : 'buy',
+    customerId:            customer._id,
     classification:        'warm',
-    classification_reason: 'Referral partner lead created via CRM',
+    classification_reason: 'Referral partner lead — submitted via referral portal',
 
     source: {
-      channel:    'referral_partner',
-      listing_id: listing_id || null,
+      channel:           'referral_partner',
+      listing_id:        listing_id || null,
       referralPartnerId: partnerId,
     },
 
     referral_info: buildReferralInfo(req.user, { referral_code, referral_notes, commission_rate }),
 
     requirements: {
-      property_type,
+      property_type:        property_type || undefined,
       transaction_type,
-      location_preferences: Array.isArray(location_preferences)
-        ? location_preferences.map(loc => typeof loc === 'string' ? { area: loc } : loc)
-        : [],
-      budget_min:    budget_min    ? Number(budget_min)    : undefined,
-      budget_max:    budget_max    ? Number(budget_max)    : undefined,
-      bedrooms:      bedrooms      ? Number(bedrooms)      : undefined,
-      bathrooms:     bathrooms     ? Number(bathrooms)     : undefined,
-      area_sqft_min: area_sqft_min ? Number(area_sqft_min) : undefined,
-      area_sqft_max: area_sqft_max ? Number(area_sqft_max) : undefined,
-      furnished,
-      ready_by_date: ready_by_date || undefined,
-      additional_notes,
+      location_preferences: resolvedLocations,
+      budget_max:           resolvedBudgetMax,
+      budget_min:           resolvedBudgetMin,
     },
 
-    ...(cleanPhone || cleanEmail ? {
-      contact_info: {
-        name: {
-          first_name: first_name || '',
-          last_name:  last_name  || '',
-          is_masked:  false,
-        },
-        ...(cleanPhone && {
-          mobile: { country_code, number: cleanPhone, is_masked: false, verified: false },
-        }),
-        ...(cleanEmail && {
-          email: { address: cleanEmail, is_masked: false, verified: false },
-        }),
-        preferred_contact: 'whatsapp',
+    contact_info: {
+      name: {
+        first_name: (first_name || '').trim(),
+        last_name:  (last_name  || '').trim(),
+        is_masked:  false,
       },
-    } : {}),
+      mobile: {
+        country_code,
+        number:    cleanPhone,
+        is_masked: false,
+        verified:  false,
+      },
+      ...(cleanEmail && {
+        email: { address: cleanEmail, is_masked: false, verified: false },
+      }),
+      preferred_contact: 'whatsapp',
+    },
 
     ...(listing_id ? {
       matched_listings: [{
@@ -191,29 +178,46 @@ exports.createReferralLead = asyncHandler(async (req, res) => {
       }],
     } : {}),
 
-    // Referral partner ko agent ID field mein store karo (same pattern)
+    // Auto-submit to Xoto on creation (PRD: confirmation shown immediately)
+    submitted_to_xoto:    true,
+    submitted_to_xoto_at: new Date(),
+    submitted_by_agent:   partnerId,
+
+    notes: [{
+      text:        `Lead submitted by referral partner. Client: ${first_name || ''} ${last_name || ''}, Phone: ${country_code} ${cleanPhone}`,
+      author:      `${req.user?.first_name || ''} ${req.user?.last_name || ''}`.trim() || 'Referral Partner',
+      author_type: 'agent',
+      is_private:  false,
+      created_at:  new Date(),
+    }],
+
     created_by_agent: partnerId,
     created_by:       partnerId,
   });
 
   // ── Customer stats update ─────────────────────────────────────────────────
-  if (customer?._id) {
-    await Customer.findByIdAndUpdate(customer._id, {
-      $inc: { 'statistics.total_leads': 1, 'statistics.total_enquiries': 1 },
-    });
-  }
+  await Customer.findByIdAndUpdate(customer._id, {
+    $inc: { 'statistics.total_leads': 1, 'statistics.total_enquiries': 1 },
+  });
+
+  // ── Generate referral reference number ────────────────────────────────────
+  const reference = `REF-${lead._id.toString().slice(-8).toUpperCase()}`;
+
+  const clientName = `${(first_name || '').trim()} ${(last_name || '').trim()}`.trim();
 
   return res.status(StatusCodes.CREATED).json({
     success: true,
-    message: 'Referral lead created successfully',
+    message: 'Referral lead submitted successfully',
     data: {
-      lead_id:          lead._id,
-      status:           lead.status,
-      classification:   lead.classification,
-      lead_type:        lead.lead_type,
-      referral_code:    lead.referral_info?.referral_code,
-      has_client:       !!(cleanPhone || cleanEmail),
-      has_property:     !!listing_id,
+      lead_id:       lead._id,
+      reference,
+      status:        lead.status,
+      client_name:   clientName,
+      phone:         `${country_code} ${cleanPhone}`,
+      interest_area: resolvedLocations[0]?.area || null,
+      budget:        resolvedBudgetMax || null,
+      property_type: property_type || null,
+      submitted_at:  lead.submitted_to_xoto_at,
     },
   });
 });
@@ -512,19 +516,13 @@ exports.updateReferralRequirements = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Lead not found or access denied' });
   }
 
-  if (lead.submitted_to_xoto) {
-    return res.status(400).json({
-      success: false,
-      message: 'Requirements cannot be changed after lead is submitted to Xoto.',
-    });
-  }
-
   const {
     first_name,
     last_name,
     phone_number,
     country_code,
     email,
+    interest_area,         // PRD simple field → converts to location_preferences
     property_type,
     transaction_type,
     location_preferences,
@@ -538,6 +536,12 @@ exports.updateReferralRequirements = asyncHandler(async (req, res) => {
     ready_by_date,
     additional_notes,
   } = requirements || {};
+
+  // Convert PRD simple interest_area to location_preferences array
+  if (interest_area !== undefined) {
+    requirements.location_preferences = interest_area ? [{ area: interest_area }] : [];
+    delete requirements.interest_area;
+  }
 
   // Update contact_info on the lead
   if (first_name !== undefined || last_name !== undefined || phone_number !== undefined || email !== undefined) {
