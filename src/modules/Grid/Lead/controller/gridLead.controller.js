@@ -99,7 +99,17 @@ exports.createWebsiteLead = asyncHandler(async (req, res) => {
     const existingListingId = existingLead.source?.listing_id
       ? existingLead.source.listing_id.toString()
       : null;
-
+     await GridNotification.create({
+    eventType:     'DUPLICATE_LEAD_DETECTED',
+    title:         'Duplicate Lead Detected ⚠️',
+    message:       `New enquiry from ${first_name} ${last_name} (${phone_number || email}) matches existing lead (ID: ${existingLead._id}). Review to ensure previous lead is inactive before assigning new one to prevent agent conflict.`,
+    entityId:      existingLead._id,
+    entityModel:   'GridLead',
+    recipientId:   null,
+    recipientRole: 'admin',
+    createdByName: `${first_name} ${last_name}`,
+    createdByRole: 'System',
+  }).catch(err => console.error('Duplicate lead notification failed:', err.message));
     if (property_id && existingListingId && existingListingId !== property_id.toString()) {
       // Alag property → fall through → naya lead
     } else if (property_id && !existingListingId) {
@@ -222,6 +232,17 @@ exports.createSimpleWebsiteLead = asyncHandler(async (req, res) => {
 
   if (existingLeads.length > 0) {
     const existingLead = existingLeads[0];
+     await GridNotification.create({
+    eventType:     'DUPLICATE_LEAD_DETECTED',
+    title:         'Duplicate Lead Detected ⚠️',
+    message:       `Duplicate enquiry from ${first_name} ${last_name} (${phone_number}) — existing lead ID: ${existingLead._id}. Admin review required before new assignment.`,
+    entityId:      existingLead._id,
+    entityModel:   'GridLead',
+    recipientId:   null,
+    recipientRole: 'admin',
+    createdByName: `${first_name} ${last_name}`,
+    createdByRole: 'System',
+  }).catch(err => console.error('Duplicate lead notification failed:', err.message));
     const existingListingId = existingLead.source?.listing_id
       ? existingLead.source.listing_id.toString()
       : null;
@@ -689,6 +710,20 @@ exports.assignAdvisorToLead = asyncHandler(async (req, res) => {
   });
 
   await lead.save();
+  if (lead.created_by_agent) {
+  await GridNotification.create({
+    eventType:     'LEAD_ASSIGNED',
+    title:         'New Lead Assigned 🎯',
+    message:       `Your lead has been assigned to advisor ${advisor.firstName} ${advisor.lastName}. Lead is now active.`,
+    entityId:      lead._id,
+    entityModel:   'GridLead',
+    recipientId:   lead.created_by_agent,
+    recipientModel:'GridAgent',
+    recipientRole: 'agent',
+    createdByName: req.user?.firstName || 'Admin',
+    createdByRole: 'admin',
+  }).catch(err => console.error('Lead assigned notification failed:', err.message));
+}
 
   await GridAdvisor.findByIdAndUpdate(advisorId, {
     $inc: { 'workload.activeLeadsCount': 1, 'workload.totalLeadsAssigned': 1 },
@@ -902,6 +937,21 @@ const FLOW = [
   });
 
   await lead.save();
+
+  if (lead.sourceInfo?.createdByRole === 'referral_partner' && lead.sourceInfo?.createdById) {
+  await GridNotification.create({
+    eventType:     'LEAD_STATUS_UPDATED',
+    title:         `Lead Status Updated: ${status} 📋`,
+    message:       `Your referred lead status has been updated to "${status}".`,
+    entityId:      lead._id,
+    entityModel:   'GridLead',
+    recipientId:   lead.sourceInfo.createdById,
+    recipientModel:'GridAgent',
+    recipientRole: 'referral_partner',
+    createdByName: req.user?.firstName || 'Advisor',
+    createdByRole: 'advisor',
+  }).catch(err => console.error('Lead status referral notification failed:', err.message));
+}
 
   return res.json({
     success: true,
@@ -1687,6 +1737,18 @@ exports.createGeneralLead = asyncHandler(async (req, res) => {
   const existingLeads = await GridLead.checkDuplicate(customer._id, 7);
   if (existingLeads.length > 0) {
     const existing = existingLeads[0];
+     await GridNotification.create({
+    eventType:     'DUPLICATE_LEAD_DETECTED',
+    title:         'Duplicate Lead Detected (Admin Import) ⚠️',
+    message:       `Admin tried to create duplicate lead for ${first_name} ${last_name} (${phone_number}). Existing lead ID: ${existing._id}, Status: ${existing.status}. Review before proceeding.`,
+    entityId:      existing._id,
+    entityModel:   'GridLead',
+    recipientId:   null,
+    recipientRole: 'admin',
+    createdByName: req.user?.firstName || 'Admin',
+    createdByRole: 'admin',
+  }).catch(err => console.error('Duplicate lead notification failed:', err.message));
+
     return res.status(409).json({
       success: false,
       message: "This customer's lead already exists.",
@@ -1842,7 +1904,23 @@ exports.bulkCreateGeneralLeads = asyncHandler(async (req, res) => {
       results.errors.push({ index, reason: err.message, item });
     }
   }
-
+if (results.errors.length > 0) {
+  try {
+    await GridNotification.create({
+      eventType:     'BULK_IMPORT_ERRORS',
+      title:         'Bulk Lead Import — Errors Detected ❌',
+      message:       `Bulk import finished with ${results.errors.length} error(s) out of ${leadsArray.length} submitted. Created: ${results.created.length} | Duplicates: ${results.duplicates.length} | Errors: ${results.errors.length}. Review error report and re-upload corrected file.`,
+      entityId:      null,
+      entityModel:   null,
+      recipientId:   null,
+      recipientRole: 'admin',
+      createdByName: req.user?.firstName || 'Admin',
+      createdByRole: 'admin',
+    });
+  } catch(err) {
+    console.error('Bulk import notification failed:', err.message);
+  }
+}
   return res.status(201).json({
     success: true,
     message: `Bulk upload complete: ${results.created.length} created, ${results.duplicates.length} duplicates, ${results.errors.length} errors`,
