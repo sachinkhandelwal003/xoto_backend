@@ -645,5 +645,5 @@ caseSchema.pre('save', function (next) {
   next();
 });
 
-const Case = mongoose.models.Case || mongoose.model('Case', caseSchema);
+const Case = mongoose.models.Case || mongoose.model('Case', caseSchema, 'applications');
 export default Case;

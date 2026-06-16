@@ -460,26 +460,26 @@ export const createCase = async (req, res) => {
     }
 
     // Log activity
-    await HistoryService.logCaseActivity(caseData, 'CASE_CREATED', await getUserInfo(req), {
-      description: `Case ${caseReference} created with ${documentResult.summary.total} document requirements`
+    await HistoryService.logCaseActivity(caseData, 'APPLICATION_CREATED', await getUserInfo(req), {
+      description: `Application ${caseReference} created with ${documentResult.summary.total} document requirements`
     });
 
     const resolvedClientName = caseData.clientInfo?.fullName || 'Unknown';
 
     await dispatchVaultNotification(req, {
-      eventType:     'CASE_CREATED',
-      title:         'New Case Created',
-      message:       `Case ${caseReference} created for ${resolvedClientName} — by ${createdBy.role} ${createdBy.userName}`,
+      eventType:     'APPLICATION_CREATED',
+      title:         'New Application Created',
+      message:       `Application ${caseReference} created for ${resolvedClientName} — by ${createdBy.role} ${createdBy.userName}`,
       entityId:      caseData._id,
-      entityModel:   'Case',
+      entityModel:   'Application',
       caseId:        caseData._id,
     });
 
     logAudit({
-      entityType: ENTITY_TYPES.CASE,
+      entityType: ENTITY_TYPES.APPLICATION,
       entityId:   caseData._id,
       entityRef:  caseData.caseReference,
-      action:     AUDIT_ACTIONS.CASE_CREATED,
+      action:     AUDIT_ACTIONS.APPLICATION_CREATED,
       newValue:   { caseReference, clientName: resolvedClientName, advisorSkipBankForm },
       ...actorFromReq(req, createdBy.role),
       metadata:   { sourceLeadId },
@@ -487,7 +487,7 @@ export const createCase = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: "Case created successfully",
+      message: "Application created successfully",
       data: {
         case: caseData,
         documentSummary: caseData.documentSummary,
@@ -606,8 +606,8 @@ export const submitCaseToXoto = async (req, res) => {
     const submitterRole = isPartner ? 'Partner' : isPartnerAffiliatedAgent ? 'Partner Affiliated Agent' : 'Advisor';
     const submitterRoleSlug = isPartner ? 'partner' : isPartnerAffiliatedAgent ? 'partner_affiliated_agent' : 'advisor';
 
-    await HistoryService.logCaseActivity(caseData, 'CASE_SUBMITTED_TO_XOTO', await getUserInfo(req), {
-      description: `Case ${caseData.caseReference} submitted to Xoto by ${submitterRole}`
+    await HistoryService.logCaseActivity(caseData, 'APPLICATION_SUBMITTED_TO_XOTO', await getUserInfo(req), {
+      description: `Application ${caseData.caseReference} submitted to Xoto by ${submitterRole}`
     });
 
     // Notify Xoto Admin (Trigger #24)
@@ -616,7 +616,7 @@ export const submitCaseToXoto = async (req, res) => {
       title:         'New Application Submitted',
       message:       `Application ${caseData.caseReference} has been submitted by ${submitterRole} and requires review.`,
       entityId:      caseData._id,
-      entityModel:   'Case',
+      entityModel:   'Application',
       recipientRole: 'admin',
       sendToAllOfRole: true,
       createdByName: req.user?.fullName || req.user?.email || submitterRole,
@@ -625,11 +625,11 @@ export const submitCaseToXoto = async (req, res) => {
 
     // Notify ALL active Mortgage Ops (Trigger #29)
     await emitVaultNotification({
-      eventType:     'CASE_SUBMITTED',
+      eventType:     'APPLICATION_SUBMITTED',
       title:         'New Application in Ops Queue',
       message:       `Application ${caseData.caseReference} is now available in the Ops Queue for pickup.`,
       entityId:      caseData._id,
-      entityModel:   'Case',
+      entityModel:   'Application',
       recipientRole: 'ops',
       sendToAllOfRole: true,
       createdByName: 'System',
@@ -637,10 +637,10 @@ export const submitCaseToXoto = async (req, res) => {
     });
 
     logAudit({
-      entityType: ENTITY_TYPES.CASE,
+      entityType: ENTITY_TYPES.APPLICATION,
       entityId:   caseData._id,
       entityRef:  caseData.caseReference,
-      action:     AUDIT_ACTIONS.CASE_SUBMITTED_TO_XOTO,
+      action:     AUDIT_ACTIONS.APPLICATION_SUBMITTED_TO_XOTO,
       newValue:   { status: 'In Ops Queue - Pending Pick-up' },
       ...actorFromReq(req, submitterRoleSlug),
     });
@@ -741,20 +741,20 @@ export const opsPickUpCase = async (req, res) => {
     ops.queueStatus.pendingReview = (ops.queueStatus.pendingReview || 0) + 1;
     await ops.save();
     
-    await HistoryService.logCaseActivity(caseData, 'CASE_PICKED_UP', await getUserInfo(req), {
-      description: `Case picked up by Ops ${opsName}`
+    await HistoryService.logCaseActivity(caseData, 'APPLICATION_PICKED_UP', await getUserInfo(req), {
+      description: `Application picked up by Ops ${opsName}`
     });
 
     await dispatchVaultNotification(req, {
-      eventType:     'CASE_PICKED_UP',
-      title:         'Case Picked Up by Ops',
-      message:       `Case ${caseData.caseReference} picked up by Ops: ${opsName}`,
+      eventType:     'APPLICATION_PICKED_UP',
+      title:         'Application Picked Up by Ops',
+      message:       `Application ${caseData.caseReference} picked up by Ops: ${opsName}`,
       entityId:      caseData._id,
-      entityModel:   'Case',
+      entityModel:   'Application',
       caseId:        caseData._id,
     });
 
-    return res.status(200).json({ success: true, message: "Case picked up successfully", data: caseData });
+    return res.status(200).json({ success: true, message: "Application picked up successfully", data: caseData });
     
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -793,8 +793,8 @@ export const returnCaseToQueue = async (req, res) => {
       await ops.save();
     }
     
-    await HistoryService.logCaseActivity(caseData, 'CASE_RETURNED_TO_QUEUE', await getUserInfo(req), {
-      description: `Case returned to queue. Reason: ${reason}`
+    await HistoryService.logCaseActivity(caseData, 'APPLICATION_RETURNED_TO_QUEUE', await getUserInfo(req), {
+      description: `Application returned to queue. Reason: ${reason}`
     });
     
     return res.status(200).json({ success: true, message: "Case returned to queue", data: caseData });
@@ -829,20 +829,20 @@ export const adminAssignCaseToOps = async (req, res) => {
     ops.workload.currentApplications = (ops.workload.currentApplications || 0) + 1;
     await ops.save();
     
-    await HistoryService.logCaseActivity(caseData, 'CASE_MANUALLY_ASSIGNED', await getUserInfo(req), {
-      description: `Case manually assigned to Ops ${opsName} by Admin`
+    await HistoryService.logCaseActivity(caseData, 'APPLICATION_MANUALLY_ASSIGNED', await getUserInfo(req), {
+      description: `Application manually assigned to Ops ${opsName} by Admin`
     });
 
     await dispatchVaultNotification(req, {
-      eventType:     'CASE_ASSIGNED_TO_OPS',
-      title:         'Case Assigned to Ops',
-      message:       `Case ${caseData.caseReference} manually assigned to Ops: ${opsName} by Admin`,
+      eventType:     'APPLICATION_ASSIGNED_TO_OPS',
+      title:         'Application Assigned to Ops',
+      message:       `Application ${caseData.caseReference} manually assigned to Ops: ${opsName} by Admin`,
       entityId:      caseData._id,
-      entityModel:   'Case',
+      entityModel:   'Application',
       caseId:        caseData._id,
     });
 
-    return res.status(200).json({ success: true, message: `Case assigned to ${opsName}`, data: caseData });
+    return res.status(200).json({ success: true, message: `Application assigned to ${opsName}`, data: caseData });
     
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -1312,7 +1312,7 @@ export const updateCaseStatus = async (req, res) => {
     // Update lead status
     await updateLeadStatusFromCase(caseData.sourceLeadId, status, { reason: notes });
 
-    await HistoryService.logCaseActivity(caseData, 'CASE_STATUS_UPDATED', await getUserInfo(req), {
+    await HistoryService.logCaseActivity(caseData, 'APPLICATION_STATUS_UPDATED', await getUserInfo(req), {
       description: `Status: ${previousStatus} → ${status}`,
       notes,
     });
@@ -1340,11 +1340,11 @@ export const updateCaseStatus = async (req, res) => {
     }
 
     await dispatchVaultNotification(req, {
-      eventType:     'CASE_STATUS_UPDATED',
-      title:         `Case Status: ${status}`,
-      message:       `Case ${caseData.caseReference} — ${previousStatus} → ${status}`,
+      eventType:     'APPLICATION_STATUS_UPDATED',
+      title:         `Application Status: ${status}`,
+      message:       `Application ${caseData.caseReference} — ${previousStatus} → ${status}`,
       entityId:      caseData._id,
-      entityModel:   'Case',
+      entityModel:   'Application',
       caseId:        caseData._id,
     });
 
@@ -1352,7 +1352,7 @@ export const updateCaseStatus = async (req, res) => {
       entityType: ENTITY_TYPES.APPLICATION,
       entityId:   caseData._id,
       entityRef:  caseData.caseReference,
-      action:     AUDIT_ACTIONS.CASE_STATUS_CHANGED,
+      action:     AUDIT_ACTIONS.APPLICATION_STATUS_CHANGED,
       oldValue:   { status: previousStatus },
       newValue:   { status },
       ...actorFromReq(req, isAdmin ? 'admin' : 'ops'),
@@ -1900,20 +1900,20 @@ export const addPropertyToCase = async (req, res) => {
 
     await caseData.save();
 
-    await HistoryService.logCaseActivity(caseData, 'PROPERTY_ADDED_TO_CASE', await getUserInfo(req), {
+    await HistoryService.logCaseActivity(caseData, 'PROPERTY_ADDED_TO_APPLICATION', await getUserInfo(req), {
       description: 'Property added: AED ' + propertyValue.toLocaleString()
         + ', Loan: AED ' + confirmedLoanAmount.toLocaleString()
         + ', LTV: ' + confirmedLTV + '%',
     });
 
     await dispatchVaultNotification(req, {
-      eventType:   'PROPERTY_ADDED_TO_CASE',
-      title:       'Property Added to Case',
-      message:     'Property added to case ' + caseData.caseReference
+      eventType:   'PROPERTY_ADDED_TO_APPLICATION',
+      title:       'Property Added to Application',
+      message:     'Property added to application ' + caseData.caseReference
         + ' -- value AED ' + propertyValue.toLocaleString()
         + ', loan AED ' + confirmedLoanAmount.toLocaleString(),
       entityId:    caseData._id,
-      entityModel: 'Case',
+      entityModel: 'Application',
       caseId:      caseData._id,
     });
 

@@ -33,9 +33,8 @@ const BankProductSchema = new mongoose.Schema(
      */
 
     productId: {
-        type: String,
+        type: mongoose.Schema.Types.Mixed,
         unique: true,
-        trim: true,
         index: true,
         sparse: true
     },
@@ -91,7 +90,9 @@ const BankProductSchema = new mongoose.Schema(
         type: String,
         enum: [
             "Primary Residential",
+            "Primary - Residential",
             "Primary Commercial",
+            "Primary - Commercial",
             "Buyout",
             "Equity",
             "Buyout + Equity",
@@ -135,9 +136,8 @@ const BankProductSchema = new mongoose.Schema(
      */
 
     minimumFloorRate: {
-        type: Number,
-        required: true,
-        min: 0
+        type: String,
+        required: true
     },
 
     rateType: {
@@ -167,23 +167,23 @@ const BankProductSchema = new mongoose.Schema(
 
     /**
      * =====================================================
-     * LOAN DETAILS
+     * LOAN DETAILS & PAYMENTS
      * =====================================================
      */
 
     ltv: {
-        min: {
-            type: Number,
-            default: 0,
-            min: 0,
-            max: 100
-        },
-        max: {
-            type: Number,
-            required: true,
-            min: 0,
-            max: 100
-        }
+        type: String,
+        required: true
+    },
+
+    monthlyPayment: {
+        type: String,
+        default: ""
+    },
+
+    overPayment: {
+        type: String,
+        default: ""
     },
 
     minLoanAmount: {
@@ -227,21 +227,18 @@ const BankProductSchema = new mongoose.Schema(
      */
 
     bankFees: {
-        type: Number,
-        default: 0,
-        min: 0
+        type: String,
+        default: ""
     },
 
     propertyValuationFee: {
-        type: Number,
-        default: 0,
-        min: 0
+        type: String,
+        default: ""
     },
 
     bankPreApprovalFee: {
-        type: Number,
-        default: 0,
-        min: 0
+        type: String,
+        default: ""
     },
 
     isBankPreApprovalFeeFree: {
@@ -250,15 +247,13 @@ const BankProductSchema = new mongoose.Schema(
     },
 
     minimumBankProcessingFee: {
-        type: Number,
-        default: 0,
-        min: 0
+        type: String,
+        default: ""
     },
 
     buyoutFee: {
-        type: Number,
-        default: 0,
-        min: 0
+        type: String,
+        default: ""
     },
 
     isBuyoutFeeNA: {
@@ -274,9 +269,8 @@ const BankProductSchema = new mongoose.Schema(
 
     propertyInsurance: {
         value: {
-            type: Number,
-            default: 0,
-            min: 0
+            type: String,
+            default: ""
         },
         frequency: {
             type: String,
@@ -287,9 +281,8 @@ const BankProductSchema = new mongoose.Schema(
 
     lifeInsurance: {
         value: {
-            type: Number,
-            default: 0,
-            min: 0
+            type: String,
+            default: ""
         },
         frequency: {
             type: String,
@@ -377,6 +370,17 @@ const BankProductSchema = new mongoose.Schema(
 
     /**
      * =====================================================
+     * COUNTS
+     * =====================================================
+     */
+
+    proposalsGeneratedCount: {
+        type: Number,
+        default: 0
+    },
+
+    /**
+     * =====================================================
      * AUDIT
      * =====================================================
      */
@@ -416,7 +420,7 @@ BankProductSchema.index({ isDeleted: 1 });
 BankProductSchema.index({ isFeatured: 1 });
 BankProductSchema.index({ isPopular: 1 });
 BankProductSchema.index({ displayOrder: 1 });
-BankProductSchema.index({ "ltv.max": 1 });
+BankProductSchema.index({ ltv: 1 });
 BankProductSchema.index({ minLoanAmount: 1 });
 BankProductSchema.index({ maxLoanAmount: 1 });
 BankProductSchema.index({ productId: 1 }, { sparse: true });
@@ -442,11 +446,17 @@ BankProductSchema.virtual("isActiveProduct").get(function () {
 });
 
 BankProductSchema.virtual("maxLTV").get(function () {
-    return this.ltv.max;
+    if (this.ltv && typeof this.ltv === 'object') {
+        return parseFloat(this.ltv.max) || 0;
+    }
+    return parseFloat(this.ltv) || 0;
 });
 
 BankProductSchema.virtual("minLTV").get(function () {
-    return this.ltv.min;
+    if (this.ltv && typeof this.ltv === 'object') {
+        return parseFloat(this.ltv.min) || 0;
+    }
+    return parseFloat(this.ltv) || 0;
 });
 
 /**
@@ -472,7 +482,7 @@ BankProductSchema.methods.restore = async function () {
 BankProductSchema.methods.checkEligibility = function (loanAmount, ltv, employmentType, residencyType) {
     const checks = {
         loanAmount: loanAmount >= this.minLoanAmount && (!this.maxLoanAmount || loanAmount <= this.maxLoanAmount),
-        ltv: ltv <= this.ltv.max,
+        ltv: ltv <= (parseFloat(this.ltv) || 100),
         employment: this.employmentStatus.includes(employmentType),
         residency: this.residencyStatus.includes(residencyType),
         notExpired: !this.isExpired,
@@ -574,13 +584,20 @@ BankProductSchema.statics.searchProducts = function (searchTerm) {
  * =========================================================
  */
 
-// Pre-save middleware to generate productId if not provided
+// Pre-save middleware to generate numeric productId if not provided
 BankProductSchema.pre('save', async function(next) {
     if (!this.productId && this.productName && this.bank) {
-        const bank = await mongoose.model("Bank").findById(this.bank);
-        if (bank) {
-            const sanitizedName = this.productName.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10);
-            this.productId = `${bank.bankCode}_${sanitizedName}_${Date.now()}`;
+        try {
+            // Find the last product with a numeric ID (ignoring legacy alphanumeric ones)
+            const lastProduct = await mongoose.model("BankMortgageProducts").findOne({
+                productId: { $not: /[^0-9]/ }
+            }, {}, { sort: { productId: -1 } });
+            const lastId = lastProduct && lastProduct.productId ? parseInt(lastProduct.productId) : 1000;
+            this.productId = lastId + 1;
+        } catch (err) {
+            console.error("Error generating sequential productId:", err);
+            // Fallback
+            this.productId = Math.floor(1000 + Math.random() * 9000);
         }
     }
     next();

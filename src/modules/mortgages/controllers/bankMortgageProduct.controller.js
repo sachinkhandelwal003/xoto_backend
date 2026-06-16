@@ -1,5 +1,7 @@
 const Bank = require("../models/BankModel.js");
 const BankProduct = require("../models/BankProduct.js");
+const EiborRate = require("../models/EiborRate.js");
+const { scrapeEiborRates } = require("../services/eiborScraper.js");
 
 /**
  * =========================================
@@ -9,6 +11,30 @@ const BankProduct = require("../models/BankProduct.js");
 
 exports.createBank = async (req, res) => {
     try {
+        let bankCode = req.body.bankCode;
+        if (!bankCode && req.body.bankName) {
+            const words = req.body.bankName.trim().split(/\s+/);
+            let baseCode = '';
+            if (words.length === 1) {
+                baseCode = words[0].substring(0, 4).toUpperCase();
+            } else {
+                baseCode = words.map(w => {
+                    if (w === w.toUpperCase() && w.length >= 2 && /^[A-Z]+$/.test(w)) {
+                        return w;
+                    }
+                    return w[0].toUpperCase();
+                }).join('');
+            }
+            let code = baseCode;
+            let counter = 1;
+            while (await Bank.findOne({ bankCode: code })) {
+                code = `${baseCode}${counter}`;
+                counter++;
+            }
+            bankCode = code;
+            req.body.bankCode = bankCode;
+        }
+
         // Check if bank with same code or name exists
         const existingBank = await Bank.findOne({
             $or: [
@@ -293,7 +319,8 @@ exports.createBankProduct = async (req, res) => {
         }
 
         // Validate LTV
-        if (req.body.ltv && req.body.ltv.max > 100) {
+        const ltvMax = req.body.ltv && typeof req.body.ltv === 'object' ? req.body.ltv.max : parseFloat(req.body.ltv);
+        if (ltvMax > 100) {
             return res.status(400).json({
                 success: false,
                 message: "LTV max cannot exceed 100%"
@@ -330,9 +357,14 @@ exports.getAllBankProducts = async (req, res) => {
             bank,
             mortgageType,
             status,
+            employmentStatus,
+            residencyStatus,
+            transactionType,
+            rateType,
+            ltv,
+            salaryTransfer,
             minLoanAmount,
             maxLoanAmount,
-            minLTV,
             isFeatured,
             isPopular,
             search,
@@ -348,8 +380,18 @@ exports.getAllBankProducts = async (req, res) => {
         if (bank) query.bank = bank;
         if (mortgageType) query.mortgageType = mortgageType;
         if (status) query.status = status;
+        if (employmentStatus) query.employmentStatus = employmentStatus;
+        if (residencyStatus) query.residencyStatus = residencyStatus;
+        if (transactionType) query.transactionType = transactionType;
+        if (rateType) query.rateType = rateType;
+        if (salaryTransfer) query.salaryTransfer = salaryTransfer;
         if (isFeatured === 'true') query.isFeatured = true;
         if (isPopular === 'true') query.isPopular = true;
+        
+        // LTV regex match (e.g. "80" matches "80%")
+        if (ltv) {
+            query.ltv = { $regex: new RegExp(ltv, 'i') };
+        }
         
         // Loan amount range filter
         if (minLoanAmount || maxLoanAmount) {
@@ -365,11 +407,6 @@ exports.getAllBankProducts = async (req, res) => {
                     ]
                 });
             }
-        }
-        
-        // LTV filter
-        if (minLTV) {
-            query["ltv.max"] = { $gte: parseInt(minLTV) };
         }
         
         // Search filter
@@ -455,7 +492,8 @@ exports.updateBankProduct = async (req, res) => {
         }
 
         // Validate LTV if being updated
-        if (req.body.ltv && req.body.ltv.max > 100) {
+        const ltvMax = req.body.ltv && typeof req.body.ltv === 'object' ? req.body.ltv.max : parseFloat(req.body.ltv);
+        if (ltvMax > 100) {
             return res.status(400).json({
                 success: false,
                 message: "LTV max cannot exceed 100%"
@@ -646,7 +684,7 @@ exports.compareProducts = async (req, res) => {
             interestRate: product.interestRate,
             rateType: product.rateType,
             minFloorRate: product.minimumFloorRate,
-            maxLTV: product.ltv.max,
+            maxLTV: product.ltv && typeof product.ltv === 'object' ? product.ltv.max : (parseFloat(product.ltv) || 0),
             minLoanAmount: product.minLoanAmount,
             maxLoanAmount: product.maxLoanAmount,
             minSalary: product.minSalary,
@@ -746,7 +784,7 @@ exports.getProductsByBankId = async (req, res) => {
             ...product,
             isActive: product.status === 'Active' && !product.isExpired,
             minRate: product.minimumFloorRate,
-            maxLTV: product.ltv?.max
+            maxLTV: product.ltv && typeof product.ltv === 'object' ? product.ltv.max : (parseFloat(product.ltv) || 0)
         }));
 
         return res.status(200).json({
@@ -848,6 +886,58 @@ exports.getBankProductsSummary = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: error.message
+        });
+    }
+};
+
+/**
+ * GET EIBOR RATES (Retrieves cached or scrapes live EIBOR rates from CBUAE)
+ */
+exports.getEiborRates = async (req, res) => {
+    try {
+        const { forceScrape } = req.query;
+
+        // If forceScrape is not requested, try to get rates cached today
+        if (forceScrape !== 'true') {
+            const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            const cachedRate = await EiborRate.findOne({ fetchedAt: { $gte: oneDayAgo } }).sort({ fetchedAt: -1 });
+            
+            if (cachedRate) {
+                return res.status(200).json({
+                    success: true,
+                    message: "EIBOR rates retrieved from cache",
+                    data: cachedRate
+                });
+            }
+        }
+
+        // Otherwise, trigger the Puppeteer scraper
+        console.log("Triggering live EIBOR scraper...");
+        const scrapedRate = await scrapeEiborRates();
+        
+        return res.status(200).json({
+            success: true,
+            message: "EIBOR rates scraped successfully",
+            data: scrapedRate
+        });
+    } catch (error) {
+        console.error("Error in getEiborRates API:", error);
+        
+        // If scraper fails, fall back to the most recent cached EIBOR rates
+        const lastRate = await EiborRate.findOne().sort({ fetchedAt: -1 });
+        if (lastRate) {
+            return res.status(200).json({
+                success: true,
+                message: "Scraping failed, returning last known cached EIBOR rates",
+                error: error.message,
+                data: lastRate
+            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to scrape EIBOR rates and no cached data found",
+            error: error.message
         });
     }
 };

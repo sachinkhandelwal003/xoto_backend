@@ -88,6 +88,48 @@ const getDbrStatus = (dbr, maxDBR = 50) => {
   return 'Ineligible';
 };
 
+const parseFee = (feeVal, loanAmount) => {
+  if (!feeVal) return 0;
+  if (typeof feeVal === 'number') return feeVal;
+
+  const cleaned = String(feeVal).trim();
+  if (cleaned.includes('%')) {
+    const match = cleaned.match(/([\d.]+)\s*%/);
+    if (match) {
+      const pct = parseFloat(match[1]);
+      if (!isNaN(pct)) {
+        return Math.round(loanAmount * (pct / 100));
+      }
+    }
+  }
+
+  const cleanNumStr = cleaned.replace(/AED|aed|,|\s/g, '');
+  const num = parseFloat(cleanNumStr);
+  return isNaN(num) ? 0 : num;
+};
+
+const parseInsuranceValue = (ins) => {
+  if (!ins) return { value: 0, frequency: 'pa' };
+  let val = ins.value;
+  let freq = ins.frequency || 'pa';
+  if (typeof val === 'number') {
+    return { value: val, frequency: freq };
+  }
+  if (!val) return { value: 0, frequency: freq };
+
+  const cleaned = String(val).trim();
+  if (cleaned.includes('%')) {
+    const match = cleaned.match(/([\d.]+)\s*%/);
+    if (match) {
+      const pct = parseFloat(match[1]);
+      return { value: isNaN(pct) ? 0 : pct, frequency: freq };
+    }
+  }
+  const cleanNumStr = cleaned.replace(/AED|aed|,|\s/g, '');
+  const num = parseFloat(cleanNumStr);
+  return { value: isNaN(num) ? 0 : num, frequency: freq };
+};
+
 // =============================================================
 // 1. GET ELIGIBLE BANKS FOR LEAD
 // =============================================================
@@ -106,7 +148,7 @@ export const getEligibleBanksForLead = async (req, res) => {
     const lr = lead.loanRequirements;
 
     const salary = ci.monthlySalary || 0;
-    const existingDebt = ci.existingMonthlyLiabilities || 0;
+    const existingDebt = ci.existingLiabilities || ci.existingMonthlyLiabilities || 0;
     const propValue = pd.propertyValue || 0;
     const downPayment = pd.downPaymentAmount || 0;
     const loanAmount = pd.loanAmountRequired
@@ -117,11 +159,10 @@ export const getEligibleBanksForLead = async (req, res) => {
     const isUAENat = ci.nationality === 'UAE' || ci.residencyStatus === 'UAE National';
     const maxDBR = isUAENat ? 55 : 50;
 
+    // Fetch all active products; status/residency eligibility checked dynamically in JS memory
     const products = await BankProduct.find({
       status: 'Active',
       isDeleted: false,
-      employmentStatus: { $in: [ci.employmentStatus, 'Both'] },
-      residencyStatus: { $in: [ci.residencyStatus, 'All'] },
     }).populate('bank', 'bankName bankCode logo');
 
     const eligible = [];
@@ -135,10 +176,16 @@ export const getEligibleBanksForLead = async (req, res) => {
       const emi = calcEMI(loanAmount, rate, tenureYears);
       const dbr = calcDBR(emi, existingDebt, salary);
       const dbrStat = getDbrStatus(dbr, maxDBR);
-      const ltvOk = ltv <= (product.ltv?.max || 85);
+      const maxLTVVal = product.maxLTV || (product.ltv && typeof product.ltv === 'object' ? product.ltv.max : (parseFloat(product.ltv) || 85));
+      const ltvOk = ltv <= maxLTVVal;
       const salOk = salary >= (product.minSalary || 0);
       const dbrOk = dbrStat !== 'Ineligible';
-      const isEligible = ltvOk && salOk && dbrOk;
+
+      // Check employment status and residency status eligibility
+      const empOk = !ci.employmentStatus || product.employmentStatus?.includes(ci.employmentStatus) || product.employmentStatus?.includes('Both');
+      const resOk = !ci.residencyStatus || product.residencyStatus?.includes(ci.residencyStatus) || product.residencyStatus?.includes('All');
+
+      const isEligible = ltvOk && salOk && dbrOk && empOk && resOk;
 
       const item = {
         bankId: bank._id,
@@ -151,21 +198,23 @@ export const getEligibleBanksForLead = async (req, res) => {
         rateType: product.rateType,
         emi,
         ltv,
-        maxLTV: product.ltv?.max || 85,
+        maxLTV: maxLTVVal,
         dbr,
         dbrStatus: dbrStat,
-        processingFee: product.bankFees || 0,
-        valuationFee: product.propertyValuationFee || 0,
-        preApprovalFee: product.bankPreApprovalFee || 0,
-        lifeInsurance: product.lifeInsurance || { value: 0, frequency: 'pa' },
-        propertyInsurance: product.propertyInsurance || { value: 0, frequency: 'pa' },
+        processingFee: parseFee(product.bankFees, loanAmount),
+        valuationFee: parseFee(product.propertyValuationFee, loanAmount),
+        preApprovalFee: parseFee(product.bankPreApprovalFee, loanAmount),
+        lifeInsurance: parseInsuranceValue(product.lifeInsurance),
+        propertyInsurance: parseInsuranceValue(product.propertyInsurance),
         salaryTransferRequired: product.salaryTransfer === 'STL',
         keyFeatures: product.keyFeatures || [],
         isEligible,
         reasons: [
-          !ltvOk ? `LTV ${ltv}% exceeds max ${product.ltv?.max}%` : null,
-          !salOk ? `Salary AED ${salary} below minimum AED ${product.minSalary}` : null,
+          !ltvOk ? `LTV ${ltv}% exceeds max ${maxLTVVal}%` : null,
+          !salOk ? `Salary AED ${salary} below minimum AED ${product.minSalary || 0}` : null,
           !dbrOk ? `DBR ${dbr}% exceeds max ${maxDBR}%` : null,
+          !empOk ? `Employment status "${ci.employmentStatus}" not supported` : null,
+          !resOk ? `Residency status "${ci.residencyStatus}" not supported` : null,
         ].filter(Boolean),
       };
 
@@ -229,7 +278,7 @@ export const createProposal = async (req, res) => {
     const lr = lead.loanRequirements;
 
     const salary = ci.monthlySalary || 0;
-    const existingDebt = ci.existingMonthlyLiabilities || 0;
+    const existingDebt = ci.existingLiabilities || ci.existingMonthlyLiabilities || 0;
     const propValue = pd.propertyValue || 0;
     const downPayment = pd.downPaymentAmount || 0;
     const loanAmount = pd.loanAmountRequired
@@ -263,7 +312,7 @@ export const createProposal = async (req, res) => {
         snapshotFollowOnRate: product.followOnRate || null,
         snapshotEMI: emi,
         snapshotLTV: ltv,
-        maxLTV: product.ltv?.max || 85,
+        maxLTV: product.maxLTV || (product.ltv && typeof product.ltv === 'object' ? product.ltv.max : (parseFloat(product.ltv) || 85)),
         dbrBreakdown: {
           monthlyEMI: emi,
           existingMonthlyDebt: existingDebt,
@@ -273,14 +322,14 @@ export const createProposal = async (req, res) => {
           dbrStatus: dbrSt,
           maxAllowedDBR: maxDBR,
         },
-        snapshotProcessingFee: product.bankFees || 0,
-        snapshotValuationFee: product.propertyValuationFee || 0,
-        snapshotPreApprovalFee: product.bankPreApprovalFee || 0,
-        snapshotBuyoutFee: product.buyoutFee || 0,
+        snapshotProcessingFee: parseFee(product.bankFees, loanAmount),
+        snapshotValuationFee: parseFee(product.propertyValuationFee, loanAmount),
+        snapshotPreApprovalFee: parseFee(product.bankPreApprovalFee, loanAmount),
+        snapshotBuyoutFee: parseFee(product.buyoutFee, loanAmount),
         isBuyoutFeeNA: product.isBuyoutFeeNA || false,
-        lifeInsurance: product.lifeInsurance || { value: 0, frequency: 'pa' },
-        propertyInsurance: product.propertyInsurance || { value: 0, frequency: 'pa' },
-        isEligible: ltv <= (product.ltv?.max || 85) && dbrSt !== 'Ineligible',
+        lifeInsurance: parseInsuranceValue(product.lifeInsurance),
+        propertyInsurance: parseInsuranceValue(product.propertyInsurance),
+        isEligible: ltv <= (product.maxLTV || (product.ltv && typeof product.ltv === 'object' ? product.ltv.max : (parseFloat(product.ltv) || 85))) && dbrSt !== 'Ineligible',
         isRecommended: item.isRecommended || false,
         salaryTransferRequired: product.salaryTransfer === 'STL',
         keyFeatures: product.keyFeatures || [],
@@ -321,6 +370,15 @@ export const createProposal = async (req, res) => {
       internalNotes: internalNotes || null,
       status: 'Draft',
     });
+
+    // Increment proposalsGeneratedCount for each product used in the proposal
+    for (const bankInfo of builtBanks) {
+      if (bankInfo.productId) {
+        await BankProduct.findByIdAndUpdate(bankInfo.productId, {
+          $inc: { proposalsGeneratedCount: 1 }
+        });
+      }
+    }
 
     await dispatchVaultNotification(req, {
       eventType:     'PROPOSAL_CREATED',

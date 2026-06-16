@@ -9,7 +9,7 @@ const historySchema = new mongoose.Schema(
     entityType: {
       type: String,
       enum: [
-        'Lead', 'Case', 'Proposal', 'Client', 'Agent', 'Partner', 
+        'Lead', 'Case', 'Application', 'Proposal', 'Client', 'Agent', 'Partner', 
         'Commission', 'Document', 'User', 'Admin', 'Payment', 'BankForm',
         'XotoAdvisor', 'MortgageOps'  // ✅ ADDED
       ],
@@ -26,8 +26,13 @@ const historySchema = new mongoose.Schema(
         // Lead actions
         'LEAD_CREATED', 'LEAD_UPDATED', 'LEAD_STATUS_CHANGED', 'LEAD_CONVERTED', 'LEAD_DELETED',
         'LEAD_CREATED_BY_PARTNER', 'LEAD_CREATED_FROM_WEBSITE', 'LEAD_ASSIGNED_TO_ADVISOR',  // ✅ ADDED
-        // Case actions
+        // Case / Application actions
         'CASE_CREATED', 'CASE_UPDATED', 'CASE_STATUS_CHANGED', 'CASE_SUBMITTED', 'CASE_DELETED',
+        'APPLICATION_CREATED', 'APPLICATION_UPDATED', 'APPLICATION_STATUS_CHANGED', 'APPLICATION_SUBMITTED', 'APPLICATION_DELETED',
+        'APPLICATION_SUBMITTED_TO_XOTO', 'APPLICATION_PICKED_UP', 'APPLICATION_RETURNED_TO_QUEUE', 'APPLICATION_MANUALLY_ASSIGNED',
+        'APPLICATION_STATUS_UPDATED', 'PROPERTY_ADDED_TO_APPLICATION', 'APPLICATION_ASSIGNED_TO_OPS',
+        'APPLICATION_RETURNED', 'APPLICATION_RESUBMITTED', 'APPLICATION_SUBMITTED_TO_BANK', 'APPLICATION_DISBURSED',
+        'APPLICATION_REJECTED', 'APPLICATION_LOST',
         // Proposal actions
         'PROPOSAL_CREATED', 'PROPOSAL_SENT', 'PROPOSAL_VIEWED', 'PROPOSAL_ACCEPTED', 'PROPOSAL_REJECTED', 'PROPOSAL_EXPIRED',
         // Agent actions

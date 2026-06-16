@@ -356,17 +356,17 @@ export const assignCaseToOps = async (req, res) => {
     ops.queueStatus.pendingReview += 1;
     await ops.save();
 
-    await HistoryService.logCaseActivity(caseData, 'CASE_ASSIGNED_TO_OPS', await getUserInfo(req), {
-      description: `Case assigned to ops ${ops.fullName}`,
+    await HistoryService.logCaseActivity(caseData, 'APPLICATION_ASSIGNED_TO_OPS', await getUserInfo(req), {
+      description: `Application assigned to ops ${ops.fullName}`,
       metadata: { opsId, caseId }
     });
 
     // Log Audit
     await logAudit({
-      entityType: 'CASE',
+      entityType: 'APPLICATION',
       entityId: caseData._id,
       entityRef: caseData.caseReference,
-      action: 'CASE_ASSIGNED_TO_OPS',
+      action: 'APPLICATION_ASSIGNED_TO_OPS',
       newValue: { opsId: ops._id, opsName: ops.fullName },
       performedBy: req.user._id,
       performedByName: req.user.email,
@@ -377,11 +377,11 @@ export const assignCaseToOps = async (req, res) => {
 
     // Notify Specific Mortgage Ops (Trigger #30)
     await emitVaultNotification({
-      eventType: 'CASE_ASSIGNED_TO_OPS',
+      eventType: 'APPLICATION_ASSIGNED_TO_OPS',
       title: 'Application Assigned',
       message: `Application ${caseData.caseReference} has been manually assigned to you by Admin.`,
       entityId: caseData._id,
-      entityModel: 'Case',
+      entityModel: 'Application',
       recipientId: ops._id,
       recipientModel: 'MortgageOps',
       recipientRole: 'ops',
@@ -392,11 +392,11 @@ export const assignCaseToOps = async (req, res) => {
     // Notify Partner Admin / Creator (Trigger #11)
     if (caseData.createdBy?.role === 'partner' && caseData.partnerId) {
       await emitVaultNotification({
-        eventType: 'CASE_STATUS_UPDATED',
+        eventType: 'APPLICATION_STATUS_UPDATED',
         title: 'Application Under Review',
         message: `Your application ${caseData.caseReference} is now assigned to Operations Executive ${ops.fullName}.`,
         entityId: caseData._id,
-        entityModel: 'Case',
+        entityModel: 'Application',
         recipientId: caseData.partnerId,
         recipientModel: 'Partner',
         recipientRole: 'partner',
@@ -405,11 +405,11 @@ export const assignCaseToOps = async (req, res) => {
       });
     } else if (caseData.createdBy?.userId) {
       await emitVaultNotification({
-        eventType: 'CASE_STATUS_UPDATED',
+        eventType: 'APPLICATION_STATUS_UPDATED',
         title: 'Application Under Review',
         message: `Your application ${caseData.caseReference} is now assigned to Operations Executive ${ops.fullName}.`,
         entityId: caseData._id,
-        entityModel: 'Case',
+        entityModel: 'Application',
         recipientId: caseData.createdBy.userId,
         recipientModel: caseData.createdBy.role === 'advisor' ? 'XotoAdvisor' : 'Agent',
         recipientRole: caseData.createdBy.role,
@@ -615,10 +615,10 @@ export const pickUpCase = async (req, res) => {
 
     // Log Audit
     await logAudit({
-      entityType: 'CASE',
+      entityType: 'APPLICATION',
       entityId: caseData._id,
       entityRef: caseData.caseReference,
-      action: 'CASE_PICKED_UP',
+      action: 'APPLICATION_PICKED_UP',
       newValue: { opsId: ops._id, opsName: ops.fullName },
       performedBy: ops._id,
       performedByName: ops.fullName,
@@ -629,11 +629,11 @@ export const pickUpCase = async (req, res) => {
 
     // Notify Admin
     await emitVaultNotification({
-      eventType: 'CASE_PICKED_UP',
+      eventType: 'APPLICATION_PICKED_UP',
       title: 'Application Picked Up',
       message: `Application ${caseData.caseReference} has been picked up by Operations Executive ${ops.fullName}.`,
       entityId: caseData._id,
-      entityModel: 'Case',
+      entityModel: 'Application',
       recipientRole: 'admin',
       sendToAllOfRole: true,
       createdByName: ops.fullName,
@@ -643,11 +643,11 @@ export const pickUpCase = async (req, res) => {
     // Notify Submitter
     if (caseData.createdBy?.role === 'partner' && caseData.partnerId) {
       await emitVaultNotification({
-        eventType: 'CASE_STATUS_UPDATED',
+        eventType: 'APPLICATION_STATUS_UPDATED',
         title: 'Application Under Review',
         message: `Your application ${caseData.caseReference} has been picked up for review.`,
         entityId: caseData._id,
-        entityModel: 'Case',
+        entityModel: 'Application',
         recipientId: caseData.partnerId,
         recipientModel: 'Partner',
         recipientRole: 'partner',
@@ -656,11 +656,11 @@ export const pickUpCase = async (req, res) => {
       });
     } else if (caseData.createdBy?.userId) {
       await emitVaultNotification({
-        eventType: 'CASE_STATUS_UPDATED',
+        eventType: 'APPLICATION_STATUS_UPDATED',
         title: 'Application Under Review',
         message: `Your application ${caseData.caseReference} has been picked up for review.`,
         entityId: caseData._id,
-        entityModel: 'Case',
+        entityModel: 'Application',
         recipientId: caseData.createdBy.userId,
         recipientModel: caseData.createdBy.role === 'advisor' ? 'XotoAdvisor' : 'Agent',
         recipientRole: caseData.createdBy.role,
@@ -716,10 +716,10 @@ export const updateCaseStatus = async (req, res) => {
 
     // Log Audit
     await logAudit({
-      entityType: 'CASE',
+      entityType: 'APPLICATION',
       entityId: caseData._id,
       entityRef: caseData.caseReference,
-      action: 'CASE_STATUS_CHANGED',
+      action: 'APPLICATION_STATUS_CHANGED',
       oldValue: previousStatus,
       newValue: status,
       performedBy: ops._id,
@@ -735,11 +735,11 @@ export const updateCaseStatus = async (req, res) => {
 
     if (caseData.createdBy?.role === 'partner' && caseData.partnerId) {
       await emitVaultNotification({
-        eventType: status === 'Returned - Pending Correction' ? 'CASE_RETURNED' : 'CASE_STATUS_UPDATED',
+        eventType: status === 'Returned - Pending Correction' ? 'APPLICATION_RETURNED' : 'APPLICATION_STATUS_UPDATED',
         title: notificationTitle,
         message: notificationMessage,
         entityId: caseData._id,
-        entityModel: 'Case',
+        entityModel: 'Application',
         recipientId: caseData.partnerId,
         recipientModel: 'Partner',
         recipientRole: 'partner',
@@ -748,11 +748,11 @@ export const updateCaseStatus = async (req, res) => {
       });
     } else if (caseData.createdBy?.userId) {
       await emitVaultNotification({
-        eventType: status === 'Returned - Pending Correction' ? 'CASE_RETURNED' : 'CASE_STATUS_UPDATED',
+        eventType: status === 'Returned - Pending Correction' ? 'APPLICATION_RETURNED' : 'APPLICATION_STATUS_UPDATED',
         title: notificationTitle,
         message: notificationMessage,
         entityId: caseData._id,
-        entityModel: 'Case',
+        entityModel: 'Application',
         recipientId: caseData.createdBy.userId,
         recipientModel: caseData.createdBy.role === 'advisor' ? 'XotoAdvisor' : 'Agent',
         recipientRole: caseData.createdBy.role,

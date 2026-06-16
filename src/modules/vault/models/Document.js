@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 
 const documentSchema = new mongoose.Schema(
   {
-    entityType: { type: String, enum: ['Case'], required: true },  // Only Case now
+    entityType: { type: String, enum: ['Case', 'Application'], required: true },  // Case or Application
 entityId: { type: mongoose.Schema.Types.ObjectId, required: true },
     documentKey: { type: String, required: true },  // passport, emirates_id, etc.
     documentName: { type: String, required: true },

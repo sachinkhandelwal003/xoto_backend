@@ -98,6 +98,6 @@ caseDocumentRequirementSchema.methods.markRejected = async function(reason) {
 };
 
 const CaseDocumentRequirement = mongoose.models.CaseDocumentRequirement || 
-  mongoose.model('CaseDocumentRequirement', caseDocumentRequirementSchema);
+  mongoose.model('CaseDocumentRequirement', caseDocumentRequirementSchema, 'applicationdocumentrequirements');
 
 module.exports = CaseDocumentRequirement;

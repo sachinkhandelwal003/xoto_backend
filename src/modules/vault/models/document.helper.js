@@ -4,7 +4,7 @@ const copyLeadDocsToCase = async (leadId, caseId) => {
   try {
     // ✅ CHECK IF ALREADY COPIED
     const existingDocs = await Document.findOne({
-      entityType: 'Case',
+      entityType: 'Application',
       entityId: caseId,
       isFromLead: true
     });
@@ -25,7 +25,7 @@ const copyLeadDocsToCase = async (leadId, caseId) => {
 
     // ✅ COPY ONLY ONCE
     const caseDocs = leadDocs.map(doc => ({
-      entityType: 'Case',
+      entityType: 'Application',
       entityId: caseId,
 
       documentType: doc.documentType,

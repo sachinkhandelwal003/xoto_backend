@@ -305,16 +305,18 @@ export const calculateLeadEligibility = async (req, res) => {
     
     // Update lead with provided data
     if (monthlySalary !== undefined) lead.customerInfo.monthlySalary = monthlySalary;
-    if (existingMonthlyLiabilities !== undefined) lead.customerInfo.existingMonthlyLiabilities = existingMonthlyLiabilities;
+    // Accept both existingMonthlyLiabilities (legacy) and existingLiabilities (schema field)
+    const incomingLiabilities = existingMonthlyLiabilities;
+    if (incomingLiabilities !== undefined) lead.customerInfo.existingLiabilities = incomingLiabilities;
     if (propertyValue !== undefined) lead.propertyDetails.propertyValue = propertyValue;
     if (downpayment !== undefined) lead.propertyDetails.downPaymentAmount = downpayment;
     if (loanAmount !== undefined) lead.propertyDetails.loanAmountRequired = loanAmount;
     if (tenureYears !== undefined) lead.loanRequirements.preferredTenureYears = tenureYears;
     await lead.save();
 
-    // Get values
+    // Get values — read from correct schema field
     const salary = lead.customerInfo.monthlySalary || 0;
-    const liabilities = lead.customerInfo.existingMonthlyLiabilities || 0;
+    const liabilities = lead.customerInfo.existingLiabilities || 0;
     const residencyStatus = lead.customerInfo.residencyStatus;
     const propValue = lead.propertyDetails.propertyValue || 0;
     const loanAmt = lead.propertyDetails.loanAmountRequired || 0;
@@ -1568,7 +1570,7 @@ export const partnerUpdateLeadInfo = async (req, res) => {
       const allowedFields = [
         'firstName', 'lastName', 'email', 'mobileNumber', 'countryCode',
         'nationality', 'residencyStatus', 'employmentStatus', 'monthlySalary',
-        'existingMonthlyLiabilities', 'dateOfBirth', 'gender', 'maritalStatus',
+        'existingLiabilities', 'dateOfBirth', 'gender', 'maritalStatus',
         'numberOfDependents', 'occupation', 'employer', 'alternativePhone',
         'whatsappNumber', 'preferredName'
       ];
