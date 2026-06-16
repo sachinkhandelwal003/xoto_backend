@@ -12,7 +12,7 @@ const { suggestAdvisor } = require('../../Advisor/controller/advisorAssignment.s
 const Property = require('../../../properties/models/property.model.js');
 const PropertyInventory = require('../../../properties/models/property.inventory.model.js');
 const { matchPropertiesForLead } = require('./gridLead.matchHelper');
-const GridNotification = require('../../Notification/gridnotificationmodal.js').default;
+const GridNotification = require('../../Notification/GridNotificationmodal.js').default;
 
 
 const isGridAdmin = (role) => {
@@ -306,7 +306,18 @@ exports.getLeads = asyncHandler(async (req, res) => {
 
   const { status, classification, type, search, lead_type, source_channel } = req.query;
 
-  const filter = {};
+  const filter = {
+    // Exclude name-only agent leads (no phone, no email)
+    $nor: [{
+      lead_type: 'agent',
+      'contact_info.mobile.number': { $exists: false },
+      'contact_info.email.address': { $exists: false },
+    }, {
+      lead_type: 'agent',
+      'contact_info.mobile.number': null,
+      'contact_info.email.address': null,
+    }],
+  };
   if (status)         filter.status         = status;
   if (classification) filter.classification = classification;
   if (type)           filter.enquiry_type   = type;
@@ -402,17 +413,14 @@ exports.createLead = asyncHandler(async (req, res) => {
     listing_id, enquiry_type,
   } = req.body;
 
-  const hasRequirements =
-    property_type ||
-    (Array.isArray(location_preferences) && location_preferences.length > 0) ||
-    budget_min || budget_max || bedrooms || bathrooms || additional_notes;
-
-  if (!hasRequirements) {
+  if (!first_name || !first_name.trim()) {
     return res.status(StatusCodes.BAD_REQUEST).json({
       success: false,
-      message: 'At least one requirement detail is required (property type, location, budget, or bedrooms)',
+      message: 'First name is required',
     });
   }
+
+  const hasContactInfo = !!(phone_number || email);
 
   if (listing_id) {
     const property = await Property.findOne({
@@ -462,6 +470,7 @@ exports.createLead = asyncHandler(async (req, res) => {
     customerId:            customer?._id || agentId,
     classification:        'warm',
     classification_reason: 'Agent requirement lead created via CRM',
+    routing_status:        'draft',
     source: {
       channel:    'agent_added',
       listing_id: listing_id || null,
@@ -482,14 +491,12 @@ exports.createLead = asyncHandler(async (req, res) => {
       ready_by_date: ready_by_date || undefined,
       additional_notes,
     },
-    ...(cleanPhone || cleanEmail ? {
-      contact_info: {
-        name: { first_name: first_name || '', last_name: last_name || '', is_masked: false },
-        ...(cleanPhone && { mobile: { country_code, number: cleanPhone, is_masked: false, verified: false } }),
-        ...(cleanEmail && { email: { address: cleanEmail, is_masked: false, verified: false } }),
-        preferred_contact: 'whatsapp',
-      },
-    } : {}),
+    contact_info: {
+      name: { first_name: first_name.trim(), last_name: last_name?.trim() || '', is_masked: false },
+      ...(cleanPhone && { mobile: { country_code, number: cleanPhone, is_masked: false, verified: false } }),
+      ...(cleanEmail && { email: { address: cleanEmail, is_masked: false, verified: false } }),
+      preferred_contact: 'whatsapp',
+    },
     ...(listing_id ? {
       matched_listings: [{
         listing_id,
@@ -555,6 +562,11 @@ exports.getAgentLeads = asyncHandler(async (req, res) => {
   const filter = {
     lead_type:        'agent',
     'source.channel': 'agent_added',
+    // Only show agent leads that have contact info (phone or email)
+    $or: [
+      { 'contact_info.mobile.number': { $exists: true, $nin: [null, ''] } },
+      { 'contact_info.email.address': { $exists: true, $nin: [null, ''] } },
+    ],
   };
 
   if (status) {
@@ -1483,6 +1495,7 @@ exports.submitLeadToXoto = asyncHandler(async (req, res) => {
   lead.submitted_to_xoto    = true;
   lead.submitted_to_xoto_at = new Date();
   lead.submitted_by_agent   = agentId;
+  lead.routing_status       = 'pending_admin_review';
 
   lead.notes.push({
     text: submission_note
@@ -2117,4 +2130,116 @@ exports.getGeneralLeads = asyncHandler(async (req, res) => {
     })),
     pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
   });
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// AGENT — EDIT LEAD (client info + requirements)
+// Only the agent who created the lead can edit it, and only while draft/open
+// ════════════════════════════════════════════════════════════════════════════
+
+exports.editAgentLead = asyncHandler(async (req, res) => {
+  const agentId = req.user?._id;
+  const { id }  = req.params;
+
+  const lead = await GridLead.findById(id);
+  if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
+
+  if (lead.created_by_agent?.toString() !== agentId.toString()) {
+    return res.status(403).json({ success: false, message: 'You can only edit leads you created' });
+  }
+
+  if (lead.submitted_to_xoto) {
+    return res.status(400).json({ success: false, message: 'Lead has been submitted to Xoto and cannot be edited' });
+  }
+
+  const {
+    first_name, last_name, phone_number, country_code = '+971', email,
+    property_type, transaction_type,
+    location_preferences,
+    budget_min, budget_max,
+    bedrooms, bathrooms,
+    area_sqft_min, area_sqft_max,
+    furnished, ready_by_date, additional_notes,
+  } = req.body;
+
+  if (first_name !== undefined && !first_name.trim()) {
+    return res.status(400).json({ success: false, message: 'First name cannot be empty' });
+  }
+
+  // Update contact info
+  if (first_name || last_name || phone_number !== undefined || email !== undefined) {
+    if (!lead.contact_info) lead.contact_info = { name: {} };
+    if (first_name)  lead.contact_info.name.first_name = first_name.trim();
+    if (last_name !== undefined) lead.contact_info.name.last_name = last_name?.trim() || '';
+
+    const cleanPhone = phone_number ? phone_number.toString().replace(/\D/g, '').slice(-15) : null;
+    const cleanEmail = email ? email.toLowerCase().trim() : null;
+
+    if (cleanPhone) {
+      lead.contact_info.mobile = { country_code, number: cleanPhone, is_masked: false, verified: false };
+    } else if (phone_number === '') {
+      lead.contact_info.mobile = undefined;
+    }
+    if (cleanEmail) {
+      lead.contact_info.email = { address: cleanEmail, is_masked: false, verified: false };
+    } else if (email === '') {
+      lead.contact_info.email = undefined;
+    }
+  }
+
+  // Update requirements
+  if (!lead.requirements) lead.requirements = {};
+  if (property_type   !== undefined) lead.requirements.property_type   = property_type;
+  if (transaction_type !== undefined) lead.requirements.transaction_type = transaction_type;
+  if (location_preferences !== undefined) {
+    lead.requirements.location_preferences = Array.isArray(location_preferences)
+      ? location_preferences.map(loc => typeof loc === 'string' ? { area: loc } : loc)
+      : [];
+  }
+  if (budget_min    !== undefined) lead.requirements.budget_min    = budget_min    ? Number(budget_min)    : undefined;
+  if (budget_max    !== undefined) lead.requirements.budget_max    = budget_max    ? Number(budget_max)    : undefined;
+  if (bedrooms      !== undefined) lead.requirements.bedrooms      = bedrooms      ? Number(bedrooms)      : undefined;
+  if (bathrooms     !== undefined) lead.requirements.bathrooms     = bathrooms     ? Number(bathrooms)     : undefined;
+  if (area_sqft_min !== undefined) lead.requirements.area_sqft_min = area_sqft_min ? Number(area_sqft_min) : undefined;
+  if (area_sqft_max !== undefined) lead.requirements.area_sqft_max = area_sqft_max ? Number(area_sqft_max) : undefined;
+  if (furnished     !== undefined) lead.requirements.furnished     = furnished;
+  if (ready_by_date !== undefined) lead.requirements.ready_by_date = ready_by_date || undefined;
+  if (additional_notes !== undefined) lead.requirements.additional_notes = additional_notes;
+
+  lead.markModified('contact_info');
+  lead.markModified('requirements');
+  await lead.save();
+
+  return res.json({ success: true, message: 'Lead updated successfully', data: lead });
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// AGENT — DELETE LEAD
+// Only creator agent can delete; not allowed after submission to Xoto
+// ════════════════════════════════════════════════════════════════════════════
+
+exports.deleteAgentLead = asyncHandler(async (req, res) => {
+  const agentId = req.user?._id;
+  const { id }  = req.params;
+
+  const lead = await GridLead.findById(id);
+  if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
+
+  if (lead.created_by_agent?.toString() !== agentId.toString()) {
+    return res.status(403).json({ success: false, message: 'You can only delete leads you created' });
+  }
+
+  if (lead.submitted_to_xoto) {
+    return res.status(400).json({ success: false, message: 'Submitted leads cannot be deleted' });
+  }
+
+  await GridLead.findByIdAndDelete(id);
+
+  await Agent.findByIdAndUpdate(agentId, {
+    $inc: { totalLeads: -1, activeLeads: -1 },
+  });
+
+  return res.json({ success: true, message: 'Lead deleted successfully' });
 });

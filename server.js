@@ -247,6 +247,7 @@ app.use(cors({
         'https://xoto.kotiboxglobaltech.site',
         'https://xotogrid.kotiboxglobaltech.site',
         'http://xotogrid.kotiboxglobaltech.site'
+        
 
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

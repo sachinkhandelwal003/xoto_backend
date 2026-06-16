@@ -1334,31 +1334,52 @@ exports.getDeveloperDashboard = async (req, res) => {
       };
     }).sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    // Dynamic recent lead registrations list for the developer dashboard
+    // Aggregated interest per project — NO customer PII (PRD §9.4)
     const propMap = {};
     properties.forEach(p => {
       propMap[p._id.toString()] = p.projectName || p.propertyName || "Unnamed Project";
     });
 
-    const recentLeads = leads
-      .map(l => {
-        const nameObj = l.contact_info?.name || {};
-        const fullName = l.contact_info?.name?.is_masked 
-          ? "Masked Customer" 
-          : `${nameObj.first_name || ""} ${nameObj.last_name || ""}`.trim() || "Interested Client";
+    const interestCountByProject = {};
+    leads.forEach(l => {
+      const pid = l.source?.listing_id?.toString();
+      if (pid) interestCountByProject[pid] = (interestCountByProject[pid] || 0) + 1;
+    });
 
-        return {
-          _id: l._id,
-          customerName: fullName,
-          email: l.contact_info?.email?.is_masked ? "Masked" : (l.contact_info?.email?.address || "N/A"),
-          phone: l.contact_info?.mobile?.is_masked ? "Masked" : (l.contact_info?.mobile?.number || "N/A"),
-          projectName: propMap[l.source?.listing_id?.toString()] || "General Enquiry",
-          status: l.status,
-          createdAt: l.createdAt
-        };
-      })
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-      .slice(0, 10);
+    // Top performing listing by interest volume (PRD §9.1)
+    let topPerformingListing = null;
+    let maxInterest = 0;
+    for (const [pid, count] of Object.entries(interestCountByProject)) {
+      if (count > maxInterest) {
+        maxInterest = count;
+        const prop = properties.find(p => p._id.toString() === pid);
+        if (prop) {
+          topPerformingListing = {
+            propertyId: prop._id,
+            projectName: prop.projectName || prop.propertyName || "Unnamed Project",
+            interestCount: count
+          };
+        }
+      }
+    }
+
+    // Pending approval listings (PRD §9.1)
+    const pendingListings = properties
+      .filter(p => p.approvalStatus === "pending" || p.approvalStatus === "changes_requested" || p.listingStatus === "pending")
+      .map(p => ({
+        propertyId: p._id,
+        projectName: p.projectName || p.propertyName || "Unnamed Project",
+        approvalStatus: p.approvalStatus,
+        listingStatus: p.listingStatus,
+        createdAt: p.createdAt
+      }));
+
+    // Aggregated interest registrations per project (no customer identity)
+    const interestByProject = properties.map(p => ({
+      propertyId: p._id,
+      projectName: p.projectName || p.propertyName || "Unnamed Project",
+      totalInterest: interestCountByProject[p._id.toString()] || 0
+    })).sort((a, b) => b.totalInterest - a.totalInterest);
 
     const unitsSold = inventoryStats.sold + inventoryStats.spa_signed;
     const unitsReserved = inventoryStats.reserved;
@@ -1410,7 +1431,9 @@ exports.getDeveloperDashboard = async (req, res) => {
       propertyWiseInventory: propertyWiseInventory,
       dealFunnel: dealFunnel,
       dealsClosed: dealsClosed,
-      recentLeads: recentLeads,
+      interestByProject: interestByProject,
+      topPerformingListing: topPerformingListing,
+      pendingListings: pendingListings,
       inventoryStats: inventoryStats,
       properties: properties,
       inventory: inventory

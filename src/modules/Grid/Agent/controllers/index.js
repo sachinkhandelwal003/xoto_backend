@@ -850,21 +850,28 @@ exports.getDashboard = async (req, res) => {
 };
 
 /* =====================================
-   AGENT PERFORMANCE
-   Current agent only: compares selected period with previous same period.
+   AGENT LEADERBOARD — PRD §3.3 + §8.1
+   Agent's own performance stats only.
+   Score composite: deals closed + conversion rate + tenure on platform
+   Tabs: weekly / monthly / quarterly / annual
+   My Stats: leads by month (bar), lead status breakdown (donut), conversion funnel, MoM increase
 ===================================== */
 exports.getLeaderboard = async (req, res) => {
   try {
     const agentId = req.user && req.user._id;
     if (!agentId) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-    const range = req.query.range || req.query.params?.range || '30d';
-    const daysWindow = range === '7d' ? 7 : range === '90d' ? 90 : 30;
+    const range = req.query.range || 'monthly';
+    const daysWindow = range === 'weekly' ? 7 : range === 'quarterly' ? 90 : range === 'annual' ? 365 : 30;
 
     const currentAgent = await Agent.findById(agentId)
-      .select('first_name last_name fullName email phone_number operating_city specialization agency')
+      .select('first_name last_name fullName email phone_number operating_city specialization agency profile_photo createdAt')
       .lean();
     if (!currentAgent) return res.status(404).json({ success: false, message: 'Agent not found' });
+
+    // Tenure in months since joining platform (PRD §8.1 score component)
+    const joinedAt = currentAgent.createdAt ? new Date(currentAgent.createdAt) : new Date();
+    const tenureMonths = Math.max(0, Math.floor((Date.now() - joinedAt.getTime()) / (1000 * 60 * 60 * 24 * 30)));
 
     const baseMatch = {
       lead_type: 'agent',
@@ -880,6 +887,13 @@ exports.getLeaderboard = async (req, res) => {
     previousStart.setDate(previousStart.getDate() - daysWindow);
     const previousEnd = new Date(currentStart);
 
+    // PRD §8.1: Score = deals closed (30%) + conversion rate (40%) + tenure (30%)
+    const calcProgressScore = (completedDeals, conversionRate, tenure) => Math.min(100, Math.round(
+      (Math.min(completedDeals, 10) / 10 * 30) +
+      (conversionRate * 0.40) +
+      (Math.min(tenure, 24) / 24 * 30)
+    ));
+
     const aggregatePerformance = async (dateFilter) => {
       const rows = await GridLead.aggregate([
         { $match: { ...baseMatch, createdAt: dateFilter } },
@@ -887,30 +901,16 @@ exports.getLeaderboard = async (req, res) => {
           $group: {
             _id: null,
             totalLeads: { $sum: 1 },
-            completedDeals: {
-              $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] },
-            },
+            completedDeals: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
             inProgressLeads: {
               $sum: {
                 $cond: [
                   { $in: ['$status', ['contacted', 'in_discussion', 'site_visit_scheduled', 'offer_made', 'qualified']] },
-                  1,
-                  0,
+                  1, 0,
                 ],
               },
             },
-            notProceeding: {
-              $sum: { $cond: [{ $eq: ['$status', 'not_proceeding'] }, 1, 0] },
-            },
-            earnings: {
-              $sum: {
-                $cond: [
-                  { $eq: ['$status', 'completed'] },
-                  { $ifNull: ['$deal_record.commission_amount', 0] },
-                  0,
-                ],
-              },
-            },
+            notProceeding: { $sum: { $cond: [{ $eq: ['$status', 'not_proceeding'] }, 1, 0] } },
           },
         },
       ]);
@@ -919,26 +919,32 @@ exports.getLeaderboard = async (req, res) => {
       const totalLeads = row.totalLeads || 0;
       const completedDeals = row.completedDeals || 0;
       const conversionRate = totalLeads > 0 ? Math.round((completedDeals / totalLeads) * 100) : 0;
-      const progressScore = Math.min(100, Math.round(
-        (conversionRate * 0.5) +
-        (Math.min(completedDeals, 10) * 3) +
-        (Math.min(row.inProgressLeads || 0, 20) * 1)
-      ));
-
       return {
         total_leads: totalLeads,
         in_progress_leads: row.inProgressLeads || 0,
         completed_deals: completedDeals,
         not_proceeding: row.notProceeding || 0,
-        earnings: Math.round(row.earnings || 0),
         conversion_rate: conversionRate,
-        progress_score: progressScore,
+        progress_score: calcProgressScore(completedDeals, conversionRate, tenureMonths),
       };
     };
 
-    const [current, previous, dailyRows] = await Promise.all([
+    // Date helpers for monthly grouping (My Stats)
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+    sixMonthsAgo.setDate(1);
+    sixMonthsAgo.setHours(0, 0, 0, 0);
+
+    const thisMonthStart = new Date();
+    thisMonthStart.setDate(1);
+    thisMonthStart.setHours(0, 0, 0, 0);
+    const lastMonthStart = new Date(thisMonthStart);
+    lastMonthStart.setMonth(lastMonthStart.getMonth() - 1);
+
+    const [current, previous, dailyRows, monthlyRows, statusRows, lastMonthRows] = await Promise.all([
       aggregatePerformance({ $gte: currentStart }),
       aggregatePerformance({ $gte: previousStart, $lt: previousEnd }),
+      // Daily trend within current period
       GridLead.aggregate([
         { $match: { ...baseMatch, createdAt: { $gte: currentStart } } },
         {
@@ -950,6 +956,29 @@ exports.getLeaderboard = async (req, res) => {
         },
         { $project: { date: '$_id', leads: 1, conversions: 1, _id: 0 } },
         { $sort: { date: 1 } },
+      ]),
+      // Leads by month (last 6 months — bar chart)
+      GridLead.aggregate([
+        { $match: { ...baseMatch, createdAt: { $gte: sixMonthsAgo } } },
+        {
+          $group: {
+            _id: { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } },
+            leads: { $sum: 1 },
+            conversions: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+          },
+        },
+        { $sort: { '_id.year': 1, '_id.month': 1 } },
+      ]),
+      // Lead status breakdown (donut chart)
+      GridLead.aggregate([
+        { $match: baseMatch },
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+        { $project: { status: '$_id', count: 1, _id: 0 } },
+      ]),
+      // Last month leads for MoM comparison
+      GridLead.aggregate([
+        { $match: { ...baseMatch, createdAt: { $gte: lastMonthStart, $lt: thisMonthStart } } },
+        { $group: { _id: null, count: { $sum: 1 } } },
       ]),
     ]);
 
@@ -967,6 +996,7 @@ exports.getLeaderboard = async (req, res) => {
       direction: current.progress_score >= previous.progress_score ? 'up' : 'down',
     };
 
+    // Build daily trend
     const trendMap = new Map(dailyRows.map(row => [row.date, row]));
     const performanceTrend = [];
     for (let i = daysWindow - 1; i >= 0; i--) {
@@ -985,6 +1015,57 @@ exports.getLeaderboard = async (req, res) => {
       });
     }
 
+    // Leads by month — fill in missing months with 0
+    const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthlyMap = new Map(monthlyRows.map(r => [`${r._id.year}-${r._id.month}`, r]));
+    const leadsByMonth = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(1);
+      d.setMonth(d.getMonth() - i);
+      const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+      const row = monthlyMap.get(key) || {};
+      leadsByMonth.push({
+        month: MONTH_NAMES[d.getMonth()],
+        year: d.getFullYear(),
+        leads: row.leads || 0,
+        conversions: row.conversions || 0,
+      });
+    }
+
+    // MoM increase
+    const thisMonthLeads = leadsByMonth[leadsByMonth.length - 1]?.leads || 0;
+    const lastMonthLeads = (lastMonthRows[0]?.count) || (leadsByMonth[leadsByMonth.length - 2]?.leads) || 0;
+    const momIncrease = pctChange(thisMonthLeads, lastMonthLeads);
+
+    // Lead status breakdown for donut
+    const STATUS_LABELS = {
+      new_lead: 'New', contacted: 'Contacted', in_discussion: 'In Discussion',
+      site_visit_scheduled: 'Site Visit', offer_made: 'Offer Made', qualified: 'Qualified',
+      completed: 'Completed', not_proceeding: 'Not Proceeding',
+    };
+    const STATUS_COLORS = {
+      new_lead: '#6366f1', contacted: '#3b82f6', in_discussion: '#8b5cf6',
+      site_visit_scheduled: '#f59e0b', offer_made: '#f97316', qualified: '#10b981',
+      completed: '#16a34a', not_proceeding: '#ef4444',
+    };
+    const leadStatusBreakdown = statusRows.map(r => ({
+      status: r.status,
+      label: STATUS_LABELS[r.status] || r.status,
+      count: r.count,
+      color: STATUS_COLORS[r.status] || '#94a3b8',
+    }));
+
+    // Conversion funnel — PRD §8.1
+    const FUNNEL_STAGES = ['new_lead', 'contacted', 'in_discussion', 'offer_made', 'completed'];
+    const statusCountMap = new Map(statusRows.map(r => [r.status, r.count]));
+    const conversionFunnel = FUNNEL_STAGES.map((stage, idx) => ({
+      stage,
+      label: STATUS_LABELS[stage] || stage,
+      count: statusCountMap.get(stage) || 0,
+      step: idx + 1,
+    }));
+
     return res.json({
       success: true,
       data: {
@@ -994,18 +1075,24 @@ exports.getLeaderboard = async (req, res) => {
           id: currentAgent._id,
           name: currentAgent.fullName || `${currentAgent.first_name || ''} ${currentAgent.last_name || ''}`.trim() || 'Agent',
           email: currentAgent.email,
-          phone_number: currentAgent.phone_number,
           city: currentAgent.operating_city || 'N/A',
           specialization: currentAgent.specialization || 'General',
+          avatar: currentAgent.profile_photo || null,
+          tenure_months: tenureMonths,
         },
         current,
         previous,
         trend,
         performance_trend: performanceTrend,
+        // My Stats (PRD §8.1)
+        leads_by_month: leadsByMonth,
+        lead_status_breakdown: leadStatusBreakdown,
+        conversion_funnel: conversionFunnel,
+        mom_increase: momIncrease,
       },
     });
   } catch (err) {
-    console.error('[Agent Performance]', err);
+    console.error('[Agent Leaderboard]', err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };

@@ -106,7 +106,12 @@ const tryMatch = async (requirements, mode, limit) => {
 
 // ── Main matcher: strict → relaxed → broad ───────────────────────────────
 const matchPropertiesForLead = async (requirements = {}, limit = 10) => {
-  if (!requirements || Object.keys(requirements).length === 0) {
+  const { property_type, budget_min, budget_max, bedrooms, location_preferences } = requirements || {};
+  const hasMeaningfulCriteria =
+    property_type || budget_min || budget_max || bedrooms ||
+    (Array.isArray(location_preferences) && location_preferences.length > 0);
+
+  if (!hasMeaningfulCriteria) {
     return { matches: [], matchType: 'none', note: 'No requirements specified' };
   }
 

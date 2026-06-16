@@ -883,6 +883,230 @@ exports.getGridAdvisorDashboard = asyncHandler(async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
+// GET MY ADVISOR LEADERBOARD — Advisor's own performance stats (PRD §3.3 style)
+// Tabs: weekly / monthly / quarterly / annual
+// Score: leads processed (30%) + conversion rate (40%) + tenure (30%)
+// ════════════════════════════════════════════════════════════════════════════
+exports.getMyAdvisorLeaderboard = asyncHandler(async (req, res) => {
+  const advisorId = req.user && req.user._id;
+  if (!advisorId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+  const range = req.query.range || 'monthly';
+  const daysWindow = range === 'weekly' ? 7 : range === 'quarterly' ? 90 : range === 'annual' ? 365 : 30;
+
+  const advisor = await GridAdvisor.findById(advisorId)
+    .select('firstName lastName email phone employeeId department profilePhotoUrl status createdAt')
+    .lean();
+  if (!advisor) return res.status(404).json({ success: false, message: 'Advisor not found' });
+
+  const tenureMonths = advisor.createdAt
+    ? Math.max(0, Math.floor((Date.now() - new Date(advisor.createdAt).getTime()) / (1000 * 60 * 60 * 24 * 30)))
+    : 0;
+
+  const baseMatch = { assigned_to: advisorId, is_deleted: false };
+
+  const currentStart = new Date();
+  currentStart.setHours(0, 0, 0, 0);
+  currentStart.setDate(currentStart.getDate() - (daysWindow - 1));
+
+  const previousStart = new Date(currentStart);
+  previousStart.setDate(previousStart.getDate() - daysWindow);
+  const previousEnd = new Date(currentStart);
+
+  const calcScore = (convertedLeads, totalLeads, tenure) => {
+    const convRate = totalLeads > 0 ? (convertedLeads / totalLeads) * 100 : 0;
+    return Math.min(100, Math.round(
+      (Math.min(convertedLeads, 10) / 10 * 30) +
+      (convRate * 0.40) +
+      (Math.min(tenure, 24) / 24 * 30)
+    ));
+  };
+
+  const aggregatePeriod = async (dateFilter) => {
+    const rows = await GridLead.aggregate([
+      { $match: { ...baseMatch, createdAt: dateFilter } },
+      {
+        $group: {
+          _id: null,
+          totalLeads: { $sum: 1 },
+          convertedLeads: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+          activeLeads: {
+            $sum: {
+              $cond: [{ $in: ['$status', ['new_lead', 'contacted', 'in_discussion', 'site_visit_scheduled', 'offer_made', 'qualified']] }, 1, 0],
+            },
+          },
+          notProceeding: { $sum: { $cond: [{ $eq: ['$status', 'not_proceeding'] }, 1, 0] } },
+        },
+      },
+    ]);
+    const row = rows[0] || {};
+    const totalLeads = row.totalLeads || 0;
+    const convertedLeads = row.convertedLeads || 0;
+    const conversionRate = totalLeads > 0 ? Math.round((convertedLeads / totalLeads) * 100) : 0;
+    return {
+      total_leads: totalLeads,
+      converted_leads: convertedLeads,
+      active_leads: row.activeLeads || 0,
+      not_proceeding: row.notProceeding || 0,
+      conversion_rate: conversionRate,
+      progress_score: calcScore(convertedLeads, totalLeads, tenureMonths),
+    };
+  };
+
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+  sixMonthsAgo.setDate(1);
+  sixMonthsAgo.setHours(0, 0, 0, 0);
+
+  const thisMonthStart = new Date();
+  thisMonthStart.setDate(1);
+  thisMonthStart.setHours(0, 0, 0, 0);
+  const lastMonthStart = new Date(thisMonthStart);
+  lastMonthStart.setMonth(lastMonthStart.getMonth() - 1);
+
+  const [current, previous, dailyRows, monthlyRows, statusRows, lastMonthRows] = await Promise.all([
+    aggregatePeriod({ $gte: currentStart }),
+    aggregatePeriod({ $gte: previousStart, $lt: previousEnd }),
+    GridLead.aggregate([
+      { $match: { ...baseMatch, createdAt: { $gte: currentStart } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          leads: { $sum: 1 },
+          conversions: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+        },
+      },
+      { $project: { date: '$_id', leads: 1, conversions: 1, _id: 0 } },
+      { $sort: { date: 1 } },
+    ]),
+    GridLead.aggregate([
+      { $match: { ...baseMatch, createdAt: { $gte: sixMonthsAgo } } },
+      {
+        $group: {
+          _id: { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } },
+          leads: { $sum: 1 },
+          conversions: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1 } },
+    ]),
+    GridLead.aggregate([
+      { $match: baseMatch },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+      { $project: { status: '$_id', count: 1, _id: 0 } },
+    ]),
+    GridLead.aggregate([
+      { $match: { ...baseMatch, createdAt: { $gte: lastMonthStart, $lt: thisMonthStart } } },
+      { $group: { _id: null, count: { $sum: 1 } } },
+    ]),
+  ]);
+
+  const pctChange = (now, before) => {
+    if (!before && !now) return 0;
+    if (!before) return 100;
+    return Math.round(((now - before) / before) * 100);
+  };
+
+  const trend = {
+    leads_change: pctChange(current.total_leads, previous.total_leads),
+    conversion_change: current.conversion_rate - previous.conversion_rate,
+    converted_change: pctChange(current.converted_leads, previous.converted_leads),
+    progress_change: current.progress_score - previous.progress_score,
+    direction: current.progress_score >= previous.progress_score ? 'up' : 'down',
+  };
+
+  const trendMap = new Map(dailyRows.map(r => [r.date, r]));
+  const performanceTrend = [];
+  for (let i = daysWindow - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - i);
+    const dateKey = d.toISOString().slice(0, 10);
+    const row = trendMap.get(dateKey) || {};
+    performanceTrend.push({
+      date: dateKey,
+      label: daysWindow <= 7
+        ? d.toLocaleDateString('en-US', { weekday: 'short' })
+        : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      leads: row.leads || 0,
+      conversions: row.conversions || 0,
+    });
+  }
+
+  const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthlyMap = new Map(monthlyRows.map(r => [`${r._id.year}-${r._id.month}`, r]));
+  const leadsByMonth = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - i);
+    const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+    const row = monthlyMap.get(key) || {};
+    leadsByMonth.push({
+      month: MONTH_NAMES[d.getMonth()],
+      year: d.getFullYear(),
+      leads: row.leads || 0,
+      conversions: row.conversions || 0,
+    });
+  }
+
+  const thisMonthLeads = leadsByMonth[leadsByMonth.length - 1]?.leads || 0;
+  const lastMonthLeads = (lastMonthRows[0]?.count) || (leadsByMonth[leadsByMonth.length - 2]?.leads) || 0;
+  const momIncrease = pctChange(thisMonthLeads, lastMonthLeads);
+
+  const STATUS_LABELS = {
+    new_lead: 'New', contacted: 'Contacted', in_discussion: 'In Discussion',
+    site_visit_scheduled: 'Site Visit', offer_made: 'Offer Made', qualified: 'Qualified',
+    completed: 'Completed', not_proceeding: 'Not Proceeding',
+  };
+  const STATUS_COLORS = {
+    new_lead: '#6366f1', contacted: '#3b82f6', in_discussion: '#8b5cf6',
+    site_visit_scheduled: '#f59e0b', offer_made: '#f97316', qualified: '#10b981',
+    completed: '#16a34a', not_proceeding: '#ef4444',
+  };
+  const leadStatusBreakdown = statusRows.map(r => ({
+    status: r.status,
+    label: STATUS_LABELS[r.status] || r.status,
+    count: r.count,
+    color: STATUS_COLORS[r.status] || '#94a3b8',
+  }));
+
+  const FUNNEL_STAGES = ['new_lead', 'contacted', 'in_discussion', 'offer_made', 'completed'];
+  const statusCountMap = new Map(statusRows.map(r => [r.status, r.count]));
+  const conversionFunnel = FUNNEL_STAGES.map((stage, idx) => ({
+    stage,
+    label: STATUS_LABELS[stage] || stage,
+    count: statusCountMap.get(stage) || 0,
+    step: idx + 1,
+  }));
+
+  res.status(200).json({
+    success: true,
+    data: {
+      range,
+      days_window: daysWindow,
+      advisor: {
+        id: advisor._id,
+        name: `${advisor.firstName || ''} ${advisor.lastName || ''}`.trim() || 'Advisor',
+        email: advisor.email,
+        employeeId: advisor.employeeId,
+        department: advisor.department,
+        avatar: advisor.profilePhotoUrl || null,
+        tenure_months: tenureMonths,
+      },
+      current,
+      previous,
+      trend,
+      performance_trend: performanceTrend,
+      leads_by_month: leadsByMonth,
+      lead_status_breakdown: leadStatusBreakdown,
+      conversion_funnel: conversionFunnel,
+      mom_increase: momIncrease,
+    },
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
 // GET ADVISOR LEADERBOARD — Admin only
 // ════════════════════════════════════════════════════════════════════════════
 exports.getAdvisorLeaderboard = asyncHandler(async (req, res) => {
