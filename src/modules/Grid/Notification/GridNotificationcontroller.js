@@ -3,12 +3,14 @@ import GridNotification from './GridNotificationmodal';
 // ── Role code → audit/notification role slug ───────────────────────
 const ROLE_CODE_MAP = {
   '1':'admin',
+  '17':'developer',
   '16': 'agent',
   '18': 'admin',
   '21': 'partner',
   '22': null,     // resolved by agentType below
   '23': 'ops',
   '26': 'advisor',
+  '25': 'gridreferralpartner',
   
 };
 
@@ -42,7 +44,7 @@ export const getGridNotifications = async (req, res) => {
 
     const roleCode = getRoleCode(req.user);
     const roleSlug = resolveRoleSlug(roleCode, req.user);
-
+console.log('DEBUG:', { roleCode, roleSlug, userRole: req.user?.role }); 
     if (!roleSlug) {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }

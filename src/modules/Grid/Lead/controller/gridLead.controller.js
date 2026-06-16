@@ -925,7 +925,57 @@ const FLOW = [
   });
 
   await lead.save();
+// Referral partner ko lead status update notify karo
+if (lead.referred_by_partner || lead.referral_info?.referral_partner_id) {
+  const partnerId = lead.referred_by_partner || lead.referral_info?.referral_partner_id;
 
+  const STATUS_MESSAGES = {
+    contacted:              'Your referred lead has been contacted by our team.',
+    qualified:              'Great news! Your referred lead has been qualified.',
+    in_discussion:          'Your referred lead is now in active discussion.',
+    site_visit_scheduled:   'A site visit has been scheduled for your referred lead.',
+    offer_made:             'An offer has been made to your referred lead.',
+    reserved:               'Your referred lead has reserved a unit!',
+    spa_signed:             'SPA signed! Your referred lead is almost complete.',
+    completed:              '🎉 Deal closed! Your referred lead has completed a transaction.',
+    not_proceeding:         'Your referred lead has chosen not to proceed at this time.',
+  };
+
+  const message = STATUS_MESSAGES[status] || `Your referred lead status updated to: ${status}`;
+
+  await GridNotification.create({
+    eventType:     'REFERRED_LEAD_STATUS_UPDATE',
+    title:         `Lead Update: ${status.replace(/_/g, ' ').toUpperCase()}`,
+    message,
+    entityId:      lead._id,
+    entityModel:   'GridLead',
+    recipientId:   partnerId,
+    recipientModel:'GridReferralPartner',
+    recipientRole: 'referral_partner',
+    createdByName: 'Xoto System',
+    createdByRole: 'system',
+  }).catch(err => console.error('Referral lead status notification failed:', err.message));
+
+  // Deal completed — commission earned notification
+  if (status === 'completed') {
+    const commissionAmount = lead.referral_info?.commission_rate
+      ? Math.round((lead.deal_record?.commission_amount || 0) * (lead.referral_info.commission_rate / 100))
+      : 0;
+
+    await GridNotification.create({
+      eventType:     'REFERRAL_COMMISSION_EARNED',
+      title:         'Commission Earned on Closed Deal 💰',
+      message:       `Congratulations! A deal has been closed for your referred lead. Commission earned: AED ${commissionAmount.toLocaleString()}. Your payout will be processed once confirmed by admin.`,
+      entityId:      lead._id,
+      entityModel:   'GridLead',
+      recipientId:   partnerId,
+      recipientModel:'GridReferralPartner',
+      recipientRole: 'referral_partner',
+      createdByName: 'Xoto System',
+      createdByRole: 'system',
+    }).catch(err => console.error('Referral commission notification failed:', err.message));
+  }
+}
   if (lead.sourceInfo?.createdByRole === 'referral_partner' && lead.sourceInfo?.createdById) {
   await GridNotification.create({
     eventType:     'LEAD_STATUS_UPDATED',
