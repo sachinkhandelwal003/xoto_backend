@@ -13,7 +13,7 @@ const asyncHandler    = require('../../../../utils/asyncHandler');
 const { APIError }    = require('../../../../utils/errorHandler');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const { Transform }   = require('stream');
-const GridNotification = require('../../Notification/gridnotificationmodal').default;
+const GridNotification = require('../../Notification/GridNotificationmodal').default;
 
 // ─── Commission calculator ────────────────────────────────────────────────────
 const calcCommission = (transactionValue, grossPercent, partnerPercent, referralPercent) => {

@@ -7,7 +7,7 @@ const PartnerAgreement = require('../../dealrecord/models/Partneragreement.model
 const asyncHandler = require('../../../../utils/asyncHandler');
 const { APIError } = require('../../../../utils/errorHandler');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
-const GridNotification = require('../../Notification/gridnotificationmodal').default;
+const GridNotification = require('../../Notification/GridNotificationmodal').default;
 
 const MODEL_BY_TARGET = {
   developer: Developer,
@@ -535,7 +535,7 @@ exports.createAgreement = asyncHandler(async (req, res) => {
   await syncEmbeddedAgreement(targetType, target, agreement, documents);
   const partnerAgreement = await syncPartnerAgreement(targetType, target, agreement, documents, req);
 
-const GridNotification = require('../../Notification/gridnotificationmodal').default;
+const GridNotification = require('../../Notification/GridNotificationmodal').default;
 const agreementVersion = Number(req.body.version) || 1;
 
 if (agreementVersion > 1) {

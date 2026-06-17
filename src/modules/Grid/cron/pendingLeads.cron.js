@@ -1,6 +1,6 @@
 const cron = require('node-cron');
 const GridLead = require('../Lead/model/gridLead.model');
-const GridNotification = require('../Notification/gridnotificationmodal').default;
+const GridNotification = require('../Notification/GridNotificationmodal').default;
 
 const checkPendingManualLeads = async () => {
   try {

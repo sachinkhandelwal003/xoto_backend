@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const Property = require('../../properties/models/property.model');
 const DealRecord = require('../dealrecord/models/Dealrecord.model');
-const GridNotification = require('../Notification/gridnotificationmodal').default;
+const GridNotification = require('../Notification/GridNotificationmodal').default;
 
 const VIEW_MILESTONE = 100;
 

@@ -2,7 +2,7 @@ const jwt = require("jsonwebtoken");
 const GridReferralPartner = require("../Model/ReferralPartner.model.js");
 const { Role } = require("../../../../modules/auth/models/role/role.model.js");
 const GridLead = require("../../Lead/model/gridLead.model.js");
-const GridNotification = require('../../Notification/gridnotificationmodal.js').default;
+const GridNotification = require('../../Notification/GridNotificationmodal.js').default;
 
 const signToken = (user, roleData) => {
   return jwt.sign(

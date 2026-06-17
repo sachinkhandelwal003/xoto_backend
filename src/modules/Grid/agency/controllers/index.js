@@ -11,7 +11,7 @@ const asyncHandler = require('../../../../utils/asyncHandler');
 const { APIError } = require('../../../../utils/errorHandler');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const { Role } = require('../../../auth/models/role/role.model');
-const GridNotification = require('../../Notification/gridnotificationmodal').default;
+const GridNotification = require('../../Notification/GridNotificationmodal').default;
 // ── Helpers ─────────────────────────────────────────────────────────────────
 const sendTokenResponse = (agency, statusCode, res) => {
   const token = createToken(agency);

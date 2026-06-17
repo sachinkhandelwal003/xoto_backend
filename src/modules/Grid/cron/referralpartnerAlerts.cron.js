@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const GridReferralPartner = require('../ReferralPartner/Model/ReferralPartner.model');
 const PartnerAgreement    = require('../dealrecord/models/Partneragreement.model');
-const GridNotification    = require('../Notification/gridnotificationmodal').default;
+const GridNotification    = require('../Notification/GridNotificationmodal').default;
 
 const runReferralPartnerAlerts = async () => {
   try {

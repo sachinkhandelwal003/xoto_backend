@@ -2,7 +2,7 @@ const GridLead = require('../Lead/model/gridLead.model');          // adjust pat
 const GridAgent = require('../Agent/models/agent');        // adjust path – for agency filter
 const asyncHandler = require('../../../utils/asyncHandler');
 const { StatusCodes } = require('../../../utils/constants/statusCodes');
-const GridNotification = require('../../Grid/Notification/gridnotificationmodal').default;
+const GridNotification = require('../../Grid/Notification/GridNotificationmodal').default;
 const isAdmin = (user) => {
   if (user.role?.isSuperAdmin) return true;
   if (user.role?.code === '1' || user.role?.code === 1) return true;

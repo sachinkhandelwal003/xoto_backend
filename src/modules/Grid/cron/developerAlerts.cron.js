@@ -2,7 +2,7 @@ const cron        = require('node-cron');
 const Property    = require('../../properties/models/property.model');
 const GridLead    = require('../Lead/model/gridLead.model');
 const Developer   = require('../Developer/models/developer.model');
-const GridNotification = require('../Notification/gridnotificationmodal').default;
+const GridNotification = require('../Notification/GridNotificationmodal').default;
 
 const VIEW_MILESTONE    = 1000;  // 1000 views
 const FEATURED_EXPIRY_DAYS = 7;  // 7 din pehle remind karo

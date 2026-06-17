@@ -5,7 +5,7 @@ const Property  = require("../../../properties/models/property.model");
 const { Role }  = require('../../../../modules/auth/models/role/role.model');
 const { createToken } = require('../../../../middleware/auth');
 const sendEmail = require("../../../../utils/sendEmail");
-const GridNotification = require('../../Notification/gridnotificationmodal').default;
+const GridNotification = require('../../Notification/GridNotificationmodal').default;
 
 const normalizeEmail = (email = "") => email.toLowerCase().trim();
 

@@ -347,7 +347,7 @@ const caseSchema = new mongoose.Schema(
       breached:      { type: Boolean, default: false },
     },
   },
-  { timestamps: true }
+  { timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } }
 );
 
 // ══════════════════════════════════════════════════════════════════

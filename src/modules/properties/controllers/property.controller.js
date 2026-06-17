@@ -4,7 +4,7 @@ const Developer = require("../../Grid/Developer/models/developer.model");
 const Customer = require("../../auth/models/user/customer.model");
 const GridLead = require("../../Grid/Lead/model/gridLead.model");
 const { inventoryCategories, determineInventoryCategory } = require("../config/inventory.categories.config");
-const GridNotification = require('../../Grid/Notification/gridnotificationmodal').default;
+const GridNotification = require('../../Grid/Notification/GridNotificationmodal').default;
 // ─── Role helpers ─────────────────────────────────────────────────────────────
 const isAdmin = (role) => {
   if (!role) return false;

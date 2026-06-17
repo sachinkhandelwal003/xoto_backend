@@ -4,7 +4,7 @@ const Inventory = require("../models/property.inventory.model");
 const Property = require("../models/property.model");
 const { inventoryCategories, determineInventoryCategory } = require("../config/inventory.categories.config");
 const mongoose = require("mongoose");
-const GridNotification = require('../../Grid/Notification/gridnotificationmodal').default;
+const GridNotification = require('../../Grid/Notification/GridNotificationmodal').default;
 
 // Helper to resolve inherited fields from parent property
 const resolveInventoryUnit = (unitDoc) => {

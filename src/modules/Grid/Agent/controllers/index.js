@@ -8,7 +8,7 @@ const PartnerAgreement = require('../../dealrecord/models/Partneragreement.model
 const bcrypt = require("bcryptjs");
 const { Role } = require('../../../../modules/auth/models/role/role.model.js');
 const { createToken } = require('../../../../middleware/auth.js');
-const GridNotification = require('../../Notification/gridnotificationmodal.js').default;
+const GridNotification = require('../../Notification/GridNotificationmodal.js').default;
 
 const canManageAgentAgreement = (agreement, agentId) =>
   agreement &&

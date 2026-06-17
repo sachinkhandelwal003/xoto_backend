@@ -14,7 +14,7 @@ const Agent = require('../../Agent/models/agent');
 const Advisor = require('../../Advisor/model');
 const PropertyInventory = require('../../../properties/models/property.inventory.model');
 const Property = require('../../../properties/models/property.model');
-const GridNotification = require('../../Notification/gridnotificationmodal').default;
+const GridNotification = require('../../Notification/GridNotificationmodal').default;
 
 // ── POST /api/presentation/generate-narrative ────────────────────────────────
 // Step 1: Sirf AI narrative generate karo (preview ke liye)

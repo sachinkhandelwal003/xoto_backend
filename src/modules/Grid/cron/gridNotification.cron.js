@@ -2,7 +2,7 @@ const cron             = require('node-cron');
 const Agent            = require('../Agent/models/agent');
 const GridLead         = require('../Lead/model/gridLead.model');
 const PartnerAgreement = require('../dealrecord/models/Partneragreement.model');
-const GridNotification = require('../Notification/gridnotificationmodal').default;
+const GridNotification = require('../Notification/GridNotificationmodal').default;
 
 // ════════════════════════════════════════════════════════════════════════════
 // CRON 1 — Profile Incomplete Reminder

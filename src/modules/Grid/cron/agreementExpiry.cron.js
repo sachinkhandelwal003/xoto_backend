@@ -1,6 +1,6 @@
 const cron = require('node-cron');
 const PartnerAgreement = require('../../Grid/dealrecord/models/Partneragreement.model.js');
-const GridNotification = require('../../Grid/Notification/gridnotificationmodal.js').default;
+const GridNotification = require('../../Grid/Notification/GridNotificationmodal.js').default;
 
 const checkAgreementExpiry = async () => {
   try {

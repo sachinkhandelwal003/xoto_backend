@@ -2,7 +2,7 @@ const cron = require('node-cron');
 const GridLead = require('../Lead/model/gridLead.model');
 const DealRecord = require('../dealrecord/models/Dealrecord.model');
 const Property = require('../../properties/models/property.model');
-const GridNotification = require('../Notification/gridnotificationmodal').default;
+const GridNotification = require('../Notification/GridNotificationmodal').default;
 
 const generateWeeklyReport = async () => {
   try {
