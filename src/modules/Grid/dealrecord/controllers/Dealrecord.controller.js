@@ -959,7 +959,7 @@ if (deal.referralPartnerId) {
     entityModel:   'DealRecord',
     recipientId:   deal.referralPartnerId,
     recipientModel:'GridReferralPartner',
-    recipientRole: 'referral_partner',
+    recipientRole: 'gridreferralpartner',
     createdByName: 'Xoto Admin',
     createdByRole: 'admin',
   }).catch(err => console.error('Referral payout notification failed:', err.message));

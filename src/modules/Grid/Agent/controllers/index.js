@@ -1032,7 +1032,38 @@ exports.getLeaderboard = async (req, res) => {
         conversions: row.conversions || 0,
       });
     }
+// ── Commission over time (last 6 months) ──
+const commissionAgg = await GridLead.aggregate([
+  {
+    $match: {
+      ...baseMatch,
+      status: 'completed',
+      createdAt: { $gte: sixMonthsAgo },
+    },
+  },
+  {
+    $group: {
+      _id: { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } },
+      totalCommission: { $sum: { $ifNull: ['$deal_record.commission_amount', 0] } },
+    },
+  },
+  { $sort: { '_id.year': 1, '_id.month': 1 } },
+]);
 
+// Build monthly commission trend
+const commissionTrend = [];
+for (let i = 5; i >= 0; i--) {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - i);
+  const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+  const row = commissionAgg.find(r => `${r._id.year}-${r._id.month}` === key);
+  commissionTrend.push({
+    month: MONTH_NAMES[d.getMonth()],
+    year: d.getFullYear(),
+    commission: row ? row.totalCommission : 0,
+  });
+}
     // MoM increase
     const thisMonthLeads = leadsByMonth[leadsByMonth.length - 1]?.leads || 0;
     const lastMonthLeads = (lastMonthRows[0]?.count) || (leadsByMonth[leadsByMonth.length - 2]?.leads) || 0;
@@ -1089,6 +1120,7 @@ exports.getLeaderboard = async (req, res) => {
         lead_status_breakdown: leadStatusBreakdown,
         conversion_funnel: conversionFunnel,
         mom_increase: momIncrease,
+        commission_trend: commissionTrend,
       },
     });
   } catch (err) {

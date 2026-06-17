@@ -35,7 +35,7 @@ const runReferralPartnerAlerts = async () => {
         entityModel:   'GridReferralPartner',
         recipientId:   partner._id,
         recipientModel:'GridReferralPartner',
-        recipientRole: 'referral_partner',
+        recipientRole: 'gridreferralpartner',
         createdByName: 'System',
         createdByRole: 'system',
       }).catch(err => console.error('Profile reminder failed:', err.message));
@@ -69,7 +69,7 @@ const runReferralPartnerAlerts = async () => {
         entityModel:   'PartnerAgreement',
         recipientId:   agreement.referralPartnerId,
         recipientModel:'GridReferralPartner',
-        recipientRole: 'referral_partner',
+        recipientRole: 'gridreferralpartner',
         createdByName: 'System',
         createdByRole: 'system',
       }).catch(err => console.error('Agreement expiry notification failed:', err.message));

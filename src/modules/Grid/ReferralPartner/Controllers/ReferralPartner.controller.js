@@ -101,7 +101,7 @@ await GridNotification.create({
   entityModel:   'GridReferralPartner',
   recipientId:   partner._id,
   recipientModel:'GridReferralPartner',
-  recipientRole: 'referral_partner',
+  recipientRole: 'gridreferralpartner', 
   createdByName: 'Xoto System',
   createdByRole: 'system',
 }).catch(err => console.error('Partner welcome notification failed:', err.message));
