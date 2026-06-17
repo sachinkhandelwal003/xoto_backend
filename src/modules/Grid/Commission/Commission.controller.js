@@ -1,5 +1,6 @@
-const GridLead = require('../Lead/model/gridLead.model');          // adjust path as needed
-const GridAgent = require('../Agent/models/agent');        // adjust path – for agency filter
+const GridLead = require('../Lead/model/gridLead.model');
+const GridAgent = require('../Agent/models/agent');
+const DealRecord = require('../dealrecord/models/Dealrecord.model');
 const asyncHandler = require('../../../utils/asyncHandler');
 const { StatusCodes } = require('../../../utils/constants/statusCodes');
 const isAdmin = (user) => {
@@ -123,9 +124,11 @@ exports.getCommissions = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // PUT /commissions/:id/status
 // Only Admin can change the status (role check is done in routes)
+// Delegates to DealRecord to enforce evidence check (PRD §8.5) and keep
+// both models in sync — no bypassing via this shortcut endpoint.
 // ─────────────────────────────────────────────────────────────────────────────
 exports.updateCommissionStatus = asyncHandler(async (req, res) => {
-    const { id } = req.params;
+  const { id } = req.params;
   const { status } = req.body;
 
   if (!['confirmed', 'paid'].includes(status)) {
@@ -139,14 +142,58 @@ exports.updateCommissionStatus = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'No deal record found on this lead' });
   }
 
+  // Load the authoritative DealRecord — this is the source of truth
+  const deal = await DealRecord.findById(lead.deal_record.deal_record_id);
+  if (!deal) {
+    return res.status(404).json({ success: false, message: 'Deal record not found' });
+  }
+
+  if (deal.isVoided) {
+    return res.status(400).json({ success: false, message: 'Cannot update a voided deal record' });
+  }
+
+  if (status === 'confirmed') {
+    if (deal.commissionStatus !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `Deal is already ${deal.commissionStatus} — cannot re-confirm`,
+      });
+    }
+    // PRD §8.5 — evidence upload is mandatory before confirmation
+    if (!deal.evidenceUploaded || deal.evidenceDocuments.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Evidence (SPA or booking form) must be uploaded before confirming commission (PRD §8.5)',
+      });
+    }
+    deal.commissionStatus = 'confirmed';
+    deal.confirmedAt      = new Date();
+    deal.confirmedBy      = req.user._id;
+    deal.isLocked         = true;
+  }
+
+  if (status === 'paid') {
+    if (deal.commissionStatus !== 'confirmed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Deal must be confirmed before marking as paid',
+      });
+    }
+    deal.commissionStatus = 'paid';
+    deal.paidAt           = new Date();
+    deal.paidBy           = req.user._id;
+  }
+
+  await deal.save();
+
+  // Sync status back to GridLead so both stay consistent
   lead.deal_record.commission_status = status;
   if (status === 'paid') lead.deal_record.commission_paid_at = new Date();
-
   await lead.save();
 
   res.json({
     success: true,
     message: `Commission status updated to ${status}`,
-    data: { _id: lead._id, commissionStatus: lead.deal_record.commission_status },
+    data: { _id: lead._id, commissionStatus: deal.commissionStatus },
   });
 });

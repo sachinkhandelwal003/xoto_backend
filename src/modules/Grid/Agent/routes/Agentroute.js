@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const agentCtrl = require("../controllers/index");
 const leadCtrl = require("../../Lead/controller/gridLead.controller");
+const siteVisitCtrl = require("../../SiteVisit/controller/siteVisit.controller");
 const { protectMulti } = require("../../../../middleware/auth");
 
 router.post("/agent-signup", agentCtrl.agentSignup);
@@ -23,6 +24,12 @@ router.get("/lead/get-all-leads", leadCtrl.getAgentOwnLeads);
 router.get("/lead/my-leads", leadCtrl.getAgentOwnLeads);
 router.get("/lead/stats", leadCtrl.getAgentStats);
 router.get("/lead/get-lead/:id", leadCtrl.getLeadById);
+
+// Site Visit / Viewing Request routes — must come before /lead/:id catch-all
+router.post("/lead/create-site-visit",     siteVisitCtrl.createSiteVisit);
+router.get("/lead/get-all-site-visits",    siteVisitCtrl.getAllSiteVisits);
+router.post("/lead/update-site-visit/:id", siteVisitCtrl.updateSiteVisit);
+
 router.get("/lead/:id", leadCtrl.getLeadById);
 router.post("/lead/:id/save-matches", leadCtrl.saveMatchedListings);
 router.post("/lead/:id/submit-to-xoto", leadCtrl.submitLeadToXoto);

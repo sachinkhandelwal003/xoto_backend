@@ -21,6 +21,11 @@ const otpRoutes = require('../src/modules/otp/routes/index.js').default
 const customer = require('../src/modules/customer/routes/index.js').default
 const newsletterRoutes = require('./modules/newsletter/routes/newsletter.route.js');
 const app = express();
+
+// Disable ETag generation globally — prevents all 304 Not Modified responses.
+// Our API serves dynamic data; browser caching stale responses causes empty
+// dropdowns, missing participants, and missing inventory in the admin UI.
+app.set('etag', false);
 const Notification = require("../src/modules/Notification/Routes/NotificationRoutes.js").default
 const PropertyLead = require("./modules/auth/routes/consult/propertyLead.route").default
 const ProfileData = require("./modules/profile/routes/index.js").default
