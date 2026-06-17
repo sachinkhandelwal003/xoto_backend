@@ -284,6 +284,10 @@ const startServer = async () => {
     server.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`MongoDB connected`);
+      require('./src/modules/Grid/cron/agreementExpiry.cron'); 
+       require('./src/modules/Grid/cron/pendingLeads.cron');
+  require('./src/modules/Grid/cron/milestones.cron'); 
+  require('./src/modules/Grid/cron/gridNotification.cron');
     });
   } catch (err) {
     console.error("Failed to start server:", err);

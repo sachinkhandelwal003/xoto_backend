@@ -11,6 +11,7 @@ const asyncHandler = require('../../../../utils/asyncHandler');
 const { APIError } = require('../../../../utils/errorHandler');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const { Role } = require('../../../auth/models/role/role.model');
+const GridNotification = require('../../Notification/gridnotificationmodal').default;
 // ── Helpers ─────────────────────────────────────────────────────────────────
 const sendTokenResponse = (agency, statusCode, res) => {
   const token = createToken(agency);
@@ -774,7 +775,17 @@ exports.registerAgent = asyncHandler(async (req, res) => {
   });
 
   agent.password = undefined;
-
+await GridNotification.create({
+  eventType:     'AGENT_REGISTERED',
+  title:         'New Agent Registration (Pending Agency Approval)',
+  message:       `Agent registered: ${first_name} ${last_name} (${email}) under agency — Pending agency approval`,
+  entityId:      agent._id,
+  entityModel:   'Agent',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: `${first_name} ${last_name}`,
+  createdByRole: 'agent',
+});
   res.status(201).json({
     status: "success",
     message:
@@ -1062,7 +1073,17 @@ exports.approveAgent = asyncHandler(async (req, res) => {
   } catch (emailErr) {
     console.error('[Agent Approval Email Error]', emailErr.message);
   }
-
+await GridNotification.create({
+  eventType:     'AGENT_AGENCY_APPROVED',
+  title:         'Agent Approved by Agency — Admin Verification Required',
+  message:       `Agency approved agent: ${agent.fullName || agent.first_name} — Now pending Xoto admin final verification (RERA card, ID, bank details)`,
+  entityId:      agent._id,
+  entityModel:   'Agent',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: req.agency?.companyName || 'Agency',
+  createdByRole: 'agency',
+});
   res.status(200).json({
     status: 'success',
     message: 'Agent approved successfully',
@@ -1182,7 +1203,17 @@ exports.suspendAgent = asyncHandler(async (req, res) => {
   } catch (emailErr) {
     console.error('[Agent Suspend Email Error]', emailErr.message);
   }
-
+await GridNotification.create({
+  eventType:     'AGENT_SUSPENDED',
+  title:         'Agent Suspended ⚠️',
+  message:       `Agent suspended: ${agent.fullName || agent.first_name} by agency. Reason: ${reason || 'Not provided'}`,
+  entityId:      agent._id,
+  entityModel:   'Agent',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: req.agency?.companyName || 'Agency',
+  createdByRole: 'agency',
+});
   res.status(200).json({
     status: 'success',
     message: 'Agent suspended successfully',
@@ -1411,7 +1442,17 @@ const agency = await Agency.create({
 
   const agencyResponse = agency.toObject();
   delete agencyResponse.password;
-
+await GridNotification.create({
+  eventType:     'AGENCY_CREATED',
+  title:         'New Agency Account Created',
+  message:       `Agency account created: ${companyName} (${primaryContactEmail}) — Credentials sent via email`,
+  entityId:      agency._id,
+  entityModel:   'Agency',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+});
   res.status(201).json({
     status: 'success',
     message: 'Agency created and credentials sent to email',
@@ -1730,7 +1771,17 @@ exports.adminApproveAgent = asyncHandler(async (req, res) => {
   agent.adminApprovalStatus = 'approved';
   agent.adminApprovedAt = new Date();
   await agent.save();
-
+await GridNotification.create({
+  eventType:     'AGENT_ADMIN_APPROVED',
+  title:         'Agent Final Verification Complete ✅',
+  message:       `Admin granted final platform access to agent: ${agent.first_name} ${agent.last_name}`,
+  entityId:      agent._id,
+  entityModel:   'Agent',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+});
   res.status(200).json({
     status: 'success',
     message: 'Agent approved by admin',

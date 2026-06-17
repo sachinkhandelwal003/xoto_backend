@@ -2,6 +2,7 @@ const jwt = require("jsonwebtoken");
 const GridReferralPartner = require("../Model/ReferralPartner.model.js");
 const { Role } = require("../../../../modules/auth/models/role/role.model.js");
 const GridLead = require("../../Lead/model/gridLead.model.js");
+const GridNotification = require('../../Notification/gridnotificationmodal.js').default;
 
 const signToken = (user, roleData) => {
   return jwt.sign(
@@ -81,7 +82,17 @@ exports.registerReferralPartner = async (req, res) => {
       role: "GridReferralPartner",
       status: "active",
     });
-
+  await GridNotification.create({
+  eventType:     'REFERRAL_PARTNER_REGISTERED',
+  title:         'New Referral Partner Registered',
+  message:       `New referral partner registered: ${firstName} ${lastName} (${phone}) — Access granted, compliance review recommended`,
+  entityId:      partner._id,
+  entityModel:   'GridReferralPartner',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: `${firstName} ${lastName}`,
+  createdByRole: 'referral_partner',
+});
     await sendTokenResponse(partner, 201, "Registration successful! Welcome to Xoto GRID.", res);
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
@@ -418,10 +429,14 @@ exports.getReferralLeaderboard = async (req, res) => {
     const GridLead = require("../../Lead/model/gridLead.model.js");
     
     const startDate = new Date();
-    if (period === "week") {
+    if (period === "weekly" || period === "week") {
       startDate.setDate(startDate.getDate() - 7);
-    } else if (period === "month") {
+    } else if (period === "monthly" || period === "month") {
       startDate.setMonth(startDate.getMonth() - 1);
+    } else if (period === "quarterly") {
+      startDate.setMonth(startDate.getMonth() - 3);
+    } else if (period === "annual") {
+      startDate.setFullYear(startDate.getFullYear() - 1);
     } else {
       startDate.setFullYear(2020, 0, 1);
     }
@@ -452,6 +467,8 @@ exports.getReferralLeaderboard = async (req, res) => {
       const conversionRate = stats.totalLeads ? Math.round((stats.convertedLeads / stats.totalLeads * 100)) : 0;
       const commissionEarned = stats.convertedLeads * 500;
       
+      // Score = 70% earnings weight + 30% conversion rate weight (PRD: ranked by earnings and conversion rate)
+      const score = (commissionEarned * 0.7) + (conversionRate * 100 * 0.3);
       return {
         id: partner._id,
         name: `${partner.firstName} ${partner.lastName}`,
@@ -459,10 +476,11 @@ exports.getReferralLeaderboard = async (req, res) => {
         totalLeads: stats.totalLeads,
         conversionRate: conversionRate,
         commissionEarned: commissionEarned,
-        change: "up",
+        score,
+        change: "stable",
         changeValue: 0
       };
-    }).sort((a, b) => b.commissionEarned - a.commissionEarned).map((partner, index) => ({
+    }).sort((a, b) => b.score - a.score).map((partner, index) => ({
       ...partner,
       rank: index + 1
     }));
