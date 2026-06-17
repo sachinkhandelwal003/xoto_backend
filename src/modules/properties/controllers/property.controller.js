@@ -4,6 +4,7 @@ const Developer = require("../../Grid/Developer/models/developer.model");
 const Customer = require("../../auth/models/user/customer.model");
 const GridLead = require("../../Grid/Lead/model/gridLead.model");
 const { inventoryCategories, determineInventoryCategory } = require("../config/inventory.categories.config");
+const GridNotification = require('../../Grid/Notification/GridNotificationmodal').default;
 // ─── Role helpers ─────────────────────────────────────────────────────────────
 const isAdmin = (role) => {
   if (!role) return false;
@@ -480,7 +481,17 @@ console.log("isDraft:", isDraft);
     const msg = approvalStatus === "approved"
       ? "Listing created and published successfully"
       : "Listing submitted. Pending admin approval.";
-
+   await GridNotification.create({
+  eventType:     'PROPERTY_CREATED',
+  title:         'New Property Listing Created',
+  message:       `New ${propertySubType} listing added: ${finalPropertyName} in ${finalArea}`,
+  entityId:      property._id,
+  entityModel:   'Properties',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: req.user?.firstName || req.user?.name || 'System',
+  createdByRole: isDevRole(role) ? 'developer' : 'admin',
+});
     return res.status(201).json({ status: "success", message: msg, data: property });
   } catch (err) {
     return res.status(500).json({ status: "error", message: err.message });
@@ -1064,7 +1075,17 @@ if (req.body.qr_code !== undefined) {
       'Pragma': 'no-cache',
       'Expires': '0',
     });
-
+   await GridNotification.create({
+  eventType:     'PROPERTY_UPDATED',
+  title:         'Property Listing Updated',
+  message:       `Property updated: ${updated.propertyName || updated.projectName}`,
+  entityId:      updated._id,
+  entityModel:   'Properties',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: req.user?.firstName || 'System',
+  createdByRole: isDevRole(role) ? 'developer' : 'admin',
+});
     return res.status(200).json({ status: "success", data: updated });
   } catch (err) {
     console.error("❌ Update error:", err);
@@ -1104,7 +1125,17 @@ exports.deleteProperty = async (req, res) => {
 
     await Inventory.deleteMany({ propertyId: property._id });
     await Property.findByIdAndDelete(req.params.id);
-
+  await GridNotification.create({
+  eventType:     'PROPERTY_DELETED',
+  title:         'Property Listing Deleted',
+  message:       `Property deleted: ${property.propertyName || property.projectName} (${property.propertySubType})`,
+  entityId:      property._id,
+  entityModel:   'Properties',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: req.user?.firstName || 'System',
+  createdByRole: isDevRole(role) ? 'developer' : 'admin',
+});
     return res.status(200).json({ status: "success", message: "Property deleted successfully" });
   } catch (err) {
     return res.status(500).json({ status: "error", message: err.message });
@@ -1144,7 +1175,31 @@ exports.approveProperty = async (req, res) => {
       property.reraPermitNumber = null;
     }
     await property.save();
-
+await GridNotification.create({
+  eventType:     'PROPERTY_APPROVED',
+  title:         'Property Approved ✅',
+  message:       `Property approved and live: ${property.propertyName || property.projectName}`,
+  entityId:      property._id,
+  entityModel:   'Properties',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: req.user?.firstName || 'Admin',
+  createdByRole: 'admin',
+});
+if (property.developer) {
+  await GridNotification.create({
+    eventType:     'LISTING_APPROVED',
+    title:         'Your Listing is Now Live ✅',
+    message:       `Great news! Your property "${property.propertyName || property.projectName}" has been approved by Xoto admin and is now live on the platform. No further action required.`,
+    entityId:      property._id,
+    entityModel:   'Properties',
+    recipientId:   property.developer,
+    recipientModel:'Developer',
+    recipientRole: 'developer',
+    createdByName: 'Xoto Admin',
+    createdByRole: 'admin',
+  }).catch(err => console.error('Developer approval notification failed:', err.message));
+}
     return res.status(200).json({ status: "success", message: "Property approved and now live", data: property });
   } catch (err) {
     return res.status(500).json({ status: "error", message: err.message });
@@ -1422,7 +1477,32 @@ exports.rejectProperty = async (req, res) => {
     );
 
     if (!property) return res.status(404).json({ status: "fail", message: "Property not found" });
-
+await GridNotification.create({
+  eventType:     'PROPERTY_REJECTED',
+  title:         'Property Rejected ❌',
+  message:       `Property rejected: ${property.propertyName || property.projectName}. Reason: ${rejectionReason}`,
+  entityId:      property._id,
+  entityModel:   'Properties',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: req.user?.firstName || 'Admin',
+  createdByRole: 'admin',
+});
+// Existing admin notification ke NEECHE add karo:
+if (property.developer) {
+  await GridNotification.create({
+    eventType:     'LISTING_REJECTED',
+    title:         'Your Listing Has Been Rejected ❌',
+    message:       `Your property "${property.propertyName || property.projectName}" was rejected. Reason: ${rejectionReason}. Please review the feedback, make the necessary changes, and resubmit for approval.`,
+    entityId:      property._id,
+    entityModel:   'Properties',
+    recipientId:   property.developer,
+    recipientModel:'Developer',
+    recipientRole: 'developer',
+    createdByName: 'Xoto Admin',
+    createdByRole: 'admin',
+  }).catch(err => console.error('Developer rejection notification failed:', err.message));
+}
     return res.status(200).json({ status: "success", message: "Property rejected", data: property });
   } catch (err) {
     return res.status(500).json({ status: "error", message: err.message });
@@ -1442,6 +1522,32 @@ exports.requestChanges = async (req, res) => {
     { approvalStatus: "changes_requested", listingStatus: "pending", adminComments },
     { new: true }
   );
+  await GridNotification.create({
+  eventType:     'PROPERTY_CHANGES_REQUESTED',
+  title:         'Changes Requested on Property',
+  message:       `Admin requested changes: ${adminComments}`,
+  entityId:      property._id,
+  entityModel:   'Properties',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: req.user?.firstName || 'Admin',
+  createdByRole: 'admin',
+});
+// Existing admin notification ke NEECHE add karo:
+if (property.developer) {
+  await GridNotification.create({
+    eventType:     'LISTING_CHANGES_REQUESTED',
+    title:         'Changes Requested on Your Listing 📝',
+    message:       `Admin has requested changes to your property "${property.propertyName || property.projectName}". Comments: ${adminComments}. Please make the requested changes and resubmit for approval.`,
+    entityId:      property._id,
+    entityModel:   'Properties',
+    recipientId:   property.developer,
+    recipientModel:'Developer',
+    recipientRole: 'developer',
+    createdByName: 'Xoto Admin',
+    createdByRole: 'admin',
+  }).catch(err => console.error('Developer changes notification failed:', err.message));
+}
   return res.status(200).json({ status: "success", message: "Changes requested", data: property });
 };
 

@@ -98,13 +98,14 @@ const buildFilters = async (query) => {
 };
 
 // ── 1. LEAD VOLUME REPORT ─────────────────────────────────────────
-const getLeadVolumeReport = async (leadFilter) => {
+const getLeadVolumeReport = async (leadFilter, groupBy = 'month') => {
+  const format = groupBy === 'day' ? '%Y-%m-%d' : '%Y-%m';
   const list = await VaultLead.aggregate([
     { $match: leadFilter },
     {
       $group: {
         _id: {
-          period: { $dateToString: { format: '%Y-%m', date: '$createdAt' } },
+          period: { $dateToString: { format, date: '$createdAt' } },
           source: '$sourceInfo.source',
           advisor: '$assignedTo.advisorName'
         },
@@ -202,9 +203,9 @@ const getConversionFunnelReport = async (leadFilter, caseFilter) => {
   return [
     { stage: 'Total Leads', count: totalLeads, conversion: 100 },
     { stage: 'Qualified Leads', count: qualifiedLeads, conversion: totalLeads > 0 ? Math.round((qualifiedLeads / totalLeads) * 100) : 0 },
-    { stage: 'Cases Created', count: casesCreated, conversion: qualifiedLeads > 0 ? Math.round((casesCreated / qualifiedLeads) * 100) : 0 },
+    { stage: 'Applications Created', count: casesCreated, conversion: qualifiedLeads > 0 ? Math.round((casesCreated / qualifiedLeads) * 100) : 0 },
     { stage: 'Submitted to Bank', count: submittedCases, conversion: casesCreated > 0 ? Math.round((submittedCases / casesCreated) * 100) : 0 },
-    { stage: 'Disbursed Cases', count: disbursedCases, conversion: submittedCases > 0 ? Math.round((disbursedCases / submittedCases) * 100) : 0 }
+    { stage: 'Disbursed Applications', count: disbursedCases, conversion: submittedCases > 0 ? Math.round((disbursedCases / submittedCases) * 100) : 0 }
   ];
 };
 
@@ -480,7 +481,7 @@ export const getAdminReports = async (req, res) => {
     let reportData = null;
     switch (reportType) {
       case 'lead_volume':
-        reportData = await getLeadVolumeReport(leadFilter);
+        reportData = await getLeadVolumeReport(leadFilter, req.query.groupBy);
         break;
       case 'applications_pipeline':
         reportData = await getApplicationsPipelineReport(caseFilter);
@@ -530,7 +531,7 @@ export const exportAdminReport = async (req, res) => {
 
     switch (reportType) {
       case 'lead_volume':
-        rawData = await getLeadVolumeReport(leadFilter);
+        rawData = await getLeadVolumeReport(leadFilter, req.query.groupBy);
         break;
       case 'applications_pipeline':
         rawData = await getApplicationsPipelineReport(caseFilter);

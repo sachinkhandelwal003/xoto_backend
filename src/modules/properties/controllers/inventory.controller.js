@@ -4,6 +4,7 @@ const Inventory = require("../models/property.inventory.model");
 const Property = require("../models/property.model");
 const { inventoryCategories, determineInventoryCategory } = require("../config/inventory.categories.config");
 const mongoose = require("mongoose");
+const GridNotification = require('../../Grid/Notification/GridNotificationmodal').default;
 
 // Helper to resolve inherited fields from parent property
 const resolveInventoryUnit = (unitDoc) => {
@@ -1057,6 +1058,21 @@ exports.reserveUnit = async (req, res) => {
 
         await inventory.save();
 
+const property = await Property.findById(inventory.propertyId).select('developer propertyName projectName');
+if (property?.developer) {
+  await GridNotification.create({
+    eventType:     'UNIT_RESERVED',
+    title:         'Unit Reserved on Your Listing 🔒',
+    message:       `Unit ${inventory.unitNumber} in "${property.propertyName || property.projectName}" has been reserved. Your inventory status has been updated automatically.`,
+    entityId:      inventory._id,
+    entityModel:   'Inventory',
+    recipientId:   property.developer,
+    recipientModel:'Developer',
+    recipientRole: 'developer',
+    createdByName: 'System',
+    createdByRole: 'System',
+  }).catch(err => console.error('Unit reserve notification failed:', err.message));
+}
         return res.status(200).json({
             success: true,
             message: "Unit reserved successfully",
@@ -1207,6 +1223,21 @@ exports.markAsSold = async (req, res) => {
         const soldCount = await Inventory.countDocuments({ propertyId: inventory.propertyId, status: "sold" });
         await Property.findByIdAndUpdate(inventory.propertyId, { soldUnits: soldCount });
 
+const soldProperty = await Property.findById(inventory.propertyId).select('developer propertyName projectName');
+if (soldProperty?.developer) {
+  await GridNotification.create({
+    eventType:     'UNIT_SOLD',
+    title:         'Unit Sold on Your Listing 🎉',
+    message:       `Unit ${inventory.unitNumber} in "${soldProperty.propertyName || soldProperty.projectName}" has been marked as sold. Sale price: AED ${(salePrice || inventory.price).toLocaleString()}. Update your internal records accordingly.`,
+    entityId:      inventory._id,
+    entityModel:   'Inventory',
+    recipientId:   soldProperty.developer,
+    recipientModel:'Developer',
+    recipientRole: 'developer',
+    createdByName: 'System',
+    createdByRole: 'System',
+  }).catch(err => console.error('Unit sold notification failed:', err.message));
+}
         return res.status(200).json({
             success: true,
             message: "Unit marked as sold successfully",

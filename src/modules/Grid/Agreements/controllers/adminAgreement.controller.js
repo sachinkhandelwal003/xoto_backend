@@ -7,6 +7,7 @@ const PartnerAgreement = require('../../dealrecord/models/Partneragreement.model
 const asyncHandler = require('../../../../utils/asyncHandler');
 const { APIError } = require('../../../../utils/errorHandler');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
+const GridNotification = require('../../Notification/GridNotificationmodal').default;
 
 const MODEL_BY_TARGET = {
   developer: Developer,
@@ -534,6 +535,41 @@ exports.createAgreement = asyncHandler(async (req, res) => {
   await syncEmbeddedAgreement(targetType, target, agreement, documents);
   const partnerAgreement = await syncPartnerAgreement(targetType, target, agreement, documents, req);
 
+const GridNotification = require('../../Notification/GridNotificationmodal').default;
+const agreementVersion = Number(req.body.version) || 1;
+
+if (agreementVersion > 1) {
+
+  if (targetType === 'agency' && target._id) {
+    await GridNotification.create({
+      eventType:      'NEW_AGREEMENT_VERSION_REQUIRED',
+      title:          `New Partner Agreement Version Available 📄 (v${agreementVersion})`,
+      message:        `A new version (v${agreementVersion}) of the Partner Agreement has been issued by Xoto Admin. Please review and sign before your current agreement expires.`,
+      entityId:       agreement._id,
+      entityModel:    'AdminAgreement',
+      recipientId:    target._id,
+      recipientModel: 'Agency',
+      recipientRole:  'partner',
+      createdByName:  'Xoto Admin',
+      createdByRole:  'admin',
+    }).catch(err => console.error('New agreement version (agency) notification failed:', err.message));
+  }
+
+  if (targetType === 'agent' && target._id) {
+    await GridNotification.create({
+      eventType:      'NEW_AGREEMENT_VERSION_REQUIRED',
+      title:          `New Partner Agreement Version Available 📄 (v${agreementVersion})`,
+      message:        `A new version (v${agreementVersion}) of your Partner Agreement has been issued. Please review and sign the updated agreement before your current one expires.`,
+      entityId:       agreement._id,
+      entityModel:    'AdminAgreement',
+      recipientId:    target._id,
+      recipientModel: 'GridAgent',
+      recipientRole:  'agent',
+      createdByName:  'Xoto Admin',
+      createdByRole:  'admin',
+    }).catch(err => console.error('New agreement version (agent) notification failed:', err.message));
+  }
+}
   return res.status(StatusCodes.CREATED).json({
     success: true,
     message: 'Agreement uploaded successfully',

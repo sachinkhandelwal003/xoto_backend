@@ -251,9 +251,13 @@ export const buildProposalHTML = (proposal) => {
       )}
       ${bRow('Follow on rate',
         b => {
-          const r = b.followOnRate != null ? `${Number(b.followOnRate).toFixed(2)}%` : '—';
+          const rateVal = b.snapshotFollowOnRate || b.followOnRate;
+          if (rateVal == null) return '—';
+          const rateStr = String(rateVal);
+          const isNum = !isNaN(parseFloat(rateStr)) && isFinite(rateStr);
+          const displayVal = isNum ? `${Number(rateStr).toFixed(2)}%` : rateStr;
           const t = san(b.followOnRateType || b.eiborType || '');
-          return `<div class="rate-big">${r}</div>${t ? `<div class="rate-sm">${t}</div>` : ''}`;
+          return `<div class="rate-big">${displayVal}</div>${t ? `<div class="rate-sm">${t}</div>` : ''}`;
         }
       )}
       ${bRow('Minimum Floor Rate',

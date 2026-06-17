@@ -5,6 +5,7 @@ const Property  = require("../../../properties/models/property.model");
 const { Role }  = require('../../../../modules/auth/models/role/role.model');
 const { createToken } = require('../../../../middleware/auth');
 const sendEmail = require("../../../../utils/sendEmail");
+const GridNotification = require('../../Notification/GridNotificationmodal').default;
 
 const normalizeEmail = (email = "") => email.toLowerCase().trim();
 
@@ -204,7 +205,17 @@ exports.submitDeveloperApplication = async (req, res) => {
             isVerifiedByAdmin:         false,
             kycStatus:                 "not_submitted",
         });
-
+        await GridNotification.create({
+  eventType:     'DEVELOPER_APPLICATION_SUBMITTED',
+  title:         'New Developer Application 📋',
+  message:       `Developer application submitted: ${finalCompanyName} (${finalEmail}) — Pending admin review`,
+  entityId:      developer._id,
+  entityModel:   'Developer',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: finalCompanyName,
+  createdByRole: 'developer',
+});
         return res.status(201).json({
             success: true,
             message: "Developer application submitted successfully. Xoto admin will review it before access is granted.",
@@ -701,7 +712,19 @@ exports.reviewDeveloperApplication = async (req, res) => {
             developer.isVerifiedByAdmin = false;
 
             await developer.save();
-
+        await GridNotification.create({
+  eventType:     action === 'approve' ? 'DEVELOPER_APPROVED' : 'DEVELOPER_REJECTED',
+  title:         action === 'approve' ? 'Developer Approved ✅' : 'Developer Rejected ❌',
+  message:       action === 'approve'
+    ? `Developer approved: ${developer.companyName}. Commercial agreement ${commercialAgreementCompleted ? 'completed, access granted' : 'pending'}`
+    : `Developer rejected: ${developer.companyName}. Reason: ${rejectionReason || 'Not specified'}`,
+  entityId:      developer._id,
+  entityModel:   'Developer',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+});
             return res.status(200).json({
                 success: true,
                 message: "Developer application rejected successfully",

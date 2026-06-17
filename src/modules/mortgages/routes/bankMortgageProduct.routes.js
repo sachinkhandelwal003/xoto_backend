@@ -19,7 +19,8 @@ const {
     getFeaturedProducts,
     compareProducts,
     getProductsByBankId,
-    getBankProductsSummary
+    getBankProductsSummary,
+    getEiborRates
 } = require("../controllers/bankMortgageProduct.controller");
 
 const { protect } = require("../../../middleware/auth");
@@ -38,7 +39,9 @@ const router = express.Router();
 // =========================================
 
 // Public product routes
+router.get("/eibor-rates", getEiborRates);
 router.get("/products/featured", getFeaturedProducts);
+router.get("/products/get-bank-product/:id", getBankProductById);
 router.get("/products", getAllBankProducts);
 router.get("/products/:id", getBankProductById);
 router.post("/products/compare", compareProducts);

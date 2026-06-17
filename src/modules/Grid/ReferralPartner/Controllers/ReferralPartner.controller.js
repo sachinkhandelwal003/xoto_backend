@@ -2,6 +2,7 @@ const jwt = require("jsonwebtoken");
 const GridReferralPartner = require("../Model/ReferralPartner.model.js");
 const { Role } = require("../../../../modules/auth/models/role/role.model.js");
 const GridLead = require("../../Lead/model/gridLead.model.js");
+const GridNotification = require('../../Notification/GridNotificationmodal.js').default;
 
 const signToken = (user, roleData) => {
   return jwt.sign(
@@ -81,7 +82,29 @@ exports.registerReferralPartner = async (req, res) => {
       role: "GridReferralPartner",
       status: "active",
     });
-
+  await GridNotification.create({
+  eventType:     'REFERRAL_PARTNER_REGISTERED',
+  title:         'New Referral Partner Registered',
+  message:       `New referral partner registered: ${firstName} ${lastName} (${phone}) — Access granted, compliance review recommended`,
+  entityId:      partner._id,
+  entityModel:   'GridReferralPartner',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: `${firstName} ${lastName}`,
+  createdByRole: 'referral_partner',
+});
+await GridNotification.create({
+  eventType:     'REFERRAL_PARTNER_REGISTERED',
+  title:         'Welcome to Xoto GRID! 🎉',
+  message:       `Hi ${firstName} ${lastName}, your registration is complete! To unlock commission payouts, please complete your profile by uploading your ID (Passport or Emirates ID) and bank details.`,
+  entityId:      partner._id,
+  entityModel:   'GridReferralPartner',
+  recipientId:   partner._id,
+  recipientModel:'GridReferralPartner',
+  recipientRole: 'referral_partner',
+  createdByName: 'Xoto System',
+  createdByRole: 'system',
+}).catch(err => console.error('Partner welcome notification failed:', err.message));
     await sendTokenResponse(partner, 201, "Registration successful! Welcome to Xoto GRID.", res);
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });

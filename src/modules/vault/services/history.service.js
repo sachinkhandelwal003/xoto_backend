@@ -90,12 +90,12 @@ class HistoryService {
     const entityId = caseData.caseId || caseData._id?.toString();
     
     return this.log({
-      entityType: 'Case',
+      entityType: 'Application',
       entityId: entityId,
       entityName: caseData.clientInfo?.fullName,
       action,
       performedBy: userInfo,
-      description: additionalData.description || `${action} performed on case ${entityId}`,
+      description: additionalData.description || `${action} performed on application ${entityId}`,
       notes: additionalData.notes,
       ipAddress: userInfo.ipAddress,
       userAgent: userInfo.userAgent,

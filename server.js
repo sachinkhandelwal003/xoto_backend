@@ -246,7 +246,12 @@ app.use(cors({
         'http://xoto.kotiboxglobaltech.site',
         'https://xoto.kotiboxglobaltech.site',
         'https://xotogrid.kotiboxglobaltech.site',
-        'http://xotogrid.kotiboxglobaltech.site'
+        'http://xotogrid.kotiboxglobaltech.site'     ,
+           'https://kgt.kotiboxglobaltech.site',
+                      'https://kgtvault.kotiboxglobaltech.site',
+                      'https://kgtgrid.kotiboxglobaltech.site'
+
+
         
 
   ],
@@ -284,6 +289,12 @@ const startServer = async () => {
     server.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`MongoDB connected`);
+      require('./src/modules/Grid/cron/agreementExpiry.cron'); 
+       require('./src/modules/Grid/cron/pendingLeads.cron');
+  require('./src/modules/Grid/cron/milestones.cron'); 
+  require('./src/modules/Grid/cron/gridNotification.cron');
+  require('./src/modules/Grid/cron/developerAlerts.cron');
+  require('./src/modules/Grid/cron/referralpartnerAlerts.cron');
     });
   } catch (err) {
     console.error("Failed to start server:", err);

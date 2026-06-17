@@ -724,7 +724,7 @@ export const createCase = async (req, res) => {
     }
 
     const caseId = `C-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    const caseReference = `XOTO-CASE-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000)}`;
+    const caseReference = `XOTO-APP-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000)}`;
 
     const newCase = await Case.create({
       caseId,
@@ -750,8 +750,8 @@ export const createCase = async (req, res) => {
     partner.performanceMetrics.totalCasesSubmitted += 1;
     await partner.save();
 
-    await HistoryService.logCaseActivity(newCase, 'CASE_CREATED', await getUserInfo(req), {
-      description: `Case ${caseId} created for client ${caseData.clientInfo?.fullName}`,
+    await HistoryService.logCaseActivity(newCase, 'APPLICATION_CREATED', await getUserInfo(req), {
+      description: `Application ${caseId} created for client ${caseData.clientInfo?.fullName}`,
     });
 
     return res.status(201).json({ success: true, message: "Case created successfully", data: newCase });

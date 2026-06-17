@@ -8,6 +8,7 @@ const PartnerAgreement = require('../../dealrecord/models/Partneragreement.model
 const bcrypt = require("bcryptjs");
 const { Role } = require('../../../../modules/auth/models/role/role.model.js');
 const { createToken } = require('../../../../middleware/auth.js');
+const GridNotification = require('../../Notification/GridNotificationmodal.js').default;
 
 const canManageAgentAgreement = (agreement, agentId) =>
   agreement &&
@@ -97,7 +98,30 @@ const agentRole = await Role.findOne({ code: 16 });
 
     // Optionally push agent to agency's agents array
     await Agency.findByIdAndUpdate(agency, { $addToSet: { agents: newAgent._id } });
+  await GridNotification.create({
+  eventType:     'AGENT_REGISTERED',
+  title:         'New Agent Registration',
+  message:       `New agent registered: ${resolvedFirstName} ${resolvedLastName} (${email}) — Pending agency & admin approval`,
+  entityId:      newAgent._id,
+  entityModel:   'Agent',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: `${resolvedFirstName} ${resolvedLastName}`,
+  createdByRole: 'agent',
+});
 
+await GridNotification.create({
+  eventType:      'NEW_AGENT_AFFILIATION_REQUEST',
+  title:          'New Agent Affiliation Request 👤',
+  message:        `${resolvedFirstName} ${resolvedLastName} (${email}) has requested to join your agency. Review and approve or decline.`,
+  entityId:       newAgent._id,
+  entityModel:    'Agent',
+  recipientId:    agency,         // agency ID jo agent ne select ki
+  recipientModel: 'Agency',
+  recipientRole:  'partner',
+  createdByName:  `${resolvedFirstName} ${resolvedLastName}`,
+  createdByRole:  'agent',
+}).catch(err => console.error('Agency affiliation notification failed:', err.message));
     res.status(201).json({
       success: true,
       message: 'Registration submitted. Awaiting agency and admin approval.',
@@ -460,7 +484,32 @@ exports.deleteAgent = async (req, res) => {
     }
 
     await Agent.findByIdAndDelete(id);
+   await GridNotification.create({
+  eventType:     'AGENT_OFFBOARDED',
+  title:         'Agent Removed — Lead Reassignment Required ⚠️',
+  message:       `Agent removed: ${agent.first_name} ${agent.last_name}. Active leads reverted to agency dashboard. Reassignment required.`,
+  entityId:      agent._id,
+  entityModel:   'Agent',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+});
 
+if (agent.agency) {
+  await GridNotification.create({
+    eventType:      'AGENT_OFFBOARDED_AGENCY',
+    title:          'Agent Removed — Leads Need Reassignment ⚠️',
+    message:        `Agent ${agent.first_name} ${agent.last_name} has been removed from your agency. Their active leads have been reverted to your agency dashboard for reassignment.`,
+    entityId:       agent._id,
+    entityModel:    'Agent',
+    recipientId:    agent.agency,
+    recipientModel: 'Agency',
+    recipientRole:  'partner',
+    createdByName:  'Admin',
+    createdByRole:  'admin',
+  }).catch(err => console.error('Agency offboarding notification failed:', err.message));
+}
     return res.status(200).json({
       success: true,
       message: "Agent deleted successfully"
@@ -492,7 +541,30 @@ exports.approveAgent = async (req, res) => {
     agent.isVerified = true;
     agent.onboarding_status = "approved";
     await agent.save();
+   await GridNotification.create({
+  eventType:     'AGENT_APPROVED',
+  title:         'Agent Approved ✅',
+  message:       `Agent approved: ${agent.first_name} ${agent.last_name} (${agent.email})`,
+  entityId:      agent._id,
+  entityModel:   'Agent',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+});
 
+await GridNotification.create({
+  eventType:      'AGENT_AFFILIATION_APPROVED',
+  title:          'Affiliation Approved ✅',
+  message:        `Your affiliation request has been approved. Your account is now under Xoto Admin review.`,
+  entityId:       agent._id,
+  entityModel:    'Agent',
+  recipientId:    agent._id,
+  recipientModel: 'GridAgent',
+  recipientRole:  'agent',
+  createdByName:  'Admin',
+  createdByRole:  'admin',
+}).catch(err => console.error('Agent approval notification failed:', err.message));
     return res.status(200).json({
       success: true,
       message: "Agent approved successfully",
@@ -526,7 +598,30 @@ exports.rejectAgent = async (req, res) => {
     agent.onboarding_status = "rejected";
     agent.rejection_reason = rejection_reason || "Not specified";
     await agent.save();
+   await GridNotification.create({
+  eventType:     'AGENT_REJECTED',
+  title:         'Agent Rejected ❌',
+  message:       `Agent rejected: ${agent.first_name} ${agent.last_name}. Reason: ${rejection_reason || 'Not specified'}`,
+  entityId:      agent._id,
+  entityModel:   'Agent',
+  recipientId:   null,
+  recipientRole: 'admin',
+  createdByName: 'Admin',
+  createdByRole: 'admin',
+});
 
+await GridNotification.create({
+  eventType:      'AGENT_AFFILIATION_REJECTED',
+  title:          'Affiliation Request Declined ❌',
+  message:        `Your affiliation request has been declined. Reason: ${rejection_reason || 'Not specified'}. Contact your agency for more information.`,
+  entityId:       agent._id,
+  entityModel:    'Agent',
+  recipientId:    agent._id,
+  recipientModel: 'GridAgent',
+  recipientRole:  'agent',
+  createdByName:  'Admin',
+  createdByRole:  'admin',
+}).catch(err => console.error('Agent rejection notification failed:', err.message));
     return res.status(200).json({
       success: true,
       message: "Agent rejected",

@@ -175,7 +175,7 @@ export const dispatchVaultNotification = async (req, {
     // Rule C: Partner Actions
     else if (actorRole === 'partner') {
       // Only notify Admin for Case submissions, others stay silent
-      if (eventType === 'CASE_SUBMITTED_TO_XOTO' || eventType === 'NEW_APPLICATION_SUBMITTED') {
+      if (['CASE_SUBMITTED_TO_XOTO', 'APPLICATION_SUBMITTED_TO_XOTO', 'NEW_APPLICATION_SUBMITTED'].includes(eventType)) {
         addRecipient(null, null, 'admin');
       }
     }
@@ -210,7 +210,7 @@ export const dispatchVaultNotification = async (req, {
         addRecipient(lead.sourceInfo.createdById, 'VaultAgent', 'referral_partner');
       }
 
-      if (eventType === 'CASE_DISBURSED' || eventType === 'CASE_DECLINED') {
+      if (['CASE_DISBURSED', 'APPLICATION_DISBURSED', 'CASE_DECLINED', 'APPLICATION_DECLINED'].includes(eventType)) {
         addRecipient(null, null, 'admin');
       }
     }

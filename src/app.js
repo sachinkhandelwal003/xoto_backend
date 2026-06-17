@@ -49,10 +49,10 @@ const gridLead = require('./modules/Grid/Lead/routes/gridLead.route.js')
 const feedback = require('./modules/feedback/routes/feedback.route.js');
 // const presentationController = require('./modules/Grid/Agent/controllers/presentationController');
 const presentationRoutes = require('./modules/Grid/presentation/routes/presentation.routes.js');
-
+const leaderboardRoutes = require('./modules/Grid/leaderboard/leaderboard.routes.js');
 // ==========================================
 // ⚠️ FIX: Stripe Route Yahan Upar Move Kiya Hai 
-// ==========================================
+// =================================
 
 
 // app.use('/stripe/webhook', express.raw({ type: 'application/json' }));
@@ -107,6 +107,7 @@ app.use('/mortgages', mortgageRoutes);
 app.use('/bank', bankMortgageProductRoutes);
 app.use('/bank/documents', DocumentLiabraryMortgageRoutes);
 
+app.use('/grid/leaderboard', leaderboardRoutes);
 
 app.use('/agent', agentRoutes);
 app.use('/landing/lead', (req, res, next) => {
