@@ -337,6 +337,15 @@ const caseSchema = new mongoose.Schema(
 
     isDeleted: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },
+
+    // ── SLA ───────────────────────────────────────────────────────
+    // Clock starts when case is assigned to ops (pickup or admin-assign)
+    sla: {
+      durationHours: { type: Number, default: 48 },
+      startedAt:     { type: Date,    default: null },
+      deadlineAt:    { type: Date,    default: null },
+      breached:      { type: Boolean, default: false },
+    },
   },
   { timestamps: true }
 );
@@ -352,6 +361,21 @@ caseSchema.index({ 'opsQueue.pickedUpBy.opsId': 1 });
 caseSchema.index({ 'createdBy.userId': 1 });
 caseSchema.index({ 'createdBy.role': 1 });
 caseSchema.index({ createdAt: -1 });
+
+// ══════════════════════════════════════════════════════════════════
+// VIRTUAL — SLA status (computed on every read, not stored)
+// ══════════════════════════════════════════════════════════════════
+caseSchema.virtual('slaStatus').get(function () {
+  if (!this.sla?.startedAt) return 'not-started';
+  const now = Date.now();
+  const start = new Date(this.sla.startedAt).getTime();
+  const deadline = new Date(this.sla.deadlineAt).getTime();
+  if (now >= deadline) return 'breached';
+  const elapsed = now - start;
+  const total = deadline - start;
+  if (elapsed / total >= 0.75) return 'at-risk';
+  return 'on-track';
+});
 
 // ══════════════════════════════════════════════════════════════════
 // HELPER
@@ -496,7 +520,11 @@ caseSchema.methods.pickUpFromQueue = async function (opsId, opsName) {
     throw new Error('Case is not in the Ops queue');
   this.currentStatus = 'Assigned - Pending Review';
   this.opsQueue.pickedUpBy = { opsId, opsName, pickedUpAt: new Date() };
-  this.timeline.assignedToOpsAt = new Date();
+  const now = new Date();
+  this.timeline.assignedToOpsAt = now;
+  this.sla.startedAt  = now;
+  this.sla.deadlineAt = new Date(now.getTime() + (this.sla.durationHours || 48) * 3_600_000);
+  this.sla.breached   = false;
   return this.save();
 };
 
@@ -517,7 +545,11 @@ caseSchema.methods.adminAssignToOps = async function (opsId, opsName, adminName)
   this.currentStatus = 'Assigned - Pending Review';
   this.opsQueue.pickedUpBy = { opsId, opsName, pickedUpAt: new Date() };
   this.opsQueue.adminAssigned = { assignedAt: new Date(), assignedBy: adminName };
-  this.timeline.assignedToOpsAt = new Date();
+  const now = new Date();
+  this.timeline.assignedToOpsAt = now;
+  this.sla.startedAt  = now;
+  this.sla.deadlineAt = new Date(now.getTime() + (this.sla.durationHours || 48) * 3_600_000);
+  this.sla.breached   = false;
   return this.save();
 };
 

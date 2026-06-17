@@ -9,9 +9,9 @@ const ROLE_CODE_MAP = {
   '15': 'agency',
   '22': null,     // resolved by agentType below
   '23': 'ops',
+  '24': 'gridadvisor', // GridAdvisor (slug: gridadvisor)
   '26': 'advisor',
   '25': 'gridreferralpartner',
-  
 };
 
 const resolveRoleSlug = (roleCode, user) => {
