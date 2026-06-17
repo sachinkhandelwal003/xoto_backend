@@ -71,7 +71,7 @@ router.put("/me",          protectMulti, gridAdvisorController.updateMyProfile);
 router
   .route("/")
   .post(protect, gridAdvisorController.createGridAdvisor)
-  .get(protect, gridAdvisorController.getAllGridAdvisors);
+  .get(protectMulti, gridAdvisorController.getAllGridAdvisors);
 
 // Leaderboard route (MUST COME BEFORE /:id!)
 router.get("/leaderboard", protect, gridAdvisorController.getAdvisorLeaderboard);

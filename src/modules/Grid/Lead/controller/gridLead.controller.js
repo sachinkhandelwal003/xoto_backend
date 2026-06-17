@@ -423,15 +423,11 @@ exports.createLead = asyncHandler(async (req, res) => {
   const hasContactInfo = !!(phone_number || email);
 
   if (listing_id) {
-    const property = await Property.findOne({
-      _id: listing_id,
-      approvalStatus: 'approved',
-      listingStatus: 'active',
-    });
+    const property = await Property.findById(listing_id).select('_id').lean();
     if (!property) {
       return res.status(StatusCodes.BAD_REQUEST).json({
         success: false,
-        message: 'Selected property not found or not available',
+        message: 'Selected property not found',
       });
     }
   }
@@ -1202,6 +1198,8 @@ exports.getLeadById = asyncHandler(async (req, res) => {
       select: 'first_name last_name email phone_number role agency',
       populate: { path: 'agency', select: 'companyName agency_name name primaryContactEmail' },
     })
+    .populate('referred_by_partner', 'firstName lastName email phone')
+    .populate('source.referralPartnerId', 'firstName lastName email phone')
     .populate('advisor_suggestions.property_id')
     .lean({ virtuals: true });
 
