@@ -1186,6 +1186,20 @@ await GridNotification.create({
   createdByName: req.user?.firstName || 'Admin',
   createdByRole: 'admin',
 });
+if (property.developer) {
+  await GridNotification.create({
+    eventType:     'LISTING_APPROVED',
+    title:         'Your Listing is Now Live ✅',
+    message:       `Great news! Your property "${property.propertyName || property.projectName}" has been approved by Xoto admin and is now live on the platform. No further action required.`,
+    entityId:      property._id,
+    entityModel:   'Properties',
+    recipientId:   property.developer,
+    recipientModel:'Developer',
+    recipientRole: 'developer',
+    createdByName: 'Xoto Admin',
+    createdByRole: 'admin',
+  }).catch(err => console.error('Developer approval notification failed:', err.message));
+}
     return res.status(200).json({ status: "success", message: "Property approved and now live", data: property });
   } catch (err) {
     return res.status(500).json({ status: "error", message: err.message });
@@ -1474,6 +1488,21 @@ await GridNotification.create({
   createdByName: req.user?.firstName || 'Admin',
   createdByRole: 'admin',
 });
+// Existing admin notification ke NEECHE add karo:
+if (property.developer) {
+  await GridNotification.create({
+    eventType:     'LISTING_REJECTED',
+    title:         'Your Listing Has Been Rejected ❌',
+    message:       `Your property "${property.propertyName || property.projectName}" was rejected. Reason: ${rejectionReason}. Please review the feedback, make the necessary changes, and resubmit for approval.`,
+    entityId:      property._id,
+    entityModel:   'Properties',
+    recipientId:   property.developer,
+    recipientModel:'Developer',
+    recipientRole: 'developer',
+    createdByName: 'Xoto Admin',
+    createdByRole: 'admin',
+  }).catch(err => console.error('Developer rejection notification failed:', err.message));
+}
     return res.status(200).json({ status: "success", message: "Property rejected", data: property });
   } catch (err) {
     return res.status(500).json({ status: "error", message: err.message });
@@ -1504,6 +1533,21 @@ exports.requestChanges = async (req, res) => {
   createdByName: req.user?.firstName || 'Admin',
   createdByRole: 'admin',
 });
+// Existing admin notification ke NEECHE add karo:
+if (property.developer) {
+  await GridNotification.create({
+    eventType:     'LISTING_CHANGES_REQUESTED',
+    title:         'Changes Requested on Your Listing 📝',
+    message:       `Admin has requested changes to your property "${property.propertyName || property.projectName}". Comments: ${adminComments}. Please make the requested changes and resubmit for approval.`,
+    entityId:      property._id,
+    entityModel:   'Properties',
+    recipientId:   property.developer,
+    recipientModel:'Developer',
+    recipientRole: 'developer',
+    createdByName: 'Xoto Admin',
+    createdByRole: 'admin',
+  }).catch(err => console.error('Developer changes notification failed:', err.message));
+}
   return res.status(200).json({ status: "success", message: "Changes requested", data: property });
 };
 

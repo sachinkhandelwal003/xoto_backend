@@ -519,6 +519,47 @@ res.json({
     s3Url:          url, // S3 direct link — preview ke liye
   }
 });
+// ✅ PRD 3.6/8.1 — Check presentation balance after save
+try {
+  const Agency = require('../../agency/models/index.js');
+  const agency = await Agency.findOne({ agents: agentId });
+  if (agency) {
+    const balance = Math.max(0, (agency.presentationQuota || 0) - (agency.presentationsUsed || 0));
+    const LOW_THRESHOLD = 10;
+
+    if (balance <= LOW_THRESHOLD && balance > 0) {
+      await GridNotification.create({
+        eventType:      'LOW_PRESENTATION_BALANCE',
+        title:          `Low Presentation Balance ⚠️ (${balance} remaining)`,
+        message:        `Your agency has only ${balance} presentation(s) remaining on the ${agency.subscriptionTier} plan. Consider upgrading to avoid service interruption.`,
+        entityId:       agency._id,
+        entityModel:    'Agency',
+        recipientId:    agency._id,
+        recipientModel: 'Agency',
+        recipientRole:  'partner',
+        createdByName:  'System',
+        createdByRole:  'system',
+      });
+    }
+
+    if (balance === 0) {
+      await GridNotification.create({
+        eventType:      'SUBSCRIPTION_TIER_LIMIT_REACHED',
+        title:          'Presentation Quota Exhausted 🚫',
+        message:        `Your agency has reached the presentation limit on the ${agency.subscriptionTier} plan. Upgrade your subscription to generate more presentations.`,
+        entityId:       agency._id,
+        entityModel:    'Agency',
+        recipientId:    agency._id,
+        recipientModel: 'Agency',
+        recipientRole:  'partner',
+        createdByName:  'System',
+        createdByRole:  'system',
+      });
+    }
+  }
+} catch (quotaErr) {
+  console.error('Quota notification failed:', quotaErr.message);
+}
   } catch (err) {
     console.error('Save presentation error:', err.message);
     res.status(500).json({ success: false, message: 'Failed to save presentation', error: err.message });

@@ -109,6 +109,19 @@ const agentRole = await Role.findOne({ code: 16 });
   createdByName: `${resolvedFirstName} ${resolvedLastName}`,
   createdByRole: 'agent',
 });
+
+await GridNotification.create({
+  eventType:      'NEW_AGENT_AFFILIATION_REQUEST',
+  title:          'New Agent Affiliation Request 👤',
+  message:        `${resolvedFirstName} ${resolvedLastName} (${email}) has requested to join your agency. Review and approve or decline.`,
+  entityId:       newAgent._id,
+  entityModel:    'Agent',
+  recipientId:    agency,         // agency ID jo agent ne select ki
+  recipientModel: 'Agency',
+  recipientRole:  'partner',
+  createdByName:  `${resolvedFirstName} ${resolvedLastName}`,
+  createdByRole:  'agent',
+}).catch(err => console.error('Agency affiliation notification failed:', err.message));
     res.status(201).json({
       success: true,
       message: 'Registration submitted. Awaiting agency and admin approval.',
@@ -482,6 +495,21 @@ exports.deleteAgent = async (req, res) => {
   createdByName: 'Admin',
   createdByRole: 'admin',
 });
+
+if (agent.agency) {
+  await GridNotification.create({
+    eventType:      'AGENT_OFFBOARDED_AGENCY',
+    title:          'Agent Removed — Leads Need Reassignment ⚠️',
+    message:        `Agent ${agent.first_name} ${agent.last_name} has been removed from your agency. Their active leads have been reverted to your agency dashboard for reassignment.`,
+    entityId:       agent._id,
+    entityModel:    'Agent',
+    recipientId:    agent.agency,
+    recipientModel: 'Agency',
+    recipientRole:  'partner',
+    createdByName:  'Admin',
+    createdByRole:  'admin',
+  }).catch(err => console.error('Agency offboarding notification failed:', err.message));
+}
     return res.status(200).json({
       success: true,
       message: "Agent deleted successfully"
@@ -524,6 +552,19 @@ exports.approveAgent = async (req, res) => {
   createdByName: 'Admin',
   createdByRole: 'admin',
 });
+
+await GridNotification.create({
+  eventType:      'AGENT_AFFILIATION_APPROVED',
+  title:          'Affiliation Approved ✅',
+  message:        `Your affiliation request has been approved. Your account is now under Xoto Admin review.`,
+  entityId:       agent._id,
+  entityModel:    'Agent',
+  recipientId:    agent._id,
+  recipientModel: 'GridAgent',
+  recipientRole:  'agent',
+  createdByName:  'Admin',
+  createdByRole:  'admin',
+}).catch(err => console.error('Agent approval notification failed:', err.message));
     return res.status(200).json({
       success: true,
       message: "Agent approved successfully",
@@ -568,6 +609,19 @@ exports.rejectAgent = async (req, res) => {
   createdByName: 'Admin',
   createdByRole: 'admin',
 });
+
+await GridNotification.create({
+  eventType:      'AGENT_AFFILIATION_REJECTED',
+  title:          'Affiliation Request Declined ❌',
+  message:        `Your affiliation request has been declined. Reason: ${rejection_reason || 'Not specified'}. Contact your agency for more information.`,
+  entityId:       agent._id,
+  entityModel:    'Agent',
+  recipientId:    agent._id,
+  recipientModel: 'GridAgent',
+  recipientRole:  'agent',
+  createdByName:  'Admin',
+  createdByRole:  'admin',
+}).catch(err => console.error('Agent rejection notification failed:', err.message));
     return res.status(200).json({
       success: true,
       message: "Agent rejected",

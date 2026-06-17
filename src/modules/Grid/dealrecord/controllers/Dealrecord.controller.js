@@ -702,6 +702,35 @@ await GridNotification.create({
   createdByName: 'Admin',
   createdByRole: 'admin',
 });
+
+if (deal.agencyId) {
+  await GridNotification.create({
+    eventType:      'AGENCY_COMMISSION_CONFIRMED',
+    title:          'Commission Confirmed 💰',
+    message:        `Commission of AED ${deal.commission.partnerShare.toLocaleString()} for deal ${deal.dealReference} has been confirmed and will be disbursed shortly.`,
+    entityId:       deal._id,
+    entityModel:    'DealRecord',
+    recipientId:    deal.agencyId,
+    recipientModel: 'Agency',
+    recipientRole:  'partner',
+    createdByName:  'Admin',
+    createdByRole:  'admin',
+  }).catch(err => console.error('Agency commission notification failed:', err.message));
+}
+if (deal.agencyId) {
+  await GridNotification.create({
+    eventType:      'AGENT_DEAL_MILESTONE',
+    title:          'Agent Deal Closed 🏆',
+    message:        `One of your affiliated agents has closed a deal. Transaction value: AED ${deal.transactionValue.toLocaleString()}. Your agency commission: AED ${deal.commission.partnerShare.toLocaleString()}.`,
+    entityId:       deal._id,
+    entityModel:    'DealRecord',
+    recipientId:    deal.agencyId,
+    recipientModel: 'Agency',
+    recipientRole:  'partner',
+    createdByName:  'Admin',
+    createdByRole:  'admin',
+  }).catch(err => console.error('Agency deal milestone notification failed:', err.message));
+}
 if (deal.agentId) {
   await GridNotification.create({
     eventType:     'DEAL_COMPLETED',
@@ -716,6 +745,7 @@ if (deal.agentId) {
     createdByRole: 'admin',
   }).catch(err => console.error('Deal completed agent notification failed:', err.message));
 }
+
   res.json({
     success: true,
     message: 'Deal confirmed — record is now immutable',
@@ -919,6 +949,21 @@ await GridNotification.create({
   createdByName: 'Admin',
   createdByRole: 'admin',
 });
+// Referral partner ko payout confirm karo
+if (deal.referralPartnerId) {
+  await GridNotification.create({
+    eventType:     'REFERRAL_PAYOUT_CONFIRMED',
+    title:         'Commission Payout Confirmed ✅',
+    message:       `Your commission of AED ${deal.commission.referralShare.toLocaleString()} for deal ${deal.dealReference} has been paid out. Please check your registered bank account.`,
+    entityId:      deal._id,
+    entityModel:   'DealRecord',
+    recipientId:   deal.referralPartnerId,
+    recipientModel:'GridReferralPartner',
+    recipientRole: 'referral_partner',
+    createdByName: 'Xoto Admin',
+    createdByRole: 'admin',
+  }).catch(err => console.error('Referral payout notification failed:', err.message));
+}
   res.json({
     success: true,
     message: 'Referral commission marked as paid',
