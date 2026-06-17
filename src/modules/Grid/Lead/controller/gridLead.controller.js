@@ -982,7 +982,7 @@ if (lead.referred_by_partner || lead.referral_info?.referral_partner_id) {
       entityModel:   'GridLead',
       recipientId:   partnerId,
       recipientModel:'GridReferralPartner',
-      recipientRole: 'referral_partner',
+      recipientRole: 'gridreferralpartner',
       createdByName: 'Xoto System',
       createdByRole: 'system',
     }).catch(err => console.error('Referral commission notification failed:', err.message));
@@ -997,7 +997,7 @@ if (lead.referred_by_partner || lead.referral_info?.referral_partner_id) {
     entityModel:   'GridLead',
     recipientId:   lead.sourceInfo.createdById,
     recipientModel:'GridAgent',
-    recipientRole: 'referral_partner',
+    recipientRole: 'gridreferralpartner',
     createdByName: req.user?.firstName || 'Advisor',
     createdByRole: 'advisor',
   }).catch(err => console.error('Lead status referral notification failed:', err.message));

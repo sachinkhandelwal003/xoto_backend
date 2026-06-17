@@ -7,7 +7,7 @@ const ROLE_CODE_MAP = {
   '16': 'agent',
   '18': 'admin',
   '15': 'agency',
-  '22': null,     // resolved by agentType below
+  '22': null,     
   '23': 'ops',
   '26': 'advisor',
   '25': 'gridreferralpartner',
@@ -33,7 +33,24 @@ const resolveRoleSlug = (roleCode, user) => {
 
 const getRoleCode = (user) => {
   if (!user?.role) return null;
-  if (typeof user.role === 'object') return String(user.role.code ?? '');
+
+  // Object hai toh code nikalo
+  if (typeof user.role === 'object') {
+    return String(user.role.code ?? '');
+  }
+
+  // String hai — direct role name aa raha hai token se
+  // Map role name to code
+  const ROLE_NAME_MAP = {
+    'GridReferralPartner': '25',
+    'GridAdvisor':         '24',
+    'gridreferralpartner': '25',
+    'gridadvisor':         '24',
+  };
+
+  const byName = ROLE_NAME_MAP[user.role];
+  if (byName) return byName;
+
   return String(user.role);
 };
 
@@ -45,6 +62,7 @@ export const getGridNotifications = async (req, res) => {
     const roleCode = getRoleCode(req.user);
     const roleSlug = resolveRoleSlug(roleCode, req.user);
 console.log('DEBUG:', { roleCode, roleSlug, userRole: req.user?.role }); 
+
     if (!roleSlug) {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
