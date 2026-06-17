@@ -246,7 +246,12 @@ app.use(cors({
         'http://xoto.kotiboxglobaltech.site',
         'https://xoto.kotiboxglobaltech.site',
         'https://xotogrid.kotiboxglobaltech.site',
-        'http://xotogrid.kotiboxglobaltech.site'
+        'http://xotogrid.kotiboxglobaltech.site'     ,
+           'https://kgt.kotiboxglobaltech.site',
+                      'https://kgtvault.kotiboxglobaltech.site',
+                      'https://kgtgrid.kotiboxglobaltech.site'
+
+
         
 
   ],
