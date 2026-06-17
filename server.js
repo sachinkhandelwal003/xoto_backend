@@ -289,7 +289,7 @@ const startServer = async () => {
   require('./src/modules/Grid/cron/milestones.cron'); 
   require('./src/modules/Grid/cron/gridNotification.cron');
   require('./src/modules/Grid/cron/developerAlerts.cron');
-  require('./src/modules/Grid/cron/referralPartnerAlerts.cron');
+  require('./src/modules/Grid/cron/referralpartnerAlerts.cron');
     });
   } catch (err) {
     console.error("Failed to start server:", err);
