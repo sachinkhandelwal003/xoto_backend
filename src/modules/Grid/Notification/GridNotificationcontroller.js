@@ -6,7 +6,7 @@ const ROLE_CODE_MAP = {
   '17':'developer',
   '16': 'agent',
   '18': 'admin',
-  '21': 'partner',
+  '15': 'agency',
   '22': null,     // resolved by agentType below
   '23': 'ops',
   '26': 'advisor',
