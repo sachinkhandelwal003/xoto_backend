@@ -9,6 +9,7 @@ const bcrypt = require("bcryptjs");
 const { Role } = require('../../../../modules/auth/models/role/role.model.js');
 const { createToken } = require('../../../../middleware/auth.js');
 const GridNotification = require('../../Notification/GridNotificationmodal.js').default;
+const { logAudit } = require('../../../vault/services/auditLog.service.js');
 
 const canManageAgentAgreement = (agreement, agentId) =>
   agreement &&
@@ -165,15 +166,34 @@ exports.agentLogin = async (req, res) => {
       }
     }
 
-    if (!agent)
+    if (!agent) {
+      logAudit({
+        entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
+        visibleToRoles: ['grid_admin', 'superadmin'],
+        performedByName: phone || 'Unknown',
+        performedByRole: 'agent',
+        ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
+        metadata: { phone, reason: 'Agent not found' },
+      });
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
 
     if (!agent.password)
       return res.status(401).json({ success: false, message: 'Password not set.' });
 
     const isMatch = await bcrypt.compare(password, agent.password);
-    if (!isMatch)
+    if (!isMatch) {
+      logAudit({
+        entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
+        visibleToRoles: ['grid_admin', 'superadmin'],
+        performedBy: agent._id, performedByModel: 'Agent',
+        performedByName: agent.first_name || agent.phone_number || phone,
+        performedByRole: 'agent',
+        ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
+        metadata: { phone, reason: 'Wrong password' },
+      });
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
 
     if (agent.agencyApprovalStatus !== 'approved')
       return res.status(403).json({ success: false, message: 'Account not approved by agency yet.' });
@@ -187,6 +207,17 @@ exports.agentLogin = async (req, res) => {
     const token = createToken(agentWithRole || agent, 'agent');
     const agentData = (agentWithRole || agent).toObject();
     delete agentData.password;
+
+    logAudit({
+      entityType: 'AUTH', action: 'AUTH_LOGIN_SUCCESS',
+      entityId: agent._id,
+      visibleToRoles: ['grid_admin', 'superadmin'],
+      performedBy: agent._id, performedByModel: 'Agent',
+      performedByName: agent.first_name || agent.phone_number || phone,
+      performedByRole: 'agent',
+      ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
+      metadata: { phone, agentId: agent._id.toString() },
+    });
 
     res.status(200).json({ success: true, token, data: agentData });
   } catch (err) {

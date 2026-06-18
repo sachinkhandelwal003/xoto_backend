@@ -159,6 +159,7 @@ app.use('/vendor/b2b', require('../src/modules/auth/routes/vendor/vendorb2b.rout
 app.use('/business', require('../src/modules/auth/routes/freelancer/freelancerbusiness.routes'));
 
 app.use('/gridadvisor', GridAdvisor);   // grid
+app.use('/grid/audit', require('./modules/Grid/audit/gridAudit.routes.js'));
 
 app.use('/referral', referralPartnerRoutes);
 // RentalProperty

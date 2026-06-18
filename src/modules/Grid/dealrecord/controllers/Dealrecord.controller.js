@@ -1554,14 +1554,13 @@ exports.exportDealRecords = asyncHandler(async (req, res) => {
   });
 
   await new Promise((resolve, reject) => {
-    cursor
-      .pipe(csvTransform)
-      .pipe(res, { end: false })
-      .on('finish', resolve)
-      .on('error', reject);
+    cursor.pipe(csvTransform);
 
-    cursor.on('error', reject);
+    csvTransform.on('finish', resolve);
     csvTransform.on('error', reject);
+    cursor.on('error', reject);
+
+    csvTransform.pipe(res, { end: false });
   });
 
   console.info(
