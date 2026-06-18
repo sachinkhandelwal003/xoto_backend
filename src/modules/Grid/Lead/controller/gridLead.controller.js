@@ -13,6 +13,7 @@ const Property = require('../../../properties/models/property.model.js');
 const PropertyInventory = require('../../../properties/models/property.inventory.model.js');
 const { matchPropertiesForLead } = require('./gridLead.matchHelper');
 const GridNotification = require('../../Notification/GridNotificationmodal.js').default;
+const { logAudit } = require('../../../vault/services/auditLog.service.js');
 
 
 const isGridAdmin = (role) => {
@@ -187,6 +188,23 @@ exports.createWebsiteLead = asyncHandler(async (req, res) => {
   customer.statistics.total_leads = (customer.statistics.total_leads || 0) + 1;
   customer.statistics.total_enquiries = (customer.statistics.total_enquiries || 0) + 1;
   await customer.save();
+
+  logAudit({
+    entityType: 'GRID_LEAD', action: 'GRID_LEAD_CREATED',
+    entityId: lead._id, entityRef: lead._id.toString(),
+    visibleToRoles: ['grid_admin', 'superadmin'],
+    performedByName: `${first_name} ${last_name}`,
+    performedByRole: 'customer',
+    ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
+    metadata: {
+      lead_type: 'platform',
+      enquiry_type,
+      classification,
+      property_id: property_id || null,
+      customerName: `${first_name} ${last_name}`,
+      phone: cleanPhone,
+    },
+  });
 
   res.status(StatusCodes.CREATED).json({
     success: true,
@@ -526,6 +544,22 @@ await GridNotification.create({
       $inc: { 'statistics.total_leads': 1, 'statistics.total_enquiries': 1 },
     });
   }
+
+  logAudit({
+    entityType: 'GRID_LEAD', action: 'GRID_LEAD_CREATED',
+    entityId: lead._id, entityRef: lead._id.toString(),
+    visibleToRoles: ['grid_admin', 'superadmin'],
+    performedBy: agentId, performedByModel: 'Agent',
+    performedByName: req.user?.first_name || req.user?.email || 'Agent',
+    performedByRole: 'agent',
+    ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
+    metadata: {
+      lead_type: 'agent',
+      enquiry_type: resolvedEnquiryType,
+      customerName: `${first_name} ${last_name || ''}`.trim(),
+      listing_id: listing_id || null,
+    },
+  });
 
   return res.status(StatusCodes.CREATED).json({
     success: true,

@@ -16,37 +16,55 @@ const isAdmin = (user) => {
 // Works for: Admin, Agency, ReferralPartner
 // The user's role and ID from the token are used to filter automatically
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /commissions
+// Works for: Admin, Agency, ReferralPartner
+// The user's role and ID from the token are used to filter automatically
+// ─────────────────────────────────────────────────────────────────────────────
 exports.getCommissions = asyncHandler(async (req, res) => {
-  const { role, id } = req.user;              // from JWT middleware (protect)
-  const { page = 1, limit = 10, status, search } = req.query;
+  const { role, id } = req.user;
+  const {
+    page = 1, limit = 10,
+    status, search,
+    dealType,           // 'sale' | 'lease'
+    agentType,          // 'agent' | 'advisor'
+    dateFrom, dateTo,
+  } = req.query;
 
   const baseFilter = {
-    status: 'completed',                        // only closed deals
     'deal_record.commission_amount': { $exists: true, $ne: null },
   };
 
-  // ── Role‑specific filtering ───────────────────────────────────────────
+  // ── Role-specific filtering ────────────────────────────────────────────
   if (role === 'gridreferralpartner') {
     baseFilter.referred_by_partner = id;
   } else if (role === 'agency') {
-    // Get all agents that belong to this agency
     try {
       const agents = await GridAgent.find({ agencyId: id }).select('_id').lean();
-      const agentIds = agents.map(a => a._id);
-      baseFilter.created_by_agent = { $in: agentIds };
-    } catch (err) {
-      // If GridAgent model doesn’t exist, skip agency filter and return empty
+      baseFilter.created_by_agent = { $in: agents.map(a => a._id) };
+    } catch {
       baseFilter.created_by_agent = null;
     }
   }
-  // Admin sees everything – no extra filter
 
-  // Optional commission status filter
+  // ── Optional filters ───────────────────────────────────────────────────
   if (status && status !== 'all') {
     baseFilter['deal_record.commission_status'] = status;
   }
-
-  // Optional client search
+  if (dealType) {
+    baseFilter['deal_record.deal_type'] = dealType;
+  }
+  if (agentType === 'agent') {
+    baseFilter.created_by_agent = { $exists: true, $ne: null };
+    baseFilter.assigned_advisor = { $exists: false };
+  } else if (agentType === 'advisor') {
+    baseFilter.assigned_advisor = { $exists: true, $ne: null };
+  }
+  if (dateFrom || dateTo) {
+    baseFilter['deal_record.closed_at'] = {};
+    if (dateFrom) baseFilter['deal_record.closed_at'].$gte = new Date(dateFrom);
+    if (dateTo)   baseFilter['deal_record.closed_at'].$lte = new Date(dateTo);
+  }
   if (search) {
     baseFilter.$or = [
       { 'contact_info.name.first_name': { $regex: search, $options: 'i' } },
@@ -59,7 +77,7 @@ exports.getCommissions = asyncHandler(async (req, res) => {
 
   const [leads, total] = await Promise.all([
     GridLead.find(baseFilter)
-      .populate('source.listing_id', 'propertyName')
+      .populate('source.listing_id', 'propertyName propertySubType')
       .populate('created_by_agent', 'firstName lastName agencyId')
       .populate('referred_by_partner', 'firstName lastName')
       .sort({ 'deal_record.closed_at': -1, updatedAt: -1 })
@@ -69,8 +87,8 @@ exports.getCommissions = asyncHandler(async (req, res) => {
     GridLead.countDocuments(baseFilter),
   ]);
 
-  // ── Aggregate stats ───────────────────────────────────────────────────
-  const stats = await GridLead.aggregate([
+  // ── Aggregate stats ────────────────────────────────────────────────────
+  const statsAgg = await GridLead.aggregate([
     { $match: baseFilter },
     {
       $group: {
@@ -83,42 +101,47 @@ exports.getCommissions = asyncHandler(async (req, res) => {
 
   const statsObj = { pending: 0, confirmed: 0, paid: 0 };
   let totalPool = 0;
-  stats.forEach(s => {
+  statsAgg.forEach(s => {
     statsObj[s._id] = s.totalAmount;
     totalPool += s.totalAmount;
   });
 
-  // ── Format the response ───────────────────────────────────────────────
-  const formattedLeads = leads.map(l => ({
-    _id: l._id,
-    dealId: l._id.toString().slice(-6).toUpperCase(),
-    clientName: l.contact_info?.name
-      ? `${l.contact_info.name.first_name || ''} ${l.contact_info.name.last_name || ''}`.trim()
-      : 'Unknown',
-    propertyName: l.source?.listing_id?.propertyName || '—',
-    transactionValue: l.deal_record?.transaction_value || 0,
-    commissionRate: l.referral_info?.commission_rate || null,
-    commissionAmount: l.deal_record?.commission_amount || 0,
-    commissionStatus: l.deal_record?.commission_status || 'pending',
-    agentName: l.created_by_agent
-      ? `${l.created_by_agent.firstName || ''} ${l.created_by_agent.lastName || ''}`.trim()
-      : '—',
-    agencyName: l.created_by_agent?.agencyId?.name || null,   // adjust if agency is populated
-    partnerName: l.referred_by_partner
-      ? `${l.referred_by_partner.firstName || ''} ${l.referred_by_partner.lastName || ''}`.trim()
-      : null,
-    closedAt: l.deal_record?.closed_at || l.updatedAt,
-  }));
+  // ── Format response ────────────────────────────────────────────────────
+  const formattedLeads = leads.map(l => {
+    const dr = l.deal_record || {};
+    return {
+      _id:              l._id,
+      dealRecordId:     dr.deal_record_id || null,   // for navigation to detail page
+      dealId:           dr.deal_reference || l._id.toString().slice(-6).toUpperCase(),
+      dealType:         dr.deal_type || null,
+      clientName:       l.contact_info?.name
+        ? `${l.contact_info.name.first_name || ''} ${l.contact_info.name.last_name || ''}`.trim()
+        : 'Unknown',
+      propertyName:     l.source?.listing_id?.propertyName || '—',
+      propertySubType:  l.source?.listing_id?.propertySubType || null,
+      transactionValue: dr.transaction_value || 0,
+      commissionRate:   l.referral_info?.commission_rate || null,
+      commissionAmount: dr.commission_amount || 0,
+      commissionStatus: dr.commission_status || 'pending',
+      // Referral commission
+      referralAmount:           dr.referral_commission_amount || 0,
+      referralCommissionStatus: dr.referral_commission_status || null,
+      agentName:  l.created_by_agent
+        ? `${l.created_by_agent.firstName || ''} ${l.created_by_agent.lastName || ''}`.trim()
+        : '—',
+      agencyName:  l.created_by_agent?.agencyId?.name || null,
+      partnerName: l.referred_by_partner
+        ? `${l.referred_by_partner.firstName || ''} ${l.referred_by_partner.lastName || ''}`.trim()
+        : null,
+      closedAt: dr.closed_at || l.updatedAt,
+    };
+  });
 
   res.status(200).json({
     success: true,
     stats: { totalPool, ...statsObj },
     data: formattedLeads,
-    pagination: {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total,
-    },
+    pagination: { page: parseInt(page), limit: parseInt(limit), total },
   });
 });
 

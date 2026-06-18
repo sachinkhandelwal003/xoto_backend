@@ -5,6 +5,7 @@ const { createToken } = require("../../../../middleware/auth");
 const { APIError } = require("../../../../utils/errorHandler");
 const asyncHandler = require("../../../../utils/asyncHandler");
 const { StatusCodes } = require("../../../../utils/constants/statusCodes");
+const { logAudit } = require('../../../vault/services/auditLog.service.js');
 
 // ── Send Token Response ───────────────────────────────────────────────────────
 const sendTokenResponse = (advisor, statusCode, res) => {
@@ -350,11 +351,28 @@ exports.loginGridAdvisor = asyncHandler(async (req, res) => {
     .populate("role", "name code");
 
   if (!advisor) {
+    logAudit({
+      entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
+      visibleToRoles: ['grid_admin', 'superadmin'],
+      performedByName: email || 'Unknown',
+      performedByRole: 'grid_advisor',
+      ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
+      metadata: { email, reason: 'Advisor not found' },
+    });
     throw new APIError("Invalid email or password", StatusCodes.UNAUTHORIZED);
   }
 
   const isCorrect = await advisor.correctPassword(password);
   if (!isCorrect) {
+    logAudit({
+      entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
+      visibleToRoles: ['grid_admin', 'superadmin'],
+      performedBy: advisor._id, performedByModel: 'GridAdvisor',
+      performedByName: `${advisor.firstName || ''} ${advisor.lastName || ''}`.trim() || email,
+      performedByRole: 'grid_advisor',
+      ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
+      metadata: { email, reason: 'Wrong password' },
+    });
     throw new APIError("Invalid email or password", StatusCodes.UNAUTHORIZED);
   }
 
@@ -386,6 +404,17 @@ exports.loginGridAdvisor = asyncHandler(async (req, res) => {
   await advisor.populate("role", "name code");
 
   const token = createToken(advisor);
+
+  logAudit({
+    entityType: 'AUTH', action: 'AUTH_LOGIN_SUCCESS',
+    entityId: advisor._id,
+    visibleToRoles: ['grid_admin', 'superadmin'],
+    performedBy: advisor._id, performedByModel: 'GridAdvisor',
+    performedByName: `${advisor.firstName || ''} ${advisor.lastName || ''}`.trim() || email,
+    performedByRole: 'grid_advisor',
+    ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
+    metadata: { email },
+  });
 
   res.status(200).json({
     success: true,

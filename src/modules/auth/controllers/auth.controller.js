@@ -6,6 +6,7 @@ const asyncHandler = require('../../../utils/asyncHandler');
 const bcrypt = require('bcryptjs');
 const { createToken } = require('../../../middleware/auth');
 const ActivityLog = require('../models/history/ActivityLog.model');
+const { logAudit } = require('../../vault/services/auditLog.service.js');
 // Create a new user
 exports.createUser = asyncHandler(async (req, res) => {
   const { email, password, role: roleId, status } = req.body;
@@ -217,6 +218,9 @@ exports.getAllUsers = asyncHandler(async (req, res) => {stat
 exports.login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
+  const ip = req.ip ?? null;
+  const ua = req.headers?.['user-agent'] ?? null;
+
   // Find user with password & role populated
   const user = await User.findOne({ email })
     .select('+password')
@@ -226,11 +230,27 @@ exports.login = asyncHandler(async (req, res) => {
     });
 
   if (!user) {
+    logAudit({
+      entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
+      visibleToRoles: ['grid_admin', 'superadmin'],
+      performedByName: email || 'Unknown',
+      ipAddress: ip, userAgent: ua,
+      metadata: { email, reason: 'User not found' },
+    });
     throw new APIError('Invalid email or password', StatusCodes.UNAUTHORIZED);
   }
 
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) {
+    logAudit({
+      entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
+      visibleToRoles: ['grid_admin', 'superadmin'],
+      performedBy: user._id, performedByModel: 'User',
+      performedByName: user.email,
+      performedByRole: user.role?.name || null,
+      ipAddress: ip, userAgent: ua,
+      metadata: { email, reason: 'Wrong password' },
+    });
     throw new APIError('Invalid email or password', StatusCodes.UNAUTHORIZED);
   }
 
@@ -238,9 +258,21 @@ exports.login = asyncHandler(async (req, res) => {
   if (!user.isActive) {
     throw new APIError('Account is deactivated', StatusCodes.FORBIDDEN);
   }
- 
+
   // Generate token
   const token = createToken(user);
+
+  // Log successful login
+  logAudit({
+    entityType: 'AUTH', action: 'AUTH_LOGIN_SUCCESS',
+    entityId: user._id, entityRef: user.email,
+    visibleToRoles: ['grid_admin', 'superadmin'],
+    performedBy: user._id, performedByModel: 'User',
+    performedByName: user.email,
+    performedByRole: user.role?.name || null,
+    ipAddress: ip, userAgent: ua,
+    metadata: { email: user.email, roleCode: user.role?.code, roleName: user.role?.name },
+  });
 
   // Remove sensitive fields
   const userObj = user.toObject();
