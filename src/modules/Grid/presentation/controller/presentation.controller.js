@@ -145,7 +145,8 @@ const servePresentationHtml = async (req, res, presentation, token) => {
     let htmlContent = Buffer.concat(chunks).toString('utf-8');
 
     // ✅ PDF download button inject karo — </body> se pehle
-const pdfDownloadUrl = `${req.baseUrl}/pdf/${encodeURIComponent(token)}`;
+// const pdfDownloadUrl = `${req.baseUrl}/pdf/${encodeURIComponent(token)}`;
+const pdfDownloadUrl = `${(process.env.BACKEND_URL || '').replace(/\/+$/, '')}/presentation/pdf/${encodeURIComponent(token)}`;
 const presentationThemePatch = `
 <style id="presentation-theme-patch">
   .slide-header {
