@@ -37,6 +37,7 @@ router.post('/:id/suggest-property',    controller.suggestPropertyToClient);
 router.put ('/:id/suggestion-reaction', controller.updateSuggestionReaction);
 router.put ('/:id/update-requirements', controller.updateLeadRequirements);
 router.get ('/:id/smart-matches',       controller.getSmartMatches);
+router.get('/advisor/my-viewings', controller.getAdvisorViewings);
 
 
 
@@ -52,6 +53,10 @@ router.get('/submitted-queue',       controller.getSubmittedQueue);       // una
 router.get('/routing-queue',         controller.getRoutingQueue);         // pending admin assignment, grouped by tier
 router.get('/:id/suggest-advisors',  controller.suggestAdvisorsForLead);  // advisor suggestions
 router.put('/:id/assign',            controller.assignAdvisorToLead);     // assign advisor
+router.get ('/admin/viewing-requests',        controller.getViewingRequests);
+router.get ('/admin/advisors',                controller.getAdvisorsForViewing);
+router.post('/admin/viewing-requests/assign', controller.assignViewingAdvisor);
+router.patch('/admin/viewing-requests/status', controller.updateViewingStatus);
 
 // ── GENERAL LEADS (Admin only) ───────────────────────────────────────────
 router.post('/general/create',       controller.createGeneralLead);       // single general lead
@@ -76,7 +81,7 @@ router.post  ('/agent/:id/save-matches',         controller.saveMatchedListings)
 router.post  ('/agent/:id/submit-to-xoto',       controller.submitLeadToXoto);
 router.post  ('/agent/:id/update-requirements',  controller.agentUpdateRequirements);
 router.post  ('/agent/:id/note',                 controller.addAgentNote);
-
+router.post('/agent/:id/viewing-request',     controller.createViewingRequest);
 
 // ────────────────────────────────────────────────────────────────────────────
 // REFERRAL PARTNER ROUTES  (prefix: /referral)

@@ -429,6 +429,7 @@ exports.createLead = asyncHandler(async (req, res) => {
     furnished = 'any',
     ready_by_date, additional_notes,
     listing_id, enquiry_type,
+    listing_ids,
   } = req.body;
 
   if (!first_name || !first_name.trim()) {
@@ -485,10 +486,13 @@ exports.createLead = asyncHandler(async (req, res) => {
     classification:        'warm',
     classification_reason: 'Agent requirement lead created via CRM',
     routing_status:        'draft',
-    source: {
-      channel:    'agent_added',
-      listing_id: listing_id || null,
-    },
+   source: {
+  channel:    'agent_added',
+  listing_id: listing_id || null,
+},
+listing_ids: Array.isArray(req.body.listing_ids) && req.body.listing_ids.length > 0
+  ? req.body.listing_ids
+  : listing_id ? [listing_id] : [],
     requirements: {
       property_type,
       transaction_type,
@@ -791,26 +795,37 @@ exports.assignAdvisorToLead = asyncHandler(async (req, res) => {
 
 exports.getMyAssignedLeads = asyncHandler(async (req, res) => {
   const advisorId = req.user._id;
-  const page      = parseInt(req.query.page,  10) || 1;
-  const limit     = parseInt(req.query.limit, 10) || 10;
-  const skip      = (page - 1) * limit;
+  const page  = parseInt(req.query.page, 10) || 1;
+  const limit = parseInt(req.query.limit, 10) || 10;
+  const skip  = (page - 1) * limit;
 
-  const filter = { assigned_to: advisorId };
+  // ← YAHAN FIX KARO — dono fields se filter karo
+  const filter = {
+    $or: [
+      { assigned_to: advisorId },
+      { 'viewing_requests.advisor_id': advisorId },
+    ],
+  };
+
   if (req.query.status) filter.status = req.query.status;
 
   if (req.query.search) {
-    filter.$or = [
-      { 'contact_info.name.first_name': { $regex: req.query.search, $options: 'i' } },
-      { 'contact_info.name.last_name':  { $regex: req.query.search, $options: 'i' } },
-      { 'contact_info.mobile.number':   { $regex: req.query.search, $options: 'i' } },
-      { 'contact_info.email.address':   { $regex: req.query.search, $options: 'i' } },
-    ];
+    filter.$and = [{
+      $or: [
+        { 'contact_info.name.first_name': { $regex: req.query.search, $options: 'i' } },
+        { 'contact_info.name.last_name':  { $regex: req.query.search, $options: 'i' } },
+        { 'contact_info.mobile.number':   { $regex: req.query.search, $options: 'i' } },
+        { 'contact_info.email.address':   { $regex: req.query.search, $options: 'i' } },
+      ]
+    }];
   }
 
   const [leads, total] = await Promise.all([
     GridLead.find(filter)
       .populate('source.listing_id')
       .populate('created_by_agent', 'first_name last_name email')
+      .populate('viewing_requests.property_id', 'propertyName area city price mainLogo')
+      .populate('viewing_requests.advisor_id', 'firstName lastName')
       .sort({ assigned_at: -1, createdAt: -1 })
       .skip(skip)
       .limit(limit),
@@ -2274,4 +2289,337 @@ exports.deleteAgentLead = asyncHandler(async (req, res) => {
   });
 
   return res.json({ success: true, message: 'Lead deleted successfully' });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// AGENT — REQUEST A VIEWING
+// POST /gridlead/agent/:id/viewing-request
+// ════════════════════════════════════════════════════════════════════════════
+
+exports.createViewingRequest = asyncHandler(async (req, res) => {
+  const { id }    = req.params;
+  const agentId   = req.user._id;
+  const { property_id, preferred_date, preferred_time, notes } = req.body;
+
+  if (!preferred_date) {
+    return res.status(400).json({ success: false, message: 'preferred_date is required' });
+  }
+
+  const lead = await GridLead.findOne({ _id: id, created_by_agent: agentId });
+  if (!lead) {
+    return res.status(404).json({ success: false, message: 'Lead not found or access denied' });
+  }
+
+  lead.viewing_requests.push({
+    property_id:    property_id || null,
+    requested_by:   agentId,
+    preferred_date: new Date(preferred_date),
+    preferred_time: preferred_time || '',
+    notes:          notes || '',
+    status:         'pending',
+    created_at:     new Date(),
+  });
+
+  // Also log as a communication entry
+  lead.communications.push({
+    comm_type:    'site_visit',
+    direction:    'outbound',
+    summary:      `Viewing requested for ${preferred_date}${preferred_time ? ' at ' + preferred_time : ''}${notes ? '. Note: ' + notes : ''}`,
+    conducted_by: agentId,
+    conducted_at: new Date(),
+  });
+
+  await lead.save();
+
+  // Notify admin
+  await GridNotification.create({
+    eventType:     'VIEWING_REQUESTED',
+    title:         'New Viewing Request 🏠',
+    message:       `Agent requested a property viewing for lead: ${lead.contact_info?.name?.first_name || ''} ${lead.contact_info?.name?.last_name || ''}. Date: ${preferred_date}${preferred_time ? ' at ' + preferred_time : ''}.`,
+    entityId:      lead._id,
+    entityModel:   'GridLead',
+    recipientId:   null,
+    recipientRole: 'admin',
+    createdByName: req.user?.first_name || 'Agent',
+    createdByRole: 'agent',
+  }).catch(err => console.error('Viewing request notification failed:', err.message));
+
+  const newRequest = lead.viewing_requests[lead.viewing_requests.length - 1];
+
+  return res.status(201).json({
+    success: true,
+    message: 'Viewing request submitted. Admin will confirm shortly.',
+    data: newRequest,
+  });
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// ADMIN — GET ALL VIEWING REQUESTS (across all leads)
+// GET /gridlead/admin/viewing-requests
+// ════════════════════════════════════════════════════════════════════════════
+
+exports.getViewingRequests = asyncHandler(async (req, res) => {
+  const { status, page: p = 1, limit: l = 20 } = req.query;
+  const page  = parseInt(p,  10);
+  const limit = parseInt(l, 10);
+  const skip  = (page - 1) * limit;
+
+  // Match only leads that have at least one viewing request
+  const matchFilter = { 'viewing_requests.0': { $exists: true }, is_deleted: false };
+  if (status && status !== 'all') {
+    matchFilter['viewing_requests.status'] = status;
+  }
+
+  const leads = await GridLead.find(matchFilter)
+    .select('contact_info viewing_requests created_by_agent')
+    .populate('viewing_requests.property_id',  'propertyName area city price mainLogo')
+    .populate('viewing_requests.requested_by', 'first_name last_name email phone_number')
+    .populate('viewing_requests.advisor_id',   'firstName lastName email phone specialisation')
+    .populate('created_by_agent',              'first_name last_name email')
+    .sort({ updatedAt: -1 })
+    .lean();
+
+  // Flatten all viewing_requests with their parent lead context
+  const allRequests = [];
+  leads.forEach(lead => {
+    (lead.viewing_requests || []).forEach(vr => {
+      if (status && status !== 'all' && vr.status !== status) return;
+      allRequests.push({
+        ...vr,
+        lead_id:   lead._id,
+        lead_name: `${lead.contact_info?.name?.first_name || ''} ${lead.contact_info?.name?.last_name || ''}`.trim(),
+        lead_phone: `${lead.contact_info?.mobile?.country_code || ''} ${lead.contact_info?.mobile?.number || ''}`.trim(),
+        agent:     lead.created_by_agent,
+      });
+    });
+  });
+
+  // Sort newest first
+  allRequests.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  // Stats
+  const stats = { pending: 0, confirmed: 0, assigned: 0, completed: 0, cancelled: 0 };
+  allRequests.forEach(r => { if (stats[r.status] !== undefined) stats[r.status]++; });
+
+  // Paginate
+  const total    = allRequests.length;
+  const paginated = allRequests.slice(skip, skip + limit);
+
+  return res.json({
+    success: true,
+    stats,
+    data: paginated,
+    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
+  });
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// ADMIN — ASSIGN ADVISOR TO VIEWING REQUEST
+// POST /gridlead/admin/viewing-requests/assign
+// Body: { lead_id, viewing_request_id, advisor_id, confirmed_date, confirmed_time, admin_note }
+// ════════════════════════════════════════════════════════════════════════════
+
+exports.assignViewingAdvisor = asyncHandler(async (req, res) => {
+  const {
+    lead_id, viewing_request_id, advisor_id,
+    confirmed_date, confirmed_time, admin_note,
+  } = req.body;
+
+  if (!lead_id || !viewing_request_id || !advisor_id) {
+    return res.status(400).json({
+      success: false,
+      message: 'lead_id, viewing_request_id and advisor_id are required',
+    });
+  }
+
+  const [lead, advisor] = await Promise.all([
+    GridLead.findById(lead_id),
+    GridAdvisor.findOne({ _id: advisor_id, status: 'active' }).select('firstName lastName email'),
+  ]);
+
+  if (!lead)    return res.status(404).json({ success: false, message: 'Lead not found' });
+  if (!advisor) return res.status(404).json({ success: false, message: 'Advisor not found or inactive' });
+
+  const vr = lead.viewing_requests.id(viewing_request_id);
+  if (!vr) return res.status(404).json({ success: false, message: 'Viewing request not found' });
+
+  vr.advisor_id      = advisor_id;
+  vr.status          = 'assigned';
+  vr.confirmed_date  = confirmed_date ? new Date(confirmed_date) : vr.preferred_date;
+  vr.confirmed_time  = confirmed_time || vr.preferred_time;
+  vr.admin_note      = admin_note || '';
+  vr.assigned_by     = req.user._id;
+  vr.assigned_at     = new Date();
+
+  await lead.save();
+
+  // Notify agent
+  if (lead.created_by_agent) {
+    await GridNotification.create({
+      eventType:     'VIEWING_ASSIGNED',
+      title:         'Viewing Request Assigned ✅',
+      message:       `Your viewing request has been assigned to ${advisor.firstName} ${advisor.lastName}. Confirmed for ${confirmed_date || vr.preferred_date}${confirmed_time ? ' at ' + confirmed_time : ''}.`,
+      entityId:      lead._id,
+      entityModel:   'GridLead',
+      recipientId:   lead.created_by_agent,
+      recipientModel:'GridAgent',
+      recipientRole: 'agent',
+      createdByName: req.user?.firstName || 'Admin',
+      createdByRole: 'admin',
+    }).catch(err => console.error('Viewing assigned notification failed:', err.message));
+  }
+  // Existing agent notification ke NEECHE ye add karo:
+
+// ✅ Advisor ko bhi notify karo
+await GridNotification.create({
+  eventType:     'VIEWING_ASSIGNED',
+  title:         'New Site Visit Assigned 🏠',
+  message:       `You have been assigned a site visit for client ${lead.contact_info?.name?.first_name || ''} ${lead.contact_info?.name?.last_name || ''}. Confirmed for ${confirmed_date || vr.preferred_date}${confirmed_time ? ' at ' + confirmed_time : ''}.`,
+  entityId:      lead._id,
+  entityModel:   'GridLead',
+  recipientId:   advisor_id,          // ← advisor ka ID
+  recipientModel: 'GridAdvisor',
+  recipientRole: 'advisor',           // ← advisor ka role
+  createdByName: req.user?.firstName || 'Admin',
+  createdByRole: 'admin',
+}).catch(err => console.error('Advisor viewing notification failed:', err.message));
+if (!lead.assigned_to || lead.assigned_to.toString() !== advisor_id.toString()) {
+  lead.assigned_to = advisor_id;
+  lead.assigned_at = new Date();
+  lead.routing_status = 'assigned';
+
+  // Add a note about the auto-assignment
+  lead.notes.push({
+    text: `Lead automatically assigned to ${advisor.firstName} ${advisor.lastName} via site visit assignment.`,
+    author: req.user?.firstName || 'Admin',
+    author_type: 'admin',
+    is_private: false,
+    created_at: new Date(),
+  });
+
+  await lead.save();
+
+  // 🔔 Notify the advisor about the new lead assignment
+  await GridNotification.create({
+    eventType:     'LEAD_ASSIGNED',
+    title:         'New Lead Assigned via Site Visit 🎯',
+    message:       `A lead has been assigned to you automatically because you were assigned a site visit for client ${lead.contact_info?.name?.first_name || ''} ${lead.contact_info?.name?.last_name || ''}.`,
+    entityId:      lead._id,
+    entityModel:   'GridLead',
+    recipientId:   advisor_id,
+    recipientModel: 'GridAdvisor',
+    recipientRole: 'advisor',
+    createdByName: req.user?.firstName || 'Admin',
+    createdByRole: 'admin',
+  }).catch(err => console.error('Lead assignment notification for advisor failed:', err.message));
+
+  // Also notify the agent who created the lead (if any)
+  if (lead.created_by_agent) {
+    await GridNotification.create({
+      eventType:     'LEAD_ASSIGNED',
+      title:         'Your Lead Has Been Assigned 🎯',
+      message:       `Your lead (${lead.contact_info?.name?.first_name || ''} ${lead.contact_info?.name?.last_name || ''}) has been assigned to advisor ${advisor.firstName} ${advisor.lastName} via site visit assignment.`,
+      entityId:      lead._id,
+      entityModel:   'GridLead',
+      recipientId:   lead.created_by_agent,
+      recipientModel:'GridAgent',
+      recipientRole: 'agent',
+      createdByName: req.user?.firstName || 'Admin',
+      createdByRole: 'admin',
+    }).catch(err => console.error('Agent lead assigned notification failed:', err.message));
+  }
+}
+  return res.json({
+    success: true,
+    message: `Viewing assigned to ${advisor.firstName} ${advisor.lastName}`,
+    data: vr,
+  });
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// ADMIN — UPDATE VIEWING REQUEST STATUS
+// PATCH /gridlead/admin/viewing-requests/status
+// Body: { lead_id, viewing_request_id, status }
+// ════════════════════════════════════════════════════════════════════════════
+
+exports.updateViewingStatus = asyncHandler(async (req, res) => {
+  const { lead_id, viewing_request_id, status } = req.body;
+
+  const ALLOWED = ['pending', 'confirmed', 'assigned', 'completed', 'cancelled'];
+  if (!ALLOWED.includes(status)) {
+    return res.status(400).json({ success: false, message: `status must be one of: ${ALLOWED.join(', ')}` });
+  }
+
+  const lead = await GridLead.findById(lead_id);
+  if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
+
+  const vr = lead.viewing_requests.id(viewing_request_id);
+  if (!vr) return res.status(404).json({ success: false, message: 'Viewing request not found' });
+
+  vr.status = status;
+  await lead.save();
+
+  return res.json({ success: true, message: `Viewing status updated to ${status}`, data: vr });
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// ADMIN — GET ADVISORS LIST (for viewing assign dropdown)
+// GET /gridlead/admin/advisors
+// ════════════════════════════════════════════════════════════════════════════
+
+exports.getAdvisorsForViewing = asyncHandler(async (req, res) => {
+  const advisors = await GridAdvisor.find({ status: 'active' })
+    .select('firstName lastName email phone specialisation workload')
+    .sort({ 'workload.activeLeadsCount': 1 })
+    .lean();
+
+  return res.json({ success: true, data: advisors });
+});
+// ════════════════════════════════════════════════════════════════════════════
+// ADVISOR — GET MY ASSIGNED VIEWINGS
+// GET /gridlead/advisor/my-viewings
+// ════════════════════════════════════════════════════════════════════════════
+
+exports.getAdvisorViewings = asyncHandler(async (req, res) => {
+  const advisorId = req.user._id;
+  const { status } = req.query;
+
+  const matchFilter = {
+    'viewing_requests.advisor_id': advisorId,
+    is_deleted: false,
+  };
+
+  const leads = await GridLead.find(matchFilter)
+    .select('contact_info viewing_requests requirements created_by_agent')
+    .populate('viewing_requests.property_id',  'propertyName area city price mainLogo')
+    .populate('viewing_requests.requested_by', 'first_name last_name email phone_number')
+    .populate('created_by_agent',              'first_name last_name email')
+    .lean();
+
+  const myViewings = [];
+  leads.forEach(lead => {
+    (lead.viewing_requests || []).forEach(vr => {
+      if (vr.advisor_id?.toString() !== advisorId.toString()) return;
+      if (status && status !== 'all' && vr.status !== status) return;
+      myViewings.push({
+        ...vr,
+        lead_id:    lead._id,
+        lead_name:  `${lead.contact_info?.name?.first_name || ''} ${lead.contact_info?.name?.last_name || ''}`.trim(),
+        lead_phone: `${lead.contact_info?.mobile?.country_code || ''} ${lead.contact_info?.mobile?.number || ''}`.trim(),
+        requirements: lead.requirements,
+        agent:      lead.created_by_agent,
+      });
+    });
+  });
+
+  myViewings.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  const stats = { pending: 0, confirmed: 0, assigned: 0, completed: 0, cancelled: 0 };
+  myViewings.forEach(v => { if (stats[v.status] !== undefined) stats[v.status]++; });
+
+  return res.json({ success: true, stats, data: myViewings });
 });
