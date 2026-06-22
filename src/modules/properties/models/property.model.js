@@ -230,6 +230,7 @@ const PropertySchema = new mongoose.Schema(
     // FEATURES
     // ══════════════════════════════════════════════════════════════
     hasView:       { type: Boolean, default: false },
+    canVisit:      { type: Boolean, default: false },
     viewType: {
       type:    [String],
       enum:    ["sea", "city", "garden", "landmark", "pool", "park"],

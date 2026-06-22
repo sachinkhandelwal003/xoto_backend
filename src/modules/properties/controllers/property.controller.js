@@ -382,6 +382,7 @@ console.log("isDraft:", isDraft);
 
       hasView:       hasView       || false,
       viewType:      viewType      || [],
+      canVisit:      req.body.canVisit || false,
       parkingSpaces: parkingSpaces || 0,
       furnishing:    furnishing    || "unfurnished",
       furnishingStatus: furnishingStatus || "Unfurnished",
@@ -940,6 +941,10 @@ exports.updateProperty = async (req, res) => {
     }
     if (req.body.completionDate !== undefined) {
       updateData.completionDate = req.body.completionDate;
+      
+      if (req.body.canVisit !== undefined) {
+  updateData.canVisit = req.body.canVisit;
+}
     }
     if (req.body.youtubeVideos !== undefined) {
       updateData.youtubeVideos = req.body.youtubeVideos;
