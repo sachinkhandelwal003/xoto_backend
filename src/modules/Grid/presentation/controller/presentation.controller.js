@@ -435,7 +435,8 @@ const getMyPresentations = async (req, res) => {
 
     const total = await Presentation.countDocuments(query);
 
-    const apiBaseUrl = `${process.env.BACKEND_URL}/api/presentation`;
+    // const apiBaseUrl = `${process.env.BACKEND_URL}/api/presentation`;
+    const apiBaseUrl = `${process.env.BACKEND_URL}/presentation`;
     const presentationRows = presentations.map((presentation) => {
       const row = presentation.toObject ? presentation.toObject() : presentation;
       const trackingUrl = `${apiBaseUrl}/track/${row.trackingToken}`;
