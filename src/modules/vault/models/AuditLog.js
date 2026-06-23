@@ -16,6 +16,10 @@ export const ENTITY_TYPES = {
   PARTNER:     'PARTNER',
   AGENT:       'AGENT',
   SYSTEM:      'SYSTEM',
+  PROPERTY:     'PROPERTY',
+  GRID_LEAD:    'GRID_LEAD',
+  AUTH:         'AUTH',
+  PRESENTATION: 'PRESENTATION',
 };
 
 // ══════════════════════════════════════════════════════════════════
@@ -82,6 +86,26 @@ export const AUDIT_ACTIONS = {
   OPS_REASSIGNMENT:          'OPS_REASSIGNMENT',
   OPS_STATUS_OVERRIDE:       'OPS_STATUS_OVERRIDE',
   OPS_ADMIN_INTERVENTION:    'OPS_ADMIN_INTERVENTION',
+
+  // Property (Grid)
+  PROPERTY_CREATED:          'PROPERTY_CREATED',
+  PROPERTY_UPDATED:          'PROPERTY_UPDATED',
+  PROPERTY_DELETED:          'PROPERTY_DELETED',
+  PROPERTY_APPROVED:         'PROPERTY_APPROVED',
+  PROPERTY_REJECTED:         'PROPERTY_REJECTED',
+
+  // Grid Lead
+  GRID_LEAD_CREATED:         'GRID_LEAD_CREATED',
+  GRID_LEAD_ASSIGNED:        'GRID_LEAD_ASSIGNED',
+  GRID_LEAD_STATUS_CHANGED:  'GRID_LEAD_STATUS_CHANGED',
+
+  // Auth (Grid)
+  AUTH_LOGIN_SUCCESS:        'AUTH_LOGIN_SUCCESS',
+  AUTH_LOGIN_FAILED:         'AUTH_LOGIN_FAILED',
+  AUTH_LOGOUT:               'AUTH_LOGOUT',
+
+  // Presentation
+  PPT_GENERATED:             'PPT_GENERATED',
 };
 
 // ══════════════════════════════════════════════════════════════════
@@ -108,6 +132,10 @@ export const DEFAULT_VISIBILITY = {
   PARTNER:     ['admin', 'partner'],
   AGENT:       ['admin'],
   SYSTEM:      ['admin'],
+  PROPERTY:     ['grid_admin', 'superadmin'],
+  GRID_LEAD:    ['grid_admin', 'superadmin'],
+  AUTH:         ['grid_admin', 'superadmin'],
+  PRESENTATION: ['grid_admin', 'superadmin'],
 };
 
 // ══════════════════════════════════════════════════════════════════
@@ -117,7 +145,6 @@ const auditLogSchema = new mongoose.Schema(
   {
     entityType: {
       type: String,
-      enum: Object.values(ENTITY_TYPES),
       required: true,
     },
     entityId: {

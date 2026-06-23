@@ -12,6 +12,7 @@ const { APIError } = require('../../../../utils/errorHandler');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const { Role } = require('../../../auth/models/role/role.model');
 const GridNotification = require('../../Notification/GridNotificationmodal').default;
+const { logAudit } = require('../../../vault/services/auditLog.service.js');
 // ── Helpers ─────────────────────────────────────────────────────────────────
 const sendTokenResponse = (agency, statusCode, res) => {
   const token = createToken(agency);
@@ -144,29 +145,59 @@ exports.login = asyncHandler(async (req, res) => {
   const agency = await Agency.findOne({ primaryContactEmail: email, isActive: true })
     .select('+password')
     .populate('role', 'code name');
- 
-  if (!agency) throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
- 
+
+  if (!agency) {
+    logAudit({
+      entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
+      visibleToRoles: ['grid_admin', 'superadmin'],
+      performedByName: email || 'Unknown',
+      performedByRole: 'partner',
+      ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
+      metadata: { email, reason: 'Agency/Partner not found' },
+    });
+    throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
+  }
+
   if (agency.isSuspended) {
     throw new APIError('Account suspended. Contact Xoto Admin.', StatusCodes.FORBIDDEN);
   }
- 
+
   const isMatch = await agency.comparePassword(password);
   if (!isMatch) {
+    logAudit({
+      entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
+      visibleToRoles: ['grid_admin', 'superadmin'],
+      performedBy: agency._id, performedByModel: 'Agency',
+      performedByName: agency.agencyName || agency.primaryContactEmail || email,
+      performedByRole: 'partner',
+      ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
+      metadata: { email, reason: 'Wrong password' },
+    });
     throw new APIError('Invalid credentials', StatusCodes.UNAUTHORIZED);
   }
- 
+
+  logAudit({
+    entityType: 'AUTH', action: 'AUTH_LOGIN_SUCCESS',
+    entityId: agency._id,
+    visibleToRoles: ['grid_admin', 'superadmin'],
+    performedBy: agency._id, performedByModel: 'Agency',
+    performedByName: agency.agencyName || agency.primaryContactEmail || email,
+    performedByRole: 'partner',
+    ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
+    metadata: { email, agencyId: agency._id.toString() },
+  });
+
   // ✅ FIX: tempPassword case — resetToken bhi bhejo
   // if (agency.tempPassword) {
   //   await generateAndSendOTP(agency, 'password_reset', 'email');
- 
+
   //   // Short-lived token — sirf OTP verify karne ke liye (15 min)
   //   const resetToken = jwt.sign(
   //     { id: agency._id, purpose: 'password_reset', type: 'agency' },
   //     process.env.JWT_SECRET,
   //     { expiresIn: '15m' }
   //   );
-  
+
     //   return res.status(200).json({
     //     status:               'success',
     //     requirePasswordReset: true,
@@ -175,7 +206,7 @@ exports.login = asyncHandler(async (req, res) => {
     //     message:              'Temporary password detected. A reset OTP has been sent to your registered email.',
     //   });
     // }
- 
+
   sendTokenResponse(agency, 200, res);
 });
 

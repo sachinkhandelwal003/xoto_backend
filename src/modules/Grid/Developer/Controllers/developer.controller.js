@@ -6,6 +6,7 @@ const { Role }  = require('../../../../modules/auth/models/role/role.model');
 const { createToken } = require('../../../../middleware/auth');
 const sendEmail = require("../../../../utils/sendEmail");
 const GridNotification = require('../../Notification/GridNotificationmodal').default;
+const { logAudit } = require('../../../vault/services/auditLog.service.js');
 
 const normalizeEmail = (email = "") => email.toLowerCase().trim();
 
@@ -440,11 +441,22 @@ exports.loginDeveloper = async (req, res) => {
             return res.status(400).json({ success: false, message: "Email and password required" });
         }
 
+        const ip = req.ip ?? null;
+        const ua = req.headers?.['user-agent'] ?? null;
+
         const developer = await Developer.findOne({ email: normalizeEmail(email) })
             .select("+password")
             .populate({ path: "role", model: Role });
 
         if (!developer) {
+            logAudit({
+                entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
+                visibleToRoles: ['grid_admin', 'superadmin'],
+                performedByName: email || 'Unknown',
+                performedByRole: 'developer',
+                ipAddress: ip, userAgent: ua,
+                metadata: { email, reason: 'Developer not found' },
+            });
             return res.status(401).json({ success: false, message: "Invalid credentials" });
         }
 
@@ -464,12 +476,32 @@ exports.loginDeveloper = async (req, res) => {
 
         const isMatch = await bcrypt.compare(password, developer.password);
         if (!isMatch) {
+            logAudit({
+                entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
+                visibleToRoles: ['grid_admin', 'superadmin'],
+                performedBy: developer._id, performedByModel: 'Developer',
+                performedByName: developer.name || developer.companyName || email,
+                performedByRole: 'developer',
+                ipAddress: ip, userAgent: ua,
+                metadata: { email, reason: 'Wrong password' },
+            });
             return res.status(401).json({ success: false, message: "Invalid credentials" });
         }
 
         const token = createToken(developer);
         const developerResponse = developer.toObject();
         delete developerResponse.password;
+
+        logAudit({
+            entityType: 'AUTH', action: 'AUTH_LOGIN_SUCCESS',
+            entityId: developer._id,
+            visibleToRoles: ['grid_admin', 'superadmin'],
+            performedBy: developer._id, performedByModel: 'Developer',
+            performedByName: developer.name || developer.companyName || email,
+            performedByRole: 'developer',
+            ipAddress: ip, userAgent: ua,
+            metadata: { email, developerId: developer._id.toString() },
+        });
 
         return res.status(200).json({
             success: true,

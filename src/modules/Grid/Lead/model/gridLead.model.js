@@ -182,6 +182,10 @@ advisor_suggestions: [{
       enum: ['unfurnished', 'semi-furnished', 'furnished', 'any'],
       default: 'any'
     },
+    finance_type: {
+      type: String,
+      enum: ['cash', 'mortgage'],
+    },
     ready_by_date:    { type: Date },
     additional_notes: { type: String, trim: true, maxlength: 2000 }
   },
@@ -237,7 +241,11 @@ advisor_suggestions: [{
 
   assigned_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   assigned_at: { type: Date, default: null },
-
+listing_ids: [{
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'Properties',
+  default: [],
+}],
   created_by_agent: { type: mongoose.Schema.Types.ObjectId, ref: 'GridAgent' },
   uploaded_by:      { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 
@@ -381,8 +389,29 @@ advisor_suggestions: [{
   deleted_at:  { type: Date },
   deleted_by:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   created_by:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  updated_by:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
-
+  updated_by:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+// ==============================================================
+// VIEWING REQUESTS
+// ==============================================================
+viewing_requests: [{
+  property_id:    { type: mongoose.Schema.Types.ObjectId, ref: 'Properties', default: null },
+  requested_by:   { type: mongoose.Schema.Types.ObjectId, ref: 'GridAgent',  required: true },
+  advisor_id:     { type: mongoose.Schema.Types.ObjectId, ref: 'GridAdvisor', default: null },
+  assigned_by:    { type: mongoose.Schema.Types.ObjectId, ref: 'User',        default: null },
+  status: {
+    type: String,
+    enum: ['pending', 'confirmed', 'assigned', 'completed', 'cancelled'],
+    default: 'pending',
+  },
+  preferred_date:  { type: Date },
+  preferred_time:  { type: String, trim: true },
+  confirmed_date:  { type: Date },
+  confirmed_time:  { type: String, trim: true },
+  notes:           { type: String, trim: true },
+  admin_note:      { type: String, trim: true },
+  assigned_at:     { type: Date },
+  created_at:      { type: Date, default: Date.now },
+}],
 }, {
   timestamps: true,
   toJSON:   { virtuals: true },

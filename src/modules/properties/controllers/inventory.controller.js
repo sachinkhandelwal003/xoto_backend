@@ -680,10 +680,14 @@ exports.bulkImportInventory = async (req, res) => {
  * @desc    Get inventory by property with filtering and pagination
  */
 exports.getInventoryByProperty = async (req, res) => {
+    // Prevent browser/proxy from caching this dynamic endpoint (avoids 304 with stale data)
+    res.set('Cache-Control', 'no-store');
+
     try {
         const { propertyId } = req.query;
         const userId = req.user._id;
         const role = req.user.role;
+        const userType = req.user.type || '';
         const page = Number(req.query.page) || 1;
         const limit = Number(req.query.limit) || 12;
         const skip = (page - 1) * limit;
@@ -699,16 +703,25 @@ exports.getInventoryByProperty = async (req, res) => {
             });
         }
 
+        // Advisors and agents are internal Xoto staff — they need to view inventory
+        // for any property linked to their leads, regardless of approval/active status
+        const isAdvisorOrAgent = userType === 'gridadvisor' ||
+            userType === 'agent' ||
+            (typeof role === 'object' && (
+                role?.name?.toLowerCase() === 'gridadvisor' ||
+                role?.name?.toLowerCase() === 'agent'
+            ));
+
         // Build property query based on user role
         let propertyQuery = { _id: propertyId };
-        
+
         if (isDevRole(role)) {
             propertyQuery.$or = [
                 { developer: userId },
                 { developerId: userId },
                 { createdBy: userId }
             ];
-        } else if (!isAdmin(role)) {
+        } else if (!isAdmin(role) && !isAdvisorOrAgent) {
             propertyQuery.approvalStatus = "approved";
             propertyQuery.listingStatus = "active";
         }

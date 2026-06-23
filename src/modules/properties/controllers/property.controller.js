@@ -5,6 +5,7 @@ const Customer = require("../../auth/models/user/customer.model");
 const GridLead = require("../../Grid/Lead/model/gridLead.model");
 const { inventoryCategories, determineInventoryCategory } = require("../config/inventory.categories.config");
 const GridNotification = require('../../Grid/Notification/GridNotificationmodal').default;
+const { logAudit } = require('../../vault/services/auditLog.service.js');
 // ─── Role helpers ─────────────────────────────────────────────────────────────
 const isAdmin = (role) => {
   if (!role) return false;
@@ -381,6 +382,7 @@ console.log("isDraft:", isDraft);
 
       hasView:       hasView       || false,
       viewType:      viewType      || [],
+      canVisit:      req.body.canVisit || false,
       parkingSpaces: parkingSpaces || 0,
       furnishing:    furnishing    || "unfurnished",
       furnishingStatus: furnishingStatus || "Unfurnished",
@@ -477,6 +479,22 @@ console.log("isDraft:", isDraft);
     console.log("isFeatured:", property.isFeatured);
     console.log("media.mainLogo:", property.media?.mainLogo);
     console.log("Full property to save:", JSON.stringify(property, null, 2));
+
+    logAudit({
+      entityType: 'PROPERTY', action: 'PROPERTY_CREATED',
+      entityId: property._id, entityRef: finalPropertyName || property.propertyName,
+      visibleToRoles: ['grid_admin', 'superadmin'],
+      performedBy: userId, performedByModel: 'User',
+      performedByName: req.user?.firstName || req.user?.email || 'System',
+      performedByRole: isDevRole(role) ? 'developer' : 'admin',
+      ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
+      metadata: {
+        propertySubType,
+        propertyName: finalPropertyName,
+        area: finalArea,
+        approvalStatus,
+      },
+    });
 
     const msg = approvalStatus === "approved"
       ? "Listing created and published successfully"
@@ -923,6 +941,10 @@ exports.updateProperty = async (req, res) => {
     }
     if (req.body.completionDate !== undefined) {
       updateData.completionDate = req.body.completionDate;
+      
+      if (req.body.canVisit !== undefined) {
+  updateData.canVisit = req.body.canVisit;
+}
     }
     if (req.body.youtubeVideos !== undefined) {
       updateData.youtubeVideos = req.body.youtubeVideos;

@@ -9,6 +9,7 @@ const bcrypt = require("bcryptjs");
 const { Role } = require('../../../../modules/auth/models/role/role.model.js');
 const { createToken } = require('../../../../middleware/auth.js');
 const GridNotification = require('../../Notification/GridNotificationmodal.js').default;
+const { logAudit } = require('../../../vault/services/auditLog.service.js');
 
 const canManageAgentAgreement = (agreement, agentId) =>
   agreement &&
@@ -165,15 +166,34 @@ exports.agentLogin = async (req, res) => {
       }
     }
 
-    if (!agent)
+    if (!agent) {
+      logAudit({
+        entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
+        visibleToRoles: ['grid_admin', 'superadmin'],
+        performedByName: phone || 'Unknown',
+        performedByRole: 'agent',
+        ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
+        metadata: { phone, reason: 'Agent not found' },
+      });
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
 
     if (!agent.password)
       return res.status(401).json({ success: false, message: 'Password not set.' });
 
     const isMatch = await bcrypt.compare(password, agent.password);
-    if (!isMatch)
+    if (!isMatch) {
+      logAudit({
+        entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
+        visibleToRoles: ['grid_admin', 'superadmin'],
+        performedBy: agent._id, performedByModel: 'Agent',
+        performedByName: agent.first_name || agent.phone_number || phone,
+        performedByRole: 'agent',
+        ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
+        metadata: { phone, reason: 'Wrong password' },
+      });
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
 
     if (agent.agencyApprovalStatus !== 'approved')
       return res.status(403).json({ success: false, message: 'Account not approved by agency yet.' });
@@ -187,6 +207,17 @@ exports.agentLogin = async (req, res) => {
     const token = createToken(agentWithRole || agent, 'agent');
     const agentData = (agentWithRole || agent).toObject();
     delete agentData.password;
+
+    logAudit({
+      entityType: 'AUTH', action: 'AUTH_LOGIN_SUCCESS',
+      entityId: agent._id,
+      visibleToRoles: ['grid_admin', 'superadmin'],
+      performedBy: agent._id, performedByModel: 'Agent',
+      performedByName: agent.first_name || agent.phone_number || phone,
+      performedByRole: 'agent',
+      ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
+      metadata: { phone, agentId: agent._id.toString() },
+    });
 
     res.status(200).json({ success: true, token, data: agentData });
   } catch (err) {
@@ -1032,7 +1063,38 @@ exports.getLeaderboard = async (req, res) => {
         conversions: row.conversions || 0,
       });
     }
+// ── Commission over time (last 6 months) ──
+const commissionAgg = await GridLead.aggregate([
+  {
+    $match: {
+      ...baseMatch,
+      status: 'completed',
+      createdAt: { $gte: sixMonthsAgo },
+    },
+  },
+  {
+    $group: {
+      _id: { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } },
+      totalCommission: { $sum: { $ifNull: ['$deal_record.commission_amount', 0] } },
+    },
+  },
+  { $sort: { '_id.year': 1, '_id.month': 1 } },
+]);
 
+// Build monthly commission trend
+const commissionTrend = [];
+for (let i = 5; i >= 0; i--) {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - i);
+  const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+  const row = commissionAgg.find(r => `${r._id.year}-${r._id.month}` === key);
+  commissionTrend.push({
+    month: MONTH_NAMES[d.getMonth()],
+    year: d.getFullYear(),
+    commission: row ? row.totalCommission : 0,
+  });
+}
     // MoM increase
     const thisMonthLeads = leadsByMonth[leadsByMonth.length - 1]?.leads || 0;
     const lastMonthLeads = (lastMonthRows[0]?.count) || (leadsByMonth[leadsByMonth.length - 2]?.leads) || 0;
@@ -1089,6 +1151,7 @@ exports.getLeaderboard = async (req, res) => {
         lead_status_breakdown: leadStatusBreakdown,
         conversion_funnel: conversionFunnel,
         mom_increase: momIncrease,
+        commission_trend: commissionTrend,
       },
     });
   } catch (err) {

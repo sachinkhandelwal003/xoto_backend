@@ -959,7 +959,7 @@ if (deal.referralPartnerId) {
     entityModel:   'DealRecord',
     recipientId:   deal.referralPartnerId,
     recipientModel:'GridReferralPartner',
-    recipientRole: 'referral_partner',
+    recipientRole: 'gridreferralpartner',
     createdByName: 'Xoto Admin',
     createdByRole: 'admin',
   }).catch(err => console.error('Referral payout notification failed:', err.message));
@@ -1288,44 +1288,6 @@ exports.getMyDeals = asyncHandler(async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// GET AGENCY DEALS (PRD §11.3)
-// GET /deal-records/agency-deals
-// ════════════════════════════════════════════════════════════════════════════
-exports.getAgencyDeals = asyncHandler(async (req, res) => {
-  const agencyId = req.agency?._id || req.user?._id;
-  const { commissionStatus, agentId } = req.query;
-  const { page, limit, skip } = paginate(req.query);
-
-  const filter = { agencyId, isVoided: false };
-  if (commissionStatus) filter.commissionStatus = commissionStatus;
-  if (agentId)          filter.agentId          = agentId;
-
-  const [deals, total] = await Promise.all([
-    DealRecord.find(filter)
-      .populate('propertyId', 'propertyName area price')
-      .populate('agentId',    'first_name last_name email')
-      .populate('customerId', 'firstName lastName')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit),
-    DealRecord.countDocuments(filter),
-  ]);
-
-  const commissionSummary = await DealRecord.aggregate([
-    { $match: { agencyId } },
-    {
-      $group: {
-        _id:          '$commissionStatus',
-        totalPartner: { $sum: '$commission.partnerShare' },
-        count:        { $sum: 1 },
-      },
-    },
-  ]);
-
-  res.json({ success: true, data: deals, commissionSummary, pagination: paginationMeta(total, page, limit) });
-});
-
-// ════════════════════════════════════════════════════════════════════════════
 // GET REFERRAL PARTNER DEALS (PRD §3.2)
 // GET /deal-records/referral-deals
 // ════════════════════════════════════════════════════════════════════════════
@@ -1592,14 +1554,13 @@ exports.exportDealRecords = asyncHandler(async (req, res) => {
   });
 
   await new Promise((resolve, reject) => {
-    cursor
-      .pipe(csvTransform)
-      .pipe(res, { end: false })
-      .on('finish', resolve)
-      .on('error', reject);
+    cursor.pipe(csvTransform);
 
-    cursor.on('error', reject);
+    csvTransform.on('finish', resolve);
     csvTransform.on('error', reject);
+    cursor.on('error', reject);
+
+    csvTransform.pipe(res, { end: false });
   });
 
   console.info(

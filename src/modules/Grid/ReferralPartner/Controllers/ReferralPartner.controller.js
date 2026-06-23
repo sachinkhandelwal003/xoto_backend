@@ -3,6 +3,7 @@ const GridReferralPartner = require("../Model/ReferralPartner.model.js");
 const { Role } = require("../../../../modules/auth/models/role/role.model.js");
 const GridLead = require("../../Lead/model/gridLead.model.js");
 const GridNotification = require('../../Notification/GridNotificationmodal.js').default;
+const { logAudit } = require('../../../vault/services/auditLog.service.js');
 
 const signToken = (user, roleData) => {
   return jwt.sign(
@@ -101,7 +102,7 @@ await GridNotification.create({
   entityModel:   'GridReferralPartner',
   recipientId:   partner._id,
   recipientModel:'GridReferralPartner',
-  recipientRole: 'referral_partner',
+  recipientRole: 'gridreferralpartner', 
   createdByName: 'Xoto System',
   createdByRole: 'system',
 }).catch(err => console.error('Partner welcome notification failed:', err.message));
@@ -122,18 +123,54 @@ exports.loginReferralPartner = async (req, res) => {
       });
     }
 
+    const ip = req.ip ?? null;
+    const ua = req.headers?.['user-agent'] ?? null;
+
     const partner = await GridReferralPartner.findOne({
       phone: phone,
       role: "GridReferralPartner",
     }).select("+password");
 
-    if (!partner || !(await partner.correctPassword(password))) {
+    if (!partner) {
+      logAudit({
+        entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
+        visibleToRoles: ['grid_admin', 'superadmin'],
+        performedByName: phone || 'Unknown',
+        performedByRole: 'referral_partner',
+        ipAddress: ip, userAgent: ua,
+        metadata: { phone, reason: 'Referral partner not found' },
+      });
+      return res.status(401).json({ status: "fail", message: "Invalid phone number or password" });
+    }
+
+    const isMatch = await partner.correctPassword(password);
+    if (!isMatch) {
+      logAudit({
+        entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
+        visibleToRoles: ['grid_admin', 'superadmin'],
+        performedBy: partner._id, performedByModel: 'GridReferralPartner',
+        performedByName: `${partner.firstName || ''} ${partner.lastName || ''}`.trim() || phone,
+        performedByRole: 'referral_partner',
+        ipAddress: ip, userAgent: ua,
+        metadata: { phone, reason: 'Wrong password' },
+      });
       return res.status(401).json({ status: "fail", message: "Invalid phone number or password" });
     }
 
     if (partner.status !== "active") {
       return res.status(403).json({ status: "fail", message: `Account is ${partner.status}` });
     }
+
+    logAudit({
+      entityType: 'AUTH', action: 'AUTH_LOGIN_SUCCESS',
+      entityId: partner._id,
+      visibleToRoles: ['grid_admin', 'superadmin'],
+      performedBy: partner._id, performedByModel: 'GridReferralPartner',
+      performedByName: `${partner.firstName || ''} ${partner.lastName || ''}`.trim() || phone,
+      performedByRole: 'referral_partner',
+      ipAddress: ip, userAgent: ua,
+      metadata: { phone, partnerId: partner._id.toString() },
+    });
 
     await sendTokenResponse(partner, 200, "Login successful", res);
   } catch (err) {
