@@ -203,8 +203,9 @@ const buildHtmlPresentation = async (property, narrative, settings, agentProfile
 
   const presentationApiBase = (() => {
     const base = String(process.env.BACKEND_URL || '').replace(/\/+$/, '');
-    if (!base) return '/api/presentation';
-    return base.endsWith('/api') ? `${base}/presentation` : `${base}/api/presentation`;
+    if (!base) return '/presentation';
+    const isLocal = /localhost|127\.0\.0\.1/.test(base);
+    return `${base}${isLocal ? '/api' : ''}/presentation`;
   })();
 
   const toFullUrl = (url) => {
@@ -1068,6 +1069,13 @@ const getPresentationViews = async (presentationId, agentId) => {
   return await Presentation.findOne({ _id: presentationId, agentId }).select('views engagementScore title trackingToken createdAt');
 };
 
+const getLeadPresentations = async (leadId, agentId) => {
+  return await Presentation.find({ leadId, agentId })
+    .sort({ createdAt: -1 })
+    .select('title trackingToken views engagementScore status createdAt propertyId clientNotes')
+    .lean();
+};
+
 module.exports = {
   generatePresentationNarrative,
   buildHtmlPresentation,
@@ -1075,5 +1083,6 @@ module.exports = {
   savePresentation,
   trackView,
   getPresentationViews,
+  getLeadPresentations,
   generatePdfFromPresentation,
 };

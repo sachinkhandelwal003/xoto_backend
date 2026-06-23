@@ -202,7 +202,8 @@ app.use('/feedback', feedback);
 
 // ── XOBIA V2 — OpenAI Realtime voice assistant (new, does not touch old AI routes) ──
 app.use('/ai/v2', require('./modules/ai/v2/routes/xobiaV2.routes.js'));
-app.use('/presentation', presentationRoutes);  
+app.use('/api/presentation', presentationRoutes);
+app.use('/presentation', presentationRoutes);
 app.use('/deal-record', require('./modules/Grid/dealrecord/routes/Dealrecord.routes.js')) // grid
 app.use('/deal-records', require('./modules/Grid/dealrecord/routes/Dealrecord.routes.js'))  // grid
 app.use('/agreements', require('./modules/Grid/Agreements/routes/adminAgreement.routes.js'))   // grid

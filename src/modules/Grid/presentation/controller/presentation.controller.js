@@ -5,11 +5,18 @@ const {
   savePresentation: savePresentationService,   // ← rename karo
   trackView,
   getPresentationViews,
+  getLeadPresentations: getLeadPresentationsService,
   generatePdfFromPresentation,
 } = require('./presentation.service');
 const Presentation = require('../model/presentation.model');
 const { GetObjectCommand } = require('@aws-sdk/client-s3');
 const s3 = require('../../../../config/s3Client');
+
+const buildPresentationApiBase = () => {
+  const base = String(process.env.BACKEND_URL || '').replace(/\/+$/, '');
+  const isLocal = /localhost|127\.0\.0\.1/.test(base);
+  return `${base}${isLocal ? '/api' : ''}/presentation`;
+};
 const Agent = require('../../Agent/models/agent');
 const Advisor = require('../../Advisor/model');
 const PropertyInventory = require('../../../properties/models/property.inventory.model');
@@ -145,8 +152,7 @@ const servePresentationHtml = async (req, res, presentation, token) => {
     let htmlContent = Buffer.concat(chunks).toString('utf-8');
 
     // ✅ PDF download button inject karo — </body> se pehle
-// const pdfDownloadUrl = `${req.baseUrl}/pdf/${encodeURIComponent(token)}`;
-const pdfDownloadUrl = `${(process.env.BACKEND_URL || '').replace(/\/+$/, '')}/presentation/pdf/${encodeURIComponent(token)}`;
+const pdfDownloadUrl = `${buildPresentationApiBase()}/pdf/${encodeURIComponent(token)}`;
 const presentationThemePatch = `
 <style id="presentation-theme-patch">
   .slide-header {
@@ -436,8 +442,7 @@ const getMyPresentations = async (req, res) => {
 
     const total = await Presentation.countDocuments(query);
 
-    // const apiBaseUrl = `${process.env.BACKEND_URL}/api/presentation`;
-    const apiBaseUrl = `${process.env.BACKEND_URL}/presentation`;
+    const apiBaseUrl = buildPresentationApiBase();
     const presentationRows = presentations.map((presentation) => {
       const row = presentation.toObject ? presentation.toObject() : presentation;
       const trackingUrl = `${apiBaseUrl}/track/${row.trackingToken}`;
@@ -531,8 +536,7 @@ const savePresentationHandler = async (req, res) => {   // ← naam badlo
       },
     });
 
-    // const trackingUrl = `${process.env.FRONTEND_URL}/p/${presentation.trackingToken}`;
-const trackingUrl = `${process.env.BACKEND_URL}/api/presentation/track/${presentation.trackingToken}`;
+    const trackingUrl = `${buildPresentationApiBase()}/track/${presentation.trackingToken}`;
 const previewUrl = `${trackingUrl}?preview=1`;
 res.json({
   success: true,
@@ -633,6 +637,36 @@ const downloadPdf = async (req, res) => {
   }
 };
 
+// ── GET /api/presentation/lead/:leadId ──────────────────────────────────────
+// Lead ke liye saari presentations + view details
+const getLeadPresentationsHandler = async (req, res) => {
+  try {
+    const agentId = req.user._id;
+    const { leadId } = req.params;
+
+    const presentations = await getLeadPresentationsService(leadId, agentId);
+    const apiBase = buildPresentationApiBase();
+
+    const result = presentations.map((p) => {
+      const views = p.views || [];
+      const mobileViews  = views.filter(v => v.device === 'Mobile').length;
+      const tabletViews  = views.filter(v => v.device === 'Tablet').length;
+      const desktopViews = views.filter(v => v.device === 'Desktop').length;
+      return {
+        ...p,
+        trackingUrl: `${apiBase}/track/${p.trackingToken}`,
+        previewUrl:  `${apiBase}/track/${p.trackingToken}?preview=1`,
+        viewCount:   views.length,
+        deviceBreakdown: { mobile: mobileViews, tablet: tabletViews, desktop: desktopViews },
+      };
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   generateNarrative,
   savePresentationHandler,
@@ -640,6 +674,7 @@ module.exports = {
   previewAndServe,
   getViews,
   getMyPresentations,
+  getLeadPresentationsHandler,
   deletePresentation,
   proxyImage,
   downloadPdf,

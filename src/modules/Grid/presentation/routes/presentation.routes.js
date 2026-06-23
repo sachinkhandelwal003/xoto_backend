@@ -7,8 +7,9 @@ const {
   previewAndServe,
   getViews,
   getMyPresentations,
+  getLeadPresentationsHandler,
   deletePresentation,
-    proxyImage,
+  proxyImage,
   downloadPdf,
 } = require('../controller/presentation.controller');
 
@@ -26,6 +27,7 @@ router.post('/save',               protectMulti , savePresentationHandler);
 router.get('/preview/:token',      protectMulti , previewAndServe);
 router.get('/my',                  protectMulti , getMyPresentations);
 router.get('/views/:presentationId', protectMulti , getViews);
+router.get('/lead/:leadId',         protectMulti , getLeadPresentationsHandler);
 router.delete('/:id',              protectMulti , deletePresentation);
 
 module.exports = router;
