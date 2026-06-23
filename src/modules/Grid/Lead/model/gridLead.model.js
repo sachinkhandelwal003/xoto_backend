@@ -182,6 +182,10 @@ advisor_suggestions: [{
       enum: ['unfurnished', 'semi-furnished', 'furnished', 'any'],
       default: 'any'
     },
+    finance_type: {
+      type: String,
+      enum: ['cash', 'mortgage'],
+    },
     ready_by_date:    { type: Date },
     additional_notes: { type: String, trim: true, maxlength: 2000 }
   },
