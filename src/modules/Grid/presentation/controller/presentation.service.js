@@ -133,7 +133,17 @@ const generatePdfFromPresentation = async (trackingToken) => {
   const htmlContent = (await streamToBuffer(s3Response.Body)).toString('utf-8');
   const printableHtmlContent = await preparePresentationHtmlForPdf(htmlContent);
 
-  browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--disable-dev-shm-usage', '--font-render-hinting=none'] });
+  browser = await puppeteer.launch({
+    executablePath: '/usr/bin/chromium-browser',
+    headless: 'new',
+    args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-web-security',
+        '--disable-dev-shm-usage',
+        '--font-render-hinting=none'
+    ]
+});
 
   try {
     const page = await browser.newPage();
