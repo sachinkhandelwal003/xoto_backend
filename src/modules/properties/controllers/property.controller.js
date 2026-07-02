@@ -539,6 +539,7 @@ exports.getProperties = async (req, res) => {
       fromDate, toDate,
       search, sortBy, sortOrder,
       status, developmentStatus, saleStatus, locality,
+      transactionType,
     } = req.query;
 
     let query = {};
@@ -556,6 +557,7 @@ exports.getProperties = async (req, res) => {
     console.log("userId:", userId);
 
     if (propertySubType) query.propertySubType = propertySubType;
+    if (transactionType) query.transactionType = transactionType;
     if (status) query.status = status;
     if (developmentStatus) query.developmentStatus = developmentStatus;
     if (saleStatus) query.saleStatus = saleStatus;

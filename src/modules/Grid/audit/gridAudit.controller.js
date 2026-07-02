@@ -5,7 +5,20 @@ const buildAuditQuery = (q) => {
   const query = { visibleToRoles: { $in: ['grid_admin', 'superadmin'] } };
   if (q.entityType)      query.entityType      = q.entityType.toUpperCase();
   if (q.action)          query.action          = q.action;
-  if (q.performedByRole) query.performedByRole  = q.performedByRole;
+  if (q.performedByRole) {
+    const role = q.performedByRole.toLowerCase();
+    if (role === 'admin') {
+      query.performedByRole = { $regex: /admin/i };
+    } else if (role === 'grid_advisor') {
+      query.performedByRole = { $regex: /advisor|gridadvisor/i };
+    } else if (role === 'referral_partner') {
+      query.performedByRole = { $regex: /referral/i };
+    } else if (role === 'partner') {
+      query.performedByRole = { $regex: /^(?!.*referral).*partner.*$/i };
+    } else {
+      query.performedByRole = { $regex: new RegExp(`^${q.performedByRole}$`, 'i') };
+    }
+  }
   if (q.search) {
     query.$or = [
       { performedByName: { $regex: q.search, $options: 'i' } },
@@ -158,9 +171,39 @@ exports.getGridAuditStats = async (req, res) => {
 
     const totalLogs = byEntity.reduce((s, e) => s + e.count, 0);
 
+    // Map, normalize and group loginsByRole in JS
+    const combinedRoles = {};
+    loginsByRole.forEach(r => {
+      const roleId = String(r._id || '').toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+      let targetRole = null;
+      
+      if (roleId.includes('admin')) {
+        targetRole = 'admin';
+      } else if (roleId.includes('referral partner')) {
+        targetRole = 'referral_partner';
+      } else if (roleId.includes('partner')) {
+        targetRole = 'partner';
+      } else if (roleId.includes('agent')) {
+        targetRole = 'agent';
+      } else if (roleId.includes('developer')) {
+        targetRole = 'developer';
+      } else if (roleId.includes('advisor') || roleId.includes('grid')) {
+        targetRole = 'grid_advisor';
+      }
+      
+      if (targetRole) {
+        combinedRoles[targetRole] = (combinedRoles[targetRole] || 0) + r.count;
+      }
+    });
+
+    const normalizedLoginsByRole = Object.entries(combinedRoles).map(([role, count]) => ({
+      _id: role,
+      count
+    })).sort((a, b) => b.count - a.count);
+
     return res.status(200).json({
       success: true,
-      data: { totalLogs, byEntity, byAction, recentLogins, failedLogins, loginsByRole },
+      data: { totalLogs, byEntity, byAction, recentLogins, failedLogins, loginsByRole: normalizedLoginsByRole },
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });

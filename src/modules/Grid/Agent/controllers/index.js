@@ -842,9 +842,38 @@ exports.getDashboard = async (req, res) => {
       const year = m.getFullYear();
       const found = monthlyLeadsAgg.find(x => x.month === month && x.year === year);
       monthlyLeadsData.push({
-        month: m.toLocaleString('en-US', { month: 'short', year: '2-digit' }),
+        month: m.toLocaleString('en-US', { month: 'short' }),
         leads: found ? found.count : 0,
       });
+    }
+
+    // SECTION 11.5: Commission Over Time Trend (last 6 months)
+    const commissionTrendAgg = await GridLead.aggregate([
+      { $match: { ...baseFilter, status: 'completed', createdAt: { $gte: sixMonthsAgo } } },
+      { $group: { _id: { year: { $year: "$createdAt" }, month: { $month: "$createdAt" } }, total_commission: { $sum: { $ifNull: ['$deal_record.commission_amount', 0] } } } },
+      { $project: { year: '$_id.year', month: '$_id.month', commission: '$total_commission', _id: 0 } }
+    ]);
+    const commission_trend = monthsData.map(md => {
+      const found = commissionTrendAgg.find(x => x.month === md.month && x.year === md.year);
+      return { month: md.label, commission: found ? Math.round(found.commission || 0) : 0 };
+    });
+
+    // SECTION 11.6: Conversion Funnel Stages
+    const conversion_funnel = [
+      { stage: 'Leads Received', count: total },
+      { stage: 'Contacted',      count: total - newLeads },
+      { stage: 'Qualified',      count: completed + inProgress },
+      { stage: 'Deals Closed',   count: completed },
+    ];
+
+    // SECTION 11.7: MoM Leads Increase
+    const thisMonthLeads = monthlyLeadsData[monthlyLeadsData.length - 1]?.leads || 0;
+    const prevMonthLeads = monthlyLeadsData[monthlyLeadsData.length - 2]?.leads || 0;
+    let leads_mom_increase = 0;
+    if (prevMonthLeads > 0) {
+      leads_mom_increase = Math.round(((thisMonthLeads - prevMonthLeads) / prevMonthLeads) * 100);
+    } else if (thisMonthLeads > 0) {
+      leads_mom_increase = 100;
     }
 
     // SECTION 12: Recent clients
@@ -871,6 +900,9 @@ exports.getDashboard = async (req, res) => {
         conversion_rate,
         lead_status_breakdown,
         monthly_leads: monthlyLeadsData,
+        commission_trend,
+        conversion_funnel,
+        leads_mom_increase,
         recent_clients,
       }
     });

@@ -388,6 +388,21 @@ exports.autoGenerateInventory = async (req, res) => {
 
     await Property.findByIdAndUpdate(propertyId, statsObj);
 
+    if (generatedUnits.length === 0) {
+      const existingCount = await Inventory.countDocuments({ propertyId });
+      if (existingCount > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `0 units generated: All configured unit numbers already exist in this project (${existingCount} units found). Please change your Tower/Building names or config parameters to generate new units.`
+        });
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: "0 units generated: Please verify your configuration values (e.g. towers, floors configs) and try again."
+        });
+      }
+    }
+
     return res.status(201).json({
       success: true,
       message: `${generatedUnits.length} units auto-generated successfully for ${property.inventoryCategory}`,
@@ -489,6 +504,22 @@ exports.createInventory = async (req, res) => {
                 continue;
             }
 
+            if (Number(unit.area || 0) <= 0) {
+                skippedUnits.push({ unitNumber: unit.unitNumber, reason: "Area must be greater than 0" });
+                continue;
+            }
+
+            if (Number(unit.price || 0) <= 0) {
+                skippedUnits.push({ unitNumber: unit.unitNumber, reason: "Price must be greater than 0" });
+                continue;
+            }
+
+            const isResidential = ["apartment", "villa", "townhouse", "duplex", "penthouse", "hotel_apartment"].includes(unit.unitType);
+            if (isResidential && !unit.bedroomType) {
+                skippedUnits.push({ unitNumber: unit.unitNumber, reason: "Bedroom type is required for residential units" });
+                continue;
+            }
+
             const existingUnit = await Inventory.findOne({
                 propertyId,
                 unitNumber: unit.unitNumber
@@ -506,12 +537,12 @@ exports.createInventory = async (req, res) => {
                 buildingName: unit.buildingName || "",
                 floorNumber: unit.floorNumber || 0,
                 unitType: unit.unitType || "apartment",
-                bedroomType: unit.bedroomType || "1bed",
-                bedrooms: unit.bedrooms || 0,
-                bathrooms: unit.bathrooms || 0,
-                area: unit.area || 0,
+                bedroomType: isResidential ? unit.bedroomType : undefined,
+                bedrooms: isResidential ? (unit.bedrooms || 0) : 0,
+                bathrooms: isResidential ? (unit.bathrooms || 0) : 0,
+                area: Number(unit.area),
                 areaUnit: unit.areaUnit || "sqft",
-                price: unit.price || 0,
+                price: Number(unit.price),
                 currency: (unit.currency && unit.currency !== "inherit" && unit.currency !== "") ? unit.currency : undefined,
                 hasView: (unit.hasView !== undefined && unit.hasView !== "inherit") ? (unit.hasView === "true" || unit.hasView === true) : undefined,
                 viewType: (unit.viewType && unit.viewType !== "inherit" && (!Array.isArray(unit.viewType) || unit.viewType.length > 0)) ? unit.viewType : undefined,
@@ -598,11 +629,42 @@ exports.bulkImportInventory = async (req, res) => {
             const unit = units[i];
             try {
                 // Validate required fields
-                if (!unit.unitNumber || !unit.area || !unit.price) {
+                if (!unit.unitNumber || unit.area === undefined || unit.area === null || unit.price === undefined || unit.price === null) {
                     errors.push({ 
                         row: i + 1, 
                         unitNumber: unit.unitNumber || "missing", 
                         error: "unitNumber, area, and price are required" 
+                    });
+                    continue;
+                }
+
+                const areaNum = Number(unit.area);
+                if (isNaN(areaNum) || areaNum <= 0) {
+                    errors.push({
+                        row: i + 1,
+                        unitNumber: unit.unitNumber,
+                        error: "Area must be a number greater than 0"
+                    });
+                    continue;
+                }
+
+                const priceNum = Number(unit.price);
+                if (isNaN(priceNum) || priceNum <= 0) {
+                    errors.push({
+                        row: i + 1,
+                        unitNumber: unit.unitNumber,
+                        error: "Price must be a number greater than 0"
+                    });
+                    continue;
+                }
+
+                const unitType = unit.unitType || "apartment";
+                const isResidential = ["apartment", "villa", "townhouse", "duplex", "penthouse", "hotel_apartment"].includes(unitType);
+                if (isResidential && !unit.bedroomType) {
+                    errors.push({
+                        row: i + 1,
+                        unitNumber: unit.unitNumber,
+                        error: "bedroomType is required for residential units"
                     });
                     continue;
                 }
@@ -627,13 +689,13 @@ exports.bulkImportInventory = async (req, res) => {
                     unitNumber: unit.unitNumber,
                     buildingName: unit.buildingName || "",
                     floorNumber: unit.floorNumber || 0,
-                    unitType: unit.unitType || "apartment",
-                    bedroomType: unit.bedroomType || "1bed",
-                    bedrooms: unit.bedrooms || 0,
-                    bathrooms: unit.bathrooms || 0,
-                    area: unit.area,
+                    unitType: unitType,
+                    bedroomType: isResidential ? unit.bedroomType : undefined,
+                    bedrooms: isResidential ? (unit.bedrooms || 0) : 0,
+                    bathrooms: isResidential ? (unit.bathrooms || 0) : 0,
+                    area: areaNum,
                     areaUnit: unit.areaUnit || "sqft",
-                    price: unit.price,
+                    price: priceNum,
                     currency: (unit.currency && unit.currency !== "inherit" && unit.currency !== "") ? unit.currency : undefined,
                     hasView: (unit.hasView !== undefined && unit.hasView !== "inherit") ? (unit.hasView === "true" || unit.hasView === true) : undefined,
                     viewType: (unit.viewType && unit.viewType !== "inherit" && (!Array.isArray(unit.viewType) || unit.viewType.length > 0)) ? (typeof unit.viewType === "string" ? [unit.viewType] : unit.viewType) : undefined,
