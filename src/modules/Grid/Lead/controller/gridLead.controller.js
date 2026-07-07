@@ -383,11 +383,28 @@ exports.getLeads = asyncHandler(async (req, res) => {
 
 
 exports.getWebsitePlatformLeads = asyncHandler(async (req, res) => {
-  const page  = parseInt(req.query.page,  10) || 1;
-  const limit = parseInt(req.query.limit, 10) || 10;
-  const skip  = (page - 1) * limit;
+  const page   = parseInt(req.query.page,  10) || 1;
+  const limit  = parseInt(req.query.limit, 10) || 10;
+  const skip   = (page - 1) * limit;
+  const { search, status, type } = req.query;
 
   const filter = { lead_type: 'platform', 'source.channel': 'website_form' };
+
+  // ✅ Search filter
+  if (search?.trim()) {
+    filter.$or = [
+      { 'contact_info.name.first_name': { $regex: search.trim(), $options: 'i' } },
+      { 'contact_info.name.last_name':  { $regex: search.trim(), $options: 'i' } },
+      { 'contact_info.mobile.number':   { $regex: search.trim(), $options: 'i' } },
+      { 'contact_info.email.address':   { $regex: search.trim(), $options: 'i' } },
+    ];
+  }
+
+  // ✅ Status filter
+  if (status) filter.status = status;
+
+  // ✅ Type filter
+  if (type) filter.enquiry_type = type;
 
   const [leads, total] = await Promise.all([
     GridLead.find(filter)
@@ -405,8 +422,7 @@ exports.getWebsitePlatformLeads = asyncHandler(async (req, res) => {
     data: leads.map(l => ({ ...l.toObject({ virtuals: true }), assignedAdvisor: l.assigned_to || null })),
     pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
   });
-});
-
+});        
 
 // ════════════════════════════════════════════════════════════════════════════
 // AGENT — CREATE LEAD
