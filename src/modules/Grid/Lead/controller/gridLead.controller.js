@@ -1255,6 +1255,7 @@ exports.getLeadById = asyncHandler(async (req, res) => {
     .populate('source.listing_id')
     .populate('listing_ids')
     .populate('matched_listings.listing_id')
+    .populate('listing_ids')
     .populate('customerId', 'name firstName lastName email mobile phone')
     .populate('assigned_to',      'firstName lastName email phone')
     .populate({
@@ -1606,6 +1607,42 @@ exports.addAgentNote = asyncHandler(async (req, res) => {
     text:        text.trim(),
     author:      `${req.user?.first_name || ''} ${req.user?.last_name || ''}`.trim() || 'Agent',
     author_type: 'agent',
+    is_private:  true,
+    created_at:  new Date(),
+  });
+
+  await lead.save();
+
+  return res.json({
+    success: true,
+    message: 'Note added',
+    data: lead.notes[lead.notes.length - 1],
+  });
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// ADVISOR — ADD NOTE
+// ════════════════════════════════════════════════════════════════════════════
+
+exports.addAdvisorNote = asyncHandler(async (req, res) => {
+  const { id }     = req.params;
+  const { text }   = req.body;
+  const advisorId  = req.user._id;
+
+  if (!text?.trim()) {
+    return res.status(400).json({ success: false, message: 'Note text is required' });
+  }
+
+  const lead = await GridLead.findOne({ _id: id, assigned_to: advisorId });
+  if (!lead) {
+    return res.status(404).json({ success: false, message: 'Lead not found or access denied' });
+  }
+
+  lead.notes.push({
+    text:        text.trim(),
+    author:      `${req.user?.first_name || ''} ${req.user?.last_name || ''}`.trim() || 'Advisor',
+    author_type: 'advisor',
     is_private:  true,
     created_at:  new Date(),
   });
