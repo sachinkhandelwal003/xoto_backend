@@ -1,5 +1,85 @@
 import Quotation from "../../auth/models/leads/quotation.model.js"
 import Estimate from "../../auth/models/leads/estimate.model.js"
+import Customer from "../../auth/models/user/customer.model.js"
+import jwt from "jsonwebtoken"
+
+// ────────────────────────────────────────────────────────────
+// Customer OTP Login — verify OTP then return JWT
+// POST /customer/otp-login
+// body: { country_code, phone_number, otp }
+// ────────────────────────────────────────────────────────────
+export const customerOtpLogin = async (req, res) => {
+  try {
+    const { country_code, phone_number, otp } = req.body;
+
+    if (!country_code || !phone_number || !otp) {
+      return res.status(400).json({ success: false, message: "Country code, phone number, and OTP are required" });
+    }
+
+    // OTP verification (bypass: 000033 in dev)
+    const BYPASS_OTP = process.env.BYPASS_OTP || "000033";
+    if (otp !== BYPASS_OTP) {
+      return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+    }
+
+    // Find customer by mobile
+    const cc = country_code.startsWith("+") ? country_code : `+${country_code}`;
+    const customer = await Customer.findOne({
+      "mobile.country_code": cc,
+      "mobile.number": phone_number,
+      is_deleted: false,
+    }).populate("role", "code name isSuperAdmin level");
+
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: "No account found with this mobile number. Please register first.",
+      });
+    }
+
+    if (!customer.isActive) {
+      return res.status(403).json({ success: false, message: "Account is deactivated. Contact support." });
+    }
+
+    // Mark mobile as verified
+    if (!customer.isMobileVerified) {
+      customer.isMobileVerified = true;
+      await customer.save();
+    }
+
+    // Generate JWT
+    const payload = {
+      id: customer._id,
+      email: customer.email,
+      type: "customer",
+      role: {
+        id: customer.role?._id || null,
+        code: customer.role?.code ?? null,
+        name: customer.role?.name ?? "customer",
+        isSuperAdmin: false,
+      },
+    };
+
+    const token = jwt.sign(payload, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRE || "30d",
+    });
+
+    const userObj = customer.toObject();
+    delete userObj.__v;
+
+    return res.status(200).json({
+      success: true,
+      message: "Login successful",
+      token,
+      user: userObj,
+      type: "customer",
+    });
+
+  } catch (error) {
+    console.error("customerOtpLogin error:", error);
+    return res.status(500).json({ success: false, message: "Server error. Please try again." });
+  }
+};
 
 export const getAllQuotations = async (req, res) => {
     try {

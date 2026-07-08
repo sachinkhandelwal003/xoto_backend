@@ -50,9 +50,10 @@ exports.customerLogin = asyncHandler(async (req, res) => {
     throw new APIError("Customer role not found", StatusCodes.NOT_FOUND);
   }
 
-  // Find customer by mobile.number + role
+  // Find customer by mobile.country_code + mobile.number + role
   const customer = await Customer.findOne({
-    mobile: mobile,
+    'mobile.country_code': mobile.country_code,
+    'mobile.number': mobile.number,
     role: customerRole._id,
     is_deleted: false
   }).populate("role", "name code");
@@ -197,10 +198,12 @@ exports.customerSignup = asyncHandler(async (req, res) => {
     profilePic,
     comingFromAiPage,
     source = "website",
-    assignedTo,  // Optional: can be passed manually
+    assignedTo,
     notes,
     tags,
-    preferences
+    preferences,
+    is_mobile_verified = false,
+    is_email_verified = false,
   } = req.body;
 
   // ================= VALIDATION =================
@@ -268,7 +271,9 @@ exports.customerSignup = asyncHandler(async (req, res) => {
     location,
     profilePic,
     source,
-    isActive: true
+    isActive: true,
+    isMobileVerified: is_mobile_verified === true || is_mobile_verified === 'true',
+    isEmailVerified: is_email_verified === true || is_email_verified === 'true',
   };
 
   // Add agent assignment if agent is creating
