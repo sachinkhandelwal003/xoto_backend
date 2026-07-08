@@ -58,12 +58,14 @@ const PropertyInventorySchema = new mongoose.Schema(
         
         bedrooms: {
             type: Number,
-            default: 0
+            default: 0,
+            min: [0, "Bedrooms cannot be negative"]
         },
         
         bathrooms: {
             type: Number,
-            default: 0
+            default: 0,
+            min: [0, "Bathrooms cannot be negative"]
         },
 
         // =========================
@@ -71,7 +73,8 @@ const PropertyInventorySchema = new mongoose.Schema(
         // =========================
         area: {
             type: Number,
-            required: true
+            required: true,
+            min: [0.01, "Area must be greater than 0"]
         },
         
         areaUnit: {
@@ -85,7 +88,8 @@ const PropertyInventorySchema = new mongoose.Schema(
         // =========================
         price: {
             type: Number,
-            required: true
+            required: true,
+            min: [0.01, "Price must be greater than 0"]
         },
         
         currency: {
@@ -109,7 +113,8 @@ const PropertyInventorySchema = new mongoose.Schema(
         
         parkingSpaces: {
             type: Number,
-            default: undefined
+            default: undefined,
+            min: [0, "Parking spaces cannot be negative"]
         },
         
         furnishing: {

@@ -133,7 +133,17 @@ const generatePdfFromPresentation = async (trackingToken) => {
   const htmlContent = (await streamToBuffer(s3Response.Body)).toString('utf-8');
   const printableHtmlContent = await preparePresentationHtmlForPdf(htmlContent);
 
-  browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--disable-dev-shm-usage', '--font-render-hinting=none'] });
+  browser = await puppeteer.launch({
+    executablePath: '/usr/bin/chromium-browser',
+    headless: 'new',
+    args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-web-security',
+        '--disable-dev-shm-usage',
+        '--font-render-hinting=none'
+    ]
+});
 
   try {
     const page = await browser.newPage();
@@ -1053,13 +1063,42 @@ const savePresentation = async ({ leadId, propertyId, agentId, settings, clientN
   return await Presentation.create({ leadId, propertyId, agentId, settings, clientNotes, narrative, s3Key, s3Url, title, trackingToken, views: [], engagementScore: 0, status: 'active' });
 };
 
-// ── 5. Track a View ──────────────────────────────────────────────────────────
 const trackView = async (trackingToken, requestData) => {
+  const axios = require('axios');
   const ua = requestData.userAgent || '';
   const device = /mobile/i.test(ua) ? 'Mobile' : /tablet/i.test(ua) ? 'Tablet' : 'Desktop';
+  
+  let country = 'Unknown';
+  let ip = requestData.ip;
+  if (ip && ip.startsWith('::ffff:')) {
+    ip = ip.substring(7);
+  }
+  
+  if (ip && ip !== '::1' && ip !== '127.0.0.1' && ip !== 'localhost') {
+    try {
+      const geoRes = await axios.get(`http://ip-api.com/json/${ip}`, { timeout: 3000 });
+      if (geoRes.data && geoRes.data.status === 'success') {
+        country = geoRes.data.country || 'Unknown';
+      }
+    } catch (err) {
+      console.error('[GeoIP Lookup Error]:', err.message);
+    }
+  }
+
   return await Presentation.findOneAndUpdate(
     { trackingToken },
-    { $push: { views: { timestamp: new Date(), ip: requestData.ip, device, userAgent: ua } }, $inc: { engagementScore: 15 } },
+    { 
+      $push: { 
+        views: { 
+          timestamp: new Date(), 
+          ip: requestData.ip, 
+          device, 
+          userAgent: ua,
+          country: country 
+        } 
+      }, 
+      $inc: { engagementScore: 15 } 
+    },
     { new: true }
   );
 };
@@ -1072,7 +1111,7 @@ const getPresentationViews = async (presentationId, agentId) => {
 const getLeadPresentations = async (leadId, agentId) => {
   return await Presentation.find({ leadId, agentId })
     .sort({ createdAt: -1 })
-    .select('title trackingToken views engagementScore status createdAt propertyId clientNotes')
+    .select('title trackingToken views engagementScore status createdAt propertyId clientNotes settings')
     .lean();
 };
 

@@ -38,6 +38,7 @@ router.put ('/:id/suggestion-reaction', controller.updateSuggestionReaction);
 router.put ('/:id/update-requirements', controller.updateLeadRequirements);
 router.get ('/:id/smart-matches',       controller.getSmartMatches);
 router.get('/advisor/my-viewings', controller.getAdvisorViewings);
+router.post('/advisor/:id/note',   controller.addAdvisorNote);
 
 
 

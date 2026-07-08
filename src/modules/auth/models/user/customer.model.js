@@ -23,7 +23,7 @@ const customerSchema = new mongoose.Schema(
       type: String,
       trim: true,
       lowercase: true,
-      required: true,
+      required: false,
       match: [
         /^[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}$/,
         "Please enter a valid email address"
@@ -39,10 +39,10 @@ const customerSchema = new mongoose.Schema(
       },
       number: {
         type: String,
-        required: true,
+        required: false,
         trim: true,
         validate: {
-          validator: v => /^\d{8,15}$/.test(v),
+          validator: v => !v || /^\d{8,15}$/.test(v),
           message: 'Mobile number must be 8–15 digits only'
         }
       }
@@ -147,12 +147,12 @@ const customerSchema = new mongoose.Schema(
 
 // ================= INDEXES =================
 
-// ✅ Unique email ONLY for non-deleted users
+// ✅ Unique email ONLY for non-deleted users who have an email
 customerSchema.index(
   { email: 1 },
   {
     unique: true,
-    partialFilterExpression: { is_deleted: false }
+    partialFilterExpression: { is_deleted: false, email: { $type: "string" } }
   }
 );
 

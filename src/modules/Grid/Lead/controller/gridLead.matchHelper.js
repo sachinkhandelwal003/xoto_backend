@@ -5,10 +5,48 @@
 
 const Property = require('../../../properties/models/property.model.js');
 
+const UNIT_TYPE_MAP = {
+  apartment: 'apartment',
+  apartments: 'apartment',
+  flat: 'apartment',
+  villa: 'villa',
+  townhouse: 'townhouse',
+  penthouse: 'penthouse',
+  studio: 'apartment',
+  office: 'office',
+  retail: 'retail',
+  land: 'plot',
+  plot: 'plot',
+  warehouse: 'warehouse',
+};
+
+const normalizeUnitType = (value) => {
+  if (!value) return '';
+  const key = String(value).trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+  return UNIT_TYPE_MAP[key] || key;
+};
+
+const normalizeFurnishing = (value) => {
+  if (!value || value === 'any') return '';
+  return String(value).trim().toLowerCase().replace(/-/g, '_');
+};
+
+const propertyPrice = (property) => property.price_min || property.price || property.priceRange?.from || 0;
+const propertyArea = (property) => property.builtUpArea_min || property.builtUpArea || property.builtUpArea_max || 0;
+
 // ── Score a single property against requirements ──────────────────────────
 const scoreProperty = (property, requirements, mode) => {
   let score = 0;
-  const { budget_max, bedrooms, location_preferences = [], area_sqft_min } = requirements;
+  const {
+    budget_min,
+    budget_max,
+    bedrooms,
+    bathrooms,
+    location_preferences = [],
+    area_sqft_min,
+    area_sqft_max,
+    furnished,
+  } = requirements;
 
   const areas = location_preferences
     .map(l => (typeof l === 'string' ? l : l.area))
@@ -16,12 +54,17 @@ const scoreProperty = (property, requirements, mode) => {
 
   if (areas.some(a => property.area?.toLowerCase().includes(a.toLowerCase()))) score += 40;
 
-  const propPrice = property.price_min || property.price || 0;
-  if (budget_max && propPrice <= Number(budget_max)) score += 30;
+  const propPrice = propertyPrice(property);
+  if (budget_max && propPrice && propPrice <= Number(budget_max)) score += 20;
+  if (budget_min && propPrice && propPrice >= Number(budget_min)) score += 10;
 
   if (bedrooms && property.bedrooms >= Number(bedrooms)) score += 15;
+  if (bathrooms && property.bathrooms >= Number(bathrooms)) score += 10;
   if (property.isFeatured) score += 10;
-  if (area_sqft_min && (property.builtUpArea_min || property.builtUpArea) >= Number(area_sqft_min)) score += 5;
+  const propArea = propertyArea(property);
+  if (area_sqft_min && propArea >= Number(area_sqft_min)) score += 5;
+  if (area_sqft_max && propArea && propArea <= Number(area_sqft_max)) score += 5;
+  if (normalizeFurnishing(furnished) && normalizeFurnishing(property.furnishing) === normalizeFurnishing(furnished)) score += 5;
 
   if (mode === 'relaxed') score -= 5;
   if (mode === 'broad')   score -= 15;
@@ -55,24 +98,24 @@ const tryMatch = async (requirements, mode, limit) => {
 
   // Unit type
   if (property_type) {
-    query.unitType = { $regex: property_type, $options: 'i' };
+    const unitType = normalizeUnitType(property_type);
+    query.$and = [
+      ...(query.$and || []),
+      { $or: [{ unitType }, { unitTypes: unitType }] },
+    ];
   }
 
   // Budget — relax in 'relaxed' / 'broad' mode
-  if (budget_max) {
+  if (budget_min || budget_max) {
     const multiplier = mode === 'relaxed' ? 1.2 : mode === 'broad' ? 1.5 : 1.0;
-    query.$or = [
-      { price:     { $lte: Number(budget_max) * multiplier } },
-      { price_min: { $lte: Number(budget_max) * multiplier } },
+    const minMultiplier = mode === 'strict' ? 0.9 : mode === 'relaxed' ? 0.8 : 0.5;
+    const priceRange = {};
+    if (budget_min) priceRange.$gte = Number(budget_min) * minMultiplier;
+    if (budget_max) priceRange.$lte = Number(budget_max) * multiplier;
+    query.$and = [
+      ...(query.$and || []),
+      { $or: [{ price: priceRange }, { price_min: priceRange }] },
     ];
-    if (budget_min && mode === 'strict') {
-      query.$or = query.$or.map(c => ({
-        ...c,
-        ...Object.fromEntries(
-          Object.entries(c).map(([k, v]) => [k, { ...v, $gte: Number(budget_min) * 0.8 }])
-        ),
-      }));
-    }
   }
 
   // Bedrooms
