@@ -3,6 +3,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 const GridLead    = require('../model/gridLead.model');
+const mongoose    = require('mongoose');
 const Customer    = require('../../../../modules/auth/models/user/customer.model');
 const { StatusCodes } = require('../../../../utils/constants/statusCodes');
 const asyncHandler = require('../../../../utils/asyncHandler');
@@ -32,6 +33,16 @@ const resolveListingTier = (propertySubType) => {
   if (propertySubType === 'off_plan') return 'tier_3';
   if (['secondary', 'rental', 'commercial'].includes(propertySubType)) return 'tier_1';
   return 'general';
+};
+
+const normalizeListingIds = (...sources) => {
+  const ids = sources
+    .flat()
+    .filter(Boolean)
+    .map(id => id?.toString?.() || String(id))
+    .filter(id => mongoose.Types.ObjectId.isValid(id));
+
+  return [...new Set(ids)];
 };
 
 // Resolve listing tier + suggested advisor for a new lead
@@ -441,12 +452,15 @@ exports.createLead = asyncHandler(async (req, res) => {
 
   const hasContactInfo = !!(phone_number || email);
 
-  if (listing_id) {
-    const property = await Property.findById(listing_id).select('_id').lean();
-    if (!property) {
+  const selectedListingIds = normalizeListingIds(listing_ids, listing_id);
+  const primaryListingId = selectedListingIds[0] || null;
+
+  if (selectedListingIds.length > 0) {
+    const foundProperties = await Property.find({ _id: { $in: selectedListingIds } }).select('_id').lean();
+    if (foundProperties.length !== selectedListingIds.length) {
       return res.status(StatusCodes.BAD_REQUEST).json({
         success: false,
-        message: 'Selected property not found',
+        message: 'One or more selected properties were not found',
       });
     }
   }
@@ -488,11 +502,9 @@ exports.createLead = asyncHandler(async (req, res) => {
     routing_status:        'draft',
    source: {
   channel:    'agent_added',
-  listing_id: listing_id || null,
+  listing_id: primaryListingId,
 },
-listing_ids: Array.isArray(req.body.listing_ids) && req.body.listing_ids.length > 0
-  ? req.body.listing_ids
-  : listing_id ? [listing_id] : [],
+listing_ids: selectedListingIds,
     requirements: {
       property_type,
       transaction_type,
@@ -515,13 +527,13 @@ listing_ids: Array.isArray(req.body.listing_ids) && req.body.listing_ids.length 
       ...(cleanEmail && { email: { address: cleanEmail, is_masked: false, verified: false } }),
       preferred_contact: 'whatsapp',
     },
-    ...(listing_id ? {
-      matched_listings: [{
-        listing_id,
+    ...(selectedListingIds.length > 0 ? {
+      matched_listings: selectedListingIds.map(id => ({
+        listing_id: id,
         match_score:         100,
-        presented_to_client: false,
+        presented_to_client: true,
         client_interested:   true,
-      }],
+      })),
     } : {}),
     created_by_agent: agentId,
     created_by:       agentId,
@@ -561,7 +573,8 @@ await GridNotification.create({
       lead_type: 'agent',
       enquiry_type: resolvedEnquiryType,
       customerName: `${first_name} ${last_name || ''}`.trim(),
-      listing_id: listing_id || null,
+      listing_id: primaryListingId,
+      listing_ids: selectedListingIds,
     },
   });
 
@@ -574,7 +587,8 @@ await GridNotification.create({
       classification: lead.classification,
       lead_type:      lead.lead_type,
       has_client:     !!(cleanPhone || cleanEmail),
-      has_property:   !!listing_id,
+      has_property:   selectedListingIds.length > 0,
+      selected_properties_count: selectedListingIds.length,
     },
   });
 });
@@ -1239,6 +1253,7 @@ exports.getLeadById = asyncHandler(async (req, res) => {
 
   const lead = await GridLead.findById(id)
     .populate('source.listing_id')
+    .populate('listing_ids')
     .populate('matched_listings.listing_id')
     .populate('customerId', 'name firstName lastName email mobile phone')
     .populate('assigned_to',      'firstName lastName email phone')
