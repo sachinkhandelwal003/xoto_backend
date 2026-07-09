@@ -1039,7 +1039,7 @@ exports.voidDeal = asyncHandler(async (req, res) => {
   if (deal.commissionStatus === 'paid') {
     throw new APIError(
       'Cannot void a deal after commission has been marked as paid. ' +
-      'Commission ledger integrity must be preserved (PRD §14.4). ' +
+      'Commission ledger integrity must be preserved. ' +
       'If this deal requires correction, please escalate to Xoto finance team.',
       StatusCodes.FORBIDDEN
     );
@@ -1048,7 +1048,7 @@ exports.voidDeal = asyncHandler(async (req, res) => {
   if (deal.referralCommissionStatus === 'paid') {
     throw new APIError(
       'Cannot void a deal after referral commission has been marked as paid. ' +
-      'Referral payout ledger integrity must be preserved (PRD §14.4). ' +
+      'Referral payout ledger integrity must be preserved. ' +
       'If this deal requires correction, please escalate to Xoto finance team.',
       StatusCodes.FORBIDDEN
     );

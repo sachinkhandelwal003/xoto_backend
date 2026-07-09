@@ -198,7 +198,7 @@ exports.createProperty = async (req, res) => {
         return res.status(400).json({ status: "fail", message: "rentalFrequency is required for rental listings" });
       }
       if (!reraPermitNumber) {
-        return res.status(400).json({ status: "fail", message: "reraPermitNumber is required for rental listings (PRD §14.4)" });
+        return res.status(400).json({ status: "fail", message: "reraPermitNumber is required for rental listings" });
       }
     }
 
