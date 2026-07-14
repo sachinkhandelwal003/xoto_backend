@@ -16,8 +16,7 @@ const sanitizeOptions = {
   allowedAttributes: {
     ...sanitizeHtml.defaults.allowedAttributes,
     // 🚨 ADDED: 'data-list' and 'data-value' which Quill uses for bullet points and lists
-    // '*': ['class', 'style', 'id', 'data-list', 'data-value'],
-    '*': ['class', 'id', 'data-list', 'data-value'],
+    '*': ['class', 'style', 'id', 'data-list', 'data-value'],
     'img': ['src', 'alt', 'title', 'width', 'height', 'loading'],
     'a': ['href', 'target', 'rel', 'title'],
     'iframe': ['src', 'width', 'height', 'allow', 'allowfullscreen', 'frameborder'],
