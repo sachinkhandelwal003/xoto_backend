@@ -967,10 +967,9 @@ exports.getAgents = asyncHandler(async (req, res) => {
  */
 exports.getAgentDetail = asyncHandler(async (req, res) => {
   const agent = await assertAgencyAgent(req.agency._id, req.params.agentId);
-  const GridLead = require('../../Lead/model/gridLead.model');
-  const Property = require('../../../properties/models/property.model');
+  const Presentation = mongoose.model('Presentation');
 
-  const [leadStats, listingsCreated, recentLeads, recentListings] = await Promise.all([
+  const [leadStats, listingsCreated, presentationsGenerated, recentLeads, recentListings] = await Promise.all([
     GridLead.aggregate([
       { $match: { created_by_agent: agent._id } },
       {
@@ -988,6 +987,7 @@ exports.getAgentDetail = asyncHandler(async (req, res) => {
       },
     ]),
     Property.countDocuments({ created_by_agent: agent._id }),
+    Presentation.countDocuments({ agentId: agent._id }),
     GridLead.find({ created_by_agent: agent._id })
       .sort({ createdAt: -1 })
       .limit(10)
@@ -1011,6 +1011,7 @@ exports.getAgentDetail = asyncHandler(async (req, res) => {
         activeLeads: stats.activeLeads || 0,
         convertedLeads: stats.convertedLeads || 0,
         listingsCreated,
+        presentationsGenerated,
         commissionEarned: stats.commissionEarned || 0,
       },
       recentLeads,
@@ -1896,7 +1897,13 @@ exports.getAgentByIdAdmin = asyncHandler(async (req, res) => {
 
   if (!agent) throw new APIError('Agent not found', StatusCodes.NOT_FOUND);
 
-  res.status(200).json({ status: 'success', data: agent });
+  const Presentation = mongoose.model('Presentation');
+  const presentationsGenerated = await Presentation.countDocuments({ agentId: agent._id });
+
+  const agentObj = agent.toObject();
+  agentObj.presentationsGenerated = presentationsGenerated;
+
+  res.status(200).json({ status: 'success', data: agentObj });
 });
 /**
  * PUT /admin/agents/:agentId/reset
