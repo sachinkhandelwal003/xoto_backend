@@ -52,8 +52,17 @@ exports.agentSignup = async (req, res) => {
       password,
       operating_city,
       specialization,
+      experience_years,
       country,
       agency,
+      profile_photo,
+      profilePhotoUrl,
+      id_proof,
+      emiratesIdUrl,
+      rera_certificate,
+      reraCardUrl,
+      rera_number,
+      reraCardNumber,
     } = req.body;
 
     const resolvedPhone = phone_number || phone;
@@ -83,7 +92,7 @@ exports.agentSignup = async (req, res) => {
     // Verify agency exists and is active
     const agencyDoc = await Agency.findOne({ _id: agency, isActive: true, isSuspended: false });
     if (!agencyDoc) return res.status(400).json({ success: false, message: 'Selected agency not found or inactive' });
-const agentRole = await Role.findOne({ code: 16 });
+    const agentRole = await Role.findOne({ code: 16 });
     const newAgent = await Agent.create({
       first_name: resolvedFirstName,
       last_name: resolvedLastName,
@@ -94,11 +103,16 @@ const agentRole = await Role.findOne({ code: 16 });
       password: resolvedPassword,   // hashed by pre-save hook
       operating_city: operating_city || agencyDoc.operatingLocation?.city || 'Dubai',
       specialization: specialization || 'general',
+      experience_years: Number(experience_years) || 0,
       country: country || agencyDoc.operatingLocation?.country || 'UAE',
       agency,
-        role: agentRole ? agentRole._id : null,
+      role: agentRole ? agentRole._id : null,
+      profile_photo: profile_photo || profilePhotoUrl || "",
+      emiratesIdUrl: id_proof || emiratesIdUrl || "",
+      reraCardUrl: rera_certificate || reraCardUrl || "",
+      reraCardNumber: rera_number || reraCardNumber || "",
       agencyApprovalStatus: 'pending',
-      adminApprovalStatus: 'pending',
+      adminApprovalStatus: 'approved',
       isActive: false,
     });
 

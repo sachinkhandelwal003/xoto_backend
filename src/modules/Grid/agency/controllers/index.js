@@ -628,6 +628,7 @@ exports.createAgent = asyncHandler(async (req, res) => {
     password,
     operating_city,
     specialization,
+    experience_years,
     country,
     emiratesIdUrl,
     reraCardUrl,
@@ -674,6 +675,7 @@ exports.createAgent = asyncHandler(async (req, res) => {
     password,                           // will be hashed by the pre‑save hook
     operating_city: operating_city || req.agency?.operatingLocation?.city || 'Dubai',
     specialization: specialization || 'general',
+    experience_years: Number(experience_years) || 0,
     country: country || req.agency?.operatingLocation?.country || 'UAE',
     role: agentRole?._id || null,
     emiratesIdUrl: emiratesIdUrl || '',
@@ -709,6 +711,7 @@ exports.registerAgent = asyncHandler(async (req, res) => {
     password,
     operating_city,
     specialization,
+    experience_years,
     country,
     agency,
     emiratesIdUrl,
@@ -786,6 +789,7 @@ exports.registerAgent = asyncHandler(async (req, res) => {
     password, // hashed by pre-save hook
     operating_city,
     specialization,
+    experience_years: Number(experience_years) || 0,
     country: country || "UAE",
     agency,
 
@@ -859,8 +863,9 @@ exports.getAgents = asyncHandler(async (req, res) => {
   ]);
 
   const agentIds = agents.map(agent => agent._id);
+  const Presentation = mongoose.model('Presentation');
 
-  const [leadStats, listingStats] = await Promise.all([
+  const [leadStats, listingStats, presentationStats] = await Promise.all([
     GridLead.aggregate([
       { $match: { created_by_agent: { $in: agentIds } } },
       {
@@ -886,14 +891,25 @@ exports.getAgents = asyncHandler(async (req, res) => {
         } 
       },
     ]),
+    Presentation.aggregate([
+      { $match: { agentId: { $in: agentIds } } },
+      {
+        $group: {
+          _id: '$agentId',
+          presentationsGenerated: { $sum: 1 }
+        }
+      }
+    ]),
   ]);
 
   const leadStatsMap = new Map(leadStats.map(item => [String(item._id), item]));
   const listingStatsMap = new Map(listingStats.map(item => [String(item._id), item]));
+  const presentationStatsMap = new Map(presentationStats.map(item => [String(item._id), item]));
 
   const data = agents.map(agent => {
     const leadStat = leadStatsMap.get(String(agent._id)) || {};
     const listingStat = listingStatsMap.get(String(agent._id)) || {};
+    const presentationStat = presentationStatsMap.get(String(agent._id)) || {};
 
     return {
       _id: agent._id,
@@ -923,7 +939,9 @@ exports.getAgents = asyncHandler(async (req, res) => {
       operating_city: agent.operating_city,
       country: agent.country,
       specialization: agent.specialization,
-      experience_years: 0,
+      experience_years: agent.experience_years || 0,
+      experience: agent.experience_years || 0,
+      presentationsGenerated: presentationStat.presentationsGenerated || 0,
       totalLeads: leadStat.totalLeads || 0,
       activeLeads: leadStat.activeLeads || 0,
       convertedLeads: leadStat.convertedLeads || 0,
@@ -1736,6 +1754,29 @@ exports.getAllAgents = asyncHandler(async (req, res) => {
     .limit(Number(limit))
     .lean();
 
+  const agentIds = agents.map(agent => agent._id);
+  const Presentation = mongoose.model('Presentation');
+
+  const presentationStats = await Presentation.aggregate([
+    { $match: { agentId: { $in: agentIds } } },
+    {
+      $group: {
+        _id: '$agentId',
+        presentationsGenerated: { $sum: 1 }
+      }
+    }
+  ]);
+
+  const presentationStatsMap = new Map(presentationStats.map(item => [String(item._id), item]));
+
+  const agentsWithStats = agents.map(agent => {
+    const presentationStat = presentationStatsMap.get(String(agent._id)) || {};
+    return {
+      ...agent,
+      presentationsGenerated: presentationStat.presentationsGenerated || 0
+    };
+  });
+
   res.status(200).json({
     status: 'success',
     pagination: {
@@ -1744,7 +1785,7 @@ exports.getAllAgents = asyncHandler(async (req, res) => {
       totalPages: Math.ceil(total / limit),
       limit: Number(limit),
     },
-    data: agents,
+    data: agentsWithStats,
   });
 });
 
