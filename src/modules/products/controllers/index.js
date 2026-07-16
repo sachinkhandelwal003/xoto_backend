@@ -464,7 +464,7 @@ export const createProducts = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-            message: "Category created successfully",
+      message: "Product created successfully",
       data: {
         product: newProduct,
         colours: coloursData
@@ -766,8 +766,8 @@ export const createProduct = async (req, res) => {
 
         return res.status(201).json({
             success: true,
-            message: "Category created successfully",
-            Brand: newbrand
+            message: "Product created successfully",
+            Product: newproduct
         });
 
     } catch (error) {
@@ -788,7 +788,7 @@ export const editCategory = async (req, res) => {
         return res.status(201).json({
             success: true,
             message: "Category updated successfully",
-            Brand: newCategory
+            Category: newCategory
         });
 
     } catch (error) {

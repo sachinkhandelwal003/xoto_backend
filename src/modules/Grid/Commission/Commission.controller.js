@@ -187,7 +187,7 @@ exports.updateCommissionStatus = asyncHandler(async (req, res) => {
     if (!deal.evidenceUploaded || deal.evidenceDocuments.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Evidence (SPA or booking form) must be uploaded before confirming commission (PRD §8.5)',
+        message: 'Evidence (SPA or booking form) must be uploaded before confirming commission',
       });
     }
     deal.commissionStatus = 'confirmed';
