@@ -52,8 +52,17 @@ exports.agentSignup = async (req, res) => {
       password,
       operating_city,
       specialization,
+      experience_years,
       country,
       agency,
+      profile_photo,
+      profilePhotoUrl,
+      id_proof,
+      emiratesIdUrl,
+      rera_certificate,
+      reraCardUrl,
+      rera_number,
+      reraCardNumber,
     } = req.body;
 
     const resolvedPhone = phone_number || phone;
@@ -61,7 +70,12 @@ exports.agentSignup = async (req, res) => {
     const resolvedFirstName = first_name || nameParts[0];
     const resolvedLastName = last_name || nameParts.slice(1).join(' ') || '-';
 
-    if (!resolvedFirstName || !resolvedPhone || !password || !agency || !email) {
+    // Generate random secure temporary password if not provided in the format Xoto@XXXX
+    const resolvedPassword = password || (
+      'Xoto@' + Math.floor(1000 + Math.random() * 9000)
+    );
+
+    if (!resolvedFirstName || !resolvedPhone || !resolvedPassword || !agency || !email) {
       return res.status(400).json({ success: false, message: 'Name, email, phone, password, and agency are required' });
     }
 
@@ -78,7 +92,7 @@ exports.agentSignup = async (req, res) => {
     // Verify agency exists and is active
     const agencyDoc = await Agency.findOne({ _id: agency, isActive: true, isSuspended: false });
     if (!agencyDoc) return res.status(400).json({ success: false, message: 'Selected agency not found or inactive' });
-const agentRole = await Role.findOne({ code: 16 });
+    const agentRole = await Role.findOne({ code: 16 });
     const newAgent = await Agent.create({
       first_name: resolvedFirstName,
       last_name: resolvedLastName,
@@ -86,19 +100,51 @@ const agentRole = await Role.findOne({ code: 16 });
       email,
       phone_number: resolvedPhone,
       country_code: country_code || '+971',
-      password,   // hashed by pre-save hook
+      password: resolvedPassword,   // hashed by pre-save hook
       operating_city: operating_city || agencyDoc.operatingLocation?.city || 'Dubai',
       specialization: specialization || 'general',
+      experience_years: Number(experience_years) || 0,
       country: country || agencyDoc.operatingLocation?.country || 'UAE',
       agency,
-        role: agentRole ? agentRole._id : null,
+      role: agentRole ? agentRole._id : null,
+      profile_photo: profile_photo || profilePhotoUrl || "",
+      emiratesIdUrl: id_proof || emiratesIdUrl || "",
+      reraCardUrl: rera_certificate || reraCardUrl || "",
+      reraCardNumber: rera_number || reraCardNumber || "",
       agencyApprovalStatus: 'pending',
-      adminApprovalStatus: 'pending',
+      adminApprovalStatus: 'approved',
       isActive: false,
     });
 
     // Optionally push agent to agency's agents array
     await Agency.findByIdAndUpdate(agency, { $addToSet: { agents: newAgent._id } });
+
+    // Send credentials email
+    try {
+      const sendEmail = require('../../../../utils/sendEmail');
+      await sendEmail({
+        to: email,
+        subject: 'Welcome to Xoto Grid! Your Agent Account Credentials',
+        html: `
+          <div style="font-family: sans-serif; padding: 20px; line-height: 1.6; color: #333; max-width: 600px; margin: auto; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
+            <h2 style="color: #5C039B; border-bottom: 2px solid #5C039B; padding-bottom: 10px; margin-top: 0;">Welcome to Xoto Grid!</h2>
+            <p>Dear <strong>${resolvedFirstName}</strong>,</p>
+            <p>Your agent account has been successfully onboarded by the administrator. You can log in to your dashboard using the temporary credentials details below:</p>
+            <div style="background: #f8f9fa; padding: 16px; border-radius: 8px; border: 1.5px dashed #5C039B; margin: 20px 0;">
+              <p style="margin: 6px 0; font-size: 14px;"><strong>Login Email:</strong> <span style="color: #5C039B; font-weight: 600;">${email}</span></p>
+              <p style="margin: 6px 0; font-size: 14px;"><strong>Phone Number:</strong> ${resolvedPhone}</p>
+              <p style="margin: 6px 0; font-size: 14px;"><strong>Temporary Password:</strong> <code style="background: #e5e7eb; padding: 3px 8px; border-radius: 4px; font-weight: bold; color: #d946ef; font-size: 15px; letter-spacing: 0.5px;">${resolvedPassword}</code></p>
+            </div>
+            <p style="background: #fffbeb; border: 1px solid #fef3c7; color: #b45309; padding: 12px; border-radius: 8px; font-size: 13px; margin: 20px 0;">
+              <strong>⚠️ Action Required:</strong> For security reasons, please log in and update your password immediately from your profile settings page.
+            </p>
+            <p style="margin-bottom: 0;">Best regards,<br/><span style="color: #5C039B; font-weight: bold;">The Xoto Grid Team</span></p>
+          </div>
+        `
+      });
+    } catch (emailErr) {
+      console.error('Failed to send onboarding email:', emailErr.message);
+    }
   await GridNotification.create({
   eventType:     'AGENT_REGISTERED',
   title:         'New Agent Registration',
