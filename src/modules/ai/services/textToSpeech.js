@@ -28,7 +28,7 @@ export async function textToSpeech(text, voice = "nova") {
     const speech = await openai.audio.speech.create({
       model: "gpt-4o-mini-tts",
       voice,
-      input: text,
+      input: text.replace(/XOBIA/gi, "Jobia").replace(/Xobia/gi, "Jobia"),
       instructions:
         "Speak warmly and naturally, like a knowledgeable professional assistant. " +
         "Use a confident, friendly tone with clear pronunciation. " +

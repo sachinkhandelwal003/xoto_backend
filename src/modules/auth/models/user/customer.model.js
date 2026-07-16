@@ -100,6 +100,16 @@ const customerSchema = new mongoose.Schema(
       default: 'manual'
     },
 
+    // ================= VERIFICATION =================
+    isMobileVerified: {
+      type: Boolean,
+      default: false
+    },
+    isEmailVerified: {
+      type: Boolean,
+      default: false
+    },
+
     // ================= STATUS =================
     isActive: {
       type: Boolean,
