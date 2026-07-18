@@ -18,6 +18,10 @@ const userSchema = new mongoose.Schema({
   email: { 
     type: String 
   },
+  nationality: {
+    type: String,
+    default: ""
+  },
   dateOfBirth: { 
     type: Date 
   },
