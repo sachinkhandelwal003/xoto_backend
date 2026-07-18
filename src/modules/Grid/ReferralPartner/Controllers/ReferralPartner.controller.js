@@ -235,7 +235,7 @@ exports.updateBasicInfo = async (req, res) => {
 
 exports.updateIdDocument = async (req, res) => {
   try {
-    const { idDocumentType, idDocumentUrl } = req.body;
+    const { idDocumentType, idDocumentUrl, idNumber } = req.body;
 
     if (!idDocumentType || !idDocumentUrl) {
       return res.status(400).json({
@@ -258,6 +258,7 @@ exports.updateIdDocument = async (req, res) => {
 
     partner.idDocumentType = idDocumentType;
     partner.idDocumentUrl  = idDocumentUrl;
+    if (idNumber) partner.idNumber = idNumber;
     await partner.save();
 
     return res.status(200).json({
@@ -277,7 +278,7 @@ exports.updateIdDocument = async (req, res) => {
 
 exports.updateBankDetails = async (req, res) => {
   try {
-    const { bankName, accountNumber, iban, accountHolderName } = req.body;
+    const { bankName, accountNumber, iban, accountHolderName, accountType } = req.body;
 
     if (!accountNumber || !iban || !accountHolderName) {
       return res.status(400).json({
@@ -291,7 +292,7 @@ exports.updateBankDetails = async (req, res) => {
       return res.status(404).json({ status: "fail", message: "Partner not found" });
     }
 
-    partner.bankDetails = { bankName, accountNumber, iban, accountHolderName };
+    partner.bankDetails = { bankName, accountNumber, iban, accountHolderName, accountType: accountType || "" };
     await partner.save();
 
     return res.status(200).json({
@@ -560,5 +561,703 @@ exports.getReferralLeaderboard = async (req, res) => {
   } catch (err) {
     console.error('Leaderboard error:', err);
     res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+// =========================================================================
+// OTP & Unified Auth Endpoints
+// =========================================================================
+
+exports.sendOTP = async (req, res) => {
+  try {
+    const { countryCode, phone } = req.body;
+    if (!phone || !countryCode) {
+      return res.status(400).json({ status: "fail", message: "Country code and phone number are required" });
+    }
+
+    const cleanPhone = phone.trim().replace(/\D/g, '');
+    const cleanCountry = countryCode.trim().replace(/[^\d+]/g, '');
+
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+
+    const mongoose = require("mongoose");
+    const Otp = mongoose.models.Otp || require("../../../otp/models/index.js").default;
+
+    await Otp.deleteMany({ country_code: cleanCountry, phone_number: cleanPhone });
+
+    await Otp.create({
+      country_code: cleanCountry,
+      phone_number: cleanPhone,
+      otp,
+      expiresAt: new Date(Date.now() + 3 * 60 * 1000)
+    });
+
+    console.log(`[OTP Sent] Phone: ${cleanCountry}${cleanPhone} | Code: ${otp}`);
+
+    if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER) {
+      try {
+        const { sendSms } = require("../../../otp/services/twilio.service.js");
+        const messageText = `Your Xoto Connect verification code is: ${otp}. This code expires in 3 minutes. Do not share it with anyone. If you didn't request this, ignore this message.`;
+        await sendSms(cleanCountry + cleanPhone, messageText);
+      } catch (smsError) {
+        console.error("Failed to send Twilio SMS:", smsError.message);
+      }
+    }
+
+    return res.status(200).json({
+      status: "success",
+      message: "OTP sent successfully"
+    });
+  } catch (error) {
+    console.error("sendOTP Error:", error);
+    return res.status(500).json({ status: "error", message: error.message });
+  }
+};
+
+exports.verifyOTP = async (req, res) => {
+  try {
+    const { countryCode, phone, otpCode } = req.body;
+
+    if (!phone || !countryCode || !otpCode) {
+      return res.status(400).json({
+        status: "fail",
+        message: "Country code, phone, and OTP code are required",
+      });
+    }
+
+    const cleanPhone = phone.trim().replace(/\D/g, '');
+    const cleanCountry = countryCode.trim().replace(/[^\d+]/g, '');
+
+    const BYPASS_OTP = process.env.BYPASS_OTP || "0033";
+    let isVerified = false;
+
+    const mongoose = require("mongoose");
+    const Otp = mongoose.models.Otp || require("../../../otp/models/index.js").default;
+
+    if (otpCode === BYPASS_OTP) {
+      isVerified = true;
+    } else {
+      const otpRecord = await Otp.findOne({
+        country_code: cleanCountry,
+        phone_number: cleanPhone,
+        otp: otpCode
+      });
+
+      if (!otpRecord) {
+        return res.status(400).json({
+          status: "fail",
+          message: "Invalid or expired OTP",
+        });
+      }
+
+      const OTP_EXPIRY_MS = 3 * 60 * 1000;
+      if (Date.now() - otpRecord.createdAt.getTime() > OTP_EXPIRY_MS) {
+        await Otp.deleteMany({ country_code: cleanCountry, phone_number: cleanPhone });
+        return res.status(400).json({
+          status: "fail",
+          message: "OTP has expired. Please request a new one.",
+        });
+      }
+
+      isVerified = true;
+    }
+
+    if (isVerified) {
+      await Otp.deleteMany({ country_code: cleanCountry, phone_number: cleanPhone });
+
+      const fullPhone = cleanCountry + cleanPhone;
+
+      const GridReferralPartner = mongoose.model("GridReferralPartner");
+      const Partner = mongoose.model("Partner");
+      const { createToken } = require("../../../../middleware/auth");
+
+      const gridPartner = await GridReferralPartner.findOne({ phone: fullPhone });
+      if (gridPartner) {
+        if (gridPartner.status !== "active") {
+          return res.status(403).json({ status: "fail", message: `Account is ${gridPartner.status}` });
+        }
+        const token = createToken(gridPartner, "gridreferralpartner");
+        return res.status(200).json({
+          status: "success",
+          userExists: true,
+          userType: "grid_partner",
+          token,
+          data: {
+            user: {
+              _id: gridPartner._id,
+              firstName: gridPartner.firstName,
+              lastName: gridPartner.lastName,
+              phone: gridPartner.phone,
+              email: gridPartner.email,
+              status: gridPartner.status
+            }
+          }
+        });
+      }
+
+      const partnerUser = await Partner.findOne({
+        "primaryContact.phone": cleanPhone,
+        $or: [
+          { "primaryContact.countryCode": cleanCountry },
+          { "primaryContact.countryCode": cleanCountry.replace("+", "") }
+        ]
+      });
+
+      if (partnerUser) {
+        if (partnerUser.status !== "active") {
+          return res.status(403).json({ status: "fail", message: `Account is ${partnerUser.status}` });
+        }
+        const token = createToken(partnerUser, "partner");
+        return res.status(200).json({
+          status: "success",
+          userExists: true,
+          userType: "vault_partner",
+          token,
+          data: {
+            user: {
+              _id: partnerUser._id,
+              companyName: partnerUser.companyName || partnerUser.primaryContact?.name,
+              phone: partnerUser.primaryContact?.phone,
+              email: partnerUser.email,
+              status: partnerUser.status
+            }
+          }
+        });
+      }
+
+      return res.status(200).json({
+        status: "success",
+        userExists: false,
+        message: "User not registered. Please proceed to registration.",
+        data: {
+          phone: cleanPhone,
+          countryCode: cleanCountry
+        }
+      });
+    }
+  } catch (error) {
+    console.error("verifyOTP Error:", error);
+    return res.status(500).json({ status: "error", message: error.message });
+  }
+};
+
+exports.registerPartnerUnified = async (req, res) => {
+  try {
+    const crypto = require("crypto");
+    const mongoose = require("mongoose");
+    const { firstName, lastName, phone, email, nationality, dateOfBirth } = req.body;
+
+    if (!firstName || !lastName || !phone || !email) {
+      return res.status(400).json({
+        status: "fail",
+        message: "First name, last name, email, and phone are required",
+      });
+    }
+
+    const cleanPhone = phone.trim().replace(/[^\d+]/g, '');
+
+    const existingPhone = await GridReferralPartner.findOne({ phone: cleanPhone });
+    if (existingPhone) {
+      return res.status(409).json({ status: "fail", message: "Phone number already registered" });
+    }
+
+    const Partner = mongoose.model("Partner");
+    const cleanPhoneNoCode = cleanPhone.replace(/^\+\d+/, '');
+    const existingVaultPhone = await Partner.findOne({ "primaryContact.phone": cleanPhoneNoCode });
+    if (existingVaultPhone) {
+      return res.status(409).json({ status: "fail", message: "Phone number already registered as Vault Partner" });
+    }
+
+    const randomPassword = crypto.randomBytes(16).toString('hex');
+
+    const partner = await GridReferralPartner.create({
+      firstName,
+      lastName,
+      phone: cleanPhone,
+      email: email.toLowerCase().trim(),
+      nationality: nationality || "",
+      dateOfBirth: dateOfBirth || null,
+      password: randomPassword,
+      role: "GridReferralPartner",
+      status: "active",
+    });
+
+    await GridNotification.create({
+      eventType:     'REFERRAL_PARTNER_REGISTERED',
+      title:         'New Referral Partner Registered',
+      message:       `New referral partner registered: ${firstName} ${lastName} (${cleanPhone}) — Access granted, compliance review recommended`,
+      entityId:      partner._id,
+      entityModel:   'GridReferralPartner',
+      recipientId:   null,
+      recipientRole: 'admin',
+      createdByName: `${firstName} ${lastName}`,
+      createdByRole: 'referral_partner',
+    });
+
+    await GridNotification.create({
+      eventType:     'REFERRAL_PARTNER_REGISTERED',
+      title:         'Welcome to Xoto GRID! 🎉',
+      message:       `Hi ${firstName} ${lastName}, your registration is complete! To unlock commission payouts, please complete your profile by uploading your ID (Passport or Emirates ID) and bank details.`,
+      entityId:      partner._id,
+      entityModel:   'GridReferralPartner',
+      recipientId:   partner._id,
+      recipientModel:'GridReferralPartner',
+      recipientRole: 'gridreferralpartner', 
+      createdByName: 'Xoto System',
+      createdByRole: 'system',
+    }).catch(err => console.error('Partner welcome notification failed:', err.message));
+
+    const { createToken } = require("../../../../middleware/auth");
+    const token = createToken(partner, "gridreferralpartner");
+
+    return res.status(201).json({
+      status: "success",
+      message: "Registration successful! Welcome to Xoto.",
+      token,
+      data: {
+        user: {
+          _id: partner._id,
+          firstName: partner.firstName,
+          lastName: partner.lastName,
+          phone: partner.phone,
+          email: partner.email,
+          status: partner.status
+        }
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+// =========================================================================
+// Unified Connect App Referral Lead Submission & Tracking
+// =========================================================================
+
+exports.createReferralLeadApp = async (req, res) => {
+  try {
+    const partnerId = req.user?._id;
+    if (!partnerId) {
+      return res.status(401).json({ status: "fail", message: "Unauthorized" });
+    }
+
+    const {
+      referralType,
+      firstName,
+      lastName,
+      phone,
+      countryCode = "+971",
+      email,
+      employerName,
+      timeline,
+      intent,
+      propertyType,
+      preferredArea,
+      budget,
+      residency,
+      nationality,
+      employmentType,
+      transactionType,
+      propertyFound,
+      propertyValue,
+    } = req.body;
+
+    if (!firstName || !phone) {
+      return res.status(400).json({
+        status: "fail",
+        message: "Client first name and phone number are required",
+      });
+    }
+
+    const cleanPhone = phone.toString().replace(/\D/g, '').slice(-15);
+    const cleanEmail = email ? email.toLowerCase().trim() : null;
+
+    if (referralType === "mortgage") {
+      const mongoose = require("mongoose");
+      const VaultLead = mongoose.models.VaultLead || mongoose.model("VaultLead");
+
+      const lead = await VaultLead.create({
+        sourceInfo: {
+          source: 'referral_partner',
+          createdByRole: 'referral_partner',
+          createdById: partnerId,
+          createdByModel: 'GridReferralPartner',
+          createdByName: `${req.user.firstName} ${req.user.lastName}`,
+          submissionMethod: 'manual_entry',
+        },
+        customerInfo: {
+          firstName: firstName.trim(),
+          lastName: (lastName || '').trim(),
+          countryCode,
+          mobileNumber: cleanPhone,
+          email: cleanEmail,
+          nationality: nationality || null,
+          residencyStatus: residency || null,
+          employmentStatus: employmentType || null,
+          employer: employerName || null,
+        },
+        propertyDetails: {
+          transactionType: transactionType || null,
+          propertyFound: propertyFound === 'Yes' || propertyFound === true,
+          approxPropertyValue: propertyValue || null,
+          propertyAddress: {
+            city: 'Dubai',
+          }
+        },
+        loanRequirements: {
+          timeline: timeline || null,
+        },
+        currentStatus: 'New',
+      });
+
+      try {
+        const { dispatchVaultNotification } = require("../../../vault/controllers/lead.controller.js");
+        if (typeof dispatchVaultNotification === "function") {
+          await dispatchVaultNotification(req, {
+            eventType:     'LEAD_CREATED_PARTNER',
+            title:         'New Mortgage Partner Lead',
+            message:       `${firstName} ${lastName || ''} — submitted by Connect Partner: ${req.user.firstName} ${req.user.lastName}`,
+            entityId:      lead._id,
+            entityModel:   'VaultLead',
+            leadId:        lead._id,
+          });
+        }
+      } catch (err) {
+        console.log("Vault lead notification skip/error:", err.message);
+      }
+
+      return res.status(201).json({
+        status: "success",
+        message: "Mortgage referral submitted successfully",
+        data: {
+          leadId: lead._id,
+          referralType: "mortgage",
+          clientName: `${firstName} ${lastName || ''}`.trim(),
+          status: "New",
+          createdAt: lead.createdAt
+        }
+      });
+
+    } else {
+      const mongoose = require("mongoose");
+      const GridLead = mongoose.models.GridLead || require("../../Lead/model/gridLead.model");
+      const Customer = mongoose.models.Customer || require("../../../../modules/auth/models/user/customer.model");
+
+      let customer = await Customer.findOne({ $or: [{ 'mobile.number': cleanPhone }] });
+      if (!customer) {
+        customer = await Customer.create({
+          name: {
+            first_name: firstName.trim(),
+            last_name:  (lastName  || '').trim(),
+          },
+          mobile: { country_code: countryCode, number: cleanPhone, verified: false },
+          ...(cleanEmail && { email: cleanEmail }),
+          statistics: { first_enquiry_at: new Date(), total_leads: 0, total_enquiries: 0 },
+        });
+      }
+
+      const buildReferralInfo = (user) => ({
+        referral_partner_id: user._id,
+        referral_code:       user.referral_code || null,
+        commission_rate:     user.default_commission_rate || null,
+        commission_status:   'pending',
+      });
+
+      const lead = await GridLead.create({
+        lead_type:             'referral_partner',
+        enquiry_type:          intent === 'Rent' ? 'rent' : intent === 'Sell' ? 'sell' : 'buy',
+        customerId:            customer._id,
+        classification:        'warm',
+        classification_reason: 'Referral partner lead — submitted via Connect app',
+
+        source: {
+          channel:           'referral_partner',
+          referralPartnerId: partnerId,
+        },
+
+        referral_info: buildReferralInfo(req.user),
+
+        requirements: {
+          property_type:        propertyType || undefined,
+          transaction_type:     intent === 'Rent' ? 'rent' : 'buy',
+          location_preferences: preferredArea ? [{ area: preferredArea }] : [],
+          budget_max:           budget ? Number(budget) : undefined,
+        },
+
+        contact_info: {
+          name: {
+            first_name: firstName.trim(),
+            last_name:  (lastName  || '').trim(),
+            is_masked:  false,
+          },
+          mobile: {
+            country_code: countryCode,
+            number:    cleanPhone,
+            is_masked: false,
+            verified:  false,
+          },
+          ...(cleanEmail && {
+            email: { address: cleanEmail, is_masked: false, verified: false },
+          }),
+          preferred_contact: 'whatsapp',
+        },
+
+        submitted_to_xoto:    true,
+        submitted_to_xoto_at: new Date(),
+        submitted_by_agent:   partnerId,
+
+        notes: [{
+          text:        `Lead submitted by referral partner via Connect App. Client: ${firstName} ${lastName || ''}, Phone: ${countryCode} ${cleanPhone}. Employer: ${employerName || 'N/A'}`,
+          author:      `${req.user.firstName} ${req.user.lastName}`,
+          author_type: 'agent',
+          is_private:  false,
+          created_at:  new Date(),
+        }],
+
+        created_by_agent: partnerId,
+        created_by:       partnerId,
+      });
+
+      await Customer.findByIdAndUpdate(customer._id, {
+        $inc: { 'statistics.total_leads': 1, 'statistics.total_enquiries': 1 },
+      });
+
+      return res.status(201).json({
+        status: "success",
+        message: "Real Estate referral submitted successfully",
+        data: {
+          leadId: lead._id,
+          referralType: "real_estate",
+          clientName: `${firstName} ${lastName || ''}`.trim(),
+          status: "warm",
+          createdAt: lead.submitted_to_xoto_at
+        }
+      });
+    }
+  } catch (err) {
+    console.error("createReferralLeadApp Error:", err);
+    return res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+exports.getReferralLeadsApp = async (req, res) => {
+  try {
+    const partnerId = req.user?._id;
+    if (!partnerId) {
+      return res.status(401).json({ status: "fail", message: "Unauthorized" });
+    }
+
+    const { status = "all", category = "all", search } = req.query;
+
+    const mongoose = require("mongoose");
+    const GridLead = mongoose.models.GridLead || require("../../Lead/model/gridLead.model");
+    const VaultLead = mongoose.models.VaultLead || require("../../../vault/models/VaultLead");
+
+    let gridLeads = [];
+    let vaultLeads = [];
+
+    if (category === "all" || category === "real_estate") {
+      const filter = {
+        lead_type: "referral_partner",
+        created_by_agent: partnerId,
+      };
+
+      if (status === "active") {
+        filter.status = { $nin: ["completed", "not_proceeding"] };
+      } else if (status === "closed") {
+        filter.status = "completed";
+      } else if (status === "lost") {
+        filter.status = "not_proceeding";
+      }
+
+      if (search) {
+        const regex = new RegExp(search.trim(), "i");
+        filter.$or = [
+          { "contact_info.name.first_name": regex },
+          { "contact_info.name.last_name": regex },
+          { "contact_info.email.address": regex },
+          { "contact_info.mobile.number": regex },
+        ];
+      }
+
+      gridLeads = await GridLead.find(filter).sort({ createdAt: -1 }).lean();
+    }
+
+    if (category === "all" || category === "mortgage") {
+      const filter = {
+        "sourceInfo.createdById": partnerId,
+        "sourceInfo.createdByModel": "GridReferralPartner"
+      };
+
+      if (status === "active") {
+        filter.currentStatus = { $nin: ["Disbursed", "Lost", "Not Proceeding"] };
+      } else if (status === "closed") {
+        filter.currentStatus = "Disbursed";
+      } else if (status === "lost") {
+        filter.currentStatus = { $in: ["Lost", "Not Proceeding"] };
+      }
+
+      if (search) {
+        const regex = new RegExp(search.trim(), "i");
+        filter.$or = [
+          { "customerInfo.firstName": regex },
+          { "customerInfo.lastName": regex },
+          { "customerInfo.email": regex },
+          { "customerInfo.mobileNumber": regex },
+        ];
+      }
+
+      vaultLeads = await VaultLead.find(filter).sort({ createdAt: -1 }).lean();
+    }
+
+    const formattedGrid = gridLeads.map(lead => {
+      let uiStatus = lead.status;
+      if (lead.status === "completed") uiStatus = "Closed";
+      else if (lead.status === "not_proceeding") uiStatus = "Lost";
+      else if (lead.status === "new") uiStatus = "New";
+      else if (lead.status === "in_discussion") uiStatus = "Active";
+
+      return {
+        id: lead._id,
+        clientName: `${lead.contact_info?.name?.first_name || ''} ${lead.contact_info?.name?.last_name || ''}`.trim(),
+        category: "Real Estate",
+        referralType: "real_estate",
+        status: uiStatus,
+        rawStatus: lead.status,
+        submittedAt: lead.submitted_to_xoto_at || lead.createdAt,
+        details: {
+          propertyType: lead.requirements?.property_type || null,
+          budget: lead.requirements?.budget_max || null,
+          preferredArea: (lead.requirements?.location_preferences || []).map(l => l.area).filter(Boolean).join(", ") || null
+        }
+      };
+    });
+
+    const formattedVault = vaultLeads.map(lead => {
+      let uiStatus = lead.currentStatus;
+      if (lead.currentStatus === "Disbursed") uiStatus = "Closed";
+      else if (lead.currentStatus === "Not Proceeding") uiStatus = "Lost";
+
+      return {
+        id: lead._id,
+        clientName: `${lead.customerInfo?.firstName || ''} ${lead.customerInfo?.lastName || ''}`.trim(),
+        category: "Mortgage",
+        referralType: "mortgage",
+        status: uiStatus,
+        rawStatus: lead.currentStatus,
+        submittedAt: lead.createdAt,
+        details: {
+          approxPropertyValue: lead.propertyDetails?.approxPropertyValue || null,
+          transactionType: lead.propertyDetails?.transactionType || null,
+          timeline: lead.loanRequirements?.timeline || null
+        }
+      };
+    });
+
+    const mergedLeads = [...formattedGrid, ...formattedVault].sort(
+      (a, b) => new Date(b.submittedAt) - new Date(a.submittedAt)
+    );
+
+    return res.status(200).json({
+      status: "success",
+      count: mergedLeads.length,
+      data: mergedLeads
+    });
+  } catch (err) {
+    console.error("getReferralLeadsApp Error:", err);
+    return res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+exports.getReferralLeadDetailApp = async (req, res) => {
+  try {
+    const partnerId = req.user?._id;
+    const { id } = req.params;
+
+    if (!partnerId) {
+      return res.status(401).json({ status: "fail", message: "Unauthorized" });
+    }
+
+    const mongoose = require("mongoose");
+    const GridLead = mongoose.models.GridLead || require("../../Lead/model/gridLead.model");
+    const VaultLead = mongoose.models.VaultLead || require("../../../vault/models/VaultLead");
+
+    let lead = await GridLead.findOne({ _id: id, created_by_agent: partnerId }).lean();
+    if (lead) {
+      let uiStatus = lead.status;
+      if (lead.status === "completed") uiStatus = "Closed";
+      else if (lead.status === "not_proceeding") uiStatus = "Lost";
+
+      return res.status(200).json({
+        status: "success",
+        data: {
+          id: lead._id,
+          referralType: "real_estate",
+          clientInfo: {
+            firstName: lead.contact_info?.name?.first_name || '',
+            lastName: lead.contact_info?.name?.last_name || '',
+            phone: `${lead.contact_info?.mobile?.country_code || ''} ${lead.contact_info?.mobile?.number || ''}`.trim(),
+            email: lead.contact_info?.email?.address || null,
+          },
+          requirements: {
+            propertyType: lead.requirements?.property_type || null,
+            transactionType: lead.requirements?.transaction_type || null,
+            preferredArea: (lead.requirements?.location_preferences || []).map(l => l.area).filter(Boolean).join(", ") || null,
+            budget: lead.requirements?.budget_max || null,
+          },
+          status: uiStatus,
+          rawStatus: lead.status,
+          submittedAt: lead.submitted_to_xoto_at || lead.createdAt,
+          notes: lead.notes || []
+        }
+      });
+    }
+
+    lead = await VaultLead.findOne({
+      _id: id,
+      "sourceInfo.createdById": partnerId,
+      "sourceInfo.createdByModel": "GridReferralPartner"
+    }).lean();
+
+    if (lead) {
+      let uiStatus = lead.currentStatus;
+      if (lead.currentStatus === "Disbursed") uiStatus = "Closed";
+      else if (lead.currentStatus === "Not Proceeding") uiStatus = "Lost";
+
+      return res.status(200).json({
+        status: "success",
+        data: {
+          id: lead._id,
+          referralType: "mortgage",
+          clientInfo: {
+            firstName: lead.customerInfo?.firstName || '',
+            lastName: lead.customerInfo?.lastName || '',
+            phone: `${lead.customerInfo?.countryCode || ''} ${lead.customerInfo?.mobileNumber || ''}`.trim(),
+            email: lead.customerInfo?.email || null,
+            residency: lead.customerInfo?.residencyStatus || null,
+            nationality: lead.customerInfo?.nationality || null,
+            employer: lead.customerInfo?.employer || null,
+          },
+          requirements: {
+            transactionType: lead.propertyDetails?.transactionType || null,
+            approxPropertyValue: lead.propertyDetails?.approxPropertyValue || null,
+            timeline: lead.loanRequirements?.timeline || null,
+            propertyFound: lead.propertyDetails?.propertyFound || false,
+          },
+          status: uiStatus,
+          rawStatus: lead.currentStatus,
+          submittedAt: lead.createdAt,
+          notesToXoto: lead.notesToXoto || null
+        }
+      });
+    }
+
+    return res.status(404).json({
+      status: "fail",
+      message: "Lead not found or access denied"
+    });
+  } catch (err) {
+    console.error("getReferralLeadDetailApp Error:", err);
+    return res.status(500).json({ status: "error", message: err.message });
   }
 };

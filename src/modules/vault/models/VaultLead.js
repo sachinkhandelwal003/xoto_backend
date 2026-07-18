@@ -166,7 +166,7 @@ const leadSchema = new mongoose.Schema(
         required: true,
       },
       createdById:    { type: mongoose.Schema.Types.ObjectId, refPath: 'sourceInfo.createdByModel', default: null },
-      createdByModel: { type: String, enum: ['VaultAgent', 'Partner', 'Admin'], default: null },
+      createdByModel: { type: String, enum: ['VaultAgent', 'Partner', 'Admin', 'GridReferralPartner'], default: null },
       createdByName:  { type: String, required: true },
       createdAt:      { type: Date,   default: Date.now },
       submissionMethod: {

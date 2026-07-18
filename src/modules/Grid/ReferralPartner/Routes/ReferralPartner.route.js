@@ -9,15 +9,29 @@ const {
   getReferralLeaderboard,
   getAllReferralPartners,
   getReferralPartnerById,
-  suspendReferralPartner
+  suspendReferralPartner,
+  sendOTP,
+  verifyOTP,
+  registerPartnerUnified,
+  createReferralLeadApp,
+  getReferralLeadsApp,
+  getReferralLeadDetailApp
 } = require("../Controllers/ReferralPartner.controller");
 
 const router = express.Router();
 
 const { protectMulti, protect } = require("../../../../middleware/auth");
 
-router.post("/register-partner", registerReferralPartner);
-router.post("/login-partner",    loginReferralPartner);
+router.post("/register-partner",          registerReferralPartner);
+router.post("/register-partner-unified",  registerPartnerUnified);
+router.post("/login-partner",             loginReferralPartner);
+router.post("/otp/send",                  sendOTP);
+router.post("/otp/verify",                verifyOTP);
+
+// Connect App Unified Lead routes — protected
+router.post("/create-lead", protectMulti, createReferralLeadApp);
+router.get("/my-leads",     protectMulti, getReferralLeadsApp);
+router.get("/leads/:id",    protectMulti, getReferralLeadDetailApp);
 
 // Profile routes — protected (MUST COME BEFORE /:id!)
 router.get("/profile",              protectMulti, getProfile);
