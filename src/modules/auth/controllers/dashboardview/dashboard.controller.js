@@ -1,9 +1,9 @@
 const mongoose = require('mongoose');
-const PropertyLead = require('../../models/consultant/propertyLead.model')
+const PropertyLead = require('../../../Grid/Lead/model/gridLead.model')
 const Freelancer = require('../../models/Freelancer/freelancer.model');
 const VendorB2C = require('../../models/Vendor/B2cvendor.model');
 const Developer = require('../../../Grid/Developer/models/developer.model');
-const Property = require('../../../properties/models/PropertyModel');
+const Property = require('../../../properties/models/property.model');
 const Estimate = require('../../../auth/models/leads/estimate.model');
 const Project = require('../../../auth/models/Freelancer/projectfreelancer.model');
 const Product = require('../../../products/models/ProductModel')
@@ -200,9 +200,9 @@ exports.superAdminDashboard = async (req, res) => {
       /* PRODUCTS & SALES */
       Product.countDocuments({}),
       Purchase.countDocuments({ status: 'paid' }),
-      Purchase.aggregate([
-        { $match: { status: 'paid' } },
-        { $group: { _id: null, totalRevenue: { $sum: '$total_price' } } }
+      Deal.aggregate([
+        { $match: { isVoided: false } },
+        { $group: { _id: null, totalRevenue: { $sum: '$transactionValue' } } }
       ])
     ]);
 
