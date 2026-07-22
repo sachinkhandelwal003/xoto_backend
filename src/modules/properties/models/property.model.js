@@ -268,6 +268,38 @@ const PropertySchema = new mongoose.Schema(
     cheques:         { type: Number, default: null },  // number of cheques landlord accepts
     isShortTerm:     { type: Boolean, default: false }, // PRD §1.6 short-term and long-term
 
+    advisorId: {
+      type:    mongoose.Schema.Types.ObjectId,
+      ref:     "GridAdvisor",
+      default: null,
+    },
+    buildingName: {
+      type:    String,
+      default: "",
+    },
+    mapLink: {
+      type:    String,
+      default: "",
+    },
+    occupancyStatus: {
+      type:    String,
+      enum:    ["vacant", "occupied", "open_for_viewing"],
+      default: "vacant",
+    },
+    deposit: {
+      type:    Number,
+      default: 0,
+    },
+    ownerDetails: {
+      name:          { type: String, default: "" },
+      emiratesId:    { type: String, default: "" },
+      emiratesIdUrl: { type: String, default: "" },
+      titleDeedUrl:  { type: String, default: "" },
+      phone:         { type: String, default: "" },
+      email:         { type: String, default: "" },
+      nocUrl:        { type: String, default: "" },
+    },
+
     // ══════════════════════════════════════════════════════════════
     // COMPLIANCE (PRD §14.4)
     // ══════════════════════════════════════════════════════════════

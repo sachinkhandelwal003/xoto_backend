@@ -19,6 +19,22 @@ const bankDetailsSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    isOutsideUae: {
+      type: Boolean,
+      default: false,
+    },
+    swiftCode: {
+      type: String,
+      default: "",
+    },
+    bankAddress: {
+      type: String,
+      default: "",
+    },
+    routingCode: {
+      type: String,
+      default: "",
+    },
   },
   { _id: false }
 );
@@ -94,14 +110,28 @@ role: {
   ref: 'Role',
   default: null,
 },
-    // ─────────────────────────────────
-    // Agency Affiliation
-    // ─────────────────────────────────
+    agentMode: {
+      type: String,
+      enum: ["freelance", "partner_affiliated"],
+      default: "freelance",
+    },
+
+    locationStatus: {
+      type: String,
+      enum: ["inside_uae", "outside_uae"],
+      default: "inside_uae",
+    },
+
+    residencyStatus: {
+      type: String,
+      default: "",
+    },
 
     agency: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Agency",
-      required: true,
+      required: false,
+      default: null,
     },
 
     agencyApprovalStatus: {
@@ -156,6 +186,21 @@ role: {
     },
 
     emiratesIdUrl: {
+      type: String,
+      default: "",
+    },
+
+    emiratesIdNumber: {
+      type: String,
+      default: "",
+    },
+
+    passportNumber: {
+      type: String,
+      default: "",
+    },
+
+    passportUrl: {
       type: String,
       default: "",
     },

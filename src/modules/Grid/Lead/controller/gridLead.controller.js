@@ -1491,6 +1491,15 @@ exports.submitLeadToXoto = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Lead not found or access denied' });
   }
 
+  const Agent = require('../../Agent/models/agent');
+  const agent = await Agent.findById(agentId);
+  if (agent && agent.agentMode === 'partner_affiliated' && agent.agencyApprovalStatus !== 'approved') {
+    return res.status(403).json({
+      success: false,
+      message: 'Partner affiliation approval is required to create deals or submit leads to Xoto.'
+    });
+  }
+
   if (lead.submitted_to_xoto) {
     return res.status(400).json({
       success: false,

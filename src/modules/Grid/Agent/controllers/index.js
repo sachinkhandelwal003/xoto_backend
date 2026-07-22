@@ -63,6 +63,14 @@ exports.agentSignup = async (req, res) => {
       reraCardUrl,
       rera_number,
       reraCardNumber,
+      
+      // Onboarding additions
+      agentMode,
+      locationStatus,
+      residencyStatus,
+      emiratesIdNumber,
+      passportNumber,
+      passportUrl,
     } = req.body;
 
     const resolvedPhone = phone_number || phone;
@@ -75,8 +83,14 @@ exports.agentSignup = async (req, res) => {
       'Xoto@' + Math.floor(1000 + Math.random() * 9000)
     );
 
-    if (!resolvedFirstName || !resolvedPhone || !resolvedPassword || !agency || !email) {
-      return res.status(400).json({ success: false, message: 'Name, email, phone, password, and agency are required' });
+    const isFreelancer = agentMode === 'freelance' || !agency;
+
+    if (!resolvedFirstName || !resolvedPhone || !resolvedPassword || !email) {
+      return res.status(400).json({ success: false, message: 'Name, email, phone, and password are required' });
+    }
+
+    if (!isFreelancer && !agency) {
+      return res.status(400).json({ success: false, message: 'Agency is required for partner affiliated agents' });
     }
 
     // Check for duplicate phone
@@ -89,9 +103,11 @@ exports.agentSignup = async (req, res) => {
 
     if (existing) return res.status(400).json({ success: false, message: 'Phone number or email already registered' });
 
-    // Verify agency exists and is active
-    const agencyDoc = await Agency.findOne({ _id: agency, isActive: true, isSuspended: false });
-    if (!agencyDoc) return res.status(400).json({ success: false, message: 'Selected agency not found or inactive' });
+    // Verify agency exists and is active if provided
+    if (agency) {
+      const agencyDoc = await Agency.findOne({ _id: agency, isActive: true, isSuspended: false });
+      if (!agencyDoc) return res.status(400).json({ success: false, message: 'Selected agency not found or inactive' });
+    }
     const agentRole = await Role.findOne({ code: 16 });
     const newAgent = await Agent.create({
       first_name: resolvedFirstName,
@@ -101,23 +117,33 @@ exports.agentSignup = async (req, res) => {
       phone_number: resolvedPhone,
       country_code: country_code || '+971',
       password: resolvedPassword,   // hashed by pre-save hook
-      operating_city: operating_city || agencyDoc.operatingLocation?.city || 'Dubai',
+      operating_city: operating_city || 'Dubai',
       specialization: specialization || 'general',
       experience_years: Number(experience_years) || 0,
-      country: country || agencyDoc.operatingLocation?.country || 'UAE',
-      agency,
+      country: country || 'UAE',
+      agency: isFreelancer ? null : agency,
       role: agentRole ? agentRole._id : null,
       profile_photo: profile_photo || profilePhotoUrl || "",
       emiratesIdUrl: id_proof || emiratesIdUrl || "",
       reraCardUrl: rera_certificate || reraCardUrl || "",
       reraCardNumber: rera_number || reraCardNumber || "",
-      agencyApprovalStatus: 'pending',
+      agencyApprovalStatus: isFreelancer ? 'approved' : 'pending',
       adminApprovalStatus: 'approved',
-      isActive: false,
+      isActive: true,
+      
+      // Onboarding tracking fields
+      agentMode: isFreelancer ? 'freelance' : 'partner_affiliated',
+      locationStatus: locationStatus || 'inside_uae',
+      residencyStatus: residencyStatus || '',
+      emiratesIdNumber: emiratesIdNumber || '',
+      passportNumber: passportNumber || '',
+      passportUrl: passportUrl || '',
     });
 
     // Optionally push agent to agency's agents array
-    await Agency.findByIdAndUpdate(agency, { $addToSet: { agents: newAgent._id } });
+    if (agency) {
+      await Agency.findByIdAndUpdate(agency, { $addToSet: { agents: newAgent._id } });
+    }
 
     // Send credentials email
     try {
@@ -179,36 +205,37 @@ await GridNotification.create({
   }
 };
 
-/* =====================================
-   :two: AGENT LOGIN
-===================================== */
 exports.agentLogin = async (req, res) => {
   try {
-    const { phone, password } = req.body;
-    if (!phone || !password)
-      return res.status(400).json({ success: false, message: 'Phone and password required' });
+    const { phone, email, password } = req.body;
+    if ((!phone && !email) || !password)
+      return res.status(400).json({ success: false, message: 'Credentials (phone or email) and password required' });
 
     let agent = null;
 
-    // Try 1: search by stored local phone number directly
-    agent = await Agent.findOne({ phone_number: phone });
+    if (email) {
+      agent = await Agent.findOne({ email: email.toLowerCase().trim() });
+    } else if (phone) {
+      // Try 1: search by stored local phone number directly
+      agent = await Agent.findOne({ phone_number: phone });
 
-    // Try 2: split country_code + phone_number
-    if (!agent && phone.startsWith('+')) {
-      const numberWithoutPlus = phone.slice(1);
-      const splits = [
-        { country_code: '+' + numberWithoutPlus.slice(0, 1), phone_number: numberWithoutPlus.slice(1) },
-        { country_code: '+' + numberWithoutPlus.slice(0, 2), phone_number: numberWithoutPlus.slice(2) },
-        { country_code: '+' + numberWithoutPlus.slice(0, 3), phone_number: numberWithoutPlus.slice(3) },
-        { country_code: '+' + numberWithoutPlus.slice(0, 4), phone_number: numberWithoutPlus.slice(4) },
-      ];
+      // Try 2: split country_code + phone_number
+      if (!agent && phone.startsWith('+')) {
+        const numberWithoutPlus = phone.slice(1);
+        const splits = [
+          { country_code: '+' + numberWithoutPlus.slice(0, 1), phone_number: numberWithoutPlus.slice(1) },
+          { country_code: '+' + numberWithoutPlus.slice(0, 2), phone_number: numberWithoutPlus.slice(2) },
+          { country_code: '+' + numberWithoutPlus.slice(0, 3), phone_number: numberWithoutPlus.slice(3) },
+          { country_code: '+' + numberWithoutPlus.slice(0, 4), phone_number: numberWithoutPlus.slice(4) },
+        ];
 
-      for (const split of splits) {
-        agent = await Agent.findOne({
-          country_code: split.country_code,
-          phone_number: split.phone_number,
-        });
-        if (agent) break;
+        for (const split of splits) {
+          agent = await Agent.findOne({
+            country_code: split.country_code,
+            phone_number: split.phone_number,
+          });
+          if (agent) break;
+        }
       }
     }
 
@@ -216,10 +243,10 @@ exports.agentLogin = async (req, res) => {
       logAudit({
         entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
         visibleToRoles: ['grid_admin', 'superadmin'],
-        performedByName: phone || 'Unknown',
+        performedByName: phone || email || 'Unknown',
         performedByRole: 'agent',
         ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
-        metadata: { phone, reason: 'Agent not found' },
+        metadata: { phone, email, reason: 'Agent not found' },
       });
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
@@ -233,16 +260,13 @@ exports.agentLogin = async (req, res) => {
         entityType: 'AUTH', action: 'AUTH_LOGIN_FAILED',
         visibleToRoles: ['grid_admin', 'superadmin'],
         performedBy: agent._id, performedByModel: 'Agent',
-        performedByName: agent.first_name || agent.phone_number || phone,
+        performedByName: agent.first_name || agent.phone_number || phone || email,
         performedByRole: 'agent',
         ipAddress: req.ip ?? null, userAgent: req.headers?.['user-agent'] ?? null,
-        metadata: { phone, reason: 'Wrong password' },
+        metadata: { phone, email, reason: 'Wrong password' },
       });
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
-
-    if (agent.agencyApprovalStatus !== 'approved')
-      return res.status(403).json({ success: false, message: 'Account not approved by agency yet.' });
 
     // ✅ Populate role before token creation
     const agentWithRole = await Agent.findById(agent._id).populate({
