@@ -306,6 +306,13 @@ console.log("Final listingStatus:", listingStatus);
       inventoryCategory,
       buildingNames,
       floorConfigurations,
+      // Rental workflow fields
+      advisorId,
+      buildingName,
+      mapLink,
+      occupancyStatus,
+      deposit,
+      ownerDetails,
     } = req.body;
 console.log("=== STATUS DEBUG ===");
 console.log("req.body.status:", req.body.status);
@@ -314,6 +321,13 @@ console.log("isDraft:", isDraft);
     const property = await Property.create({
       developer:      propertySubType === "off_plan" ? devId : (developerId || null),
       createdByAdmin: isAdmin(role) ? userId : null,
+
+      advisorId: advisorId || null,
+      buildingName: buildingName || "",
+      mapLink: mapLink || "",
+      occupancyStatus: occupancyStatus || "vacant",
+      deposit: Number(deposit) || (propertySubType === "rental" && (price || price_min) ? (price || price_min) * 0.10 : propertySubType === "secondary" && (price || price_min) ? (price || price_min) * (furnishing === "furnished" ? 0.10 : 0.05) : 0),
+      ownerDetails: ownerDetails || {},
 
       propertySubType,
       transactionType: transactionType || (propertySubType === "rental" ? "rent" : "sell"),
@@ -426,7 +440,7 @@ console.log("isDraft:", isDraft);
       developerDetails: developerDetails || {},
       status: status || "draft",
 
-      isFeatured:              isFeatured              || false,
+      isFeatured:              (permitAvailable ? false : (isFeatured || false)),
       isHot:                   false,
       showContactOnlyVerified: showContactOnlyVerified !== undefined ? showContactOnlyVerified : true,
       approvalStatus:
@@ -551,6 +565,9 @@ exports.getProperties = async (req, res) => {
       query.approvalStatus = "approved";
       query.listingStatus = "active";
       if (!isCatalogue(role)) query.permitAvailable = { $ne: true };
+      if (!req.user) {
+        query.showContactOnlyVerified = { $ne: true };
+      }
     }
     console.log("Final query in getProperties:", query);
     console.log("isDevRole:", isDevRole(role));
@@ -693,6 +710,16 @@ exports.getProperties = async (req, res) => {
       };
     }
 
+    let sanitizedProperties = properties;
+    if (isCatalogue(role)) {
+      sanitizedProperties = properties.map(p => {
+        const obj = p.toObject();
+        delete obj.unitNumber;
+        delete obj.ownerDetails;
+        return obj;
+      });
+    }
+
     // ✅ ADD CACHE CONTROL HEADERS TO PREVENT 304 RESPONSES
     res.set({
       'Cache-Control': 'no-store, no-cache, must-revalidate, private',
@@ -705,7 +732,7 @@ exports.getProperties = async (req, res) => {
       count: properties.length,
       pagination: paginationMeta(total, page, limit),
       ...(stats && { stats }),
-      data: properties,
+      data: sanitizedProperties,
     });
   } catch (err) {
     console.error("Error in getProperties:", err);
@@ -773,6 +800,8 @@ exports.getPropertyById = async (req, res) => {
 
     if (isCatalogue(role)) {
       Property.findByIdAndUpdate(req.params.id, { $inc: { viewCount: 1 } }).exec();
+      delete combinedData.unitNumber;
+      delete combinedData.ownerDetails;
     }
 
     // ✅ ADD CACHE CONTROL HEADERS
@@ -889,6 +918,7 @@ exports.updateProperty = async (req, res) => {
         updateData.trakheesiPermitId = null;
         updateData.qrCode = null;
         updateData.reraPermitNumber = null;
+        updateData.isFeatured = false;
       }
     }
     if (req.body.buildings !== undefined) {
@@ -936,7 +966,41 @@ exports.updateProperty = async (req, res) => {
       updateData.saleStatus = req.body.saleStatus;
     }
     if (req.body.isFeatured !== undefined) {
-      updateData.isFeatured = req.body.isFeatured;
+      const currentPermitAvailable = req.body.permitAvailable !== undefined
+        ? (req.body.permitAvailable === true || req.body.permitAvailable === "true")
+        : property.permitAvailable;
+
+      if (currentPermitAvailable && (req.body.isFeatured === true || req.body.isFeatured === "true")) {
+        return res.status(400).json({ status: "fail", message: "Restricted/Permit-only listings cannot be featured on the web" });
+      }
+      updateData.isFeatured = req.body.isFeatured === true || req.body.isFeatured === "true";
+    }
+    if (req.body.advisorId !== undefined) {
+      updateData.advisorId = req.body.advisorId || null;
+    }
+    if (req.body.buildingName !== undefined) {
+      updateData.buildingName = req.body.buildingName;
+    }
+    if (req.body.mapLink !== undefined) {
+      updateData.mapLink = req.body.mapLink;
+    }
+    if (req.body.occupancyStatus !== undefined) {
+      updateData.occupancyStatus = req.body.occupancyStatus;
+    }
+    if (req.body.deposit !== undefined) {
+      updateData.deposit = Number(req.body.deposit);
+    } else if (req.body.price !== undefined || req.body.furnishing !== undefined) {
+      const subType = property.propertySubType;
+      const currentPrice = req.body.price !== undefined ? Number(req.body.price) : property.price;
+      const currentFurnishing = req.body.furnishing !== undefined ? req.body.furnishing : property.furnishing;
+      if (subType === "rental") {
+        updateData.deposit = currentPrice * 0.10;
+      } else if (subType === "secondary") {
+        updateData.deposit = currentPrice * (currentFurnishing === "furnished" ? 0.10 : 0.05);
+      }
+    }
+    if (req.body.ownerDetails !== undefined) {
+      updateData.ownerDetails = req.body.ownerDetails;
     }
     if (req.body.developerDetails !== undefined) {
       updateData.developerDetails = req.body.developerDetails;
@@ -1622,6 +1686,10 @@ exports.toggleFeatured = async (req, res) => {
       return res.status(400).json({ status: "fail", message: "Only approved listings can be featured" });
     }
 
+    if (property.permitAvailable && !property.isFeatured) {
+      return res.status(400).json({ status: "fail", message: "Restricted/Permit-only listings cannot be featured on the web" });
+    }
+
     property.isFeatured = !property.isFeatured;
     await property.save();
 
@@ -1641,11 +1709,15 @@ exports.toggleFeatured = async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════
 exports.getHotProperties = async (req, res) => {
   try {
-    const properties = await Property.find({
+    const query = {
       isHot:          true,
       approvalStatus: "approved",
       listingStatus:  "active",
-    })
+    };
+    if (!req.user) {
+      query.showContactOnlyVerified = { $ne: true };
+    }
+    const properties = await Property.find(query)
       .limit(3)
       .populate("developer", "name email logo")
       .sort({ updatedAt: -1 });
