@@ -758,6 +758,21 @@ exports.assignAdvisorToLead = asyncHandler(async (req, res) => {
   });
 
   await lead.save();
+
+  // Send notification to the newly assigned advisor
+  await GridNotification.create({
+    eventType:     'LEAD_ASSIGNED',
+    title:         'New Lead Assigned 🎯',
+    message:       `A new lead has been assigned to you: ${lead.contact_info?.name?.first_name || ''} ${lead.contact_info?.name?.last_name || ''}.`,
+    entityId:      lead._id,
+    entityModel:   'GridLead',
+    recipientId:   advisorId,
+    recipientModel:'GridAdvisor',
+    recipientRole: 'advisor',
+    createdByName: req.user?.firstName || req.user?.first_name || 'Admin',
+    createdByRole: 'admin',
+  }).catch(err => console.error('Advisor lead assignment notification failed:', err.message));
+
   if (lead.created_by_agent) {
   await GridNotification.create({
     eventType:     'LEAD_ASSIGNED',
@@ -927,15 +942,8 @@ const FLOW = [
   const statusesRequiringUnit = ['reserved', 'spa_signed', 'completed'];
   const requiresInventoryUpdate = statusesRequiringUnit.includes(status) || status === 'not_proceeding';
 
-  if (statusesRequiringUnit.includes(status)) {
-    const finalInventoryId = inventoryUnitId || lead.deal_record?.inventory_unit_id;
-    if (!finalInventoryId) {
-      return res.status(StatusCodes.BAD_REQUEST).json({
-        success: false,
-        message: `An inventoryUnitId is required to update lead status to ${status}`,
-      });
-    }
-
+  const finalInventoryId = inventoryUnitId || lead.deal_record?.inventory_unit_id;
+  if (finalInventoryId && statusesRequiringUnit.includes(status)) {
     // Set the inventory unit id in the lead deal_record if not already set
     if (!lead.deal_record) lead.deal_record = {};
     if (!lead.deal_record.inventory_unit_id) {
@@ -1858,10 +1866,10 @@ exports.createGeneralLead = asyncHandler(async (req, res) => {
     notes: noteText,
   } = req.body;
 
-  if (!first_name || !last_name || !phone_number) {
+  if (!first_name || !first_name.trim()) {
     return res.status(400).json({
       success: false,
-      message: 'First name, last name and phone number are required',
+      message: 'First name is required',
     });
   }
 
@@ -1873,19 +1881,25 @@ exports.createGeneralLead = asyncHandler(async (req, res) => {
     });
   }
 
-  const cleanPhone = phone_number.toString().replace(/\D/g, '').slice(-15);
+  const cleanPhone = phone_number ? phone_number.toString().replace(/\D/g, '').slice(-15) : null;
   const cleanEmail = email ? email.toLowerCase().trim() : null;
 
   // Customer match karo ya naya banao
-  const matchQuery = { $or: [{ 'mobile.number': cleanPhone }] };
-  if (cleanEmail) matchQuery.$or.push({ email: cleanEmail });
-
-  let customer = await Customer.findOne(matchQuery);
+  let customer = null;
+  if (cleanPhone || cleanEmail) {
+    const matchQuery = { $or: [] };
+    if (cleanPhone) matchQuery.$or.push({ 'mobile.number': cleanPhone });
+    if (cleanEmail) matchQuery.$or.push({ email: cleanEmail });
+    customer = await Customer.findOne(matchQuery);
+  }
 
   if (!customer) {
     customer = await Customer.create({
-      name: { first_name: first_name.trim(), last_name: last_name.trim() },
-      mobile: { country_code, number: cleanPhone, verified: false },
+      name: { 
+        first_name: first_name.trim(), 
+        last_name:  (last_name || '').trim() 
+      },
+      ...(cleanPhone && { mobile: { country_code, number: cleanPhone, verified: false } }),
       ...(cleanEmail && { email: cleanEmail }),
       statistics: { first_enquiry_at: new Date(), total_leads: 0, total_enquiries: 0 },
     });
@@ -1933,7 +1947,7 @@ exports.createGeneralLead = asyncHandler(async (req, res) => {
       listing_id: property_id || null,
     },
     contact_info: {
-      name:   { first_name: first_name.trim(), last_name: last_name.trim(), is_masked: false },
+      name:   { first_name: first_name.trim(), last_name: (last_name || '').trim(), is_masked: false },
       mobile: { country_code, number: cleanPhone, is_masked: false, verified: false },
       ...(cleanEmail && { email: { address: cleanEmail, is_masked: false, verified: false } }),
       preferred_contact: 'whatsapp',
@@ -2004,22 +2018,26 @@ exports.bulkCreateGeneralLeads = asyncHandler(async (req, res) => {
         classification = 'warm',
       } = item;
 
-      if (!first_name || !phone_number) {
-        results.errors.push({ index, reason: 'first_name aur phone_number required hain', item });
+      if (!first_name || !first_name.trim()) {
+        results.errors.push({ index, reason: 'first_name required hain', item });
         continue;
       }
 
-      const cleanPhone = phone_number.toString().replace(/\D/g, '').slice(-15);
+      const cleanPhone = phone_number ? phone_number.toString().replace(/\D/g, '').slice(-15) : null;
       const cleanEmail = email ? email.toLowerCase().trim() : null;
 
-      const matchQuery = { $or: [{ 'mobile.number': cleanPhone }] };
-      if (cleanEmail) matchQuery.$or.push({ email: cleanEmail });
+      let customer = null;
+      if (cleanPhone || cleanEmail) {
+        const matchQuery = { $or: [] };
+        if (cleanPhone) matchQuery.$or.push({ 'mobile.number': cleanPhone });
+        if (cleanEmail) matchQuery.$or.push({ email: cleanEmail });
+        customer = await Customer.findOne(matchQuery);
+      }
 
-      let customer = await Customer.findOne(matchQuery);
       if (!customer) {
         customer = await Customer.create({
           name:   { first_name: first_name.trim(), last_name: (last_name || '').trim() },
-          mobile: { country_code, number: cleanPhone, verified: false },
+          ...(cleanPhone && { mobile: { country_code, number: cleanPhone, verified: false } }),
           ...(cleanEmail && { email: cleanEmail }),
           statistics: { first_enquiry_at: new Date(), total_leads: 0, total_enquiries: 0 },
         });
