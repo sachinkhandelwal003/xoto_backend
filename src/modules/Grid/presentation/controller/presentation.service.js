@@ -23,7 +23,8 @@ const contentTypeFromKey = (key) => {
 const getS3ImageMeta = (src) => {
   if (!src || src.startsWith('data:')) return null;
   try {
-    const parsed = new URL(src);
+    const urlToParse = /^https?:\/\//i.test(src) ? src : `http://dummy-origin.com${src.startsWith('/') ? '' : '/'}${src}`;
+    const parsed = new URL(urlToParse);
     const proxyKey = parsed.searchParams.get('key');
     if (proxyKey) return { bucket: process.env.AWS_S3_BUCKET, key: decodeURIComponent(proxyKey) };
     if (parsed.hostname.includes('.s3.')) return { bucket: parsed.hostname.split('.s3.')[0], key: decodeURIComponent(parsed.pathname.replace(/^\//, '')) };
@@ -211,12 +212,7 @@ const buildHtmlPresentation = async (property, narrative, settings, agentProfile
 
   const XOTO_LOGO = 'https://xotostaging.s3.me-central-1.amazonaws.com/properties/1778837544857-logogrid.png';
 
-  const presentationApiBase = (() => {
-    const base = String(process.env.BACKEND_URL || '').replace(/\/+$/, '');
-    if (!base) return '/presentation';
-    const isLocal = /localhost|127\.0\.0\.1/.test(base);
-    return `${base}${isLocal ? '/api' : ''}/presentation`;
-  })();
+  const presentationApiBase = '/api/presentation';
 
   const toFullUrl = (url) => {
     if (!url) return null;

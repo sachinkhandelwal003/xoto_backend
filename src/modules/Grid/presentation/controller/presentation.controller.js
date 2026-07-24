@@ -151,6 +151,12 @@ const servePresentationHtml = async (req, res, presentation, token) => {
     for await (const chunk of s3Response.Body) chunks.push(chunk);
     let htmlContent = Buffer.concat(chunks).toString('utf-8');
 
+    // Replace any absolute domain + /api/presentation/image-proxy with current request origin + /api/presentation/image-proxy
+    const host = req.headers.host;
+    const protocol = req.protocol;
+    const currentOrigin = `${protocol}://${host}`;
+    htmlContent = htmlContent.replace(/https?:\/\/[^\/]+(\/api)?\/presentation\/image-proxy/g, `${currentOrigin}$1/presentation/image-proxy`);
+
     // ✅ PDF download button inject karo — </body> se pehle
 const pdfDownloadUrl = `${buildPresentationApiBase()}/pdf/${encodeURIComponent(token)}`;
 const presentationThemePatch = `
